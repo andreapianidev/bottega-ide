@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 // Pulizia dei testi: via le chiavi prima che tocchino il disco o la rete, via le lineette lunghe
 // da tutto cio' che un utente legge.
 
@@ -19,9 +22,43 @@ const RULES = [
 	[/((?:api[_-]?key|token|secret|password|passwd|parola d'ordine)["']?\s*[:=]\s*)["']?[^\s"',}]{6,}["']?/gi, '$1[nascosto]'],
 ];
 
+// Valori da nascondere sempre, anche se scritti in chat senza nome davanti: tutti i valori del vault
+// locale (~/.secrets/*.env, se esiste) e le righe di ~/.bottega/memoria/nascondi.txt. Restano solo in
+// memoria del processo: non vengono mai scritti da nessuna parte.
+let SECRETS;
+function localSecrets() {
+	if (SECRETS) return SECRETS;
+	const found = new Set();
+	const add = v => {
+		v = String(v || '').trim().replace(/^["']|["']$/g, '');
+		if (v.length >= 8 && !/^(true|false|null|\d+)$/i.test(v)) found.add(v);
+	};
+	const home = os.homedir();
+	try {
+		const dir = path.join(home, '.secrets');
+		for (const f of fs.readdirSync(dir)) {
+			if (!f.endsWith('.env')) continue;
+			for (const line of fs.readFileSync(path.join(dir, f), 'utf8').split('\n')) {
+				const m = /^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*(.+?)\s*$/.exec(line);
+				if (m && !m[1].startsWith('#')) add(m[1]);
+			}
+		}
+	} catch {
+		// nessun vault su questo Mac
+	}
+	try {
+		for (const line of fs.readFileSync(path.join(process.env.BOTTEGA_HOME || path.join(home, '.bottega'), 'memoria', 'nascondi.txt'), 'utf8').split('\n')) add(line);
+	} catch {
+		// nessun elenco locale
+	}
+	SECRETS = [...found].sort((a, b) => b.length - a.length);
+	return SECRETS;
+}
+
 export function redact(text) {
 	if (!text) return '';
 	let s = String(text);
+	for (const v of localSecrets()) if (s.includes(v)) s = s.split(v).join('[segreto nascosto]');
 	for (const [re, rep] of RULES) s = s.replace(re, rep);
 	return s;
 }

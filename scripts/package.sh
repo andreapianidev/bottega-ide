@@ -51,8 +51,18 @@ PL=$DIST/Contents/Info.plist
 /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription La Bottega ascolta la tua voce solo mentre parli con Melissa." $PL
 /usr/libexec/PlistBuddy -c "Delete :NSSpeechRecognitionUsageDescription" $PL 2>/dev/null || true
 
-echo "== firma ad hoc"
-codesign --force --deep --sign - $DIST 2>&1 | tail -2
+# Firma con un'identita' stabile (il certificato Apple Development del Mac): con la firma ad hoc ogni
+# build e' un'app nuova per macOS, che richiede di nuovo la password del Portachiavi ("Bottega Safe
+# Storage"), microfono, notifiche e posizione. BOTTEGA_SIGN_IDENTITY la sceglie a mano; senza
+# certificati si ripiega sull'ad hoc.
+IDENTITY=${BOTTEGA_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | grep -m1 -oE '"Apple Development: [^"]+"' | tr -d '"')}
+IDENTITY=${IDENTITY:--}
+echo "== firma: ${IDENTITY/#-/ad hoc}"
+# Il Nucleo sta in Resources, dove --deep non arriva: si firma prima, da solo (chiede microfono e
+# notifiche, quindi anche lui deve restare la stessa app da una build all'altra).
+NUCLEO_APP="$DIST/Contents/Resources/app/extensions/bottega-home/nucleo/Bottega Nucleo.app"
+[[ -d "$NUCLEO_APP" ]] && codesign --force --timestamp=none --sign "$IDENTITY" "$NUCLEO_APP" 2>&1 | tail -2
+codesign --force --deep --timestamp=none --sign "$IDENTITY" $DIST 2>&1 | tail -2
 codesign --verify --deep $DIST && echo "firma ok"
 
 echo "== installazione in /Applications"
