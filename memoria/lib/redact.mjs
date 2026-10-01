@@ -26,6 +26,8 @@ const RULES = [
 // locale (~/.secrets/*.env, se esiste) e le righe di ~/.bottega/memoria/nascondi.txt. Restano solo in
 // memoria del processo: non vengono mai scritti da nessuna parte.
 let SECRETS;
+const SECRET_NAME = /(PASS|PWD|SECRET|TOKEN|KEY|PRIVATE|CREDENTIAL|AUTH|SIGNING|SALT|DSN|CONNECTION|DATABASE_URL)/i;
+const NOT_SECRET_NAME = /(_ID|_URL|_USER|_USERNAME|_EMAIL|_HOST|_PORT|_NAME|_PATH|_MODEL|_REGION|_TEAM|_ISSUER|PUBLIC|PUBLISHABLE)$/i;
 function localSecrets() {
 	if (SECRETS) return SECRETS;
 	const found = new Set();
@@ -39,8 +41,10 @@ function localSecrets() {
 		for (const f of fs.readdirSync(dir)) {
 			if (!f.endsWith('.env')) continue;
 			for (const line of fs.readFileSync(path.join(dir, f), 'utf8').split('\n')) {
-				const m = /^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*(.+?)\s*$/.exec(line);
-				if (m && !m[1].startsWith('#')) add(m[1]);
+				// Solo i valori con un nome da segreto (password, chiavi, token): nomi utente, indirizzi,
+				// email e identificativi del vault non sono segreti e nasconderli rovina i testi.
+				const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$/.exec(line);
+				if (m && !m[2].startsWith('#') && SECRET_NAME.test(m[1]) && !NOT_SECRET_NAME.test(m[1])) add(m[2]);
 			}
 		}
 	} catch {
