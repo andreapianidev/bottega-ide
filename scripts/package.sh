@@ -14,10 +14,20 @@ echo "== estensioni della Bottega"
 rm -rf $ROOT/dist && mkdir -p $ROOT/dist
 ditto $BUILT $DIST
 EXT=$DIST/Contents/Resources/app/extensions
+# Copilot non fa parte della Bottega (vedi scripts/patch-source.py, punto 5).
+rm -rf $EXT/copilot
 for e in bottega-home bottega-theme; do
   rm -rf $EXT/$e && mkdir -p $EXT/$e
   rsync -a --exclude node_modules --exclude src --exclude tsconfig.json --exclude package-lock.json $ROOT/extensions/$e/ $EXT/$e/
 done
+
+# product.json viene scritto al momento della compilazione: il numero di build si allinea qui.
+python3 - $DIST/Contents/Resources/app/product.json $VERSION $BUILD <<'PY'
+import json, sys
+p, v, b = sys.argv[1], sys.argv[2], int(sys.argv[3])
+d = json.load(open(p)); d["bottegaVersion"] = v; d["bottegaBuild"] = b
+json.dump(d, open(p, "w"), indent="\t", ensure_ascii=False)
+PY
 
 echo "== Info.plist (build $BUILD, macOS minimo $MINOS)"
 PL=$DIST/Contents/Info.plist
@@ -34,5 +44,5 @@ echo "== installazione in /Applications"
 rm -rf /Applications/Bottega.app
 ditto $DIST /Applications/Bottega.app
 mkdir -p ~/.local/bin
-ln -sf /Applications/Bottega.app/Contents/Resources/app/bin/bottega ~/.local/bin/bottega
+ln -sf /Applications/Bottega.app/Contents/Resources/app/bin/code ~/.local/bin/bottega
 echo "Bottega $VERSION (build $BUILD) su VS Code $(python3 -c "import json;print(json.load(open('$DIST/Contents/Resources/app/package.json'))['version'])") installata."

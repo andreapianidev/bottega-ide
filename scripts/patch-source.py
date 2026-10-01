@@ -49,3 +49,13 @@ if marker in s:
     s = s[: s.index(marker)].rstrip() + "\n"
 style.write_text(s + "\n" + css)
 print("  workbench.css")
+
+# 5. Niente Copilot integrato: la Bottega lavora con Claude Code. Nella 1.140 il passo che
+#    prepara l'SDK di Copilot funziona solo nella CI di Microsoft (che scarica Copilot gia'
+#    pronto) e in una build locale fallisce; saltarlo fa anche risparmiare otto minuti.
+replace("build/lib/extensions.ts",
+        "\tconst extensionPath = path.join(root, 'extensions', 'copilot');\n\tif (!fs.existsSync(extensionPath)) {",
+        "\tconst extensionPath = path.join(root, 'extensions', 'copilot');\n\tif (process.env.BOTTEGA_BUILD || !fs.existsSync(extensionPath)) {")
+replace("build/gulpfile.vscode.ts",
+        "\t\tprepareBuiltInCopilotRipgrepShim(platform, arch, builtInCopilotExtensionDir, appNodeModulesDir);",
+        "\t\tif (fs.existsSync(builtInCopilotExtensionDir)) {\n\t\t\tprepareBuiltInCopilotRipgrepShim(platform, arch, builtInCopilotExtensionDir, appNodeModulesDir);\n\t\t}")

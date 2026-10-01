@@ -12,6 +12,9 @@ La Bottega e' VS Code compilato dai sorgenti ufficiali Microsoft (licenza MIT), 
 - **Claude Code dentro.** Un clic apre una sessione Claude in una scheda dell'editor, nella cartella del
   progetto; `Riprendi` lancia `claude --resume` sulla sessione scelta. Al primo avvio la Bottega
   installa l'estensione ufficiale Claude Code da Open VSX.
+- **Senza Copilot.** L'estensione GitHub Copilot integrata in VS Code non viene compilata ne'
+  inclusa, e le funzioni AI di Copilot sono spente in partenza (`chat.disableAIFeatures`). Claude
+  Code ha il suo pannello e non ne dipende. Chi le rivuole cambia l'impostazione.
 - **Il suo aspetto.** Temi Bottega Notte e Bottega Calima (il cielo di La Palma e le lampade al sodio
   dell'osservatorio), titoli senza maiuscolo forzato, schede e finestre arrotondate, icona propria.
 
@@ -46,7 +49,7 @@ delle modifiche non si applica piu'.
 | File | Cosa fa |
 |---|---|
 | `product.bottega.json` | nome, bundle id `com.andreapiani.bottega`, cartelle dati, galleria Open VSX |
-| `scripts/patch-source.py` | temi predefiniti, icona, CSS del banco di lavoro |
+| `scripts/patch-source.py` | temi predefiniti, icona, CSS del banco di lavoro, esclusione di Copilot |
 | `brand/workbench.css` | i ritocchi grafici a VS Code |
 | `brand/icon.swift` | genera l'icona (`swift brand/icon.swift`) |
 | `extensions/bottega-home` | la plancia, le viste laterali, i comandi Claude |

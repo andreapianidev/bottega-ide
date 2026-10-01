@@ -45,7 +45,7 @@ if [[ ${1:-} != --package ]]; then
   fi
 
   echo "== compilazione (log in $LOG)"
-  NODE_OPTIONS=--max-old-space-size=7168 nice -n 10 npm run gulp vscode-darwin-arm64-min 2>&1 | tee -a $LOG | grep -E "Finished|Error|error TS" | tail -40
+  BOTTEGA_BUILD=1 NODE_OPTIONS=--max-old-space-size=7168 nice -n 10 npm run gulp vscode-darwin-arm64-min 2>&1 | tee -a $LOG | grep -E "Finished|Error|error TS" | tail -40
 fi
 
 $ROOT/scripts/package.sh

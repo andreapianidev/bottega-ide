@@ -44,7 +44,8 @@
       "terminal.integrated.lineHeight": 1.15,
       "terminal.integrated.cursorStyle": "line",
       "git.autofetch": true,
-      "window.commandCenter": true
+      "window.commandCenter": true,
+      "chat.disableAIFeatures": true
     }
   }
 }
