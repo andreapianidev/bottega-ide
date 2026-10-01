@@ -392,6 +392,11 @@ export class Assistant {
 	private turnText = '';
 	private hotkeyDownAt = 0;
 	private pushStarted = false;
+	/** Vero solo tra la pressione del tasto (tieni premuto) e l'arrivo della sua frase: fuori da qui
+	 *  e fuori dalla conversazione, una frase trascritta in ritardo non diventa mai una domanda. */
+	private awaitingPushFinal = false;
+	private pushFinalTimer?: NodeJS.Timeout;
+	private readonly out = vscode.window.createOutputChannel('Melissa', { log: true });
 	private filled = false;
 	private lastLevelEmit = 0;
 
@@ -441,7 +446,7 @@ export class Assistant {
 		n.on('hotkey.down', () => this.onHotkeyDown());
 		n.on('hotkey.up', () => this.onHotkeyUp());
 		n.on('voice.partial', (m: any) => (this.state.state === 'listening') && this.setState('listening', m.text));
-		n.on('voice.final', (m: any) => void this.onVoiceFinal(m.text));
+		n.on('voice.final', (m: any) => void this.onVoiceFinal(m.text, m.mode));
 		n.on('voice.level', (m: any) => this.onLevel(m.level));
 		n.on('voice.bargein', () => this.onBargein());
 		n.on('orb.clicked', () => this.onHotkeyDown());
@@ -482,6 +487,8 @@ export class Assistant {
 		if (this.state.conversing) return; // mic gia' aperto: decido al rilascio (tap = spegni)
 		clearTimeout(this.orbHideTimer);
 		this.pushStarted = true;
+		this.awaitingPushFinal = true;
+		clearTimeout(this.pushFinalTimer);
 		this.deps.nucleo.fireAndForget('orb.show');
 		this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });
 		this.setState('listening');
@@ -495,7 +502,8 @@ export class Assistant {
 			// TAP: accende o spegne la conversazione.
 			if (this.pushStarted) {
 				this.pushStarted = false;
-				this.deps.nucleo.fireAndForget('voice.stop'); // annulla il push appena avviato
+				this.awaitingPushFinal = false; // il push appena avviato e' annullato: la sua frase non conta
+				this.deps.nucleo.fireAndForget('voice.stop');
 			}
 			if (this.state.conversing) this.stopConversation();
 			else this.startConversation();
@@ -505,6 +513,9 @@ export class Assistant {
 		if (this.pushStarted) {
 			this.pushStarted = false;
 			this.deps.nucleo.fireAndForget('voice.stop');
+			// Il Nucleo manda la frase entro ~2 s dal rilascio; dopo, la finestra si chiude.
+			clearTimeout(this.pushFinalTimer);
+			this.pushFinalTimer = setTimeout(() => (this.awaitingPushFinal = false), 4000);
 		}
 	}
 
@@ -522,7 +533,11 @@ export class Assistant {
 		if (!this.state.conversing) return;
 		this.state.conversing = false;
 		clearTimeout(this.silenceTimer);
+		// Chiusa vuol dire chiusa: si ferma anche la risposta in corso e la sua voce.
+		this.currentAbort?.abort();
+		this.deps.nucleo.fireAndForget('voice.stopSpeaking');
 		this.deps.nucleo.fireAndForget('voice.converse.stop');
+		this.out.info('conversazione chiusa');
 		this.deps.nucleo.fireAndForget('orb.state', { state: 'idle' });
 		this.deps.nucleo.fireAndForget('orb.hide');
 		this.setState('idle');
@@ -553,8 +568,19 @@ export class Assistant {
 
 	// ----- turni -----
 
-	private async onVoiceFinal(text: string): Promise<void> {
+	private async onVoiceFinal(text: string, mode?: string): Promise<void> {
 		if (!this.state.enabled || !text?.trim()) return;
+		const inConversation = this.state.conversing && mode !== 'push';
+		const ownPush = this.awaitingPushFinal && mode !== 'converse';
+		if (!inConversation && !ownPush) {
+			this.out.info(`frase ignorata, nessun ascolto aperto (${mode ?? '?'}): "${text}"`);
+			return;
+		}
+		if (ownPush) {
+			this.awaitingPushFinal = false;
+			clearTimeout(this.pushFinalTimer);
+		}
+		this.out.info(`frase (${mode ?? '?'}): "${text}"`);
 		if (this.state.conversing) {
 			this.armSilence();
 			if (isEndWord(text)) {

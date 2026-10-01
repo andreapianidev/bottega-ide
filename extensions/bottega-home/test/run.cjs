@@ -48,6 +48,7 @@ function makeTerminal(opts) {
 const configStore = {}; // override di impostazioni per i test
 const vscodeMock = {
 	window: {
+		createOutputChannel: () => ({ info() {}, warn() {}, error() {}, appendLine() {}, dispose() {} }),
 		terminals: createdTerminals,
 		createTerminal: opts => makeTerminal(opts),
 		createStatusBarItem: () => ({ text: '', tooltip: '', command: '', show() {}, hide() {}, dispose() {} }),
@@ -357,6 +358,42 @@ function makeAssistant(over = {}) {
 	});
 
 	// ---- barge-in: interruzione dello stream ----
+	await test('a conversazione chiusa una frase in ritardo non diventa una domanda', async () => {
+		let calls = 0;
+		const stream = scriptedStream([() => { calls++; return Promise.resolve(); }]);
+		const { a, nucleo } = makeAssistant({ stream });
+		const ctx = { subscriptions: { push() {} }, secrets: { get: async () => undefined, store: async () => {} } };
+		a.wire(ctx);
+		nucleo.fire('voice.final', { text: 'apri peak', mode: 'converse' });
+		nucleo.fire('voice.final', { text: 'apri peak', mode: 'push' });
+		await tick();
+		assert.strictEqual(calls, 0, 'nessun turno senza ascolto aperto');
+		assert.strictEqual(a.getState().log.length, 0);
+	});
+
+	await test('chiudere la conversazione ferma la risposta in corso e la voce', async () => {
+		const stream = scriptedStream([
+			(onDelta, signal) =>
+				new Promise((resolve, reject) => {
+					onDelta({ content: 'Sto guardando.' });
+					signal.addEventListener('abort', () => { const e = new Error('x'); e.name = 'AbortError'; reject(e); }, { once: true });
+				}),
+		]);
+		const { a, nucleo } = makeAssistant({ stream });
+		const ctx = { subscriptions: { push() {} }, secrets: { get: async () => undefined, store: async () => {} } };
+		a.wire(ctx);
+		nucleo.fire('hotkey.down'); nucleo.fire('hotkey.up'); // tocco: conversazione accesa
+		assert.strictEqual(a.getState().conversing, true);
+		nucleo.fire('voice.final', { text: 'dimmi lo stato', mode: 'converse' });
+		await tick();
+		nucleo.fire('hotkey.down'); nucleo.fire('hotkey.up'); // tocco: conversazione spenta
+		await tick();
+		const cmds = nucleo.reqs.map(r => r.cmd);
+		assert.ok(cmds.includes('voice.stopSpeaking'), 'voce fermata');
+		assert.ok(cmds.includes('voice.converse.stop'), 'ascolto chiuso');
+		assert.strictEqual(a.getState().conversing, false);
+	});
+
 	await test('barge-in interrompe lo stream senza mandare il final', async () => {
 		const stream = scriptedStream([
 			(onDelta, signal) =>

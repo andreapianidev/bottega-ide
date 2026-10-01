@@ -285,12 +285,9 @@ final class Listener {
 
     func converseStop() async {
         guard conversing else { return }
-        let pending = Speaker.shared.isSpeaking ? "" : partialText
+        // Chiudere la conversazione la chiude davvero: la frase a meta' non diventa una domanda.
         await closeWindowAudio()
         mode = nil
-        if !pending.trimmingCharacters(in: .whitespaces).isEmpty, !looksLikeEcho(pending) {
-            Out.event("voice.final", ["text": pending, "mode": Mode.converse.rawValue])
-        }
         resetWindow()
         VoiceHub.shared.refresh()
         scheduleSTTClose()
