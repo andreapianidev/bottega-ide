@@ -59,3 +59,12 @@ replace("build/lib/extensions.ts",
 replace("build/gulpfile.vscode.ts",
         "\t\tprepareBuiltInCopilotRipgrepShim(platform, arch, builtInCopilotExtensionDir, appNodeModulesDir);",
         "\t\tif (fs.existsSync(builtInCopilotExtensionDir)) {\n\t\t\tprepareBuiltInCopilotRipgrepShim(platform, arch, builtInCopilotExtensionDir, appNodeModulesDir);\n\t\t}")
+
+# 6. Niente verifica delle firme delle estensioni: il verificatore (@vscode/vsce-sign) e' solo nel
+#    VS Code di Microsoft, quindi in una build dai sorgenti ogni estensione da Open VSX si fermerebbe
+#    su "cannot verify the extension signature". Lo stesso fa VSCodium.
+p = "src/vs/workbench/contrib/extensions/browser/extensions.contribution.ts"
+s = (SRC / p).read_text()
+old = "description: localize('extensions.verifySignature', \"When enabled, extensions are verified to be signed before getting installed.\"),\n\t\t\t\tdefault: true,"
+new = "description: localize('extensions.verifySignature', \"When enabled, extensions are verified to be signed before getting installed.\"),\n\t\t\t\tdefault: false,"
+replace(p, old, new)

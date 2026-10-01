@@ -99,6 +99,10 @@ enum Service {
                 OrbPanel.shared.show()
                 r.respond()
 
+            case "orb.dock":
+                OrbPanel.shared.dock()
+                r.respond(["presentation": "docked"])
+
             case "orb.hide":
                 OrbPanel.shared.hide()
                 r.respond()

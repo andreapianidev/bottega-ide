@@ -449,7 +449,11 @@ export class Assistant {
 		n.on('voice.final', (m: any) => void this.onVoiceFinal(m.text, m.mode));
 		n.on('voice.level', (m: any) => this.onLevel(m.level));
 		n.on('voice.bargein', () => this.onBargein());
-		n.on('orb.clicked', () => this.onHotkeyDown());
+		// Clic sulla sfera: accende o spegne la conversazione (come un tocco di Opzione+Spazio).
+		n.on('orb.clicked', () => this.onOrbClicked());
+		// La sfera a riposo e' sempre visibile finche' la Bottega e' aperta e Melissa e' accesa.
+		n.on('available', () => this.restOrb());
+		if (n.available) this.restOrb();
 		this.emit();
 	}
 
@@ -465,6 +469,30 @@ export class Assistant {
 		this.statusBar.show();
 	}
 
+	/** Dove torna la sfera quando Melissa non sta ascoltando ne' parlando: piccola e sempre visibile
+	 *  (impostazione bottega.voice.orbAlwaysVisible), oppure nascosta se Melissa e' spenta. */
+	private restOrb(): void {
+		const docked = this.state.enabled && vscode.workspace.getConfiguration('bottega').get('voice.orbAlwaysVisible', true);
+		this.deps.nucleo.fireAndForget(docked ? 'orb.dock' : 'orb.hide');
+	}
+
+	/** Comando bottega.voice.converse e icona di Melissa: apre o chiude la conversazione. */
+	toggleConversation(): void {
+		if (!this.state.enabled) {
+			void this.toggle().then(() => this.startConversation());
+			return;
+		}
+		if (this.state.conversing) this.stopConversation();
+		else this.startConversation();
+	}
+
+	private onOrbClicked(): void {
+		if (!this.state.enabled) return;
+		this.out.info('clic sulla sfera');
+		if (this.state.conversing) this.stopConversation();
+		else this.startConversation();
+	}
+
 	/** Comando bottega.voice.toggle: interruttore generale di Melissa. */
 	async toggle(): Promise<void> {
 		this.state.enabled = !this.state.enabled;
@@ -474,6 +502,8 @@ export class Assistant {
 			this.deps.nucleo.fireAndForget('voice.stop');
 			this.deps.nucleo.fireAndForget('orb.hide');
 			this.setState('idle');
+		} else {
+			this.restOrb();
 		}
 		this.paintStatus();
 		this.emit();
@@ -539,7 +569,7 @@ export class Assistant {
 		this.deps.nucleo.fireAndForget('voice.converse.stop');
 		this.out.info('conversazione chiusa');
 		this.deps.nucleo.fireAndForget('orb.state', { state: 'idle' });
-		this.deps.nucleo.fireAndForget('orb.hide');
+		this.restOrb();
 		this.setState('idle');
 		this.paintStatus();
 	}
@@ -733,7 +763,7 @@ export class Assistant {
 			this.setState('idle');
 			this.deps.nucleo.fireAndForget('orb.state', { state: 'idle' });
 			clearTimeout(this.orbHideTimer);
-			this.orbHideTimer = setTimeout(() => this.deps.nucleo.fireAndForget('orb.hide'), 4000);
+			this.orbHideTimer = setTimeout(() => this.restOrb(), 4000);
 		}
 	}
 

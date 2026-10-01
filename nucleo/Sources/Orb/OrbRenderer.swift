@@ -23,6 +23,7 @@ struct OrbUniforms {
     var p2: SIMD4<Float>
     var p3: SIMD4<Float>
     var p4: SIMD4<Float>
+    var p5: SIMD4<Float>
     var spectrum: (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>)
 }
 
@@ -102,6 +103,10 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
 
     /// Written on main by the panel, read on main in draw: no lock needed.
     var state: Int32 = 0
+    /// Docked mini orb: zoomed sphere, no spark field, no bloom. A 144 px view has no
+    /// room for either, and this mode is on screen all day, so it must cost nothing.
+    var docked = false
+    static let dockedZoom: Float = 0.60
 
     private var started = false
     private var lastFrameTime: CFTimeInterval = 0
@@ -226,6 +231,9 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
 
     /// Diagnostics without a window: renders `frames` frames into an offscreen texture and
     /// returns the average GPU time per frame in milliseconds (nil if Metal refused).
+    /// CPU time spent encoding the last self-test run, per frame, in microseconds.
+    private(set) var selfTestCPUMicros: Double = 0
+
     func selfTest(width: Int, height: Int, frames: Int, state newState: Int32) -> Double? {
         let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: pixelFormat, width: width, height: height, mipmapped: false)
         d.usage = [.renderTarget, .shaderRead]
@@ -234,7 +242,9 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
         state = newState
         var total = 0.0
         var counted = 0
+        var cpuNs: UInt64 = 0
         for _ in 0..<frames {
+            let c0 = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
             let rpd = MTLRenderPassDescriptor()
             rpd.colorAttachments[0].texture = target
             rpd.colorAttachments[0].loadAction = .clear
@@ -243,11 +253,13 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
             guard let cmd = queue.makeCommandBuffer() else { return nil }
             encodeFrame(cmd: cmd, target: rpd, width: width, height: height)
             cmd.commit()
+            cpuNs += clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - c0
             cmd.waitUntilCompleted()
             if cmd.status == .error { return nil }
             let gpu = cmd.gpuEndTime - cmd.gpuStartTime
             if gpu > 0 { total += gpu; counted += 1 }
         }
+        selfTestCPUMicros = Double(cpuNs) / Double(max(1, frames)) / 1000
         return counted > 0 ? total / Double(counted) * 1000 : nil
     }
 
@@ -296,11 +308,12 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
             p2: SIMD4(onsetEnv, 0, impulsePos, revealS),
             p3: SIMD4(ld.x, ld.y, ld.z, 0.35),
             p4: SIMD4(0.10, 0.16, 0.26, 0.5),
+            p5: SIMD4(docked ? Self.dockedZoom : 1, docked ? 1 : 0, 0, 0),
             spectrum: (vec(0), vec(1), vec(2), vec(3)))
         var pu = ParticleUniforms(q0: SIMD4(dt, tSec, Float(state), loud),
                                   q1: SIMD4(1, Float(Self.particleCount), pulse, 0))
 
-        if let pc = particleCompute, let pb = particleBuffer, let ce = cmd.makeComputeCommandEncoder() {
+        if !docked, let pc = particleCompute, let pb = particleBuffer, let ce = cmd.makeComputeCommandEncoder() {
             ce.setComputePipelineState(pc)
             ce.setBuffer(pb, offset: 0, index: 0)
             ce.setBytes(&pu, length: MemoryLayout<ParticleUniforms>.stride, index: 1)
@@ -317,7 +330,7 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
             enc.setFragmentTexture(noise, index: 0)
             enc.setFragmentSamplerState(noiseSampler, index: 0)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
-            guard let pb = particleBuffer else { return }
+            guard !docked, let pb = particleBuffer else { return }
             if let tp = trailPipeline {
                 enc.setRenderPipelineState(tp)
                 enc.setVertexBuffer(pb, offset: 0, index: 0)
@@ -332,8 +345,8 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
             }
         }
 
-        ensureBloomTextures(width: vw, height: vh)
-        if let scene = sceneTex, bloomChain.count >= 2, let sA = streakA, let sB = streakB,
+        if !docked { ensureBloomTextures(width: vw, height: vh) }
+        if !docked, let scene = sceneTex, bloomChain.count >= 2, let sA = streakA, let sB = streakB,
            let bright = brightPipeline, let down = downPipeline, let up = upPipeline,
            let streak = streakPipeline, let comp = compositePipeline, let bs = bloomSampler {
 
@@ -577,12 +590,31 @@ enum OrbSelfTest {
         for (name, st) in [("idle", Int32(0)), ("listening", 1), ("thinking", 2), ("speaking", 3), ("error", 4)] {
             perState[name] = r.selfTest(width: side, height: side, frames: 20, state: st).map { ($0 * 100).rounded() / 100 }
         }
+        let bigCPU = r.selfTestCPUMicros
+        // Docked mini orb: 72 pt at 2x, idle, 12 fps.
+        r.docked = true
+        let dockPx = Int(OrbPanel.dockSide * OrbPanel.dockScale)
+        let dockGPU = r.selfTest(width: dockPx, height: dockPx, frames: 40, state: 0)
+        let dockCPU = r.selfTestCPUMicros
+        let dockErr = r.selfTest(width: dockPx, height: dockPx, frames: 20, state: 4)
+        r.docked = false
+        let fps = Double(OrbPanel.dockedIdleFPS)
+        let docked: [String: Any?] = [
+            "pixels": dockPx, "fps": OrbPanel.dockedIdleFPS,
+            "gpuMsPerFrame": dockGPU.map { ($0 * 1000).rounded() / 1000 },
+            "gpuMsPerFrameError": dockErr.map { ($0 * 1000).rounded() / 1000 },
+            "cpuMicrosPerFrame": (dockCPU * 10).rounded() / 10,
+            // Encoding cost only; MTKView's display-link callbacks add a little on top.
+            "estimatedCpuPercent": ((dockCPU * fps / 1_000_000 * 100) * 1000).rounded() / 1000,
+            "estimatedGpuPercent": dockGPU.map { (($0 * fps / 1000 * 100) * 100).rounded() / 100 },
+        ]
         var bySize: [String: Any] = [:]
         for px in [344, 516, 688] {
             bySize["\(px)"] = r.selfTest(width: px, height: px, frames: 20, state: 3).map { ($0 * 100).rounded() / 100 }
         }
         return ["ok": true, "device": device.name, "precompiled": Nucleo.bundle.url(forResource: "default", withExtension: "metallib") != nil,
                 "libraryMs": Int(tLib * 1000), "richNoiseMs": Int(tNoise * 1000), "pixels": side,
-                "gpuMsPerFrame": perState, "speakingMsBySize": bySize]
+                "gpuMsPerFrame": perState, "cpuMicrosPerFrame": (bigCPU * 10).rounded() / 10,
+                "speakingMsBySize": bySize, "docked": docked]
     }
 }

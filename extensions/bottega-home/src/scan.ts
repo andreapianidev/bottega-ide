@@ -164,6 +164,24 @@ async function pool<T, R>(items: T[], size: number, fn: (t: T) => Promise<R>): P
 
 const norm = (p: string) => p.toLowerCase().replace(/\/+$/, '');
 
+/** Chiave di confronto di una cartella di progetto: minuscole, con la barra finale. */
+export const projectKey = (p: string) => norm(p) + '/';
+
+/** A quale progetto appartiene una sessione: quello della cartella di partenza, altrimenti quello
+ *  in cui ha toccato piu' cartelle e file (almeno due). La usano la plancia e il cruscotto, cosi'
+ *  una sessione finisce nello stesso progetto in tutte e due. `keys` sono chiavi di `projectKey`. */
+export function sessionOwner(keys: string[], cwd: string, touched: Iterable<string>): string | undefined {
+	const start = keys.find(k => projectKey(cwd).startsWith(k));
+	if (start) return start;
+	const hits = new Map<string, number>();
+	for (const t of touched) {
+		const k = keys.find(k => projectKey(t).startsWith(k));
+		if (k) hits.set(k, (hits.get(k) ?? 0) + 1);
+	}
+	const best = [...hits].sort((a, b) => b[1] - a[1])[0];
+	return best && best[1] >= 2 ? best[0] : undefined;
+}
+
 export async function scanProjects(roots: string[], ignore: string[], past: PastSession[], live: LiveSession[]): Promise<Project[]> {
 	const ignoreRe = ignore.map(s => new RegExp(s, 'i'));
 	const seen = new Set<string>();
@@ -186,21 +204,11 @@ export async function scanProjects(roots: string[], ignore: string[], past: Past
 
 	// Ogni sessione va a un solo progetto: quello della cartella di partenza, altrimenti
 	// quello in cui ha toccato piu' cartelle e file.
-	const keys = candidates.map(c => norm(c.path) + '/');
+	const keys = candidates.map(c => projectKey(c.path));
 	const owner = new Map<string, string>();
 	for (const s of past) {
-		const start = keys.find(k => (norm(s.cwd) + '/').startsWith(k));
-		if (start) {
-			owner.set(s.sessionId, start);
-			continue;
-		}
-		const hits = new Map<string, number>();
-		for (const t of s.touched) {
-			const k = keys.find(k => (norm(t) + '/').startsWith(k));
-			if (k) hits.set(k, (hits.get(k) ?? 0) + 1);
-		}
-		const best = [...hits].sort((a, b) => b[1] - a[1])[0];
-		if (best && best[1] >= 2) owner.set(s.sessionId, best[0]);
+		const k = sessionOwner(keys, s.cwd, s.touched);
+		if (k) owner.set(s.sessionId, k);
 	}
 
 	const projects = await pool(candidates, 6, async c => {

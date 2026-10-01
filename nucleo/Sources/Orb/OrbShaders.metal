@@ -16,6 +16,7 @@
 //    p2 = (onset, cinematic 0/1, impulse, reveal 0..1)
 //    p3 = (lightDir.xyz, warmth)
 //    p4 = (ambientColor.rgb, nightFactor)
+//    p5 = (zoom, docked, _, _)   docked mini orb: zoom 0.6, the sphere fills ~78% of the view
 //    spectrum[4] = 16 audio bands (0..1), low to high
 //  Output is LINEAR EXTENDED for an EDR rgba16Float target, premultiplied alpha.
 //
@@ -32,6 +33,7 @@ struct OrbUniforms {
     float4 p2;
     float4 p3;
     float4 p4;
+    float4 p5;            // (zoom, docked 0/1, _, _): zoom < 1 makes the sphere fill more of the view
     float4 spectrum[4];
 };
 
@@ -218,6 +220,8 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
     float asp = res.x / res.y;
     float2 p  = in.uv * 2.0 - 1.0;
     p.x *= asp;
+    float zoom = (u.p5.x > 0.0) ? u.p5.x : 1.0;
+    p *= zoom;
 
     // slow organic drift of the whole orb (more when calm)
     float wanderAmt = (state == 0 ? 0.030 : 0.014);
@@ -309,7 +313,7 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
     float3 rd = float3(0.0, 0.0, -1.0);
     float  R  = d.baseR;
     float  maxR = R + 0.24;
-    float  pxWorld = 2.0 / res.y;
+    float  pxWorld = 2.0 * zoom / res.y;
 
     float3 col   = float3(0.0);
     float  alpha = 0.0;

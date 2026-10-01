@@ -105,10 +105,10 @@ final class Speaker: NSObject {
         return false
     }
 
-    /// The socket stays open while voice is in use: conversation, orb on screen, or a
+    /// The socket stays open while voice is in use: conversation, big orb on screen, or a
     /// reply in the last two minutes. Outside that, it closes after 90 s of silence.
     var keepWarm: Bool {
-        VoiceHub.shared.conversing || OrbPanel.shared.isVisible || Date().timeIntervalSince(lastUse) < 120
+        VoiceHub.shared.conversing || OrbPanel.shared.isExpanded || Date().timeIntervalSince(lastUse) < 120
     }
 
     // MARK: - Public API

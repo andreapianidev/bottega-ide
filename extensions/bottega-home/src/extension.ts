@@ -269,7 +269,7 @@ function editorContext(): { path?: string; selection?: string } {
 
 function showPlancia(section?: string): void {
 	panelHost?.show();
-	if (section) panelHost?.send({ type: 'focus', section });
+	if (section) panelHost?.send({ type: 'view', view: section.toLowerCase() });
 }
 
 // ---------- messaggi dalla plancia ----------
@@ -457,6 +457,22 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	const slow = setInterval(() => void fullScan(), 120_000);
 	ctx.subscriptions.push({ dispose: () => (clearInterval(tick), clearInterval(slow)) });
 	vscode.window.onDidChangeWindowState(s => s.focused && Date.now() - snapshot.scannedAt > 30_000 && void fullScan(), null, ctx.subscriptions);
+
+	// Melissa ha la sua icona nella barra laterale: aprirla porta dritto alla sua pagina.
+	const melissaView = vscode.window.createTreeView('bottega.melissa', { treeDataProvider: { getChildren: () => [], getTreeItem: (x: vscode.TreeItem) => x } });
+	melissaView.onDidChangeVisibility(e => e.visible && showPlancia('melissa'), null, ctx.subscriptions);
+	ctx.subscriptions.push(
+		melissaView,
+		vscode.commands.registerCommand('bottega.openMelissa', () => showPlancia('melissa')),
+		vscode.commands.registerCommand('bottega.voice.converse', () => assistant?.toggleConversation()),
+	);
+
+	// VS Code compilato dai sorgenti non ha il verificatore di firme di Microsoft: con la verifica
+	// accesa ogni estensione da Open VSX si fermerebbe su "cannot verify the extension signature".
+	const ext = vscode.workspace.getConfiguration('extensions');
+	if (ext.get<boolean>('verifySignature') !== false) {
+		void ext.update('verifySignature', false, vscode.ConfigurationTarget.Global);
+	}
 
 	if (!vscode.workspace.workspaceFolders?.length && cfg().get('openOnStartup', true)) {
 		panelHost.show();

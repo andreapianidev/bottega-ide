@@ -11,7 +11,7 @@
   "urlProtocol": "bottega",
   "licenseName": "MIT",
   "licenseUrl": "https://github.com/microsoft/vscode/blob/main/LICENSE.txt",
-  "reportIssueUrl": "https://github.com/andreapianidev/bottega/issues/new",
+  "reportIssueUrl": "https://github.com/andreapianidev/bottega-ide/issues/new",
   "extensionsGallery": {
     "serviceUrl": "https://open-vsx.org/vscode/gallery",
     "itemUrl": "https://open-vsx.org/vscode/item",

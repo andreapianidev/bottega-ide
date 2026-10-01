@@ -1531,6 +1531,9 @@
 				return render();
 			case 'focus':
 				return focusRow(m.path);
+			case 'view':
+				if (m.view) show(m.view);
+				return;
 			case 'memoria': {
 				const sent = state.mem.sent;
 				// una risposta arrivata dopo che la ricerca e' cambiata non deve coprire quella nuova

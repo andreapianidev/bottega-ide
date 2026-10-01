@@ -72,6 +72,16 @@ final class OrbPanel: NSObject, NSWindowDelegate {
     /// difference that does not show. The layer scales it up.
     static let renderScale: CGFloat = 1.5
     private static let captionMaxWidth: CGFloat = 320
+
+    /// Docked mini orb: always on screen while the Nucleo runs, so it has to cost
+    /// nothing. 72 pt view, sphere ~56 pt (zoomed in the shader), rendered at 2x (the
+    /// view is tiny, 144 px), no sparks, no bloom, 12 fps while idle.
+    static let dockSide: CGFloat = 72
+    static let dockScale: CGFloat = 2
+    static let dockedIdleFPS = 12
+    private static let dockMargin: CGFloat = 24
+
+    enum Presentation: String { case hidden, docked, big }
     private static let panelHeight: CGFloat = orbSide + 22
 
     private var panel: NSPanel?
@@ -84,54 +94,109 @@ final class OrbPanel: NSObject, NSWindowDelegate {
     private var captionClear: DispatchWorkItem?
     private var teardown: DispatchWorkItem?
 
-    private(set) var isVisible = false
+    private(set) var presentation: Presentation = .hidden
+    var isVisible: Bool { presentation != .hidden }
+    /// The big orb is on screen (the docked one does not keep voice sockets warm).
+    var isExpanded: Bool { presentation == .big }
     private(set) var state: OrbState = .idle
     private var caption = ""
 
     private enum Key {
         static let x = "orb.originX"
         static let y = "orb.originY"
+        static let dockX = "orb.dock.originX"
+        static let dockY = "orb.dock.originY"
     }
 
     // MARK: - Public API
 
-    func show() {
+    /// The big orb (orb.show).
+    func show() { transition(to: .big) }
+
+    /// The docked mini orb (orb.dock).
+    func dock() { transition(to: .docked) }
+
+    /// Fully hidden (orb.hide): only when voice is turned off.
+    func hide() { transition(to: .hidden) }
+
+    private func transition(to target: Presentation) {
         teardown?.cancel(); teardown = nil
-        if panel == nil {
-            buildPanel()
-            if !caption.isEmpty { applyCaption() }
+        let from = presentation
+        if target == from {
+            if target != .hidden, orbView == nil { buildOrbView() }
+            return
         }
+        let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if target == .hidden {
+            presentation = .hidden
+            guard let panel else { return }
+            saveOrigin(for: from)
+            animate(in: false, reduceMotion: reduce) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.presentation == .hidden else { return }
+                    panel.orderOut(nil)
+                    self.updateRendering()
+                }
+            }
+            // Free the GPU memory if the orb stays hidden.
+            let work = DispatchWorkItem { [weak self] in
+                MainActor.assumeIsolated { self?.releaseOrbView() }
+            }
+            teardown = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 120, execute: work)
+            return
+        }
+        if panel == nil { buildPanel() }
         guard let panel else { return }
         if orbView == nil { buildOrbView() }
-        if isVisible { return }
-        isVisible = true
-        panel.setFrameOrigin(restoredOrigin(for: panel))
-        let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        panel.alphaValue = 0
-        panel.orderFrontRegardless()
-        updateRendering()
-        animate(in: true, reduceMotion: reduce)
-        Speaker.shared.prewarm()
+        presentation = target
+        let appear: @MainActor () -> Void = { [weak self] in
+            guard let self, self.presentation == target else { return }
+            self.layout(for: target)
+            panel.alphaValue = 0
+            panel.orderFrontRegardless()
+            self.updateRendering()
+            self.animate(in: true, reduceMotion: reduce)
+        }
+        if from != .hidden, panel.isVisible {
+            // Big to docked (or back): the current one shrinks away, the other grows in.
+            saveOrigin(for: from)
+            animate(in: false, reduceMotion: reduce) {
+                DispatchQueue.main.async { MainActor.assumeIsolated { appear() } }
+            }
+        } else {
+            appear()
+        }
+        if target == .big { Speaker.shared.prewarm() }
     }
 
-    func hide() {
-        guard let panel, isVisible else { return }
-        isVisible = false
-        saveOrigin()
-        let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        animate(in: false, reduceMotion: reduce) { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, !self.isVisible else { return }
-                panel.orderOut(nil)
-                self.updateRendering()
-            }
+    /// Sizes and places the panel, the Metal view and the caption for a presentation.
+    private func layout(for p: Presentation) {
+        guard let panel, p != .hidden else { return }
+        let size = p == .docked ? NSSize(width: Self.dockSide, height: Self.dockSide)
+                                : NSSize(width: Self.orbSide, height: Self.panelHeight)
+        panel.setFrame(NSRect(origin: restoredOrigin(for: p, size: size), size: size), display: false)
+        container?.frame = NSRect(origin: .zero, size: size)
+        layoutOrbView(p)
+        if p == .docked {
+            pill?.isHidden = true
+            pill?.alphaValue = 0
+        } else if !caption.isEmpty {
+            applyCaption()
         }
-        // Free the GPU memory if the orb stays hidden.
-        let work = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated { self?.releaseOrbView() }
+    }
+
+    private func layoutOrbView(_ p: Presentation) {
+        guard let v = orbView else { return }
+        if p == .docked {
+            v.frame = NSRect(x: 0, y: 0, width: Self.dockSide, height: Self.dockSide)
+            v.drawableSize = CGSize(width: Self.dockSide * Self.dockScale, height: Self.dockSide * Self.dockScale)
+            renderer?.docked = true
+        } else {
+            v.frame = NSRect(x: 0, y: Self.panelHeight - Self.orbSide, width: Self.orbSide, height: Self.orbSide)
+            v.drawableSize = CGSize(width: Self.orbSide * Self.renderScale, height: Self.orbSide * Self.renderScale)
+            renderer?.docked = false
         }
-        teardown = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 120, execute: work)
     }
 
     /// From `orb.state`: the extension's word wins until the next voice transition.
@@ -246,12 +311,13 @@ final class OrbPanel: NSObject, NSWindowDelegate {
                 }
                 r.state = me.state.rawValue
                 v.delegate = r
-                v.onClick = { Out.event("orb.clicked") }
-                v.onMoved = { OrbPanel.shared.saveOrigin() }
+                v.onClick = { Out.event("orb.clicked", ["mode": OrbPanel.shared.presentation.rawValue]) }
+                v.onMoved = { OrbPanel.shared.saveOrigin(for: OrbPanel.shared.presentation) }
                 // Under the pill, so the caption stays on top.
                 if let pill = me.pill { root.addSubview(v, positioned: .below, relativeTo: pill) } else { root.addSubview(v) }
                 me.orbView = v
                 me.renderer = r
+                me.layoutOrbView(me.presentation)
                 me.updateRendering()
             }
         }
@@ -272,7 +338,12 @@ final class OrbPanel: NSObject, NSWindowDelegate {
     private func updateRendering() {
         guard let v = orbView else { return }
         let onScreen = isVisible && (panel?.occlusionState.contains(.visible) ?? false)
-        v.preferredFramesPerSecond = (state == .listening || state == .speaking) ? 60 : 30
+        let lively = state == .listening || state == .speaking
+        if presentation == .docked {
+            v.preferredFramesPerSecond = lively ? 30 : Self.dockedIdleFPS
+        } else {
+            v.preferredFramesPerSecond = lively ? 60 : 30
+        }
         v.isPaused = !onScreen
     }
 
@@ -281,7 +352,7 @@ final class OrbPanel: NSObject, NSWindowDelegate {
     }
 
     func windowDidMove(_ notification: Notification) {
-        if isVisible { saveOrigin() }
+        if isVisible { saveOrigin(for: presentation) }
     }
 
     // MARK: - Caption
@@ -299,6 +370,12 @@ final class OrbPanel: NSObject, NSWindowDelegate {
     private func applyCaption() {
         let clean = caption
         guard let pill, let label else { return }
+        // The docked orb has no caption: the text waits for the big one.
+        if presentation != .big {
+            pill.isHidden = true
+            pill.alphaValue = 0
+            return
+        }
         if clean.isEmpty {
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = 0.18
@@ -338,25 +415,29 @@ final class OrbPanel: NSObject, NSWindowDelegate {
 
     // MARK: - Position
 
-    private func restoredOrigin(for panel: NSPanel) -> NSPoint {
-        let size = panel.frame.size
+    private func restoredOrigin(for p: Presentation, size: NSSize) -> NSPoint {
         let d = Nucleo.defaults
-        if let x = d.object(forKey: Key.x) as? Double, let y = d.object(forKey: Key.y) as? Double {
+        let (kx, ky) = p == .docked ? (Key.dockX, Key.dockY) : (Key.x, Key.y)
+        if let x = d.object(forKey: kx) as? Double, let y = d.object(forKey: ky) as? Double {
             let rect = NSRect(origin: NSPoint(x: x, y: y), size: size)
             if NSScreen.screens.contains(where: { $0.visibleFrame.intersects(rect) }) {
                 return rect.origin
             }
         }
         let screen = NSScreen.main ?? NSScreen.screens.first
+        // visibleFrame already excludes the Dock and the menu bar.
         let vf = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        // visibleFrame already excludes the Dock: sit just above it, centred.
+        if p == .docked {
+            return NSPoint(x: vf.maxX - size.width - Self.dockMargin, y: vf.minY + Self.dockMargin)
+        }
         return NSPoint(x: vf.midX - size.width / 2, y: vf.minY + 6)
     }
 
-    fileprivate func saveOrigin() {
-        guard let panel else { return }
-        Nucleo.defaults.set(Double(panel.frame.origin.x), forKey: Key.x)
-        Nucleo.defaults.set(Double(panel.frame.origin.y), forKey: Key.y)
+    fileprivate func saveOrigin(for p: Presentation) {
+        guard let panel, p != .hidden else { return }
+        let (kx, ky) = p == .docked ? (Key.dockX, Key.dockY) : (Key.x, Key.y)
+        Nucleo.defaults.set(Double(panel.frame.origin.x), forKey: kx)
+        Nucleo.defaults.set(Double(panel.frame.origin.y), forKey: ky)
     }
 
     // MARK: - Animation

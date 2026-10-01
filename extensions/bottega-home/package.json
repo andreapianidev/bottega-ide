@@ -75,6 +75,16 @@
         "command": "bottega.memoria.install",
         "title": "Attiva la memoria per Claude Code",
         "category": "Bottega"
+      },
+      {
+        "command": "bottega.openMelissa",
+        "title": "Apri Melissa",
+        "category": "Bottega"
+      },
+      {
+        "command": "bottega.voice.converse",
+        "title": "Parla con Melissa",
+        "category": "Bottega"
       }
     ],
     "viewsContainers": {
@@ -83,6 +93,11 @@
           "id": "bottega",
           "title": "Bottega",
           "icon": "media/activity.svg"
+        },
+        {
+          "id": "melissa",
+          "title": "Melissa",
+          "icon": "media/melissa.svg"
         }
       ]
     },
@@ -95,6 +110,12 @@
         {
           "id": "bottega.projects",
           "name": "Progetti"
+        }
+      ],
+      "melissa": [
+        {
+          "id": "bottega.melissa",
+          "name": "Melissa"
         }
       ]
     },
@@ -245,6 +266,11 @@
           "type": "string",
           "default": "eleven_v4_turbo",
           "description": "Il modello di voce usato dal Nucleo per la sintesi vocale di Melissa."
+        },
+        "bottega.voice.orbAlwaysVisible": {
+          "type": "boolean",
+          "default": true,
+          "description": "Tiene la sfera di Melissa sempre visibile, piccola, quando non sta parlando. Un clic apre o chiude la conversazione."
         }
       }
     },
@@ -258,6 +284,12 @@
           "highContrast": "#ffb547",
           "highContrastLight": "#8a4e00"
         }
+      }
+    ],
+    "viewsWelcome": [
+      {
+        "view": "bottega.melissa",
+        "contents": "Melissa ti ascolta quando tocchi Opzione e Spazio, ovunque sul Mac.\n[Parla con Melissa](command:bottega.voice.converse)\n[Apri la pagina di Melissa](command:bottega.openMelissa)"
       }
     ]
   },
