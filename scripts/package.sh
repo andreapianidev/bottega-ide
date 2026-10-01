@@ -49,8 +49,7 @@ PL=$DIST/Contents/Info.plist
 
 # Permessi di macOS: i testi li legge Andrea nella finestra di richiesta, quindi in italiano.
 /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription La Bottega ascolta la tua voce solo mentre parli con Melissa." $PL
-/usr/libexec/PlistBuddy -c "Add :NSSpeechRecognitionUsageDescription string La Bottega trascrive la tua voce sul Mac, senza mandarla in rete." $PL 2>/dev/null || \
-  /usr/libexec/PlistBuddy -c "Set :NSSpeechRecognitionUsageDescription La Bottega trascrive la tua voce sul Mac, senza mandarla in rete." $PL
+/usr/libexec/PlistBuddy -c "Delete :NSSpeechRecognitionUsageDescription" $PL 2>/dev/null || true
 
 echo "== firma ad hoc"
 codesign --force --deep --sign - $DIST 2>&1 | tail -2

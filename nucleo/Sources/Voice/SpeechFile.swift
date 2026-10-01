@@ -124,3 +124,64 @@ enum SpeechFile {
         try (header + pcm16).write(to: url, options: .atomic)
     }
 }
+
+/// `--cli stt-file <wav> [--commit manual|vad]`: streams a WAV through ScribeClient in
+/// real time (100 ms buffers) and reports every server event with its timing. The test
+/// path for STT: no microphone involved.
+@MainActor
+enum SttFile {
+    static func run(path: String, commit: String) async throws -> [String: Any?] {
+        let file = try AVAudioFile(forReading: URL(fileURLWithPath: path))
+        let fmt = file.processingFormat
+        let client = ScribeClient(language: "it")
+        var events: [[String: Any?]] = []
+        var config: [String: Any] = [:]
+        var audioEnd: CFTimeInterval?
+        let t0 = CACurrentMediaTime()
+        var committed = false
+        func ms() -> Int { Int(((CACurrentMediaTime() - (audioEnd ?? t0))) * 1000) }
+        client.onEvent = { event in
+            switch event {
+            case .started(let c): config = c; events.append(["type": "session_started", "ms": ms()])
+            case .partial(let t): events.append(["type": "partial", "text": t, "msAfterAudio": audioEnd == nil ? nil : ms()])
+            case .committed(let t): committed = true; events.append(["type": "committed", "text": t, "msAfterAudio": audioEnd == nil ? nil : ms()])
+            case .failed(let m): events.append(["type": "error", "message": m])
+            }
+        }
+        try client.connect()
+        guard await client.waitReady() else {
+            client.close()
+            throw NucleoError("La sessione di trascrizione ElevenLabs non si apre.")
+        }
+        let frames = AVAudioFrameCount(fmt.sampleRate / 10)
+        while file.framePosition < file.length {
+            guard let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: frames) else { break }
+            try file.read(into: buf, frameCount: frames)
+            if buf.frameLength == 0 { break }
+            client.append(buf, level: AudioLevels.rms(buf))
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        audioEnd = CACurrentMediaTime()
+        if commit == "manual" {
+            client.commit()
+        } else {
+            // VAD needs to hear the silence: 1.5 s of zeros, in real time.
+            for _ in 0..<15 {
+                if let z = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: frames) {
+                    z.frameLength = frames
+                    if let ch = z.floatChannelData?[0] { ch.update(repeating: 0, count: Int(frames)) }
+                    client.append(z, level: 0)
+                }
+                try await Task.sleep(for: .milliseconds(100))
+                if committed { break }
+            }
+        }
+        let deadline = CACurrentMediaTime() + 4
+        while !committed, CACurrentMediaTime() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        try await Task.sleep(for: .milliseconds(300))
+        client.close()
+        let cfg = config.filter { ["sample_rate", "audio_format", "language_code", "commit_strategy", "vad_silence_threshold_secs", "vad_threshold", "model_id"].contains($0.key) }
+        return ["commit": commit, "config": cfg, "audioSeconds": Double(file.length) / fmt.sampleRate,
+                "secondsSent": (client.secondsSent * 100).rounded() / 100, "events": events]
+    }
+}

@@ -181,13 +181,22 @@ export function parseSummary(out) {
 }
 
 async function generate(store, text, opts = {}) {
-	if (!opts.soloAgnes) {
-		const apple = appleGenerate(INSTRUCTIONS, trim(text, APPLE_MAX));
-		if (apple) return { engine: 'apple', out: apple };
+	// Agnes per prima: piu' veloce e riassunti migliori. Apple Intelligence (gia' dentro macOS,
+	// nessun download) solo come riserva se Agnes rifiuta per quota o non risponde.
+	if (agnesKey()) {
+		try {
+			const out = await agnesGenerate(store, INSTRUCTIONS, trim(text, AGNES_MAX), { maxWaitMs: opts.maxWaitMs });
+			return { engine: 'agnes', out };
+		} catch (e) {
+			if (opts.soloAgnes) throw e;
+			const apple = appleGenerate(INSTRUCTIONS, trim(text, APPLE_MAX));
+			if (apple) return { engine: 'apple', out: apple };
+			throw e;
+		}
 	}
-	if (!agnesKey()) throw new Error('Apple Intelligence non disponibile e chiave Agnes assente');
-	const out = await agnesGenerate(store, INSTRUCTIONS, trim(text, AGNES_MAX), { maxWaitMs: opts.maxWaitMs });
-	return { engine: 'agnes', out };
+	const apple = opts.soloAgnes ? null : appleGenerate(INSTRUCTIONS, trim(text, APPLE_MAX));
+	if (apple) return { engine: 'apple', out: apple };
+	throw new Error('chiave Agnes assente e Apple Intelligence non disponibile');
 }
 
 function observationsText(store, sid) {

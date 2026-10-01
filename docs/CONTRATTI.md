@@ -45,15 +45,14 @@ Una riga JSON per messaggio su stdin/stdout, UTF-8. Lo stderr e' log libero.
 | cmd | argomenti | risposta | note |
 |---|---|---|---|
 | `ping` | | `version` | |
-| `capabilities` | | `foundationModels: bool`, `speechLocaleInstalled: bool`, `speechLocale`, `embedding: bool`, `metal: string`, `memoryGB`, `cores`; in piu': `version`, `foundationModelsReason?` (se non disponibile), `speechBackend` (`SpeechAnalyzer` o `SFSpeechRecognizer`), `embeddingDimension`, `ttsEngine` (`elevenlabs` o `apple`), `ttsModel`, `elevenLabsConfigured`, `elevenLabsVoice`, `elevenLabsCharsThisMonth`, `appleVoice`, `echoCancellation` (`hardware` o `software`, l'ultimo percorso usato in conversazione), `echoCancellationTested: bool`, `conversing: bool`, `hotkey` (etichetta o null) | |
-| `speech.prepare` | `locale` (default `it-IT`) | `installed: bool` | scarica il modello vocale se manca (AssetInventory); eventi `speech.progress {fraction, locale}` |
-| `voice.listen` | `mode`: `push` o `utterance`, `locale` | `backend` | `utterance` finisce da solo dopo ~1.2 s di silenzio (o dopo 8 s se nessuno parla); `push` resta aperto fino a `voice.stop` (massimo 120 s). Se Melissa sta parlando viene zittita: fuori dalla conversazione il microfono e' chiuso mentre lei parla |
-| `voice.stop` | | | chiude l'ascolto ed emette l'ultimo `voice.final` |
+| `capabilities` | | `foundationModels: bool`, `speechLocaleInstalled: bool` (non c'e' piu' un modello vocale locale: vale true quando la chiave ElevenLabs c'e', cioe' quando la trascrizione e' usabile), `speechLocale`, `embedding: bool`, `metal: string`, `memoryGB`, `cores`; in piu': `version`, `foundationModelsReason?` (se non disponibile), `speechBackend` (`elevenlabs:scribe_v2_realtime`), `sttSecondsThisSession` (secondi di audio mandati alla trascrizione da quando il Nucleo e' partito), `embeddingDimension`, `ttsEngine` (`elevenlabs` o `apple`), `ttsModel`, `elevenLabsConfigured`, `elevenLabsVoice`, `elevenLabsCharsThisMonth`, `appleVoice`, `echoCancellation` (`hardware` o `software`, l'ultimo percorso usato in conversazione), `echoCancellationTested: bool`, `conversing: bool`, `hotkey` (etichetta o null) | |
+| `voice.listen` | `mode`: `push` o `utterance`, `locale` | `backend` | trascrizione ElevenLabs in tempo reale (vedi sotto). `utterance` finisce da sola alla prima frase che il server chiude (~0.8 s di silenzio), o dopo 8 s se nessuno parla; `push` resta aperto fino a `voice.stop` (massimo 120 s). Se Melissa sta parlando viene zittita: fuori dalla conversazione il microfono e' chiuso mentre lei parla. Se ElevenLabs non risponde: risposta di errore ed evento `voice.state {state:"error", message}` |
+| `voice.stop` | | | chiude l'ascolto, chiude a mano la frase (commit) ed emette l'ultimo `voice.final` (~0.25 s dopo) |
 | `voice.speak` | `text`, `voice?`, `append?: bool`, `final?: bool`, `model?` | `engine` | evento `voice.spoken {text, engine}` quando un pezzo e' stato davvero ascoltato. Senza `append` il testo e' una risposta intera. Con `append: true` l'estensione manda i pezzi man mano che l'LLM li scrive: la prima frase (o il primo inciso lungo) parte subito, poi una frase alla volta; `final: true` (anche con `text` vuoto) chiude il turno. `model` sceglie il modello ElevenLabs (default `eleven_v4_turbo`). `voice`: `apple` forza la voce Apple, `com.apple...` sceglie una voce Apple precisa, qualsiasi altro valore e' un voice id ElevenLabs |
 | `voice.stopSpeaking` | | | interruzione (barge-in): silenzio subito, coda svuotata |
-| `voice.converse.start` | `locale?` | `echoCancellation`, `backend` | modalita' conversazione: microfono sempre aperto, trascrizione sul dispositivo, ~0.8 s di silenzio chiude il turno dell'utente (`voice.final {text, mode:"converse"}`). Se l'utente parla sopra Melissa, la voce si ferma ed esce `voice.bargein {text, trigger}` (`trigger`: `energy` con cancellazione dell'eco hardware, `speech` con il filtro software). Eco: prima la cancellazione hardware (voice processing), se fallisce il filtro software sul testo |
+| `voice.converse.start` | `locale?` | `echoCancellation`, `backend` | modalita' conversazione: microfono sempre aperto, ogni frase che il server chiude (~0.8 s di silenzio) e' un turno dell'utente (`voice.final {text, mode:"converse"}`). Si manda solo l'audio intorno alla voce (300 ms prima, 1.5 s dopo). Se l'utente parla sopra Melissa, la voce si ferma ed esce `voice.bargein {text, trigger}` (`trigger`: `energy` con cancellazione dell'eco hardware, `speech` quando lo decide il testo parziale). Eco: prima la cancellazione hardware (voice processing), se fallisce il filtro software sul testo (parole in comune con quello che Melissa sta dicendo) |
 | `voice.converse.stop` | | | chiude la conversazione (emette `voice.final` se c'era una frase a meta') |
-| `wake.enable` | `phrase` (default `melissa`), `locale?` | | ascolto continuo a basso consumo (la trascrizione riceve audio solo intorno alla voce); evento `wake.detected {phrase, text}`. Sospeso mentre Melissa parla e durante ascolto o conversazione |
+| `wake.enable` | `phrase` (default `melissa`), `locale?` | | ascolto continuo tramite la trascrizione ElevenLabs, ma solo intorno alla voce (il silenzio non si manda); evento `wake.detected {phrase, text}`. Sospeso mentre Melissa parla e durante ascolto o conversazione. Costa audio trascritto ogni volta che qualcuno parla nella stanza: va acceso solo se serve |
 | `wake.disable` | | | |
 | `orb.show` / `orb.hide` | | | sfera Metal in un pannello flottante di vetro, in basso al centro, trascinabile (la posizione resta) |
 | `orb.state` | `state`: `idle`, `listening`, `thinking`, `speaking`, `error`; `caption?` | | la sfera usa anche il livello audio interno. La sfera segue da sola la voce (ascolto, pensiero dopo `voice.final`, parlato) e la didascalia mostra la trascrizione parziale o la frase detta; lo stato e la didascalia mandati qui valgono fino alla prossima transizione della voce |
@@ -67,22 +66,29 @@ Una riga JSON per messaggio su stdin/stdout, UTF-8. Lo stderr e' log libero.
 | `system.stats` | | `load: [1m,5m,15m]`, `memoryPressure: normal/warning/critical`, `memoryUsedGB`, `memoryTotalGB`, `thermal: nominal/fair/serious/critical`, `cores` | |
 | `quit` | | | chiusura pulita |
 
-Eventi aggiuntivi: `voice.state {state, conversing, mode?, wake?}` (`state`: `idle`, `listening`, `processing`,
-`speaking`), `voice.partial {text, mode}`, `voice.final {text, mode}`, `voice.level {level 0..1, source: mic|tts}`
+Eventi aggiuntivi: `voice.state {state, conversing, mode?, wake?, message?}` (`state`: `idle`, `listening`, `processing`,
+`speaking`, `error`; con `error` c'e' `message` in italiano e la sfera diventa ambra), `voice.partial {text, mode}`, `voice.final {text, mode}`, `voice.level {level 0..1, source: mic|tts}`
 (al massimo 15 al secondo, niente eventi mentre resta silenzio), `voice.bargein {text, trigger}`,
 `voice.engine {engine, reason}` (ElevenLabs e' caduto, si continua con la voce Apple), `orb.clicked`,
 `system.pressure {memoryPressure, thermal}` quando cambia, `log {level, message}`, `ready {version}`.
 
-Voce: ElevenLabs se c'e' la chiave (`ELEVENLABS_API_KEY` nell'ambiente, altrimenti `~/.secrets/elevenlabs.env`,
+Voce in uscita: ElevenLabs se c'e' la chiave (`ELEVENLABS_API_KEY` nell'ambiente, altrimenti `~/.secrets/elevenlabs.env`,
 con `ELEVENLABS_VOICE_ID` facoltativo, default Melissa `QITiGyM4owEZrBEf0QV8`), sempre in tempo reale sul socket
 text-to-dialogue, modello `eleven_v4_turbo`, tenuto caldo mentre la voce e' in uso (conversazione, sfera visibile,
 o una risposta negli ultimi 2 minuti). I caratteri mandati si contano in `~/.bottega/nucleo/usage.json` (la chiave
-non ha il permesso di leggere il saldo). Senza chiave o a qualsiasi errore: AVSpeechSynthesizer, voce
-`com.apple.voice.premium.it-IT.Emma`, i tag come `[laughs]` vengono tolti.
+non ha il permesso di leggere il saldo). Senza chiave o a qualsiasi errore: AVSpeechSynthesizer, voce di sistema
+`com.apple.voice.premium.it-IT.Emma` (gia' installata, niente download), i tag come `[laughs]` vengono tolti.
 
-Permessi: microfono e riconoscimento vocale li chiede il Nucleo, ma macOS li attribuisce al processo
-responsabile, cioe' a Bottega.app che lo lancia: per questo anche Bottega.app deve avere
-`NSMicrophoneUsageDescription` e `NSSpeechRecognitionUsageDescription` (lo fa `scripts/package.sh`). Le notifiche
+Voce in entrata: solo ElevenLabs, nessun modello locale e nessun download (decisione di Andrea).
+`wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&language_code=it&audio_format=pcm_16000&commit_strategy=vad&vad_silence_threshold_secs=0.8`,
+audio PCM 16 kHz mono a pezzi da 100 ms, `partial_transcript` -> `voice.partial`, `committed_transcript` ->
+`voice.final` (o un pezzo del `voice.final` in modalita' push). Misurato il 1/10/2026: frase chiusa dal VAD 0.75 s
+dopo la fine del parlato, commit a mano 0.25 s. Il socket si apre all'ascolto (o alla pressione della scorciatoia)
+e si chiude 30 s dopo l'ultimo ascolto: da fermo nessuna connessione aperta.
+
+Permessi: il microfono lo chiede il Nucleo, ma macOS lo attribuisce al processo responsabile, cioe' a
+Bottega.app che lo lancia: per questo anche Bottega.app deve avere `NSMicrophoneUsageDescription` (lo fa
+`scripts/package.sh`). Il permesso di riconoscimento vocale non serve piu' (nessun riconoscitore Apple). Le notifiche
 invece appartengono al Nucleo ("Bottega Nucleo" in Impostazioni di Sistema, Notifiche).
 
 ### Modalita' riga di comando (usata dagli hook della Memoria, fuori dall'IDE)
@@ -95,6 +101,9 @@ BottegaNucleo --cli stats                       -> JSON come system.stats
 BottegaNucleo --cli capabilities                -> JSON come capabilities
 BottegaNucleo --cli tts --out f.wav [--engine elevenlabs|apple] [--via ws|rest] [--model m] < testo
                                                 -> scrive un WAV 24 kHz senza suonarlo (prova della voce)
+BottegaNucleo --cli stt-file f.wav [--commit manual|vad]
+                                                -> manda un WAV alla trascrizione ElevenLabs in tempo reale e
+                                                   stampa eventi e tempi (prova della trascrizione, niente microfono)
 ```
 
 Exit: 0 ok, 1 errore (messaggio su stderr), 2 Apple Intelligence non disponibile, 64 uso sbagliato.
@@ -122,8 +131,9 @@ L'estensione la usa con `--json`.
 
 Soglie dei riassunti: al primo `Stop` con almeno 15 osservazioni, poi ogni 25 nuove osservazioni e non
 prima di 20 minuti dall'ultimo; `SessionEnd` riassume sempre se c'e' qualcosa di nuovo; `SessionStart`
-recupera le sessioni ferme da 30 minuti senza `SessionEnd`. Motore: Apple Intelligence tramite
-`nucleo --cli generate` (testo tagliato a 7000 caratteri), poi Agnes (massimo 6 richieste al minuto).
+recupera le sessioni ferme da 30 minuti senza `SessionEnd`. Motore: Agnes `agnes-3.0-flash` (massimo 6
+richieste al minuto), riserva Apple Intelligence tramite `nucleo --cli generate` (testo tagliato a
+7000 caratteri) solo se Agnes rifiuta o non risponde. Nessun modello da scaricare.
 
 Schema JSON di una voce restituita da `search`/`recent`:
 `{"id": 12, "kind": "riassunto|fatto|decisione|nota|prompt", "project": "Peak", "projectPath": "...",

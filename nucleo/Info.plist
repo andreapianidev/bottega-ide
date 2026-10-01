@@ -34,8 +34,6 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>La Bottega ascolta la tua voce solo mentre tieni premuto il tasto per parlare con Melissa, o mentre la conversazione e' accesa.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>La Bottega trascrive la tua voce sul Mac, senza mandarla in rete.</string>
 	<key>NSUserNotificationAlertStyle</key>
 	<string>alert</string>
 	<key>NSHumanReadableCopyright</key>

@@ -34,7 +34,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$TMP"
 
 SOURCES=("$HERE"/Sources/**/*.swift(N))
 echo "nucleo: compilo ${#SOURCES} file Swift ($OPT)"
-# Swift 5 language mode: the AVFoundation / Speech / Carbon callbacks this code bridges
+# Swift 5 language mode: the AVFoundation / Carbon callbacks this code bridges
 # are not annotated for strict concurrency, and the isolation is handled by hand.
 xcrun -sdk macosx swiftc \
   -target arm64-apple-macos27.0 \
@@ -42,7 +42,7 @@ xcrun -sdk macosx swiftc \
   ${=OPT} \
   -module-name BottegaNucleo \
   -framework AppKit -framework Metal -framework MetalKit -framework AVFoundation \
-  -framework Speech -framework FoundationModels -framework NaturalLanguage \
+  -framework FoundationModels -framework NaturalLanguage \
   -framework Accelerate -framework UserNotifications -framework Carbon \
   -o "$EXE" \
   "${SOURCES[@]}"

@@ -60,6 +60,17 @@ final class VoiceHub {
         }
     }
 
+    /// Something in the voice path broke (STT unreachable, socket dropped): the extension
+    /// gets `voice.state {state:"error", message}` and the orb turns amber.
+    func error(_ message: String) {
+        lastState = "error"
+        var fields: [String: Any?] = ["state": "error", "message": message, "conversing": conversing]
+        if let m = Listener.shared.mode, m != .wake { fields["mode"] = m.rawValue }
+        Out.event("voice.state", fields)
+        OrbPanel.shared.autoState(.error)
+        OrbPanel.shared.autoCaption(message)
+    }
+
     /// A user turn just ended: the orb thinks until the reply starts (or 20 s pass).
     func userTurnEnded() {
         thinkingUntil = Date().addingTimeInterval(20)

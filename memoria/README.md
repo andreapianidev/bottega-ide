@@ -97,10 +97,10 @@ senza scrivere, `--no-mcp` lascia stare il server MCP.
 Tutto resta sul Mac. Prima di scrivere qualunque cosa, chiavi, token e password riconoscibili
 vengono sostituiti da `[chiave nascosta]`.
 
-L'unica cosa che puo' uscire e' il testo da riassumere (richieste, risposte e strumenti di una
-sessione, al massimo 12.000 caratteri, gia' ripulito dalle chiavi): va ad Agnes AI **solo quando
-Apple Intelligence non e' disponibile** sul Mac. Agnes riceve al massimo 6 richieste al minuto
-dalla Memoria, perche' il piano gratuito e' condiviso con altre app; se risponde «troppe
-richieste» la Memoria aspetta e riprova piu' tardi.
+L'unica cosa che esce dal Mac e' il testo da riassumere (richieste, risposte e strumenti di una
+sessione, al massimo 12.000 caratteri, gia' ripulito dalle chiavi): va ad Agnes AI
+(`agnes-3.0-flash`), che e' il motore dei riassunti. Agnes riceve al massimo 6 richieste al minuto
+dalla Memoria, perche' il piano e' condiviso con altre app. Se Agnes risponde «troppe richieste» o
+non risponde, il riassunto lo fa Apple Intelligence, gia' dentro macOS: nessun download.
 
 © 2026 Bottega · Andrea Piani · NIE Z2331796-S · Tijarafe, Santa Cruz de Tenerife · Islas Canarias

@@ -79,6 +79,8 @@ final class Hotkey {
             guard !isDown else { return }
             isDown = true
             Out.event("hotkey.down", ["key": label])
+            // Push-to-talk is about to start: open the STT session now, not after.
+            Listener.shared.prewarm()
         } else {
             guard isDown else { return }
             isDown = false

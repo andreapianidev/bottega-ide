@@ -8,7 +8,6 @@
 //
 
 import AppKit
-import Speech
 import Metal
 
 enum StdinReader {
@@ -52,11 +51,7 @@ enum Service {
             case "system.stats":
                 r.respond(SystemStats.snapshot())
 
-            // MARK: speech
-            case "speech.prepare":
-                let installed = try await SpeechPrep.prepare(locale: r.string("locale") ?? RecognizerFactory.defaultLocale)
-                r.respond(["installed": installed])
-
+            // MARK: voice
             case "voice.listen":
                 let mode = Listener.Mode(rawValue: r.string("mode") ?? "push") ?? .push
                 guard mode == .push || mode == .utterance else {
@@ -193,14 +188,14 @@ enum Service {
 @MainActor
 enum Capabilities {
     static func collect() async -> [String: Any?] {
-        let locale = RecognizerFactory.defaultLocale
-        let installed = await RecognizerFactory.analyzerReady(locale)
         var out: [String: Any?] = [
             "version": Nucleo.version,
             "foundationModels": Intelligence.isAvailable,
-            "speechLocaleInstalled": installed,
-            "speechLocale": locale,
-            "speechBackend": installed ? "SpeechAnalyzer" : "SFSpeechRecognizer",
+            // No local speech model any more: "installed" means "usable" (ElevenLabs key present).
+            "speechLocaleInstalled": ElevenLabsConfig.isConfigured,
+            "speechLocale": "it-IT",
+            "speechBackend": Listener.backend,
+            "sttSecondsThisSession": (Listener.shared.sttSecondsSent * 10).rounded() / 10,
             "embedding": Intelligence.embeddingAvailable,
             "embeddingDimension": Intelligence.embedding(for: .italian)?.dimension ?? 0,
             "metal": MTLCreateSystemDefaultDevice()?.name ?? "",
@@ -219,36 +214,5 @@ enum Capabilities {
         ]
         if let reason = Intelligence.unavailableReason { out["foundationModelsReason"] = reason }
         return out
-    }
-}
-
-enum SpeechPrep {
-    /// Downloads the on-device speech model for `locale` (AssetInventory), emitting
-    /// `speech.progress {fraction}` while it goes.
-    static func prepare(locale identifier: String) async throws -> Bool {
-        guard SpeechTranscriber.isAvailable else {
-            throw NucleoError("La trascrizione sul dispositivo (SpeechTranscriber) non e' disponibile su questo Mac.")
-        }
-        guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: identifier)) else {
-            throw NucleoError("La lingua \(identifier) non e' supportata dalla trascrizione sul dispositivo.")
-        }
-        if await RecognizerFactory.analyzerReady(identifier) { return true }
-        let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [],
-                                            reportingOptions: [.volatileResults], attributeOptions: [])
-        if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
-            var last = -1.0
-            let observation = request.progress.observe(\.fractionCompleted, options: [.new]) { progress, _ in
-                let f = (progress.fractionCompleted * 100).rounded() / 100
-                if f != last {
-                    last = f
-                    Out.event("speech.progress", ["fraction": f, "locale": identifier])
-                }
-            }
-            defer { observation.invalidate() }
-            try await request.downloadAndInstall()
-            Out.event("speech.progress", ["fraction": 1.0, "locale": identifier])
-        }
-        _ = try? await AssetInventory.reserve(locale: locale)
-        return await RecognizerFactory.analyzerReady(identifier)
     }
 }

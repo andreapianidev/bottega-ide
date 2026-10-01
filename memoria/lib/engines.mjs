@@ -74,7 +74,7 @@ export function embedAvailable() {
 // ---- Agnes ------------------------------------------------------------------------------
 
 const AGNES_URL = 'https://apihub.agnes-ai.com/v1/chat/completions';
-const AGNES_MODEL = 'agnes-2.5-flash';
+const AGNES_MODEL = 'agnes-3.0-flash';
 const PER_MINUTE = 6; // il piano gratuito (~20 al minuto) e' condiviso con le altre app di Andrea
 const MIN_GAP_MS = 10_000;
 

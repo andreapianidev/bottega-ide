@@ -69,6 +69,11 @@ enum CLI {
                                                         maxTokens: opts["max-tokens"].flatMap(Int.init))
                 print(s)
             }
+        case "stt-file":
+            // Diagnostics: streams a WAV through the ElevenLabs STT client. No microphone.
+            guard argv.count > 1, !argv[1].hasPrefix("--") else { usage() }
+            let wav = argv[1]
+            runAsync { print(JSON.encode(try await SttFile.run(path: wav, commit: opts["commit"] ?? "manual"))) }
         case "orb-selftest":
             // Diagnostics only: builds every Metal pipeline and renders offscreen. No window.
             runAsync { print(JSON.encode(await OrbSelfTest.run())) }
