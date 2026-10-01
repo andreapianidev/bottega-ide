@@ -7,6 +7,15 @@ import * as vscode from 'vscode';
 // Involucro attorno alla CLI della Memoria (Node 22, solo built-in). Se la CLI non c'e'
 // (non ancora costruita, o non installata) tutto risponde vuoto senza piantarsi.
 
+export interface BoardItem {
+	at: number;
+	sessionId: string;
+	project: string;
+	kind: string;
+	summary: string;
+	file?: string;
+}
+
 export interface MemoryItem {
 	id: number;
 	kind: 'riassunto' | 'fatto' | 'decisione' | 'nota' | 'prompt' | string;
@@ -133,10 +142,15 @@ export class Memoria {
 		return Memoria.items(await this.runJson<any>(args, []));
 	}
 
-	async bacheca(project?: string, minutes = 30): Promise<MemoryItem[]> {
+	/** Attivita' in diretta delle sessioni. Forma della CLI (contratto, sezione 2):
+	 *  {at, sessionId, project, kind, summary, file?}: non e' un MemoryItem, non va letta come tale. */
+	async bacheca(project?: string, minutes = 30): Promise<BoardItem[]> {
 		const args = ['bacheca', '--minuti', String(minutes)];
 		if (project) args.push('--progetto', project);
-		return Memoria.items(await this.runJson<any>(args, []));
+		const raw = await this.runJson<any>(args, []);
+		return (Array.isArray(raw) ? raw : [])
+			.filter(r => r && typeof r.summary === 'string' && r.summary.trim())
+			.map(r => ({ at: Number(r.at) || 0, sessionId: String(r.sessionId ?? ''), project: String(r.project ?? ''), kind: String(r.kind ?? ''), summary: String(r.summary), file: r.file ? String(r.file) : undefined }));
 	}
 
 	async remember(text: string, project?: string): Promise<boolean> {

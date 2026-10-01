@@ -82,6 +82,12 @@
         "category": "Bottega"
       },
       {
+        "command": "bottega.openCruscotto",
+        "title": "Apri il cruscotto",
+        "category": "Bottega",
+        "icon": "$(graph)"
+      },
+      {
         "command": "bottega.voice.converse",
         "title": "Parla con Melissa",
         "category": "Bottega"
@@ -271,6 +277,11 @@
           "type": "boolean",
           "default": true,
           "description": "Tiene la sfera di Melissa sempre visibile, piccola, quando non sta parlando. Un clic apre o chiude la conversazione."
+        },
+        "bottega.italiano": {
+          "type": "boolean",
+          "default": true,
+          "description": "Al primo avvio installa il pacchetto di lingua italiana e mette VS Code in italiano."
         }
       }
     },

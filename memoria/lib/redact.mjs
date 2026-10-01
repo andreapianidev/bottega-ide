@@ -27,9 +27,33 @@ export function redact(text) {
 }
 
 /** Niente lineette lunghe o medie nel testo che legge un utente. */
+// Parole italiane che i modelli a volte scrivono con l'apostrofo al posto dell'accento ("e'", "gia'").
+// Solo un elenco chiuso: una regola generica sulle vocali rovinerebbe codice e parole tra virgolette.
+const ACCENTI = {
+	e: 'è', gia: 'già', piu: 'più', puo: 'può', pero: 'però', cioe: 'cioè', cosi: 'così', perche: 'perché',
+	poiche: 'poiché', finche: 'finché', benche: 'benché', affinche: 'affinché', nonche: 'nonché',
+	sara: 'sarà', fara: 'farà', avra: 'avrà', potra: 'potrà', dovra: 'dovrà', verra: 'verrà', andra: 'andrà',
+	citta: 'città', attivita: 'attività', funzionalita: 'funzionalità', possibilita: 'possibilità',
+	qualita: 'qualità', novita: 'novità', priorita: 'priorità', modalita: 'modalità', quantita: 'quantità',
+	realta: 'realtà', verita: 'verità', utilita: 'utilità', velocita: 'velocità', capacita: 'capacità',
+	complessita: 'complessità', compatibilita: 'compatibilità', disponibilita: 'disponibilità',
+	visibilita: 'visibilità', stabilita: 'stabilità', identita: 'identità', unita: 'unità', proprieta: 'proprietà',
+	lunedi: 'lunedì', martedi: 'martedì', mercoledi: 'mercoledì', giovedi: 'giovedì', venerdi: 'venerdì',
+};
+const ACCENTI_RE = new RegExp(`(^|[^\\p{L}'])(${Object.keys(ACCENTI).join('|')})'(?=[\\s.,;:!?)\\]»"]|$)`, 'giu');
+
+export function accenti(text) {
+	if (!text) return '';
+	return String(text).replace(ACCENTI_RE, (_, pre, w) => {
+		const low = w.toLowerCase();
+		const acc = ACCENTI[low];
+		return pre + (w[0] === w[0].toUpperCase() && w[0] !== w[0].toLowerCase() ? acc[0].toUpperCase() + acc.slice(1) : acc);
+	});
+}
+
 export function undash(text) {
 	if (!text) return '';
-	return String(text)
+	return accenti(text)
 		.replace(/\s*—\s*/g, ', ')
 		.replace(/(\d)\s*–\s*(\d)/g, '$1-$2')
 		.replace(/\s*–\s*/g, ', ')

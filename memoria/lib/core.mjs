@@ -137,16 +137,16 @@ function reattribute(store, sid) {
 // ---- riassunti --------------------------------------------------------------------------
 
 export const INSTRUCTIONS = `Sei la memoria di lavoro di uno sviluppatore. Ricevi la trascrizione compressa di una sessione di Claude Code: le richieste dell'utente iniziano con UTENTE, le risposte con CLAUDE, gli strumenti usati con >.
-Scrivi in italiano, con frasi semplici e concrete. Non usare mai lineette lunghe. Non usare markdown, niente grassetto.
+Scrivi in italiano corretto, con frasi semplici e concrete e con gli accenti giusti (è, già, più, perché, così): mai un apostrofo al posto dell'accento. Non usare mai lineette lunghe. Non usare markdown, niente grassetto.
 Rispondi esattamente in questo formato:
 TITOLO: al massimo 10 parole
-RIASSUNTO: da 4 a 8 frasi: cosa e' stato chiesto, cosa e' stato fatto, i file principali toccati, come e' finita.
+RIASSUNTO: da 4 a 8 frasi: cosa è stato chiesto, cosa è stato fatto, i file principali toccati, com'è finita.
 DECISIONI:
 - una scelta tecnica o di prodotto presa nella sessione, con il motivo (al massimo 4; scrivi "- nessuna" se non ce ne sono)
 FATTI:
 - un fatto utile da ricordare in futuro su questo progetto: percorsi, comandi, configurazioni, problemi noti (al massimo 5)
 DA FARE:
-- cosa resta aperto (al massimo 4; scrivi "- niente" se e' tutto chiuso)
+- cosa resta aperto (al massimo 4; scrivi "- niente" se è tutto chiuso)
 Non inventare nulla che non sia nella trascrizione. Non riportare mai chiavi, password o token.`;
 
 const APPLE_MAX = 7_000; // il modello sul dispositivo ha una finestra piccola

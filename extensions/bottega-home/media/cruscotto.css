@@ -1,0 +1,438 @@
+/* Bottega, il cruscotto. Stessa notte "Roque" della plancia (plancia.css definisce i colori di base).
+   Qui si aggiungono solo i colori dei dati, validati con lo strumento dataviz (lightness, croma,
+   separazione per daltonismo, contrasto) sulla superficie scura #121a2e e su quella chiara #eef1f6:
+   - tu (le tue ore): ambra del sodio, un gradino piu' scuro del sodio dei testi perche' sul blu notte
+     il sodio pieno abbaglia; Claude: luce di stella fredda. Coppia arancio e blu, sicura per tutti.
+   - token: letti dalla cache in grigio (sono la massa, e costano poco: restano sullo sfondo), poi
+     verde acqua, viola e rosa nell'ordine della pila, coppie vicine sempre distinguibili.
+   - la settimana ora per ora: una sola tinta, il sodio, da spento a pieno.
+   La carta del cielo resta notte anche nel tema chiaro, come la sfera di Melissa. */
+
+.crus {
+	position: relative;
+	--c-tu: #d07c14;
+	--c-tu-velo: rgba(208, 124, 20, 0.14);
+	--c-claude: #6683e6;
+	--t-cr: #6b7896;
+	--t-in: #1f9e86;
+	--t-cw: #9a7be8;
+	--t-out: #d4567f;
+	--griglia: #212a45;
+	--asse: #36425f;
+	--evidenza: rgba(232, 226, 208, 0.07);
+	--h0: #1b2440;
+	--h1: color-mix(in oklab, var(--sodio) 20%, var(--h0));
+	--h2: color-mix(in oklab, var(--sodio) 38%, var(--h0));
+	--h3: color-mix(in oklab, var(--sodio) 58%, var(--h0));
+	--h4: color-mix(in oklab, var(--sodio) 79%, var(--h0));
+	--h5: var(--sodio);
+}
+
+body.vscode-light .crus {
+	--c-tu: #a85f00;
+	--c-tu-velo: rgba(168, 95, 0, 0.12);
+	--c-claude: #3557c0;
+	--t-cr: #7a8399;
+	--t-in: #16896f;
+	--t-cw: #6a4bc4;
+	--t-out: #c23f6c;
+	--griglia: #d9dfe9;
+	--asse: #b3bdcf;
+	--evidenza: rgba(24, 33, 58, 0.06);
+	--h0: #dde3ee;
+}
+
+/* ---------- testa ---------- */
+
+.crus-testa {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 8px 32px;
+}
+
+.crus-testa .sentence { margin-bottom: 22px; max-width: 36ch; }
+
+.crus-timbro {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin: 0 0 26px;
+	font-size: 12px;
+	color: var(--tinta);
+	font-variant-numeric: tabular-nums;
+}
+
+.crus-filtri {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px 18px;
+	margin: 0 0 22px;
+}
+
+.interruttori {
+	display: inline-flex;
+	padding: 3px;
+	border-radius: 999px;
+	background: var(--basalto);
+	border: 1px solid var(--linea);
+}
+
+.interruttori button {
+	border: 0;
+	background: none;
+	border-radius: 999px;
+	padding: 4px 13px;
+	color: var(--tinta);
+	cursor: pointer;
+	font-size: 12.5px;
+}
+
+.interruttori button:hover:not(:disabled) { color: var(--calima); }
+.interruttori button[aria-pressed='true'] { background: var(--linea); color: var(--calima); font-weight: 600; }
+.interruttori button:disabled { opacity: 0.4; cursor: default; }
+
+/* il registro del periodo: cifre in fila, separate da filetti, niente scatole */
+.cifre {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+	margin: 0 0 44px;
+	border-top: 1px solid var(--linea);
+	border-bottom: 1px solid var(--linea);
+}
+
+.cifra {
+	padding: 14px 16px 14px 0;
+	min-width: 0;
+}
+
+.cifra + .cifra { padding-left: 16px; border-left: 1px solid var(--linea); }
+.cifra dt { font-size: 12px; color: var(--tinta); margin-bottom: 4px; }
+.cifra dd { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.cifra b { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+.cifra small { flex-basis: 100%; font-size: 11.5px; color: var(--tinta); line-height: 1.4; }
+
+.delta { font-size: 12px; color: var(--tinta); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.delta.muto { opacity: 0.75; }
+.delta.nuovo { color: var(--calima); }
+
+/* ---------- il cielo dei progetti ---------- */
+
+.crus-cielo {
+	display: grid;
+	grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
+	gap: 40px;
+	align-items: start;
+	margin-bottom: 56px;
+}
+
+.carta {
+	margin: 0;
+	padding: 20px 20px 18px;
+	border-radius: 22px;
+	border: 1px solid var(--notte-bordo);
+	background: radial-gradient(90% 70% at 50% 40%, #1a2441 0%, var(--notte) 70%);
+	color: var(--notte-testo);
+}
+
+.carta h2 { color: var(--notte-testo); }
+.carta :focus-visible { outline-color: #9cc2ff; }
+
+.carta-svg { display: flex; justify-content: center; }
+.carta-svg svg { display: block; max-width: 100%; height: auto; overflow: visible; }
+
+.carta .campo circle { fill: #e8e2d0; }
+.carta .anelli circle { fill: none; stroke: rgba(143, 152, 173, 0.18); stroke-width: 1; }
+.carta .anelli text { fill: rgba(143, 152, 173, 0.75); font-size: 10.5px; }
+.carta .quadrante .bordo { fill: none; stroke: rgba(143, 152, 173, 0.35); }
+.carta .quadrante line { stroke: rgba(143, 152, 173, 0.45); stroke-width: 1; }
+.carta .quadrante text { fill: #8f98ad; font-size: 10.5px; text-anchor: middle; font-variant-numeric: tabular-nums; }
+.carta .quadrante text.forte { fill: #e8e2d0; font-size: 12px; font-weight: 600; }
+.carta .centro { fill: rgba(143, 152, 173, 0.7); font-size: 10.5px; text-anchor: middle; }
+.carta .costellazione line { stroke: rgba(158, 176, 214, 0.42); stroke-width: 1; }
+.carta .costellazione line.forte { stroke: rgba(176, 192, 228, 0.62); stroke-width: 1.4; }
+.carta .scie path { fill: none; stroke: rgba(246, 223, 174, 0.22); stroke-linecap: round; }
+.carta .stella .nucleo { fill: #fff6de; }
+.carta .stella .presa { fill: transparent; cursor: pointer; }
+.carta .stella .anello { fill: none; stroke: #f4ab3c; stroke-width: 1.6; transform-box: fill-box; transform-origin: center; animation: pulsa 2.8s ease-in-out infinite; }
+.carta .nomi text { fill: #e8e2d0; font-size: 11.5px; paint-order: stroke; stroke: rgba(15, 22, 40, 0.85); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
+
+/* passando su un progetto, il resto del cielo si abbassa */
+.carta-svg.cerca .stella:not(.acceso) { opacity: 0.35; }
+.carta-svg.cerca .scie path:not(.acceso) { opacity: 0.25; }
+.carta-svg.cerca .nomi text:not(.acceso) { opacity: 0.35; }
+.carta .stella.acceso .nucleo { fill: #ffffff; }
+.carta .scie path.acceso { stroke: rgba(246, 223, 174, 0.55); }
+
+.carta-legenda {
+	margin-top: 10px;
+	font-size: 12px;
+	line-height: 1.55;
+	color: color-mix(in srgb, var(--notte-testo) 72%, var(--notte));
+	max-width: 68ch;
+}
+
+.carta-legenda p { margin: 0; }
+.carta .tabella-blocco { color: var(--notte-testo); }
+.carta .link { color: #f4ab3c; }
+
+@keyframes pulsa {
+	0%, 100% { opacity: 0.95; transform: scale(1); }
+	50% { opacity: 0.35; transform: scale(1.18); }
+}
+
+/* l'unico momento orchestrato: le stelle si accendono in ordine di grandezza, una volta sola */
+.rivela .carta .stella { animation: accendi 0.9s ease-out both; }
+.rivela .carta .costellazione line { stroke-dasharray: 1; stroke-dashoffset: 1; animation: traccia 1.2s ease-out 0.9s forwards; }
+.rivela .carta .scie path { opacity: 0; animation: compari 0.8s ease-out 0.7s forwards; }
+
+@keyframes accendi { from { opacity: 0; } to { opacity: 1; } }
+@keyframes traccia { to { stroke-dashoffset: 0; } }
+@keyframes compari { to { opacity: 1; } }
+
+/* ---------- classifica ---------- */
+
+.sez-testa {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px 18px;
+	margin-bottom: 4px;
+}
+
+.crus h2 {
+	font-family: var(--serif);
+	font-size: 20px;
+	font-weight: 500;
+	letter-spacing: -0.005em;
+	margin: 0;
+}
+
+.crus h3 {
+	font-family: var(--serif);
+	font-size: 16px;
+	font-weight: 500;
+	margin: 26px 0 10px;
+}
+
+.crus h3:first-child { margin-top: 0; }
+
+.crus .nota { margin: 4px 0 14px; color: var(--tinta); font-size: 12.5px; line-height: 1.5; max-width: 72ch; }
+
+.righe-classifica { list-style: none; margin: 0; padding: 0; }
+
+.riga-progetto {
+	display: grid;
+	grid-template-columns: 22px minmax(0, 1.25fr) minmax(40px, 1fr) auto 64px;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+	padding: 8px 6px;
+	border: 0;
+	border-bottom: 1px solid var(--linea);
+	background: none;
+	text-align: left;
+	cursor: pointer;
+	border-radius: 0;
+}
+
+div.riga-progetto { cursor: default; }
+.riga-progetto:hover, .riga-progetto:focus-visible { background: var(--evidenza); }
+.riga-progetto .pos { color: var(--tinta); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+.riga-progetto .chi { min-width: 0; display: flex; flex-direction: column; }
+.riga-progetto .chi b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.riga-progetto .chi small { color: var(--tinta); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.riga-progetto.vivo .chi b::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 7px; border-radius: 50%; background: var(--sodio); box-shadow: 0 0 6px var(--sodio-alone); vertical-align: middle; }
+.riga-progetto .valore { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.riga-progetto .delta { text-align: right; }
+
+.misura { display: block; height: 8px; }
+.misura i { display: block; height: 8px; border-radius: 0 4px 4px 0; min-width: 2px; }
+.b-tu { background: var(--c-tu); }
+.b-claude { background: var(--c-claude); }
+
+/* ---------- grafici ---------- */
+
+.crus-sez { margin-bottom: 56px; min-width: 0; }
+
+.crus-due {
+	display: grid;
+	grid-template-columns: minmax(0, 1.7fr) minmax(240px, 1fr);
+	gap: 44px;
+	align-items: start;
+}
+
+.crus-due > .crus-sez { margin-bottom: 56px; }
+
+.grafico { position: relative; border-radius: 6px; }
+.grafico svg { display: block; overflow: visible; }
+.grafico:focus-visible { outline-offset: 4px; }
+
+.crus .griglia { stroke: var(--griglia); stroke-width: 1; }
+.crus .base { stroke: var(--asse); stroke-width: 1; }
+.crus .asse-y { fill: var(--tinta); font-size: 11px; text-anchor: end; font-variant-numeric: tabular-nums; }
+.crus .asse-x { fill: var(--tinta); font-size: 11px; text-anchor: middle; font-variant-numeric: tabular-nums; }
+
+.area-tu { fill: var(--c-tu-velo); stroke: none; }
+.linea-tu { fill: none; stroke: var(--c-tu); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.linea-claude { fill: none; stroke: var(--c-claude); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.punto-tu { fill: var(--c-tu); stroke: var(--cielo); stroke-width: 2; }
+.punto-claude { fill: var(--c-claude); stroke: var(--cielo); stroke-width: 2; }
+.mirino line { stroke: var(--tinta); stroke-width: 1; }
+.col-tu { fill: var(--c-tu); }
+.col-claude { fill: var(--c-claude); }
+.crus .evidenza { fill: var(--evidenza); pointer-events: none; }
+
+.t-cr { fill: var(--t-cr); background: var(--t-cr); }
+.t-in { fill: var(--t-in); background: var(--t-in); }
+.t-cw { fill: var(--t-cw); background: var(--t-cw); }
+.t-out { fill: var(--t-out); background: var(--t-out); }
+
+.legenda { display: flex; flex-wrap: wrap; gap: 4px 16px; list-style: none; margin: 0; padding: 0; font-size: 12px; color: var(--tinta); }
+.legenda li { display: inline-flex; align-items: center; gap: 7px; }
+
+/* chiavi: un tratto per le linee, un quadratino per le aree */
+.chiave { display: inline-block; width: 14px; height: 2px; border-radius: 1px; flex: none; }
+.chiave.k-tu { background: var(--c-tu); }
+.chiave.k-claude { background: var(--c-claude); }
+.chiave.q { width: 10px; height: 10px; border-radius: 3px; }
+
+/* ---------- di che cosa sono fatti, modelli ---------- */
+
+.crus-lato { min-width: 0; padding-top: 4px; }
+
+.spettro { display: flex; gap: 2px; height: 14px; margin: 2px 0 12px; border-radius: 4px; overflow: hidden; }
+.spettro i { display: block; flex: 1 1 0; min-width: 2px; }
+
+.spettro-voci { margin: 0; }
+.spettro-voci div { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--linea); font-size: 12.5px; }
+.spettro-voci dt { display: inline-flex; align-items: center; gap: 8px; color: var(--tinta); }
+.spettro-voci dd { margin: 0; display: flex; gap: 10px; font-variant-numeric: tabular-nums; }
+.spettro-voci dd span { color: var(--tinta); min-width: 7ch; text-align: right; }
+
+.modelli { list-style: none; margin: 0; padding: 0; }
+.modelli li { display: grid; grid-template-columns: 76px minmax(30px, 1fr) auto 60px; gap: 10px; align-items: center; padding: 5px 0; font-size: 12.5px; }
+.modelli .nome { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.modelli .valore, .modelli .soldi { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.modelli .soldi { color: var(--tinta); }
+
+.valore-stima { display: flex; justify-content: space-between; align-items: baseline; margin: 22px 0 0; padding-top: 12px; border-top: 1px solid var(--linea); }
+.valore-stima span { color: var(--tinta); font-size: 12.5px; }
+.valore-stima b { font-size: 20px; font-weight: 600; }
+
+/* ---------- la settimana ora per ora ---------- */
+
+.calore svg { max-width: 100%; }
+.calore rect.h0 { fill: var(--h0); }
+.calore rect.h1 { fill: var(--h1); }
+.calore rect.h2 { fill: var(--h2); }
+.calore rect.h3 { fill: var(--h3); }
+.calore rect.h4 { fill: var(--h4); }
+.calore rect.h5 { fill: var(--h5); }
+.calore .cursore { fill: none; stroke: var(--calima); stroke-width: 1.5; pointer-events: none; }
+
+.scala { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; color: var(--tinta); }
+.scala span { margin: 0 4px; }
+.scala i { width: 12px; height: 12px; border-radius: 3px; }
+.scala .h0, .chiave.h0 { background: var(--h0); }
+.scala .h1 { background: var(--h1); }
+.scala .h2 { background: var(--h2); }
+.scala .h3 { background: var(--h3); }
+.scala .h4 { background: var(--h4); }
+.scala .h5, .chiave.h5 { background: var(--h5); }
+
+/* ---------- adesso e registro ---------- */
+
+.adesso { list-style: none; margin: 0; padding: 0; }
+.adesso li { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 10px; align-items: start; padding: 6px 0; font-size: 13px; }
+.adesso li.nota { display: block; }
+.adesso .dot { margin-top: 5px; }
+.adesso small { display: block; color: var(--tinta); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.primati { margin: 0; }
+.primati div { padding: 8px 0; border-bottom: 1px solid var(--linea); }
+.primati dt { font-size: 12px; color: var(--tinta); }
+.primati dd { margin: 2px 0 0; font-family: var(--serif); font-size: 14.5px; line-height: 1.45; }
+
+.come-conto {
+	margin: 8px 0 0;
+	padding-top: 18px;
+	border-top: 1px solid var(--linea);
+	font-family: var(--serif);
+	font-size: 14px;
+	line-height: 1.6;
+	color: var(--tinta);
+	max-width: 76ch;
+}
+
+.come-conto b { color: var(--calima); font-weight: 600; }
+
+/* ---------- tabelle, suggerimenti, stati ---------- */
+
+.mostra-tabella { margin-top: 8px; font-size: 12px; }
+.tabella-scorre { max-height: 360px; overflow: auto; margin-top: 8px; border: 1px solid var(--linea); border-radius: 8px; }
+.carta .tabella-scorre { border-color: var(--notte-bordo); }
+.crus table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.crus th, .crus td { padding: 5px 10px; text-align: left; border-bottom: 1px solid var(--linea); white-space: nowrap; }
+.carta th, .carta td { border-bottom-color: var(--notte-bordo); }
+.crus thead th { position: sticky; top: 0; background: var(--basalto); font-weight: 600; color: var(--tinta); }
+.carta thead th { background: #172038; color: #8f98ad; }
+.crus .num { text-align: right; font-variant-numeric: tabular-nums; }
+.crus tbody th { font-weight: 500; }
+
+.crus-tip {
+	position: absolute;
+	z-index: 5;
+	min-width: 170px;
+	max-width: 300px;
+	padding: 9px 12px 8px;
+	border-radius: 10px;
+	background: var(--basalto);
+	border: 1px solid var(--linea);
+	box-shadow: 0 10px 28px var(--ombra);
+	pointer-events: none;
+	font-size: 12px;
+}
+
+.crus-tip p { margin: 0; }
+.tip-titolo { color: var(--tinta); margin-bottom: 5px !important; }
+.tip-riga { display: flex; align-items: center; gap: 8px; padding: 1px 0; }
+.tip-riga b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.tip-riga span { color: var(--tinta); }
+
+.crus-errore { padding: 30px 0; }
+.crus-errore p { margin: 0 0 12px; color: var(--sodio); }
+
+.crus.in-attesa #crus-corpo { opacity: 0.6; transition: opacity 0.2s; }
+
+/* animazioni ferme quando la finestra non si vede */
+.crus.fermo *, .crus.fermo *::after { animation-play-state: paused !important; }
+
+@media (prefers-reduced-motion: reduce) {
+	.carta .stella .anello { animation: none; }
+	.rivela .carta .stella, .rivela .carta .scie path { animation: none; opacity: 1; }
+	.rivela .carta .costellazione line { animation: none; stroke-dasharray: none; stroke-dashoffset: 0; }
+	.crus.in-attesa #crus-corpo { transition: none; }
+}
+
+/* ---------- larghezze ---------- */
+
+@media (max-width: 1080px) {
+	.crus-cielo { grid-template-columns: minmax(0, 1fr); }
+	.carta { max-width: 720px; }
+}
+
+@media (max-width: 900px) {
+	.crus-due { grid-template-columns: minmax(0, 1fr); gap: 0; }
+	.crus-lato { margin-bottom: 48px; }
+}
+
+@media (max-width: 700px) {
+	.cifra + .cifra { border-left: 0; padding-left: 0; }
+	.cifre { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.riga-progetto { grid-template-columns: 20px minmax(0, 1fr) auto 56px; }
+	.riga-progetto .misura { display: none; }
+	.carta { padding: 14px 10px; }
+}

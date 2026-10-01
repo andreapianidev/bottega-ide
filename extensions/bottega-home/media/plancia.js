@@ -1,5 +1,6 @@
 // @ts-check
-/* Bottega, la plancia: quattro stanze (Plancia, Lavori, Memoria, Melissa) in una sola webview.
+/* Bottega, la plancia: cinque stanze (Plancia, Lavori, Memoria, Melissa, Cruscotto) in una sola webview.
+   Il Cruscotto vive in cruscotto.js (caricato prima di questo file), qui lo si monta soltanto.
    Lo scheletro si costruisce una volta. Ogni aggiornamento tocca solo i pezzi cambiati, cosi'
    fuoco, scorrimento, dettagli aperti e testo che si sta scrivendo restano dove sono anche se
    l'istantanea arriva ogni pochi secondi. Contratto dei messaggi: docs/CONTRATTI.md, sezione 3. */
@@ -16,6 +17,7 @@
 		['lavori', 'Lavori'],
 		['memoria', 'Memoria'],
 		['melissa', 'Melissa'],
+		['cruscotto', 'Cruscotto'],
 	];
 	const reduced = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
 
@@ -36,6 +38,7 @@
 			open: new Set(),
 		},
 		ask: saved.ask || '',
+		/** @type {any} */ crus: saved.crus || {},
 		/** @type {any} */ assistant: null,
 		/** @type {{text: string, at: number} | null} */ pendingAsk: null,
 		/** @type {boolean | null} */ voiceOptimistic: null,
@@ -54,6 +57,7 @@
 			draft: state.draft,
 			mem: { query: state.mem.query, project: state.mem.project },
 			ask: state.ask,
+			crus: state.crus,
 		});
 
 	// ---------- piccoli attrezzi ----------
@@ -308,12 +312,28 @@
 		</div>
 	</section>
 
+	<section class="vista" id="vista-cruscotto" role="tabpanel" aria-labelledby="tab-cruscotto" hidden></section>
+
 	<p class="sr" id="annuncio" aria-live="polite"></p>`;
 
 	$('cerca-progetti').value = state.query;
 	$('compito').value = state.draft.task;
 	$('cerca-memoria').value = state.mem.query;
 	$('domanda').value = state.ask;
+
+	const BC = /** @type {any} */ (window).BottegaCruscotto;
+	const crus = BC
+		? BC.mount($('vista-cruscotto'), {
+				post: m => vscode.postMessage(m),
+				saved: state.crus,
+				save: o => {
+					state.crus = o;
+					persist();
+				},
+				reduced,
+				focusProject: p => focusRow(p),
+			})
+		: null;
 
 	// ---------- testata: stanze e stato del Mac ----------
 
@@ -1205,7 +1225,8 @@
 		if (state.view === 'plancia') renderPlancia();
 		else if (state.view === 'lavori') renderLavori();
 		else if (state.view === 'memoria') renderMemoria();
-		else renderMelissa();
+		else if (state.view === 'melissa') renderMelissa();
+		else if (crus) crus.render();
 	}
 
 	function show(view, focusTab) {
@@ -1219,6 +1240,10 @@
 		if (window.scrollTo) window.scrollTo(0, state.scroll[view] || 0);
 		if (view === 'melissa') orb.wake();
 		else orb.sleep();
+		if (crus) {
+			if (view === 'cruscotto') crus.show();
+			else crus.hide();
+		}
 		if (view === 'memoria' && !state.mem.sent) runSearch();
 	}
 
@@ -1493,7 +1518,7 @@
 		const el = /** @type {HTMLElement} */ (e.target);
 		const inField = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable;
 		if (e.metaKey || e.ctrlKey || e.altKey) return;
-		if (!inField && /^[1-4]$/.test(e.key)) {
+		if (!inField && /^[1-5]$/.test(e.key)) {
 			e.preventDefault();
 			return show(VIEWS[Number(e.key) - 1][0], true);
 		}
@@ -1511,7 +1536,12 @@
 		}
 	});
 
-	document.addEventListener('visibilitychange', () => (document.visibilityState === 'hidden' ? orb.sleep() : orb.wake()));
+	document.addEventListener('visibilitychange', () => {
+		const hidden = document.visibilityState === 'hidden';
+		if (hidden) orb.sleep();
+		else orb.wake();
+		if (crus) hidden ? crus.pause() : crus.resume();
+	});
 	if (reduced.addEventListener) reduced.addEventListener('change', () => orb.wake());
 	window.addEventListener('resize', () => {
 		if (state.view === 'melissa') orb.redraw();
@@ -1544,6 +1574,9 @@
 				if (state.view === 'memoria') renderMemoria();
 				return;
 			}
+			case 'stats':
+				if (crus) crus.setStats(m.stats || null, m.error);
+				return;
 			case 'assistant':
 				state.assistant = m.state;
 				state.voiceOptimistic = null;

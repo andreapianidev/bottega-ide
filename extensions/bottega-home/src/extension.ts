@@ -1,4 +1,4 @@
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -10,6 +10,7 @@ import { Nucleo, SystemStats } from './nucleo';
 import { Job, JobManager, computeLimit, limitReason } from './jobs';
 import { Memoria } from './memoria';
 import { Assistant, AssistantState } from './assistant';
+import { StatsEngine } from './stats';
 
 export interface Snapshot {
 	projects: Project[];
@@ -40,6 +41,10 @@ let jobManager: JobManager | undefined;
 let memoria: Memoria | undefined;
 let assistant: Assistant | undefined;
 let panelHost: PlanciaPanel | undefined;
+let statsEngine: StatsEngine | undefined;
+/** Il cruscotto si calcola solo dopo che la plancia l'ha chiesto almeno una volta. */
+let statsWanted = false;
+let statsSent = '';
 
 function cfg() {
 	return vscode.workspace.getConfiguration('bottega');
@@ -83,6 +88,7 @@ async function fullScan(): Promise<void> {
 		});
 		changed.fire(snapshot);
 		void jobManager?.reconcile();
+		if (statsWanted) void sendStats(false);
 	})().finally(() => (scanning = undefined));
 	return scanning;
 }
@@ -272,6 +278,24 @@ function showPlancia(section?: string): void {
 	if (section) panelHost?.send({ type: 'view', view: section.toLowerCase() });
 }
 
+// ---------- cruscotto ----------
+
+/** Calcola le statistiche (solo i file cambiati) e le manda alla plancia se sono cambiate o se
+ *  la plancia le ha chieste. Contratto: docs/CONTRATTI.md, sezione 3, messaggio "stats". */
+async function sendStats(force: boolean): Promise<void> {
+	if (!statsEngine || !panelHost?.isOpen) return;
+	if (!snapshot.scannedAt) await fullScan();
+	try {
+		const stats = await statsEngine.compute({ projects: snapshot.projects, live: snapshot.live });
+		const sig = StatsEngine.signature(stats);
+		if (!force && sig === statsSent) return;
+		statsSent = sig;
+		panelHost.send({ type: 'stats', stats });
+	} catch (e: any) {
+		panelHost.send({ type: 'stats', stats: null, error: `Non riesco a leggere le sessioni di Claude Code: ${e?.message ?? e}` });
+	}
+}
+
 // ---------- messaggi dalla plancia ----------
 
 async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
@@ -315,7 +339,7 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 			const query = m.query ?? '';
 			const results = memoria ? (query.trim() ? await memoria.search(query, m.project) : await memoria.recent(m.project)) : [];
 			const board = memoria ? await memoria.bacheca(m.project, 30) : [];
-			const bacheca = board.map(r => ({ at: r.createdAt, project: r.project, sessionId: r.sessionId, kind: r.kind, summary: r.text || r.title }));
+			const bacheca = board.map(r => ({ at: r.at, project: r.project, sessionId: r.sessionId, kind: r.kind, summary: r.summary }));
 			// La risposta riporta sempre `query`: le risposte vecchie vengono scartate dalla plancia.
 			panelHost?.send({ type: 'memoria', query, results, bacheca });
 			return;
@@ -325,6 +349,9 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 			return;
 		case 'voice.toggle':
 			return void assistant?.toggle();
+		case 'stats.request':
+			statsWanted = true;
+			return void sendStats(true);
 		case 'assistant.ask':
 			if (m.text) await assistant?.ask(m.text);
 			return;
@@ -338,6 +365,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 
 	nucleo = new Nucleo(extPath);
 	memoria = new Memoria(extPath);
+	statsEngine = new StatsEngine({ storageDir: ctx.globalStorageUri.fsPath, log: s => console.warn(s) });
 
 	jobManager = new JobManager(ctx, {
 		claudeCommand: () => cfg().get<string>('claudeCommand', 'claude'),
@@ -371,7 +399,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		jobs: () => (jobManager ? jobManager.list() : []),
 		systemStats: () => nucleo?.lastStats,
 		projectCount: () => snapshot.projects.length,
-		bacheca: async project => (memoria ? (await memoria.bacheca(project)).map(r => ({ title: r.title, text: r.text, project: r.project })) : []),
+		bacheca: async project => (memoria ? (await memoria.bacheca(project)).map(r => ({ title: r.project, text: r.summary, project: r.project })) : []),
 		memoriaSearch: async (text, project) => (memoria ? (await memoria.search(text, project)).map(r => ({ title: r.title, text: r.text, project: r.project })) : []),
 		memoriaRemember: async (text, project) => (memoria ? memoria.remember(text, project) : false),
 		secrets: ctx.secrets,
@@ -464,6 +492,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	ctx.subscriptions.push(
 		melissaView,
 		vscode.commands.registerCommand('bottega.openMelissa', () => showPlancia('melissa')),
+		vscode.commands.registerCommand('bottega.openCruscotto', () => showPlancia('cruscotto')),
 		vscode.commands.registerCommand('bottega.voice.converse', () => assistant?.toggleConversation()),
 	);
 
@@ -479,6 +508,37 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	}
 	await fullScan();
 	ensureClaudeExtension(ctx);
+	ensureItalian(ctx);
+}
+
+/** La Bottega parla italiano: al primo avvio installa il pacchetto di lingua da Open VSX e imposta la
+ *  lingua in argv.json. Una volta sola, cosi' chi rimette l'inglese non se lo vede ricambiare. */
+async function ensureItalian(ctx: vscode.ExtensionContext) {
+	if (!cfg().get('italiano', true) || vscode.env.language.startsWith('it') || ctx.globalState.get('bottega.italianoFatto')) {
+		return;
+	}
+	await ctx.globalState.update('bottega.italianoFatto', true);
+	const id = 'MS-CEINTL.vscode-language-pack-it';
+	try {
+		if (!vscode.extensions.getExtension(id)) {
+			await vscode.commands.executeCommand('workbench.extensions.installExtension', id);
+		}
+		const argv = path.join(os.homedir(), '.bottega', 'argv.json');
+		let text = fs.existsSync(argv) ? fs.readFileSync(argv, 'utf8') : '{\n}\n';
+		text = /"locale"\s*:/.test(text)
+			? text.replace(/"locale"\s*:\s*"[^"]*"/, '"locale": "it"')
+			: text.replace('{', '{\n\t"locale": "it",');
+		fs.writeFileSync(argv, text);
+		const choice = await vscode.window.showInformationMessage('La Bottega sara\' in italiano dal prossimo avvio.', 'Riavvia adesso');
+		if (choice) {
+			// La lingua cambia solo riaprendo l'app: un processo staccato la riapre dopo la chiusura.
+			const app = path.resolve(vscode.env.appRoot, '..', '..', '..');
+			spawn('/bin/sh', ['-c', `sleep 3; open -a "${app}"`], { detached: true, stdio: 'ignore' }).unref();
+			await vscode.commands.executeCommand('workbench.action.quit').then(undefined, () => undefined);
+		}
+	} catch {
+		vscode.window.showWarningMessage('Non riesco a installare il pacchetto italiano: cercalo nelle estensioni come "Italian Language Pack".');
+	}
 }
 
 async function ensureClaudeExtension(ctx: vscode.ExtensionContext) {

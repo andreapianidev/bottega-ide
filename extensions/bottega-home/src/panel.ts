@@ -11,6 +11,8 @@ export interface PlanciaMessage {
 	project?: string;
 	text?: string;
 	section?: string;
+	/** stats.request: periodo che la plancia sta guardando (7, 30, 90 giorni). */
+	period?: number;
 }
 
 export class PlanciaPanel {
@@ -54,6 +56,9 @@ export class PlanciaPanel {
 		panel.iconPath = vscode.Uri.joinPath(media, 'activity.svg');
 		const css = panel.webview.asWebviewUri(vscode.Uri.joinPath(media, 'plancia.css'));
 		const js = panel.webview.asWebviewUri(vscode.Uri.joinPath(media, 'plancia.js'));
+		// il cruscotto sta in file suoi; il suo script va caricato prima di plancia.js, che lo monta
+		const crusCss = panel.webview.asWebviewUri(vscode.Uri.joinPath(media, 'cruscotto.css'));
+		const crusJs = panel.webview.asWebviewUri(vscode.Uri.joinPath(media, 'cruscotto.js'));
 		const nonce = Array.from({ length: 24 }, () => Math.floor(Math.random() * 36).toString(36)).join('');
 		panel.webview.html = `<!doctype html>
 <html lang="it">
@@ -62,10 +67,12 @@ export class PlanciaPanel {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; img-src ${panel.webview.cspSource} data:; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="${css}">
+<link rel="stylesheet" href="${crusCss}">
 <title>Bottega</title>
 </head>
 <body>
 <main id="app"></main>
+<script nonce="${nonce}" src="${crusJs}"></script>
 <script nonce="${nonce}" src="${js}"></script>
 </body>
 </html>`;
