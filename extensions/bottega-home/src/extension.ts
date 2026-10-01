@@ -18,6 +18,9 @@ export interface Snapshot {
 
 let snapshot: Snapshot = { projects: [], live: [], elsewhere: [], scannedAt: 0, home: os.homedir() };
 const changed = new vscode.EventEmitter<Snapshot>();
+// Le viste ad albero vogliono un evento senza argomento: con un argomento aggiornerebbero solo quell'elemento.
+const treesChanged = new vscode.EventEmitter<void>();
+changed.event(() => treesChanged.fire());
 let scanning: Promise<void> | undefined;
 
 function cfg() {
@@ -117,7 +120,7 @@ function ago(ms: number): string {
 const STATUS: Record<string, string> = { busy: 'al lavoro', idle: 'in attesa', shell: 'nel terminale' };
 
 class LiveTree implements vscode.TreeDataProvider<LiveSession> {
-	readonly onDidChangeTreeData = changed.event as unknown as vscode.Event<void>;
+	readonly onDidChangeTreeData = treesChanged.event;
 	getChildren() {
 		return snapshot.live;
 	}
@@ -137,7 +140,7 @@ class LiveTree implements vscode.TreeDataProvider<LiveSession> {
 }
 
 class ProjectTree implements vscode.TreeDataProvider<Project> {
-	readonly onDidChangeTreeData = changed.event as unknown as vscode.Event<void>;
+	readonly onDidChangeTreeData = treesChanged.event;
 	getChildren() {
 		return snapshot.projects;
 	}
@@ -187,6 +190,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 
 	ctx.subscriptions.push(
 		changed,
+		treesChanged,
 		status,
 		changed.event(paint),
 		vscode.window.registerTreeDataProvider('bottega.live', new LiveTree()),

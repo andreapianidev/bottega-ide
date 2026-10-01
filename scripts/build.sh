@@ -14,7 +14,7 @@ major=$(sw_vers -productVersion | cut -d. -f1)
 
 if [[ ${1:-} != --package ]]; then
   # Il Mac e' un Air da 16 GB: una compilazione di VS Code alla volta, e con priorita' bassa.
-  if pgrep -f "gulp.js vscode-darwin" >/dev/null; then echo "C'e' gia' una compilazione di VS Code in corso."; exit 1; fi
+  if pgrep -f "gulp vscode-darwin" >/dev/null; then echo "C'e' gia' una compilazione di VS Code in corso."; exit 1; fi
 
   echo "== sorgenti VS Code $TAG"
   if [[ ! -d $SRC/.git ]]; then

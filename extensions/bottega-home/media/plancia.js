@@ -33,6 +33,11 @@
 		return `${Math.round(d / 30)} mesi fa`;
 	}
 
+	const since = ms => {
+		const a = ago(ms);
+		return a === 'adesso' ? 'da poco' : a === 'ieri' ? 'da ieri' : 'da ' + a.replace(' fa', '');
+	};
+
 	const home = p => (state.snapshot && p.startsWith(state.snapshot.home) ? '~' + p.slice(state.snapshot.home.length) : p);
 	const STATUS = { busy: 'al lavoro', idle: 'in attesa', shell: 'nel terminale' };
 	const KIND = { apple: 'Apple', web: 'Web', android: 'Android', python: 'Python', swiftpm: 'Swift package', docs: 'Documenti', altro: 'Altro' };
@@ -53,14 +58,18 @@
 		const busy = s.live.filter(l => l.status === 'busy').length;
 		const waiting = s.live.length - busy;
 		const toPush = s.projects.filter(p => p.git && p.git.ahead > 0).length;
+		const noRemote = s.projects.filter(p => p.git && !p.git.upstream).length;
 		const dirty = s.projects.filter(p => p.git && p.git.changes > 0).length;
-		const n = x => `<span class="n">${word(x)}</span>`;
-		let a = busy === 0 ? 'Nessun Claude al lavoro' : `${cap(n(busy))} Claude al lavoro`;
-		if (waiting) a += `, ${n(waiting)} in attesa`;
-		a += '.';
-		const b = toPush === 0 ? ' Tutto spinto.' : toPush === 1 ? ` ${cap(n(1))} progetto aspetta un push.` : ` ${cap(n(toPush))} progetti aspettano un push.`;
-		const c = dirty ? (dirty === 1 ? ` ${cap(n(1))} ha modifiche fuori da un commit.` : ` ${cap(n(dirty))} hanno modifiche fuori da un commit.`) : '';
-		return a + b + c;
+		// La maiuscola va sulla parola, prima di avvolgerla nello span.
+		const n = (x, first) => `<span class="n">${first ? cap(word(x)) : word(x)}</span>`;
+		let out = busy === 0 ? 'Nessun Claude al lavoro' : `${n(busy, true)} Claude al lavoro`;
+		if (waiting) out += `, ${n(waiting)} in attesa`;
+		out += '.';
+		if (toPush) out += toPush === 1 ? ` ${n(1, true)} progetto aspetta un push.` : ` ${n(toPush, true)} progetti aspettano un push.`;
+		if (noRemote) out += noRemote === 1 ? ` ${n(1, true)} progetto non ha un remoto.` : ` ${n(noRemote, true)} progetti non hanno un remoto.`;
+		if (!toPush && !noRemote) out += ' Tutto spinto.';
+		if (dirty) out += dirty === 1 ? ` ${n(1, true)} ha modifiche fuori da un commit.` : ` ${n(dirty, true)} hanno modifiche fuori da un commit.`;
+		return out;
 	}
 
 	function projectOf(s, l) {
@@ -76,7 +85,7 @@
 				return `<li><button class="lamp ${l.status === 'busy' ? 'busy' : ''}" data-act="${p ? 'focus' : 'claude-here'}" data-path="${esc(p ? p.path : l.cwd)}"
 					title="${esc(l.cwd)}, PID ${l.pid}">
 					<i class="dot" aria-hidden="true"></i><b>${esc(where)}</b>
-					<span>${esc(STATUS[l.status] || l.status)} da ${esc(ago(l.statusSince).replace(' fa', ''))}${l.title ? ', ' + esc(l.title) : ''}</span>
+					<span>${esc(STATUS[l.status] || l.status)} ${esc(since(l.statusSince))}${l.title ? ', ' + esc(l.title) : ''}</span>
 				</button></li>`;
 			})
 			.join('')}</ul>`;
@@ -174,7 +183,7 @@
 
 	function render() {
 		const s = state.snapshot;
-		if (!s) {
+		if (!s || !s.scannedAt) {
 			app.innerHTML = `<p class="empty">Sto leggendo i progetti e le sessioni Claude.</p>`;
 			return;
 		}

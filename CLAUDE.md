@@ -12,7 +12,7 @@ VS Code compilato dai sorgenti (tag in `bottega.json`), piu' estensioni proprie.
 - **Build sale a ogni modifica**, nello stesso commit: `scripts/bump-build.sh` (allinea anche le
   versioni delle estensioni).
 - La compilazione di VS Code pesa (Air M2 16 GB): una sola alla volta, gia' con `nice`. Prima di
-  lanciarla guarda `uptime` e `pgrep -f gulp.js`.
+  lanciarla guarda `uptime` e `pgrep -f "gulp vscode-darwin"`.
 - Per lavorare solo sulla plancia non serve ricompilare VS Code: `cd extensions/bottega-home && npm
   run build`, poi `scripts/build.sh --package`.
 - Testi visibili in italiano, senza lineette lunghe, senza maiuscolo forzato.
