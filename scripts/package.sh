@@ -56,6 +56,14 @@ codesign --force --deep --sign - $DIST 2>&1 | tail -2
 codesign --verify --deep $DIST && echo "firma ok"
 
 echo "== installazione in /Applications"
+# Andrea deve avere sempre l'ultima versione: se la Bottega e' aperta la si chiude con calma
+# (VS Code ritrova schede e file non salvati), la si sostituisce e la si riapre.
+WAS_RUNNING=0
+if pgrep -f "/Applications/Bottega.app/Contents/MacOS/Bottega$" >/dev/null; then
+  WAS_RUNNING=1
+  osascript -e 'tell application "Bottega" to quit' >/dev/null 2>&1 || true
+  for i in {1..30}; do pgrep -f "/Applications/Bottega.app/Contents/MacOS/Bottega$" >/dev/null || break; sleep 1; done
+fi
 rm -rf /Applications/Bottega.app
 ditto $DIST /Applications/Bottega.app
 # Percorsi stabili per chi sta fuori dall'IDE (hook della Memoria, server MCP).
@@ -66,3 +74,4 @@ mkdir -p ~/.bottega/bin && chmod 700 ~/.bottega
 mkdir -p ~/.local/bin
 ln -sf /Applications/Bottega.app/Contents/Resources/app/bin/code ~/.local/bin/bottega
 echo "Bottega $VERSION (build $BUILD) su VS Code $(python3 -c "import json;print(json.load(open('$DIST/Contents/Resources/app/package.json'))['version'])") installata."
+if (( WAS_RUNNING )); then open -a /Applications/Bottega.app && echo "Bottega riaperta"; fi

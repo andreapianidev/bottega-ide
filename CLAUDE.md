@@ -27,3 +27,7 @@ VS Code compilato dai sorgenti (tag in `bottega.json`), piu' estensioni proprie.
   ~20 richieste al minuto condivise con tutte le app di Andrea: i test reali sono su richiesta
   (`BOTTEGA_TEST_REALE=1 npm test`).
 - Il Nucleo si compila con `nucleo/build.sh` (leggero); da fermo deve restare a 0% di CPU.
+- **Andrea ha sempre l'ultima versione in /Applications (regola, 2 ottobre 2026).** Ogni modifica
+  finita si chiude cosi', senza chiedere: `scripts/bump-build.sh`, `scripts/package.sh` (installa
+  in `/Applications/Bottega.app`; se la Bottega e' aperta la chiude, la sostituisce e la riapre),
+  commit, push. Una modifica non e' finita finche' in /Applications non gira quella build.
