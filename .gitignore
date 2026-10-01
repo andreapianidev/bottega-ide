@@ -4,3 +4,7 @@ node_modules/
 out/
 *.vsix
 .DS_Store
+nucleo/build/
+extensions/bottega-home/test-out/
+extensions/bottega-home/nucleo/
+extensions/bottega-home/memoria/

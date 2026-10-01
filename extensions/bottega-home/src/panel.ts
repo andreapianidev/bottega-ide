@@ -1,14 +1,16 @@
 import * as vscode from 'vscode';
 import type { Snapshot } from './extension';
 
-export interface PlanciaActions {
-	open(p: string): void;
-	here(p: string): void;
-	claude(p: string, resumeId?: string): void;
-	finder(p: string): void;
-	xcode(p: string): void;
-	push(p: string): void;
-	refresh(): void;
+/** Un messaggio dalla plancia all'estensione (contratto, sezione 3). */
+export interface PlanciaMessage {
+	type: string;
+	path?: string;
+	id?: string;
+	task?: string;
+	query?: string;
+	project?: string;
+	text?: string;
+	section?: string;
 }
 
 export class PlanciaPanel {
@@ -18,9 +20,13 @@ export class PlanciaPanel {
 		private readonly root: vscode.Uri,
 		private readonly current: () => Snapshot,
 		onChange: vscode.Event<Snapshot>,
-		private readonly actions: PlanciaActions,
+		private readonly onMessage: (msg: PlanciaMessage) => void,
 	) {
-		onChange(s => this.post({ type: 'snapshot', snapshot: s }));
+		onChange(s => this.send({ type: 'snapshot', snapshot: s }));
+	}
+
+	get isOpen(): boolean {
+		return !!this.panel;
 	}
 
 	show(focus?: string) {
@@ -29,11 +35,12 @@ export class PlanciaPanel {
 		} else {
 			this.create();
 		}
-		this.post({ type: 'snapshot', snapshot: this.current() });
-		if (focus) this.post({ type: 'focus', path: focus });
+		this.send({ type: 'snapshot', snapshot: this.current() });
+		if (focus) this.send({ type: 'focus', path: focus });
 	}
 
-	private post(msg: unknown) {
+	/** Manda un messaggio alla plancia (snapshot, focus, memoria, assistant). */
+	send(msg: unknown) {
 		this.panel?.webview.postMessage(msg);
 	}
 
@@ -58,19 +65,16 @@ export class PlanciaPanel {
 <title>Bottega</title>
 </head>
 <body>
-<main id="app" aria-live="polite"></main>
+<main id="app"></main>
 <script nonce="${nonce}" src="${js}"></script>
 </body>
 </html>`;
-		panel.webview.onDidReceiveMessage((m: { type: keyof PlanciaActions | 'ready'; path?: string; id?: string }) => {
+		panel.webview.onDidReceiveMessage((m: PlanciaMessage) => {
 			if (m.type === 'ready') {
-				this.post({ type: 'snapshot', snapshot: this.current() });
+				this.send({ type: 'snapshot', snapshot: this.current() });
 				return;
 			}
-			if (m.type === 'refresh') return this.actions.refresh();
-			if (!m.path) return;
-			if (m.type === 'claude') return this.actions.claude(m.path, m.id);
-			this.actions[m.type](m.path);
+			this.onMessage(m);
 		});
 		panel.onDidDispose(() => (this.panel = undefined));
 		this.panel = panel;

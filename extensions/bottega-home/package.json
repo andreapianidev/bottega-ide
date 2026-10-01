@@ -59,6 +59,22 @@
         "command": "bottega.item.xcode",
         "title": "Apri in Xcode",
         "category": "Bottega"
+      },
+      {
+        "command": "bottega.voice.toggle",
+        "title": "Accendi o spegni Melissa",
+        "category": "Bottega",
+        "icon": "$(mic)"
+      },
+      {
+        "command": "bottega.assistant.ask",
+        "title": "Chiedi a Melissa",
+        "category": "Bottega"
+      },
+      {
+        "command": "bottega.memoria.install",
+        "title": "Attiva la memoria per Claude Code",
+        "category": "Bottega"
       }
     ],
     "viewsContainers": {
@@ -201,6 +217,34 @@
           "type": "boolean",
           "default": true,
           "description": "Installa l'estensione ufficiale Claude Code da Open VSX se manca."
+        },
+        "bottega.nucleoPath": {
+          "type": "string",
+          "default": "",
+          "description": "Percorso dell'eseguibile del Nucleo nativo. Vuoto: lo cerca dentro la Bottega e in ~/prototipi/Bottega/nucleo."
+        },
+        "bottega.jobs.maxParallel": {
+          "type": [
+            "string",
+            "number"
+          ],
+          "default": "auto",
+          "description": "Quanti lavori in parallelo. \"auto\" si adatta alla pressione di memoria e alla temperatura del Mac (3, 2 o 1); oppure un numero fisso."
+        },
+        "bottega.voice.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Accende Melissa, l'assistente a voce."
+        },
+        "bottega.voice.hotkey": {
+          "type": "string",
+          "default": "option+space",
+          "description": "Scorciatoia globale di Melissa. Un tocco avvia o chiude la conversazione, tenerla premuta parla una volta sola."
+        },
+        "bottega.voice.model": {
+          "type": "string",
+          "default": "eleven_v4_turbo",
+          "description": "Il modello di voce usato dal Nucleo per la sintesi vocale di Melissa."
         }
       }
     },
@@ -219,7 +263,8 @@
   },
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=out/extension.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node test/run.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

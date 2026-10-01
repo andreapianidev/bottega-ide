@@ -18,3 +18,12 @@ VS Code compilato dai sorgenti (tag in `bottega.json`), piu' estensioni proprie.
 - Testi visibili in italiano, senza lineette lunghe, senza maiuscolo forzato.
 - Il bundle id `com.andreapiani.bottega` e lo schema `bottega://` non si cambiano: dati e
   associazioni dell'utente dipendono da li'.
+- I protocolli tra Nucleo, Memoria, estensione e plancia stanno in `docs/CONTRATTI.md`: chi cambia
+  un'interfaccia aggiorna quel file nello stesso commit.
+- La Memoria e' installata davvero in `~/.claude/settings.json` (5 hook) e come server MCP utente:
+  gli hook devono restare sotto i 150 ms e uscire sempre con 0. Per provare usa
+  `BOTTEGA_HOME` e `CLAUDE_SETTINGS` verso una cartella di prova, mai i file veri.
+- Chiavi: Agnes da `~/.secrets/agnes-ai.env`, ElevenLabs da `~/.secrets/elevenlabs.env`. Agnes e' a
+  ~20 richieste al minuto condivise con tutte le app di Andrea: i test reali sono su richiesta
+  (`BOTTEGA_TEST_REALE=1 npm test`).
+- Il Nucleo si compila con `nucleo/build.sh` (leggero); da fermo deve restare a 0% di CPU.

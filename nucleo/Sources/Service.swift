@@ -1,0 +1,254 @@
+//
+//  Service.swift
+//  Bottega Nucleo
+//
+//  Service mode: reads JSON lines from stdin on a background thread (a blocking read,
+//  so 0% CPU while nothing arrives), dispatches each request concurrently, and exits
+//  cleanly when stdin closes (the extension, our parent, went away).
+//
+
+import AppKit
+import Speech
+import Metal
+
+enum StdinReader {
+    static func start() {
+        let thread = Thread {
+            while let line = readLine(strippingNewline: true) {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty { continue }
+                guard let req = Request(line: trimmed) else {
+                    Log.warn("riga non valida ignorata: \(trimmed.prefix(120))")
+                    if let data = trimmed.data(using: .utf8),
+                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let id = obj["id"] {
+                        Out.fail(id, "Richiesta non valida: manca il campo cmd.")
+                    }
+                    continue
+                }
+                Task { @MainActor in await Service.handle(req) }
+            }
+            // EOF: the parent is gone.
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { Service.shutdown(reason: "stdin chiuso") }
+            }
+        }
+        thread.name = "nucleo.stdin"
+        thread.qualityOfService = .userInitiated
+        thread.start()
+    }
+}
+
+@MainActor
+enum Service {
+    static func handle(_ r: Request) async {
+        do {
+            switch r.cmd {
+            case "ping":
+                r.respond(["version": Nucleo.version])
+
+            case "capabilities":
+                r.respond(await Capabilities.collect())
+
+            case "system.stats":
+                r.respond(SystemStats.snapshot())
+
+            // MARK: speech
+            case "speech.prepare":
+                let installed = try await SpeechPrep.prepare(locale: r.string("locale") ?? RecognizerFactory.defaultLocale)
+                r.respond(["installed": installed])
+
+            case "voice.listen":
+                let mode = Listener.Mode(rawValue: r.string("mode") ?? "push") ?? .push
+                guard mode == .push || mode == .utterance else {
+                    throw NucleoError("Modo di ascolto \"\(r.string("mode") ?? "")\" non valido: usa push o utterance.")
+                }
+                try await Listener.shared.listen(mode: mode, locale: r.string("locale"))
+                r.respond(["backend": Listener.shared.backendName])
+
+            case "voice.stop":
+                await Listener.shared.stop()
+                r.respond()
+
+            case "voice.converse.start":
+                try await Listener.shared.converseStart(locale: r.string("locale"))
+                r.respond(["echoCancellation": Listener.shared.echoCancellation,
+                           "backend": Listener.shared.backendName])
+
+            case "voice.converse.stop":
+                await Listener.shared.converseStop()
+                r.respond()
+
+            case "voice.speak":
+                let text = r.string("text") ?? ""
+                let append = r.bool("append") ?? false
+                let final = r.bool("final") ?? false
+                if text.isEmpty && !final { throw NucleoError("Niente da dire: il campo text e' vuoto.") }
+                Speaker.shared.speak(text: text, append: append, final: final,
+                                     model: r.string("model"), voice: r.string("voice"))
+                r.respond(["engine": Speaker.shared.currentEngine.rawValue])
+
+            case "voice.stopSpeaking":
+                Speaker.shared.stopSpeaking()
+                r.respond()
+
+            case "wake.enable":
+                try await Listener.shared.wakeEnable(phrase: r.string("phrase") ?? "melissa", locale: r.string("locale"))
+                r.respond()
+
+            case "wake.disable":
+                await Listener.shared.wakeDisable()
+                r.respond()
+
+            // MARK: orb
+            case "orb.show":
+                OrbPanel.shared.show()
+                r.respond()
+
+            case "orb.hide":
+                OrbPanel.shared.hide()
+                r.respond()
+
+            case "orb.state":
+                guard let name = r.string("state"), let st = OrbPanel.OrbState(name: name) else {
+                    throw NucleoError("Stato della sfera non valido: usa idle, listening, thinking, speaking o error.")
+                }
+                OrbPanel.shared.set(state: st, caption: r.string("caption"))
+                r.respond()
+
+            // MARK: hotkey, notifications, menu bar
+            case "hotkey.register":
+                let label = try Hotkey.shared.register(key: r.string("key"), modifiers: r.strings("modifiers"))
+                r.respond(["label": label])
+
+            case "hotkey.unregister":
+                Hotkey.shared.unregister()
+                r.respond()
+
+            case "notify":
+                guard let id = r.string("id") ?? r.int("id").map(String.init) else {
+                    throw NucleoError("La notifica ha bisogno di un id.")
+                }
+                let actions = (r.dicts("actions") ?? []).compactMap { d -> Notifier.Action? in
+                    guard let aid = d["id"] as? String, let title = d["title"] as? String else { return nil }
+                    return Notifier.Action(id: aid, title: title)
+                }
+                try await Notifier.shared.post(id: id, title: r.string("title") ?? "Bottega",
+                                               body: r.string("body") ?? "", subtitle: r.string("subtitle"),
+                                               sound: r.bool("sound") ?? true, actions: actions)
+                r.respond()
+
+            case "menubar.update":
+                let items = r.dicts("items")?.compactMap { d -> MenuBar.Item? in
+                    guard let id = d["id"].map({ "\($0)" }), let title = d["title"] as? String else { return nil }
+                    return MenuBar.Item(id: id, title: title, status: (d["status"] as? String) ?? "")
+                }
+                MenuBar.shared.update(busy: r.int("busy") ?? 0, waiting: r.int("waiting") ?? 0,
+                                      queued: r.int("queued") ?? 0, title: r.string("title"),
+                                      items: items, visible: r.bool("visible"))
+                r.respond()
+
+            // MARK: Apple Intelligence
+            case "ai.generate":
+                let text = try await Intelligence.generate(prompt: r.string("prompt") ?? "",
+                                                           instructions: r.string("instructions"),
+                                                           maxTokens: r.int("maxTokens"))
+                r.respond(["text": text])
+
+            case "ai.summarize":
+                let text = try await Intelligence.summarize(text: r.string("text") ?? "",
+                                                            instructions: r.string("instructions"))
+                r.respond(["text": text])
+
+            case "ai.embed":
+                let texts = r.strings("texts") ?? []
+                let lang = r.string("language")
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try Intelligence.embed(texts, language: lang)
+                }.value
+                r.respond(["dimension": result.dimension, "vectors": result.vectors])
+
+            case "quit":
+                r.respond()
+                shutdown(reason: "richiesta quit")
+
+            default:
+                throw NucleoError("Comando sconosciuto: \(r.cmd)")
+            }
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            r.fail(message)
+        }
+    }
+
+    static func shutdown(reason: String) {
+        Log.info("chiusura: \(reason)")
+        Hotkey.shared.unregister()
+        MenuBar.shared.remove()
+        Speaker.shared.stopSpeaking()
+        Out.drain()
+        exit(0)
+    }
+}
+
+@MainActor
+enum Capabilities {
+    static func collect() async -> [String: Any?] {
+        let locale = RecognizerFactory.defaultLocale
+        let installed = await RecognizerFactory.analyzerReady(locale)
+        var out: [String: Any?] = [
+            "version": Nucleo.version,
+            "foundationModels": Intelligence.isAvailable,
+            "speechLocaleInstalled": installed,
+            "speechLocale": locale,
+            "speechBackend": installed ? "SpeechAnalyzer" : "SFSpeechRecognizer",
+            "embedding": Intelligence.embeddingAvailable,
+            "embeddingDimension": Intelligence.embedding(for: .italian)?.dimension ?? 0,
+            "metal": MTLCreateSystemDefaultDevice()?.name ?? "",
+            "memoryGB": SystemStats.memoryTotalGB,
+            "cores": SystemStats.cores,
+            "ttsEngine": Speaker.shared.currentEngine.rawValue,
+            "ttsModel": Speaker.shared.currentEngine == .elevenlabs ? ElevenLabsConfig.realtimeModel : "apple",
+            "elevenLabsConfigured": ElevenLabsConfig.isConfigured,
+            "elevenLabsVoice": ElevenLabsConfig.isConfigured ? ElevenLabsConfig.voiceID : nil,
+            "elevenLabsCharsThisMonth": ElevenLabsUsage.charsThisMonth,
+            "appleVoice": Speaker.appleVoice()?.identifier,
+            "echoCancellation": Listener.shared.echoCancellation,
+            "echoCancellationTested": Listener.shared.echoTested,
+            "conversing": Listener.shared.conversing,
+            "hotkey": Hotkey.shared.isArmed ? Hotkey.shared.label : nil,
+        ]
+        if let reason = Intelligence.unavailableReason { out["foundationModelsReason"] = reason }
+        return out
+    }
+}
+
+enum SpeechPrep {
+    /// Downloads the on-device speech model for `locale` (AssetInventory), emitting
+    /// `speech.progress {fraction}` while it goes.
+    static func prepare(locale identifier: String) async throws -> Bool {
+        guard SpeechTranscriber.isAvailable else {
+            throw NucleoError("La trascrizione sul dispositivo (SpeechTranscriber) non e' disponibile su questo Mac.")
+        }
+        guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: identifier)) else {
+            throw NucleoError("La lingua \(identifier) non e' supportata dalla trascrizione sul dispositivo.")
+        }
+        if await RecognizerFactory.analyzerReady(identifier) { return true }
+        let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [],
+                                            reportingOptions: [.volatileResults], attributeOptions: [])
+        if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+            var last = -1.0
+            let observation = request.progress.observe(\.fractionCompleted, options: [.new]) { progress, _ in
+                let f = (progress.fractionCompleted * 100).rounded() / 100
+                if f != last {
+                    last = f
+                    Out.event("speech.progress", ["fraction": f, "locale": identifier])
+                }
+            }
+            defer { observation.invalidate() }
+            try await request.downloadAndInstall()
+            Out.event("speech.progress", ["fraction": 1.0, "locale": identifier])
+        }
+        _ = try? await AssetInventory.reserve(locale: locale)
+        return await RecognizerFactory.analyzerReady(identifier)
+    }
+}

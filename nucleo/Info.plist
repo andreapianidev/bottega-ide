@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.andreapiani.bottega.nucleo</string>
+	<key>CFBundleName</key>
+	<string>Bottega Nucleo</string>
+	<key>CFBundleDisplayName</key>
+	<string>Bottega Nucleo</string>
+	<key>CFBundleExecutable</key>
+	<string>BottegaNucleo</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>__VERSION__</string>
+	<key>CFBundleVersion</key>
+	<string>__BUILD__</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>it</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>27.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>LSArchitecturePriority</key>
+	<array>
+		<string>arm64</string>
+	</array>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>La Bottega ascolta la tua voce solo mentre tieni premuto il tasto per parlare con Melissa, o mentre la conversazione e' accesa.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>La Bottega trascrive la tua voce sul Mac, senza mandarla in rete.</string>
+	<key>NSUserNotificationAlertStyle</key>
+	<string>alert</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 Andrea Piani · NIE Z2331796-S · Tijarafe, Santa Cruz de Tenerife · Islas Canarias</string>
+</dict>
+</plist>

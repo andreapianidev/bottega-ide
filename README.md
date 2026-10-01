@@ -12,6 +12,20 @@ La Bottega e' VS Code compilato dai sorgenti ufficiali Microsoft (licenza MIT), 
 - **Claude Code dentro.** Un clic apre una sessione Claude in una scheda dell'editor, nella cartella del
   progetto; `Riprendi` lancia `claude --resume` sulla sessione scelta. Al primo avvio la Bottega
   installa l'estensione ufficiale Claude Code da Open VSX.
+- **Melissa, a voce.** La stessa Melissa di Avo Agency AI, ora dentro la Bottega. Tocca Opzione+Spazio
+  per una conversazione in tempo reale (la puoi interrompere mentre parla), tieni premuto per un solo
+  comando. Cervello Agnes con strumenti che agiscono sull'IDE (progetti, lavori Claude, memoria, git),
+  voce ElevenLabs v4 Turbo con la voce di Melissa e ripiego sulla voce Apple Emma. La sfera e' in Metal.
+- **I lavori.** Piu' sessioni Claude in parallelo, ognuna in una scheda, con una coda che rispetta i
+  limiti dell'M2 da 16 GB (tre insieme con memoria tranquilla, meno sotto pressione o col Mac caldo)
+  e una notifica quando un lavoro ti aspetta.
+- **La memoria.** La nostra versione di claude-mem (`memoria/`): gli hook di Claude Code registrano
+  ogni sessione, Apple Intelligence sul Mac la riassume, ogni nuova sessione parte sapendo cosa e'
+  stato fatto su quel progetto, e le sessioni che girano insieme si vedono a vicenda (la bacheca).
+  Claude puo' cercare con il server MCP `bottega-memoria`.
+- **Il Nucleo.** Un'app Swift nativa nascosta nella Bottega (`nucleo/`): voce sul dispositivo, sfera
+  Metal, scorciatoia globale, notifiche, barra dei menu, Apple Intelligence, embedding, pressione di
+  memoria e temperatura. Da fermo consuma 0% di CPU e 30 MB.
 - **Senza Copilot.** L'estensione GitHub Copilot integrata in VS Code non viene compilata ne'
   inclusa, e le funzioni AI di Copilot sono spente in partenza (`chat.disableAIFeatures`). Claude
   Code ha il suo pannello e non ne dipende. Chi le rivuole cambia l'impostazione.
@@ -54,6 +68,9 @@ delle modifiche non si applica piu'.
 | `brand/icon.swift` | genera l'icona (`swift brand/icon.swift`) |
 | `extensions/bottega-home` | la plancia, le viste laterali, i comandi Claude |
 | `extensions/bottega-theme` | temi e impostazioni predefinite |
+| `nucleo/` | l'app nativa (Swift, Metal, Speech, FoundationModels, NaturalLanguage) |
+| `memoria/` | hook, server MCP e riga di comando della memoria |
+| `docs/CONTRATTI.md` | i protocolli tra i pezzi: leggilo prima di toccarne uno |
 
 ## Scorciatoie
 
@@ -61,6 +78,8 @@ delle modifiche non si applica piu'.
 |---|---|
 | `Cmd+Shift+H` | apre la plancia |
 | `Cmd+Alt+C` | nuova sessione Claude nella cartella aperta |
+| `Opzione+Spazio` (tocco) | conversazione con Melissa, accesa o spenta |
+| `Opzione+Spazio` (tenuto) | un solo comando a Melissa |
 | `/` nella plancia | cerca un progetto |
 
 ## Licenza e marchi

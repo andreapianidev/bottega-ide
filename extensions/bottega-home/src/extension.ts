@@ -5,7 +5,11 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { LiveSession, PastSession, readLiveSessions, readPastSessions, SESSIONS_DIR } from './claude';
 import { Project, scanProjects } from './scan';
-import { PlanciaPanel } from './panel';
+import { PlanciaPanel, PlanciaMessage } from './panel';
+import { Nucleo, SystemStats } from './nucleo';
+import { Job, JobManager, computeLimit, limitReason } from './jobs';
+import { Memoria } from './memoria';
+import { Assistant, AssistantState } from './assistant';
 
 export interface Snapshot {
 	projects: Project[];
@@ -14,22 +18,53 @@ export interface Snapshot {
 	elsewhere: PastSession[];
 	scannedAt: number;
 	home: string;
+	jobs: Job[];
+	jobLimit: number;
+	jobLimitReason: string;
+	system: SystemStats | null;
+	nucleo: boolean;
+	assistant: AssistantState;
 }
 
-let snapshot: Snapshot = { projects: [], live: [], elsewhere: [], scannedAt: 0, home: os.homedir() };
+const DEFAULT_ASSISTANT: AssistantState = { enabled: true, conversing: false, state: 'idle', log: [], brain: 'agnes' };
+
+let snapshot: Snapshot = { projects: [], live: [], elsewhere: [], scannedAt: 0, home: os.homedir(), jobs: [], jobLimit: 3, jobLimitReason: 'valori predefiniti', system: null, nucleo: false, assistant: DEFAULT_ASSISTANT };
 const changed = new vscode.EventEmitter<Snapshot>();
 // Le viste ad albero vogliono un evento senza argomento: con un argomento aggiornerebbero solo quell'elemento.
 const treesChanged = new vscode.EventEmitter<void>();
 changed.event(() => treesChanged.fire());
 let scanning: Promise<void> | undefined;
 
+let nucleo: Nucleo | undefined;
+let jobManager: JobManager | undefined;
+let memoria: Memoria | undefined;
+let assistant: Assistant | undefined;
+let panelHost: PlanciaPanel | undefined;
+
 function cfg() {
 	return vscode.workspace.getConfiguration('bottega');
 }
 
+const norm = (p: string) => p.toLowerCase().replace(/\/+$/, '');
+
 function attachTitles(live: LiveSession[], past: PastSession[]): LiveSession[] {
 	const byId = new Map(past.map(s => [s.sessionId, s.title]));
 	return live.map(s => ({ ...s, title: byId.get(s.sessionId) }));
+}
+
+/** I campi dinamici (lavori, sistema, assistente) che vivono fuori dalla scansione. */
+function withDynamic(base: Omit<Snapshot, 'jobs' | 'jobLimit' | 'jobLimitReason' | 'system' | 'nucleo' | 'assistant'>): Snapshot {
+	const setting = cfg().get<string | number>('jobs.maxParallel', 'auto');
+	const stats = nucleo?.lastStats;
+	return {
+		...base,
+		jobs: jobManager ? jobManager.list() : snapshot.jobs,
+		jobLimit: computeLimit(setting, stats),
+		jobLimitReason: limitReason(setting, stats),
+		system: stats ?? null,
+		nucleo: nucleo?.available ?? false,
+		assistant: assistant ? assistant.getState() : snapshot.assistant,
+	};
 }
 
 async function fullScan(): Promise<void> {
@@ -39,14 +74,15 @@ async function fullScan(): Promise<void> {
 		const live = attachTitles(readLiveSessions(), past);
 		const projects = await scanProjects(cfg().get<string[]>('roots', []), cfg().get<string[]>('ignore', []), past, live);
 		const claimed = new Set(projects.flatMap(p => p.sessions.map(s => s.sessionId)));
-		snapshot = {
+		snapshot = withDynamic({
 			projects,
 			live,
 			elsewhere: past.filter(s => !claimed.has(s.sessionId)).slice(0, 30),
 			scannedAt: Date.now(),
 			home: os.homedir(),
-		};
+		});
 		changed.fire(snapshot);
+		void jobManager?.reconcile();
 	})().finally(() => (scanning = undefined));
 	return scanning;
 }
@@ -54,13 +90,19 @@ async function fullScan(): Promise<void> {
 /** Aggiornamento leggero: solo il registro delle sessioni vive, senza rileggere git. */
 function liveScan(): void {
 	const live = attachTitles(readLiveSessions(), [...snapshot.projects.flatMap(p => p.sessions), ...snapshot.elsewhere]);
-	const norm = (p: string) => p.toLowerCase().replace(/\/+$/, '') + '/';
 	for (const p of snapshot.projects) {
 		const mine = new Set(p.sessions.map(x => x.sessionId));
-		p.live = live.filter(s => norm(s.cwd).startsWith(norm(p.path)) || mine.has(s.sessionId));
+		p.live = live.filter(s => norm(s.cwd).startsWith(norm(p.path) + '/') || mine.has(s.sessionId));
 	}
-	snapshot = { ...snapshot, live };
+	snapshot = withDynamic({ ...snapshot, live });
 	changed.fire(snapshot);
+	void jobManager?.reconcile();
+}
+
+/** Ricalcola solo i campi dinamici e li manda alla plancia, senza ripassare git e trees. */
+function refreshDynamic(): void {
+	snapshot = withDynamic(snapshot);
+	panelHost?.send({ type: 'snapshot', snapshot });
 }
 
 export function projectFor(p: string): Project | undefined {
@@ -165,18 +207,182 @@ class ProjectTree implements vscode.TreeDataProvider<Project> {
 	}
 }
 
+// ---------- azioni per l'assistente ----------
+
+function searchProjects(text: string): { name: string; path: string }[] {
+	const q = (text || '').toLowerCase();
+	return snapshot.projects
+		.filter(p => p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q))
+		.map(p => ({ name: p.name, path: p.path }));
+}
+
+function resolveProject(nameOrPath: string): { name: string; path: string } | undefined {
+	const q = norm(nameOrPath || '');
+	const p =
+		snapshot.projects.find(x => norm(x.path) === q) ||
+		snapshot.projects.find(x => x.name.toLowerCase() === q) ||
+		snapshot.projects.find(x => path.basename(x.path).toLowerCase() === q) ||
+		snapshot.projects.find(x => x.name.toLowerCase().includes(q));
+	return p ? { name: p.name, path: p.path } : undefined;
+}
+
+function projectStatus(p: string): string {
+	const proj = projectFor(p);
+	if (!proj) return 'Progetto sconosciuto.';
+	const parts: string[] = [];
+	const g = proj.git;
+	if (g) {
+		parts.push(`ramo ${g.branch}`);
+		if (g.ahead) parts.push(`${g.ahead} commit da spingere`);
+		if (g.changes) parts.push(`${g.changes} modifiche non salvate`);
+		if (!g.ahead && !g.changes) parts.push('albero pulito');
+		if (g.lastCommitSubject) parts.push(`ultimo commit "${g.lastCommitSubject}" ${ago(g.lastCommitAt)}`);
+	} else {
+		parts.push('non e\' un repository git');
+	}
+	if (proj.build) parts.push(`build ${proj.build.number ?? '?'}${proj.build.marketing ? ', versione ' + proj.build.marketing : ''}`);
+	if (proj.live.length) parts.push(`${proj.live.length} sessioni di Claude attive adesso`);
+	const titles = proj.sessions.slice(0, 3).map(s => s.title).filter(Boolean);
+	if (titles.length) parts.push('ultime sessioni: ' + titles.join('; '));
+	return parts.join('. ') + '.';
+}
+
+function openFile(p: string): boolean {
+	if (!p || !path.isAbsolute(p)) return false;
+	const known = snapshot.projects.some(pr => norm(p) === norm(pr.path) || norm(p).startsWith(norm(pr.path) + '/'));
+	if (!known) return false;
+	try {
+		if (!fs.existsSync(p)) return false;
+	} catch {
+		return false;
+	}
+	void vscode.window.showTextDocument(vscode.Uri.file(p));
+	return true;
+}
+
+function editorContext(): { path?: string; selection?: string } {
+	const ed = vscode.window.activeTextEditor;
+	if (!ed) return {};
+	const text = ed.document.getText(ed.selection);
+	return { path: ed.document.uri.fsPath, selection: text || undefined };
+}
+
+function showPlancia(section?: string): void {
+	panelHost?.show();
+	if (section) panelHost?.send({ type: 'focus', section });
+}
+
+// ---------- messaggi dalla plancia ----------
+
+async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
+	switch (m.type) {
+		case 'refresh':
+			return void fullScan();
+		case 'open':
+			return m.path ? openProject(m.path) : undefined;
+		case 'here':
+			return m.path ? openProject(m.path, false) : undefined;
+		case 'claude':
+			return m.path ? claudeIn(m.path, m.id) : undefined;
+		case 'finder':
+			return m.path ? reveal(m.path) : undefined;
+		case 'xcode':
+			return m.path ? openXcode(m.path) : undefined;
+		case 'push':
+			return m.path ? push(m.path) : undefined;
+		case 'job.new':
+			if (m.path && m.task) jobManager?.start(m.path, m.task);
+			return;
+		case 'job.focus':
+			if (m.id) jobManager?.focus(m.id);
+			return;
+		case 'job.stop': {
+			if (!m.id) return;
+			const job = jobManager?.list().find(j => j.id === m.id);
+			const ok = await vscode.window.showWarningMessage(
+				`Fermo il lavoro su ${job?.project ?? m.id}?`,
+				{ modal: true, detail: 'Chiudo il suo terminale: la sessione di Claude viene interrotta.' },
+				'Ferma',
+			);
+			if (ok === 'Ferma') jobManager?.stop(m.id);
+			return;
+		}
+		case 'job.remove':
+			if (m.id) jobManager?.remove(m.id);
+			return;
+		case 'memoria.search': {
+			// `project` qui e' il NOME del progetto. Query vuota = memorie recenti.
+			const query = m.query ?? '';
+			const results = memoria ? (query.trim() ? await memoria.search(query, m.project) : await memoria.recent(m.project)) : [];
+			const board = memoria ? await memoria.bacheca(m.project, 30) : [];
+			const bacheca = board.map(r => ({ at: r.createdAt, project: r.project, sessionId: r.sessionId, kind: r.kind, summary: r.text || r.title }));
+			// La risposta riporta sempre `query`: le risposte vecchie vengono scartate dalla plancia.
+			panelHost?.send({ type: 'memoria', query, results, bacheca });
+			return;
+		}
+		case 'memoria.remember':
+			if (m.text) await memoria?.remember(m.text, m.project);
+			return;
+		case 'voice.toggle':
+			return void assistant?.toggle();
+		case 'assistant.ask':
+			if (m.text) await assistant?.ask(m.text);
+			return;
+	}
+}
+
 // ---------- attivazione ----------
 
 export async function activate(ctx: vscode.ExtensionContext) {
-	const panelHost = new PlanciaPanel(ctx.extensionUri, () => snapshot, changed.event, {
-		open: p => openProject(p),
-		here: p => openProject(p, false),
-		claude: (p, id) => claudeIn(p, id),
-		finder: reveal,
-		xcode: openXcode,
-		push,
-		refresh: () => void fullScan(),
+	const extPath = ctx.extensionPath;
+
+	nucleo = new Nucleo(extPath);
+	memoria = new Memoria(extPath);
+
+	jobManager = new JobManager(ctx, {
+		claudeCommand: () => cfg().get<string>('claudeCommand', 'claude'),
+		maxParallelSetting: () => cfg().get<string | number>('jobs.maxParallel', 'auto'),
+		systemStats: () => nucleo?.lastStats,
+		liveSessions: () => snapshot.live,
+		notify: args => nucleo?.fireAndForget('notify', args),
+		updateMenubar: counts => nucleo?.fireAndForget('menubar.update', { busy: counts.busy, waiting: counts.waiting, queued: counts.queued }),
+		onChange: () => refreshDynamic(),
 	});
+
+	assistant = new Assistant({
+		nucleo: nucleo!,
+		actions: {
+			searchProjects,
+			resolveProject,
+			openProject: (p, nw) => openProject(p, nw),
+			projectStatus,
+			liveSessions: () => snapshot.live,
+			startJob: (p, task) => jobManager!.start(p, task),
+			listJobs: () => jobManager!.list(),
+			resolveJob: id => jobManager!.resolve(id),
+			writeToJob: (id, text) => jobManager!.write(id, text),
+			stopJob: id => jobManager!.stop(id),
+			gitPush: p => push(p),
+			openFile,
+			editorContext,
+			showPlancia,
+		},
+		liveSessions: () => snapshot.live,
+		jobs: () => (jobManager ? jobManager.list() : []),
+		systemStats: () => nucleo?.lastStats,
+		projectCount: () => snapshot.projects.length,
+		bacheca: async project => (memoria ? (await memoria.bacheca(project)).map(r => ({ title: r.title, text: r.text, project: r.project })) : []),
+		memoriaSearch: async (text, project) => (memoria ? (await memoria.search(text, project)).map(r => ({ title: r.title, text: r.text, project: r.project })) : []),
+		memoriaRemember: async (text, project) => (memoria ? memoria.remember(text, project) : false),
+		secrets: ctx.secrets,
+		onState: state => {
+			snapshot.assistant = state;
+			panelHost?.send({ type: 'assistant', state });
+		},
+	});
+
+	panelHost = new PlanciaPanel(ctx.extensionUri, () => snapshot, changed.event, m => void onPlanciaMessage(m));
+	assistant.wire(ctx);
 
 	const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 1000);
 	status.command = 'bottega.openPlancia';
@@ -193,9 +399,11 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		treesChanged,
 		status,
 		changed.event(paint),
+		{ dispose: () => nucleo?.dispose() },
+		{ dispose: () => jobManager?.dispose() },
 		vscode.window.registerTreeDataProvider('bottega.live', new LiveTree()),
 		vscode.window.registerTreeDataProvider('bottega.projects', new ProjectTree()),
-		vscode.commands.registerCommand('bottega.openPlancia', (focus?: string) => panelHost.show(typeof focus === 'string' ? focus : undefined)),
+		vscode.commands.registerCommand('bottega.openPlancia', (focus?: string) => panelHost!.show(typeof focus === 'string' ? focus : undefined)),
 		vscode.commands.registerCommand('bottega.refresh', () => fullScan()),
 		vscode.commands.registerCommand('bottega.claudeHere', (uri?: vscode.Uri) => {
 			const cwd = uri?.fsPath ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir();
@@ -212,7 +420,26 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('bottega.item.claude', (p: Project) => claudeIn(p.path)),
 		vscode.commands.registerCommand('bottega.item.finder', (p: Project) => reveal(p.path)),
 		vscode.commands.registerCommand('bottega.item.xcode', (p: Project) => openXcode(p.path)),
+		vscode.commands.registerCommand('bottega.voice.toggle', () => assistant!.toggle()),
+		vscode.commands.registerCommand('bottega.assistant.ask', async () => {
+			const text = await vscode.window.showInputBox({ title: 'Chiedi a Melissa', prompt: 'Cosa le chiedi?', ignoreFocusOut: true });
+			if (text) await assistant!.ask(text);
+		}),
+		vscode.commands.registerCommand('bottega.memoria.install', () => memoria!.install()),
+		vscode.window.onDidCloseTerminal(t => jobManager?.onTerminalClosed(t)),
 	);
+
+	// Eventi del Nucleo.
+	nucleo.on('system.stats', (s: SystemStats) => {
+		snapshot.system = s;
+		jobManager?.kick();
+		refreshDynamic();
+	});
+	nucleo.on('system.pressure', () => jobManager?.kick());
+	nucleo.on('notify.clicked', (m: any) => {
+		if (typeof m?.id === 'string' && m.id.startsWith('job:')) jobManager?.focus(m.id.slice(4));
+	});
+	nucleo.start();
 
 	// Il registro delle sessioni vive cambia spesso: lo si osserva, con un piccolo ritardo
 	// perche' Claude Code riscrive il file in piu' passate.
