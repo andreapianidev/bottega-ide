@@ -402,7 +402,7 @@
 			put(
 				$('crus-cifre'),
 				[
-					cifra('Ore tue', hm(p.you), delta(p.you, p.prev.you, ok, 'min'), `${parola(p.activeDays)} ${p.activeDays === 1 ? 'giorno attivo' : 'giorni attivi'} su ${p.days}`),
+					cifra('Ore tue', hm(p.you), delta(p.you, p.prev.you, ok, 'min'), `${it(p.activeDays)} ${p.activeDays === 1 ? 'giorno attivo' : 'giorni attivi'} su ${p.days}`),
 					cifra('Ore di Claude', hm(p.claude), delta(p.claude, p.prev.claude, ok, 'min'), p.you >= 1 ? `${it(p.claude / p.you, 1)} sessioni attive in media mentre lavori` : ''),
 					cifra('Sessioni', it(p.sessions), delta(p.sessions, p.prev.sessions, ok, 'n'), p.sessions ? `in media ${hm(p.avgSession)} l'una` : ''),
 					cifra('Token', tk(tot), delta(tot, sum4(p.prev.tok), ok, 'tok'), `${it(p.prompts)} messaggi scritti da te`),
@@ -522,7 +522,8 @@
 			let st = '';
 			for (const s of stelle) {
 				const live = s.row.live > 0;
-				st += `<g class="stella${live ? ' vivo' : ''}" data-i="${s.i}">
+				// le sessioni fuori dai progetti non sono un progetto: stella vuota, senza alone
+				st += `<g class="stella${live ? ' vivo' : ''}${s.row.path ? '' : ' altrove'}" data-i="${s.i}">
 					<circle class="alone" cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="${(s.size * 2.6).toFixed(1)}" fill="url(#crus-bagliore)"/>
 					${live ? `<circle class="anello" cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="${(s.size + 6).toFixed(1)}"/>` : ''}
 					<circle class="nucleo" cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="${(s.size * 0.55).toFixed(1)}"/>
@@ -559,7 +560,7 @@
 
 			put(
 				$('carta-legenda'),
-				`<p>Ogni stella è un progetto, grande quanto le ore che ci hai lavorato negli ultimi ${days} giorni. Il giro è l'orologio delle 24 ore, con mezzogiorno in alto: la stella sta all'ora in cui lavori di solito a quel progetto, la scia copre le ore in cui ci lavori. Più è vicina al centro, più di recente ci hai lavorato. Le linee uniscono i progetti che hai portato avanti negli stessi momenti; l'anello acceso segna una sessione aperta adesso.</p>`,
+				`<p>Ogni stella è un progetto, grande quanto le ore che ci hai lavorato negli ultimi ${days} giorni. Il giro è l'orologio delle 24 ore, con mezzogiorno in alto: la stella sta all'ora in cui lavori di solito a quel progetto, la scia copre le ore in cui ci lavori. Più è vicina al centro, più di recente ci hai lavorato. Le linee uniscono i progetti che hai portato avanti negli stessi momenti; l'anello acceso segna una sessione aperta adesso. La stella vuota raccoglie le sessioni partite fuori dai progetti.</p>`,
 			);
 			put(
 				$('carta-tabella'),
@@ -746,8 +747,13 @@
 				`<li><i class="chiave k-tu" aria-hidden="true"></i>Tu, le sessioni insieme contano una volta</li><li><i class="chiave k-claude" aria-hidden="true"></i>Claude, somma delle sessioni</li>`,
 			);
 			const best = list.reduce((a, b) => (b.you > (a ? a.you : -1) ? b : a), null);
-			const unit = g === 'giorno' ? 'il giorno più pieno' : g === 'settimana' ? 'la settimana più piena' : 'il mese più pieno';
-			const nota = best && best.you >= 1 ? `Negli ultimi ${p.days} giorni ${unit} è ${g === 'giorno' ? giornoL(best.date) : best.long.replace(', in corso', '')}, con ${hm(best.you)} tue e ${hm(best.claude)} di Claude.` : `Nessuna ora di lavoro negli ultimi ${p.days} giorni.`;
+			let quale = '';
+			if (best && g === 'giorno') quale = `il giorno più pieno è ${giornoL(best.date)}`;
+			else if (best && g === 'settimana') {
+				const a = parseDay(best.start), z = parseDay(best.end);
+				quale = `la settimana più piena è quella dal ${a.getDate()}${a.getMonth() === z.getMonth() ? '' : ' ' + MESI[a.getMonth()]} al ${giornoM(best.end)}`;
+			} else if (best) quale = `il mese più pieno è ${meseL(best.key)}`;
+			const nota = best && best.you >= 1 ? `Negli ultimi ${p.days} giorni ${quale}, con ${hm(best.you)} tue e ${hm(best.claude)} di Claude.` : `Nessuna ora di lavoro negli ultimi ${p.days} giorni.`;
 			$('curva-nota').textContent = nota;
 			el.setAttribute('aria-label', `Ore di lavoro ${g === 'giorno' ? 'per giorno' : g === 'settimana' ? 'per settimana' : 'per mese'}. ${nota} Usa le frecce per leggere i valori.`);
 			put(
@@ -900,7 +906,7 @@
 				if (v > 0) spettro += `<i class="t-${id}" data-w="${Math.max(0.6, pct(v, tot)).toFixed(2)}"></i>`;
 			}
 			spettro += '</div><dl class="spettro-voci">';
-			for (const [id, l, k] of TIPI.slice().reverse()) {
+			for (const [id, l, k] of TIPI) {
 				spettro += `<div><dt><i class="chiave q t-${id}" aria-hidden="true"></i>${l}</dt><dd><b>${tk(p.tok[k])}</b><span>${pctTxt(pct(p.tok[k], tot))}</span></dd></div>`;
 			}
 			spettro += '</dl>';

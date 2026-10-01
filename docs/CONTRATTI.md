@@ -155,12 +155,19 @@ Estensione -> plancia:
 - `{type: "focus", path}`
 - `{type: "memoria", query, results: MemoryItem[]}` risposta a una ricerca
 - `{type: "assistant", state: AssistantState}` aggiornamento leggero mentre Melissa parla
+- `{type: "view", view}` apre una stanza: `plancia`, `lavori`, `memoria`, `melissa`, `cruscotto`
+  (comandi `bottega.openMelissa`, `bottega.openCruscotto`)
+- `{type: "stats", stats: Stats}` il cruscotto (vedi sotto), in risposta a `stats.request` e poi a ogni
+  scansione completa (ogni 2 minuti) se i numeri sono cambiati; `{type: "stats", stats: null, error}`
+  se i registri non si leggono
 
 Plancia -> estensione (`type` + campi):
 `ready`, `refresh`, `open`, `here`, `claude {path, id?}`, `finder`, `xcode`, `push`,
 `job.new {path, task}`, `job.focus {id}`, `job.stop {id}`, `job.remove {id}`,
 `memoria.search {query, project?}`, `memoria.remember {text, project?}`,
-`voice.toggle`, `assistant.ask {text}` (domanda scritta a Melissa)
+`voice.toggle`, `assistant.ask {text}` (domanda scritta a Melissa),
+`stats.request {period?}` (il cruscotto chiede i numeri; `period` 7, 30 o 90 e' solo informativo:
+la risposta contiene sempre tutti e tre i periodi, cosi' cambiare periodo non costa un giro)
 
 ```ts
 interface Job {
@@ -178,5 +185,62 @@ interface AssistantState {
   partial?: string;
   log: { role: 'tu'|'melissa'|'azione'; text: string; at: number }[];  // ultimi 30
   brain: 'agnes'|'apple'|'nessuno';
+}
+```
+
+### Il cruscotto (`Stats`, da `src/stats.ts`)
+
+Fonte: i registri di Claude Code `~/.claude/projects/<cartella>/<sessione>.jsonl` piu'
+`<sessione>/subagents/*.jsonl` (i sottoagenti appartengono alla sessione che li ha lanciati).
+Regole, scritte anche in chiaro nel cruscotto:
+- attivita': le righe `user`, `assistant`, `system` con `timestamp`. Dentro una sessione due eventi a
+  meno di 15 minuti valgono come lavoro, una pausa piu' lunga spezza il conto;
+- `you` (ore di Andrea) = unione degli intervalli di tutte le sessioni, due sessioni insieme contano
+  una volta; `claude` = somma per sessione, mostra il parallelismo;
+- token da `message.usage` delle righe `assistant`; le righe con lo stesso `message.id` + `requestId`
+  sono la stessa risposta (una riga per blocco): contano una volta, col valore piu' alto per campo;
+- progetto di una sessione: come nella plancia (`sessionOwner` in `scan.ts`): cartella di partenza,
+  altrimenti il progetto in cui ha toccato piu' file (almeno due); il resto va in "Fuori dai progetti"
+  (`path: null`);
+- valore a listino: stima a prezzi API (input, output, lettura cache, scrittura cache 1,25x o 2x
+  l'input per 5 minuti o 1 ora). Non e' quello che si paga con un abbonamento. Misurato il 2/10/2026
+  sui conti `cost-state` che Claude Code scrive nelle sessioni: la stima sta il 6,5% sotto (Claude Code
+  conta anche chiamate che non finiscono nel registro).
+- giorni, ore e settimane (ISO, da lunedi') nel fuso orario del Mac.
+
+Cache: `<globalStorage>/cruscotto-cache.json`, un riassunto per file con dimensione, mtime e byte
+letti. Al giro dopo si rileggono solo i file cambiati; un file solo cresciuto (sessione viva) riprende
+dall'ultima riga completa. Lettura a pezzi da 1 MB, cedendo il passo all'host ogni ~12 ms.
+
+```ts
+type Tok = [input: number, output: number, lettiDallaCache: number, scrittiInCache: number];
+interface StatsTotals { you: number; claude: number; tok: Tok; cost: number; sessions: number;
+  prompts: number; activeDays: number }                 // minuti, dollari, messaggi scritti da Andrea
+interface Stats {
+  version: 1; computedAt: number; ms: number;           // ms = tempo del calcolo
+  files: { total: number; read: number; cached: number; mb: number };
+  gapMinutes: 15; streakMinutes: 30; tz: string; firstEvent: number;
+  today: { date: string; you: number; claude: number; tok: number; sessions: number };
+  week: { start: string; now: {you, claude, tok}; prevSoFar: {you, claude, tok}; prevFull: {you, claude, tok} };
+  days: { date: string /* YYYY-MM-DD */; you; claude; sessions; prompts; tok: Tok; cost }[];  // ultimi 90, dal piu' vecchio
+  weeks: (StatsTotals & { key: string /* 2026-W40 */; start: string; end: string })[];         // settimane che toccano i 90 giorni
+  months: (StatsTotals & { key: string /* 2026-09 */; start: string; end: string })[];
+  periods: Record<'7' | '30' | '90', StatsTotals & {
+    days: number; from: string; avgSession: number;    // minuti di Claude per sessione
+    peak: { n: number; at: number };                   // massimo di sessioni attive insieme
+    prev: StatsTotals;                                 // gli stessi giorni subito prima
+    projects: { name: string; path: string | null; you; claude; tok: Tok; cost; sessions;
+      prev: { you; claude; tok: number; cost }; last: number;
+      daily: number[]; hours: number[] /* 24, minuti tuoi per ora */; live: number }[];
+    edges: { a: string; b: string; minutes: number }[];  // progetti lavorati insieme (>= 20 min)
+    models: { id: string; name: string; tok: Tok; messages: number; cost: number | null }[];
+    heat: number[][];                                  // [lunedi'..domenica][0..23] minuti tuoi
+  }>;
+  streak: { current: number; best: number; bestEnd: string | null };
+  records: { busiestDay: {date, you} | null; longestStint: {start, minutes} | null; tokenDay: {date, tok} | null };
+  live: { pid; sessionId; project: string; path: string | null; title; status; since; started;
+    today: number; tokToday: number }[];
+  prices: { note: string; perModel: Record<string, [input, output, cacheRead]> };  // $ per milione
+  unpricedTokens: number;
 }
 ```

@@ -53,7 +53,7 @@ const PRICES: { re: RegExp; name: string; p: [number, number, number] }[] = [
 ];
 
 export const PRICE_NOTE =
-	'Stima a prezzi di listino API: token per il prezzo di ogni modello (input, output, lettura e scrittura in cache). Con un abbonamento non e\' quello che paghi.';
+	'Stima a prezzi di listino API: token per il prezzo di ogni modello (input, output, lettura e scrittura in cache). Con un abbonamento non è quello che paghi.';
 
 function priceOf(model: string) {
 	return PRICES.find(x => x.re.test(model));
@@ -497,7 +497,8 @@ async function listFiles(root: string): Promise<Entry[]> {
 		for (const e of ents) {
 			if (e.isFile() && e.name.endsWith('.jsonl')) {
 				out.push({ file: path.join(dir, e.name), sid: e.name.slice(0, -6) });
-			} else if (e.isDirectory() && /^[0-9a-f-]{20,}$/i.test(e.name)) {
+			} else if (e.isDirectory()) {
+				// <sessione>/subagents/*.jsonl; le altre cartelle (memory, ...) non hanno subagents
 				const sub = path.join(dir, e.name, 'subagents');
 				let subs: string[] = [];
 				try {
