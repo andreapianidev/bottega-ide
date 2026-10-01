@@ -44,11 +44,14 @@ const ACCENTI_RE = new RegExp(`(^|[^\\p{L}'])(${Object.keys(ACCENTI).join('|')})
 
 export function accenti(text) {
 	if (!text) return '';
-	return String(text).replace(ACCENTI_RE, (_, pre, w) => {
-		const low = w.toLowerCase();
-		const acc = ACCENTI[low];
-		return pre + (w[0] === w[0].toUpperCase() && w[0] !== w[0].toLowerCase() ? acc[0].toUpperCase() + acc.slice(1) : acc);
-	});
+	return String(text)
+		.replace(ACCENTI_RE, (_, pre, w) => {
+			const low = w.toLowerCase();
+			const acc = ACCENTI[low];
+			return pre + (w[0] === w[0].toUpperCase() && w[0] !== w[0].toLowerCase() ? acc[0].toUpperCase() + acc.slice(1) : acc);
+		})
+		// "è" a inizio testo o di frase va maiuscola: il modello a volte scrive "e'" minuscolo anche li'.
+		.replace(/(^|[.!?]\s+|\n\s*)è(?=\s)/g, '$1È');
 }
 
 export function undash(text) {
