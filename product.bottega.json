@@ -1,0 +1,23 @@
+{
+  "nameShort": "Bottega",
+  "nameLong": "Bottega",
+  "applicationName": "bottega",
+  "dataFolderName": ".bottega",
+  "sharedDataFolderName": ".bottega-shared",
+  "serverApplicationName": "bottega-server",
+  "serverDataFolderName": ".bottega-server",
+  "tunnelApplicationName": "bottega-tunnel",
+  "darwinBundleIdentifier": "com.andreapiani.bottega",
+  "urlProtocol": "bottega",
+  "licenseName": "MIT",
+  "licenseUrl": "https://github.com/microsoft/vscode/blob/main/LICENSE.txt",
+  "reportIssueUrl": "https://github.com/andreapianidev/bottega/issues/new",
+  "extensionsGallery": {
+    "serviceUrl": "https://open-vsx.org/vscode/gallery",
+    "itemUrl": "https://open-vsx.org/vscode/item",
+    "extensionUrlTemplate": "https://open-vsx.org/vscode/gallery/{publisher}/{name}/latest",
+    "controlUrl": "",
+    "nlsBaseUrl": ""
+  },
+  "linkProtectionTrustedDomains": ["https://open-vsx.org", "https://claude.ai", "https://www.anthropic.com", "https://docs.anthropic.com"]
+}

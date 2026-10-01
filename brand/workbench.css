@@ -1,0 +1,54 @@
+/* ===== Bottega: ritocchi al banco di lavoro =====
+   Appeso in coda a src/vs/workbench/browser/media/style.css da scripts/patch-source.py.
+   Regola: si cambia la forma e il ritmo, non la struttura. Niente che sposti i layout di VS Code. */
+
+/* Titoli in maiuscolo: diventano testo normale, piu' leggibile */
+.monaco-workbench .part.sidebar > .title > .title-label h2,
+.monaco-workbench .part.auxiliarybar > .title > .title-label h2,
+.monaco-pane-view .pane > .pane-header > .title,
+.monaco-workbench .pane-composite-part > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item,
+.monaco-workbench .pane-composite-part > .header-or-footer > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item {
+	text-transform: none;
+	letter-spacing: 0;
+}
+
+.monaco-workbench .part.sidebar > .title > .title-label h2 {
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.monaco-pane-view .pane > .pane-header > .title {
+	font-weight: 600;
+}
+
+/* Schede dell'editor: angoli morbidi in alto, come linguette */
+.monaco-workbench .part.editor > .content .editor-group-container > .title .tabs-container > .tab {
+	border-top-left-radius: 8px;
+	border-top-right-radius: 8px;
+}
+
+/* Palette comandi e menu: piu' aria e un'ombra vera */
+.quick-input-widget {
+	border-radius: 14px !important;
+	box-shadow: 0 24px 64px rgba(0, 0, 0, 0.42), 0 0 0 1px var(--vscode-widget-border, transparent) !important;
+}
+
+.monaco-menu-container .monaco-scrollable-element,
+.context-view .monaco-menu {
+	border-radius: 10px !important;
+}
+
+.notifications-toasts .notification-toast {
+	border-radius: 12px !important;
+	overflow: hidden;
+}
+
+/* Barre di scorrimento sottili e arrotondate */
+.monaco-scrollable-element > .scrollbar > .slider {
+	border-radius: 999px;
+}
+
+/* La barra di stato sussurra */
+.monaco-workbench .part.statusbar {
+	font-size: 11.5px;
+}

@@ -1,0 +1,50 @@
+{
+  "name": "bottega-theme",
+  "displayName": "Bottega, temi",
+  "description": "Notte e Calima: il cielo di La Palma e le sue lampade al sodio.",
+  "publisher": "andreapiani",
+  "version": "0.1.0",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Themes"
+  ],
+  "contributes": {
+    "themes": [
+      {
+        "label": "Bottega Notte",
+        "uiTheme": "vs-dark",
+        "path": "./themes/bottega-notte.json"
+      },
+      {
+        "label": "Bottega Calima",
+        "uiTheme": "vs",
+        "path": "./themes/bottega-calima.json"
+      }
+    ],
+    "configurationDefaults": {
+      "editor.fontFamily": "'SF Mono', Menlo, monospace",
+      "editor.fontSize": 13,
+      "editor.lineHeight": 1.65,
+      "editor.minimap.enabled": false,
+      "editor.cursorSmoothCaretAnimation": "on",
+      "editor.cursorBlinking": "phase",
+      "editor.smoothScrolling": true,
+      "editor.padding.top": 12,
+      "editor.guides.indentation": false,
+      "workbench.list.smoothScrolling": true,
+      "workbench.tree.indent": 14,
+      "workbench.tree.renderIndentGuides": "onHover",
+      "workbench.startupEditor": "none",
+      "explorer.compactFolders": false,
+      "terminal.integrated.fontFamily": "'SF Mono', Menlo, monospace",
+      "terminal.integrated.fontSize": 12.5,
+      "terminal.integrated.lineHeight": 1.15,
+      "terminal.integrated.cursorStyle": "line",
+      "git.autofetch": true,
+      "window.commandCenter": true
+    }
+  }
+}

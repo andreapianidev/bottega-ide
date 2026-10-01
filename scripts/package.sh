@@ -1,0 +1,38 @@
+#!/bin/zsh
+# Prende l'app compilata da gulp, aggiunge le estensioni della Bottega, versione e firma,
+# e la installa in /Applications/Bottega.app.
+set -euo pipefail
+ROOT=${0:A:h:h}
+BUILT=$ROOT/vendor/VSCode-darwin-arm64/Bottega.app
+DIST=$ROOT/dist/Bottega.app
+read VERSION BUILD MINOS < <(python3 -c "import json;d=json.load(open('$ROOT/bottega.json'));print(d['version'],d['build'],d['minimumMacOS'])")
+
+[[ -d $BUILT ]] || { echo "Manca $BUILT: lancia prima scripts/build.sh"; exit 1; }
+
+echo "== estensioni della Bottega"
+(cd $ROOT/extensions/bottega-home && npm install --silent && npm run -s build)
+rm -rf $ROOT/dist && mkdir -p $ROOT/dist
+ditto $BUILT $DIST
+EXT=$DIST/Contents/Resources/app/extensions
+for e in bottega-home bottega-theme; do
+  rm -rf $EXT/$e && mkdir -p $EXT/$e
+  rsync -a --exclude node_modules --exclude src --exclude tsconfig.json --exclude package-lock.json $ROOT/extensions/$e/ $EXT/$e/
+done
+
+echo "== Info.plist (build $BUILD, macOS minimo $MINOS)"
+PL=$DIST/Contents/Info.plist
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" $PL
+/usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion $MINOS" $PL 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string $MINOS" $PL
+/usr/libexec/PlistBuddy -c "Delete :LSArchitecturePriority" $PL 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :LSArchitecturePriority array" -c "Add :LSArchitecturePriority:0 string arm64" $PL
+
+echo "== firma ad hoc"
+codesign --force --deep --sign - $DIST 2>&1 | tail -2
+codesign --verify --deep $DIST && echo "firma ok"
+
+echo "== installazione in /Applications"
+rm -rf /Applications/Bottega.app
+ditto $DIST /Applications/Bottega.app
+mkdir -p ~/.local/bin
+ln -sf /Applications/Bottega.app/Contents/Resources/app/bin/bottega ~/.local/bin/bottega
+echo "Bottega $VERSION (build $BUILD) su VS Code $(python3 -c "import json;print(json.load(open('$DIST/Contents/Resources/app/package.json'))['version'])") installata."

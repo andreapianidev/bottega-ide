@@ -1,0 +1,230 @@
+{
+  "name": "bottega-home",
+  "displayName": "Bottega",
+  "description": "La plancia di tutti i progetti in corso e delle sessioni Claude Code.",
+  "publisher": "andreapiani",
+  "version": "0.1.0",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "bottega.openPlancia",
+        "title": "Apri la plancia",
+        "category": "Bottega",
+        "icon": "$(home)"
+      },
+      {
+        "command": "bottega.refresh",
+        "title": "Aggiorna",
+        "category": "Bottega",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "bottega.claudeHere",
+        "title": "Apri Claude Code in questa cartella",
+        "category": "Bottega"
+      },
+      {
+        "command": "bottega.openProject",
+        "title": "Apri progetto",
+        "category": "Bottega"
+      },
+      {
+        "command": "bottega.item.open",
+        "title": "Apri in una nuova finestra",
+        "category": "Bottega"
+      },
+      {
+        "command": "bottega.item.claude",
+        "title": "Nuova sessione Claude",
+        "category": "Bottega",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "bottega.item.finder",
+        "title": "Mostra nel Finder",
+        "category": "Bottega"
+      },
+      {
+        "command": "bottega.item.xcode",
+        "title": "Apri in Xcode",
+        "category": "Bottega"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "bottega",
+          "title": "Bottega",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "bottega": [
+        {
+          "id": "bottega.live",
+          "name": "Sessioni Claude vive"
+        },
+        {
+          "id": "bottega.projects",
+          "name": "Progetti"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "bottega.openPlancia",
+          "when": "view == bottega.projects",
+          "group": "navigation"
+        },
+        {
+          "command": "bottega.refresh",
+          "when": "view == bottega.projects",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "bottega.item.claude",
+          "when": "view == bottega.projects",
+          "group": "inline"
+        },
+        {
+          "command": "bottega.item.claude",
+          "when": "view == bottega.projects",
+          "group": "1_main@1"
+        },
+        {
+          "command": "bottega.item.open",
+          "when": "view == bottega.projects",
+          "group": "1_main@2"
+        },
+        {
+          "command": "bottega.item.xcode",
+          "when": "view == bottega.projects && viewItem == project.apple",
+          "group": "1_main@3"
+        },
+        {
+          "command": "bottega.item.finder",
+          "when": "view == bottega.projects",
+          "group": "2_os@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "bottega.item.open",
+          "when": "false"
+        },
+        {
+          "command": "bottega.item.claude",
+          "when": "false"
+        },
+        {
+          "command": "bottega.item.finder",
+          "when": "false"
+        },
+        {
+          "command": "bottega.item.xcode",
+          "when": "false"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "bottega.claudeHere",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation@99"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "bottega.openPlancia",
+        "key": "cmd+shift+h"
+      },
+      {
+        "command": "bottega.claudeHere",
+        "key": "cmd+alt+c"
+      }
+    ],
+    "configuration": {
+      "title": "Bottega",
+      "properties": {
+        "bottega.roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "~/prototipi",
+            "~/Library/Mobile Documents/com~apple~CloudDocs/Prototipi",
+            "~/Library/Mobile Documents/com~apple~CloudDocs/Avo Agency",
+            "~/Library/Mobile Documents/com~apple~CloudDocs/Progetti xCode"
+          ],
+          "description": "Cartelle che contengono i progetti. Ogni sottocartella diretta e' un progetto."
+        },
+        "bottega.ignore": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "^_",
+            "^\\.",
+            "backup",
+            "node_modules"
+          ],
+          "description": "Espressioni regolari: le cartelle che corrispondono non vengono mostrate."
+        },
+        "bottega.claudeCommand": {
+          "type": "string",
+          "default": "claude",
+          "description": "Comando con cui avviare Claude Code nel terminale."
+        },
+        "bottega.openOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Apre la plancia quando la finestra parte senza cartella."
+        },
+        "bottega.installClaudeExtension": {
+          "type": "boolean",
+          "default": true,
+          "description": "Installa l'estensione ufficiale Claude Code da Open VSX se manca."
+        }
+      }
+    },
+    "colors": [
+      {
+        "id": "bottega.sodio",
+        "description": "Lampada al sodio: sessioni Claude al lavoro e cose da spingere.",
+        "defaults": {
+          "dark": "#f4ab3c",
+          "light": "#a85f00",
+          "highContrast": "#ffb547",
+          "highContrastLight": "#8a4e00"
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=out/extension.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.100.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0"
+  }
+}
