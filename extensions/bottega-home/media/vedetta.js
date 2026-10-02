@@ -64,7 +64,8 @@
 
 	/** Per "ultimo dato ...": "delle 14:20", "di ieri", "di 3 giorni fa". */
 	function di(ms, now) {
-		if (stessoGiorno(ms, now)) return `delle ${ora(ms)}`;
+		// anche a cavallo della mezzanotte: un dato di poche ore fa si dice con l'ora, non «di 5 min fa»
+		if (stessoGiorno(ms, now) || now - ms < 12 * 3_600_000) return `delle ${ora(ms)}`;
 		return `di ${fa(ms, now)}`;
 	}
 

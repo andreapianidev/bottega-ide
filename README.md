@@ -176,6 +176,12 @@ Open VSX e gli passa quello che sa gia' Claude Code: i server MCP locali (ogni c
 `~/.claude/CLAUDE.md` e la memoria, da cercare e da arricchire. La chiave del fornitore si mette nelle impostazioni di
 Cline. Si spegne con `bottega.cline.attivo`.
 
+### Il terminale
+
+**Terminale**, quarta voce della barra di destra dopo Cline: il terminale vero di VS Code, che si apre nella cartella
+della sessione o del file su cui stai lavorando. «Terminale qui» dal tasto destro sui file e sulle cartelle, e «Apri in
+iTerm2» con il profilo Bottega, stessi colori e stesso carattere del tema.
+
 ### Connettori e posta per progetto
 
 La Bottega non ha chiavi di Gmail, Vercel o altri servizi: usa i connettori che hai già in Claude Code, quindi

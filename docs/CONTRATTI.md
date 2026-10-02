@@ -1548,3 +1548,48 @@ fornitore scelto in Cline (per Andrea DeepSeek, `deepseek-v4-pro`). Codice: `src
   hook, Cline per ora no.
 - **Chiave**: la Bottega non la tocca. Cline la tiene in `~/.cline/data/secrets.json`, si imposta dalle sue
   impostazioni.
+
+## 12. Il terminale, quarta voce della barra di destra
+
+Codice: `src/terminale.ts` (logica pura, provata da `test/terminale.cjs`) e `src/terminale-host.ts`. Colori e carattere
+in `extensions/bottega-theme`.
+
+- **La voce**: e' il terminale vero di VS Code. Il suo contenitore (id `terminal`, lo stesso della vista; con il
+  pacchetto italiano si chiama «Terminale») passa dal pannello in basso alla barra di destra, dopo Melissa, Claude Code
+  e Cline, senza patch a VS Code e con lo stesso meccanismo di Cline (sezione 11): un processo staccato aspetta la fine
+  del processo principale e scrive `views.customizations.viewContainerLocations.terminal = 2` e la voce in fondo a
+  `workbench.auxiliarybar.pinnedPanels`, con `spostaInBarra` di `src/cline.ts`. Una volta sola (file segnale
+  `~/.bottega/terminale-in-barra`, registro `~/.bottega/terminale.log`): se Andrea lo riporta in basso, resta in basso.
+  Se alla stessa chiusura deve spostarsi anche Cline (Cline attivo, installato e senza `~/.bottega/cline-in-barra`), il
+  programma del terminale aspetta quel file, fino a 30 secondi, poi scrive: due programmi insieme si pesterebbero le
+  stesse chiavi. Si spegne con `bottega.terminale.barra: false`.
+- **Cosa cambia per il resto**: i lavori della Bottega (`src/jobs.ts`) e le sessioni di Claude (`claudeIn`,
+  Cmd+Alt+C) aprono i loro terminali nell'editor, quindi non si spostano. La shell integration non dipende dal posto
+  della vista: `src/ponte-sessioni-host.ts` legge l'uscita come prima. Ctrl+`, le attivita' (tasks), il terminale del
+  debug e `git push` della Bottega si aprono nella voce di destra invece che in basso. Nel pannello in basso restano
+  Problemi, Output, Console di debug, Porte.
+- **La cartella corrente** (`cartellaCorrente`): la sessione della scheda attiva, se la scheda e' un terminale
+  nell'editor (cartella del lavoro della Bottega, poi la cartella viva della shell integration, poi quella di
+  creazione); altrimenti, per il file attivo, la piu' interna tra la radice git (un worktree, dove `.git` e' un file,
+  conta come radice sua; la home non conta mai) e la cartella del workspace che lo contiene, poi la cartella del file;
+  altrimenti la prima cartella del workspace; altrimenti la home.
+- **Il terminale che VS Code crea da solo** quando si apre la voce vuota (o Ctrl+`) nasce nella prima cartella del
+  workspace o nella home: VS Code non permette di sceglierla. Se la cartella corrente e' un'altra, la Bottega lo
+  sostituisce subito con uno nella cartella giusta. Solo se: e' l'unico terminale fuori dall'editor, e' nato senza
+  opzioni (niente nome, cartella, shell), sono passati 10 secondi dall'avvio (i terminali ripristinati restano) e
+  `terminal.integrated.cwd` e' vuota.
+- **Comandi**: `bottega.terminale` (apre la voce, o un terminale nuovo nella cartella corrente se non ce n'e'),
+  `bottega.terminaleQui` «Terminale qui» (palette: cartella corrente; Explorer e menu della scheda: la cartella, o
+  quella del file), `bottega.terminaleEsterno` «Apri in iTerm2» (palette ed Explorer) e `bottega.terminaleEsternoDaQui`
+  (pulsante nel titolo della voce Terminale: la cartella del terminale attivo).
+- **iTerm2**: profilo dinamico «Bottega» in `~/Library/Application Support/iTerm2/DynamicProfiles/bottega.json`
+  (Guid fisso `bottega-terminale-andreapiani`), con i colori `terminal.*` del tema attivo (Notte se scuro, Calima se
+  chiaro, piu' `workbench.colorCustomizations`), i 16 ANSI, cursore, selezione, carattere e altezza riga di
+  `terminal.integrated.*`. Si riscrive solo se cambia: all'avvio, al cambio di tema o di impostazioni, prima di aprire
+  iTerm2. Si apre con `execFile('/usr/bin/osascript', ['-e', ...righe, cartella, 'Bottega'])`: cartella e profilo sono
+  argomenti (`argv`), mai testo dello script, e `quoted form of` li cita per la shell (`cd '...' && clear` in una
+  finestra nuova con il profilo). Con `bottega.terminale.esterno: terminal`, o senza `/Applications/iTerm.app`,
+  `open -a Terminal <cartella>`; nel secondo caso una riga lo dice.
+- **Melissa**: `terminale_apri {progetto?, esterno?}`: un terminale nella cartella del progetto (o nella cartella
+  corrente), nella Bottega o, con `esterno: true`, in iTerm2. Registrato da `extension.ts` come gli strumenti dei
+  connettori (`Object.assign(TOOLS, STRUMENTI_TERMINALE)`).

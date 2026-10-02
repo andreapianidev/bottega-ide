@@ -351,7 +351,8 @@ function flusso(port, token, url) {
 	const f3 = flusso(port, token, `/v1/sessione/eventi?chiave=${encodeURIComponent('job:job-1')}`);
 	await f3.pronto;
 	ponte.stop();
-	await attendi(50);
+	// sotto carico la chiusura del socket puo' arrivare dopo: si aspetta fino a 2 s, non un tempo fisso
+	for (let i = 0; i < 40 && sessioni.flussi.size > 0; i++) await attendi(50);
 	assert.strictEqual(sessioni.flussi.size, 0);
 	ok('chiusura del ponte');
 
