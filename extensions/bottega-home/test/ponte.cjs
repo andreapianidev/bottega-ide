@@ -53,6 +53,7 @@ function call(port, method, url, { token, body, raw } = {}) {
 	ok('gettone stabile in un file 600');
 
 	let busy = false;
+	let interrotte = 0;
 	const asked = [];
 	const written = [];
 	const port = 20000 + Math.floor(Math.random() * 20000);
@@ -64,6 +65,19 @@ function call(port, method, url, { token, body, raw } = {}) {
 		stato: () => ({ melissa: { stato: busy ? 'thinking' : 'idle', cervello: 'agnes', registro: asked.map(t => ({ chi: 'tu', testo: t, alle: 1 })) }, lavori: [], conti: { inCorso: 0, tiAspetta: 1, inCoda: 0, vive: 1 } }),
 		occupata: () => busy,
 		chiedi: async t => (asked.push(t), `Risposta a: ${t}`),
+		parla: async (t, emetti, segnale) => {
+			emetti({ tipo: 'voce', ok: true });
+			emetti({ tipo: 'frase', testo: 'Prima frase.' });
+			emetti({ tipo: 'audio', pcm: Buffer.from('pcm1').toString('base64') });
+			if (t === 'lunga') {
+				await new Promise(r => segnale.addEventListener('abort', r, { once: true }));
+				interrotte++;
+				return '';
+			}
+			emetti({ tipo: 'frase', testo: 'Seconda.' });
+			emetti({ tipo: 'audio', pcm: Buffer.from('pcm2').toString('base64') });
+			return 'Prima frase. Seconda.';
+		},
 		voce: async t => Buffer.from('RIFF' + t),
 		scriviLavoro: (id, t) => (id === 'j1' ? (written.push(t), true) : false),
 		log: () => undefined,
@@ -97,6 +111,33 @@ function call(port, method, url, { token, body, raw } = {}) {
 	assert.strictEqual((await call(port, 'POST', '/v1/chiedi', { token: t1, body: { testo: 'ancora' } })).status, 409);
 	busy = false;
 	ok('domanda, testo vuoto, Melissa occupata');
+
+	const p = await call(port, 'POST', '/v1/parla', { token: t1, body: { testo: 'come va?' }, raw: true });
+	assert.strictEqual(p.status, 200);
+	assert.strictEqual(p.type, 'application/x-ndjson; charset=utf-8');
+	const righeParla = p.body.toString().trim().split('\n').map(l => JSON.parse(l));
+	assert.deepStrictEqual(righeParla.map(r => r.tipo), ['voce', 'frase', 'audio', 'frase', 'audio', 'fine']);
+	assert.strictEqual(Buffer.from(righeParla[4].pcm, 'base64').toString(), 'pcm2');
+	assert.strictEqual(righeParla[5].risposta, 'Prima frase. Seconda.');
+	assert.ok(righeParla[5].stato.versione);
+	busy = true;
+	assert.strictEqual((await call(port, 'POST', '/v1/parla', { token: t1, body: { testo: 'x' } })).status, 409);
+	busy = false;
+	ok('domanda a voce: frasi e audio in ordine, poi la fine con lo stato');
+
+	// l'iPhone chiude a meta' risposta: il ponte lo dice a Melissa
+	await new Promise((resolve, reject) => {
+		const data = Buffer.from(JSON.stringify({ testo: 'lunga' }));
+		const req = http.request({ host: '127.0.0.1', port, method: 'POST', path: '/v1/parla', headers: { authorization: `Bearer ${t1}`, 'content-type': 'application/json', 'content-length': data.length } }, res => {
+			res.once('data', () => req.destroy());
+		});
+		req.on('error', () => undefined);
+		req.on('close', resolve);
+		req.end(data);
+	});
+	for (let i = 0; i < 50 && !interrotte; i++) await new Promise(r => setTimeout(r, 10));
+	assert.strictEqual(interrotte, 1);
+	ok('interruzione dall\'iPhone');
 
 	const v = await call(port, 'POST', '/v1/voce', { token: t1, body: { testo: 'ciao' }, raw: true });
 	assert.strictEqual(v.status, 200);

@@ -361,6 +361,25 @@ function makeAssistant(over = {}) {
 		assert.ok(nucleo.speaks[0].model === 'eleven_v4_turbo', 'il primo chunk porta il modello');
 	});
 
+	await test('dall\'iPhone a voce: frasi al ponte, Mac zitto, Agnes senza ragionare, fine una volta', async () => {
+		const stream = scriptedStream([[{ content: 'Ciao fra. ' }, { content: 'Ho guardato i progetti' }, { content: ', sono tre.' }]]);
+		const { a, nucleo } = makeAssistant({ stream });
+		const frasi = [];
+		let fini = 0;
+		const r = await a.askRemoteVoice('come va', { frase: t => frasi.push(t), fine: () => fini++ });
+		assert.deepStrictEqual(frasi, ['Ciao fra.', 'Ho guardato i progetti, sono tre.']);
+		assert.strictEqual(fini, 1);
+		assert.strictEqual(nucleo.speaks.length, 0, 'niente voce dal Mac');
+		assert.ok(!nucleo.reqs.some(q => q.cmd === 'voice.listen' || (q.cmd === 'orb.state' && q.args.state === 'thinking')), 'il Mac non ascolta e la sfera non si muove');
+		assert.ok(r.includes('sono tre'));
+		assert.strictEqual(a.getState().state, 'idle');
+		assert.strictEqual(a.spokenTurn, true, 'turno a voce: Agnes con reasoning_effort none');
+		// il turno dopo, dal Mac, torna agli altoparlanti
+		a.deps.stream = scriptedStream([[{ content: 'Sul Mac.' }]]);
+		await a.turn('e adesso', true);
+		assert.deepStrictEqual(nucleo.speaks.filter(x => x.append).map(x => x.text), ['Sul Mac.']);
+	});
+
 	// ---- barge-in: interruzione dello stream ----
 	await test('a conversazione chiusa una frase in ritardo non diventa una domanda', async () => {
 		let calls = 0;

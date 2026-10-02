@@ -9,6 +9,15 @@
 //                                                     iPhone: the ElevenLabs key stays on the Mac
 //    ponte.qr {testo}    -> {png}                     a QR code (base64 PNG) for pairing
 //
+//  Live voice for the iPhone, while Melissa is still answering (the same warm ElevenLabs socket and
+//  model the Mac speaks with, eleven_v4_turbo, flushed clause by clause like Speaker.swift):
+//    ponte.flusso.apri {id}            -> {ok}  opens (or reuses) the socket
+//    ponte.flusso.testo {id, testo}    -> {}    one clause, flushed at once
+//    ponte.flusso.fine {id}            -> {}    no more text: `ponte.audio.fine` once the last audio is out
+//    ponte.flusso.ferma {id}           -> {}    interrupted: nothing more for this id
+//  events: ponte.audio {id, pcm: base64 PCM 16 bit 24 kHz mono}, ponte.audio.fine {id},
+//          ponte.audio.errore {id, errore}
+//
 
 import CoreImage
 import CoreImage.CIFilterBuiltins
@@ -17,12 +26,24 @@ import Foundation
 
 @MainActor
 enum PonteComandi {
-    static let commands: Set<String> = ["ponte.voce", "ponte.qr"]
+    static let commands: Set<String> = ["ponte.voce", "ponte.qr", "ponte.flusso.apri", "ponte.flusso.testo",
+                                        "ponte.flusso.fine", "ponte.flusso.ferma"]
 
     static func handle(_ r: Request) async throws -> Bool {
         guard commands.contains(r.cmd) else { return false }
         let testo = r.string("testo") ?? ""
         switch r.cmd {
+        case "ponte.flusso.apri":
+            r.respond(["ok": PonteFlusso.shared.apri(r.string("id") ?? "")])
+        case "ponte.flusso.testo":
+            PonteFlusso.shared.testo(r.string("id") ?? "", testo)
+            r.respond()
+        case "ponte.flusso.fine":
+            PonteFlusso.shared.fine(r.string("id") ?? "")
+            r.respond()
+        case "ponte.flusso.ferma":
+            PonteFlusso.shared.ferma(r.string("id") ?? "")
+            r.respond()
         case "ponte.voce":
             let dir = FileManager.default.temporaryDirectory.appendingPathComponent("bottega-ponte", isDirectory: true)
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -60,5 +81,99 @@ enum PonteComandi {
             let d = (try? f.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
             if d < limit { try? fm.removeItem(at: f) }
         }
+    }
+}
+
+/// One remote turn at a time. The socket stays warm for a minute and a half after the last turn (the
+/// keep-alive of ElevenLabsStream), so the next answer starts in about 200 ms instead of a new handshake.
+@MainActor
+final class PonteFlusso {
+    static let shared = PonteFlusso()
+
+    private var stream: ElevenLabsStream?
+    private var id = ""
+    private var inAttesa = 0
+    private var chiuso = false
+    private var inviato = false
+    private var guardia: DispatchWorkItem?
+
+    func apri(_ nuovo: String) -> Bool {
+        if !id.isEmpty, id != nuovo { Out.event("ponte.audio.fine", ["id": id]) }
+        id = nuovo
+        inAttesa = 0
+        chiuso = false
+        inviato = false
+        if stream == nil {
+            guard let s = ElevenLabsStream() else { return false }
+            s.onEvent = { [weak self] e in self?.evento(e) }
+            stream = s
+        }
+        return stream?.connect() ?? false
+    }
+
+    func testo(_ quale: String, _ t: String) {
+        let pulito = Speaker.cleanForSpeech(t)
+        guard quale == id, !chiuso, !pulito.isEmpty, let s = stream, s.isOpen || s.connect() else { return }
+        s.send(text: pulito, newTurn: !inviato && s.hasSpokenBefore)
+        ElevenLabsUsage.add(pulito.count)
+        inviato = true
+        inAttesa += 1
+        s.flush()
+        armaGuardia()
+    }
+
+    func fine(_ quale: String) {
+        guard quale == id else { return }
+        chiuso = true
+        if inAttesa == 0 { concludi() }
+    }
+
+    func ferma(_ quale: String) {
+        guard quale == id else { return }
+        // il socket non sa fermare una frase gia' chiesta: si chiude e il prossimo turno ne apre uno nuovo
+        stream?.close()
+        stream = nil
+        id = ""
+        guardia?.cancel()
+    }
+
+    private func evento(_ e: ElevenLabsStream.Event) {
+        guard !id.isEmpty else { return }
+        switch e {
+        case .audio(let pcm):
+            Out.event("ponte.audio", ["id": id, "pcm": pcm.base64EncodedString()])
+            armaGuardia()
+        case .turnFinished:
+            inAttesa = max(0, inAttesa - 1)
+            if chiuso && inAttesa == 0 { concludi() }
+        case .failed(let err):
+            Out.event("ponte.audio.errore", ["id": id, "errore": err.localizedDescription])
+            stream = nil
+            id = ""
+            guardia?.cancel()
+        }
+    }
+
+    private func concludi() {
+        guardia?.cancel()
+        Out.event("ponte.audio.fine", ["id": id])
+        id = ""
+    }
+
+    /// Text pending and no audio for 8 s: the socket is stuck (same watchdog as Speaker.swift).
+    private func armaGuardia() {
+        guardia?.cancel()
+        let quale = id
+        let w = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.id == quale, self.inAttesa > 0 else { return }
+                Out.event("ponte.audio.errore", ["id": quale, "errore": "ElevenLabs non risponde da 8 secondi"])
+                self.stream?.close()
+                self.stream = nil
+                self.id = ""
+            }
+        }
+        guardia = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: w)
     }
 }

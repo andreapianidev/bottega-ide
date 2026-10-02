@@ -568,6 +568,8 @@ export class Assistant {
 	private readonly out = vscode.window.createOutputChannel('Melissa', { log: true });
 	/** Il turno in corso e' a voce: Agnes risponde subito, senza ragionare (come Avo). */
 	private spokenTurn = false;
+	/** Turno a voce dall'iPhone (src/ponte.ts): le frasi vanno qui invece che agli altoparlanti del Mac. */
+	private remote?: { frase(text: string): void; fine(): void };
 	private filled = false;
 	private lastLevelEmit = 0;
 
@@ -893,8 +895,29 @@ export class Assistant {
 		return !!this.currentAbort || this.state.state === 'thinking' || this.state.state === 'speaking';
 	}
 
-	/** Domanda dalla Bottega per iPhone (src/ponte.ts): stesso cervello e stessa conversazione, ma il Mac sta
-	 *  zitto. La voce la sintetizza poi l'iPhone dal ponte. */
+	/** Domanda a voce dall'iPhone: stesso cervello, stessa conversazione e stessa fretta di un turno a voce sul
+	 *  Mac (Agnes senza ragionare), ma ogni frase va a `sink` appena e' pronta invece che agli altoparlanti del
+	 *  Mac. Il ponte la fa sintetizzare e la manda all'iPhone mentre Melissa sta ancora rispondendo. */
+	async askRemoteVoice(text: string, sink: { frase(text: string): void; fine(): void }): Promise<string> {
+		this.out.info(`domanda a voce dall'iPhone: "${text.slice(0, 80)}"`);
+		this.remote = sink;
+		try {
+			return cleanForVoice(await this.turn(text, true));
+		} finally {
+			if (this.remote === sink) {
+				this.remote = undefined;
+				if (this.state.state !== 'idle' && !this.state.conversing) this.setState('idle');
+			}
+		}
+	}
+
+	/** L'iPhone ha interrotto la risposta (un tocco sulla sfera, o l'app chiusa). */
+	interruptRemote(): void {
+		if (this.remote) this.currentAbort?.abort();
+	}
+
+	/** Domanda scritta dalla Bottega per iPhone (src/ponte.ts): stesso cervello e stessa conversazione, ma il Mac
+	 *  sta zitto. */
 	async askRemote(text: string): Promise<string> {
 		this.out.info(`domanda dall'iPhone: "${text.slice(0, 80)}"`);
 		const answer = await this.turn(text, false);
@@ -938,7 +961,7 @@ export class Assistant {
 		this.turnText = '';
 		this.filled = false;
 		this.setState('thinking');
-		this.deps.nucleo.fireAndForget('orb.state', { state: 'thinking' });
+		if (!this.remote) this.deps.nucleo.fireAndForget('orb.state', { state: 'thinking' });
 		if (speak) this.beginSpeech();
 
 		const choice = this.deps.cervelli?.choice();
@@ -1037,6 +1060,7 @@ export class Assistant {
 	}
 
 	private afterTurn(speak: boolean): void {
+		if (this.remote) return; // dall'iPhone: il Mac non si mette in ascolto
 		if (this.pending && speak && !this.state.conversing) {
 			// azione a rischio: resto in ascolto per il si/no
 			this.setState('listening');
@@ -1071,6 +1095,11 @@ export class Assistant {
 			return;
 		}
 		if (k) this.saidClauses.add(k);
+		if (this.remote) {
+			if (this.state.state !== 'speaking') this.setState('speaking');
+			this.remote.frase(clause);
+			return;
+		}
 		const now = Date.now();
 		this.recentSpeech = [...this.recentSpeech.filter(x => now - x.at < 20_000), { text: clause, at: now }];
 		if (this.state.state !== 'speaking') {
@@ -1088,6 +1117,12 @@ export class Assistant {
 		if (!this.speaking) return;
 		const rest = this.chunker.flush();
 		if (rest) this.emitClause(rest);
+		if (this.remote) {
+			this.speaking = false;
+			this.remote.fine();
+			this.setState('idle');
+			return;
+		}
 		if (sendFinal) this.deps.nucleo.fireAndForget('voice.speak', { final: true });
 		this.speaking = false;
 		if (this.state.conversing) {

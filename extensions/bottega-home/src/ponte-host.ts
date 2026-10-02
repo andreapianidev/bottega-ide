@@ -5,7 +5,8 @@ import * as vscode from 'vscode';
 import type { Assistant } from './assistant';
 import type { WorkCounts, WorkItem } from './jobs';
 import type { Nucleo } from './nucleo';
-import { Ponte, PonteStato } from './ponte';
+import * as crypto from 'crypto';
+import { Ponte, PonteStato, RigaParla } from './ponte';
 
 /* Il ponte dentro la Bottega: lo accende con Tailscale, gli passa Melissa e i lavori, e mostra il QR per
    collegare l'iPhone (comando "Collega l'iPhone"). Il protocollo e' in src/ponte.ts e in docs/CONTRATTI.md, 9. */
@@ -30,6 +31,7 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 			if (!a) throw Object.assign(new Error('Melissa non e\' ancora pronta.'), { status: 503 });
 			return a.askRemote(testo);
 		},
+		parla: (testo, emetti, segnale) => parla(deps, testo, emetti, segnale),
 		voce: async testo => {
 			const n = deps.nucleo();
 			if (!n?.available) throw Object.assign(new Error('Il Nucleo non e\' acceso: niente voce.'), { status: 503 });
@@ -57,6 +59,66 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 		vscode.commands.registerCommand('bottega.ponte.collega', () => mostraCollegamento(ponte, deps, acceso())),
 	);
 	return { notify: () => ponte.notify() };
+}
+
+/** La domanda a voce dall'iPhone: Melissa risponde come a voce sul Mac e ogni frase, appena pronta, va al socket
+ *  ElevenLabs del Nucleo (ponte.flusso.*); l'audio torna come eventi `ponte.audio` e scorre all'iPhone. */
+async function parla(deps: PonteHostDeps, testo: string, emetti: (r: RigaParla) => void, segnale: AbortSignal): Promise<string> {
+	const a = deps.assistant();
+	if (!a) throw Object.assign(new Error('Melissa non e\' ancora pronta.'), { status: 503 });
+	const n = deps.nucleo();
+	const id = crypto.randomUUID();
+	const voce = !!n?.available && (await n.request<{ ok: boolean }>('ponte.flusso.apri', { id }, 5000).then(r => !!r?.ok).catch(() => false));
+	emetti({ tipo: 'voce', ok: voce });
+
+	let chiudiAudio!: () => void;
+	const audioFinito = new Promise<void>(r => (chiudiAudio = r));
+	const suAudio = (m: any) => m?.id === id && emetti({ tipo: 'audio', pcm: m.pcm });
+	const suFine = (m: any) => m?.id === id && chiudiAudio();
+	const suErrore = (m: any) => {
+		if (m?.id !== id) return;
+		emetti({ tipo: 'voce-persa', errore: String(m.errore ?? '') });
+		chiudiAudio();
+	};
+	if (voce) {
+		n!.on('ponte.audio', suAudio);
+		n!.on('ponte.audio.fine', suFine);
+		n!.on('ponte.audio.errore', suErrore);
+	}
+	// le frasi vanno al Nucleo una dopo l'altra, nell'ordine in cui Melissa le dice
+	let coda: Promise<unknown> = Promise.resolve();
+	let finito = false;
+	const fine = () => {
+		if (finito) return;
+		finito = true;
+		if (voce) coda = coda.then(() => n!.request('ponte.flusso.fine', { id }, 5000).catch(() => undefined));
+		else chiudiAudio();
+	};
+	const interrompi = () => {
+		a.interruptRemote();
+		if (voce) n!.fireAndForget('ponte.flusso.ferma', { id });
+		chiudiAudio();
+	};
+	segnale.addEventListener('abort', interrompi, { once: true });
+	try {
+		const risposta = await a.askRemoteVoice(testo, {
+			frase: t => {
+				emetti({ tipo: 'frase', testo: t });
+				if (voce) coda = coda.then(() => n!.request('ponte.flusso.testo', { id, testo: t }, 5000).catch(() => undefined));
+			},
+			fine,
+		});
+		fine();
+		await Promise.race([audioFinito, new Promise(r => setTimeout(r, 30_000))]);
+		return risposta;
+	} finally {
+		segnale.removeEventListener('abort', interrompi);
+		if (voce) {
+			n!.off('ponte.audio', suAudio);
+			n!.off('ponte.audio.fine', suFine);
+			n!.off('ponte.audio.errore', suErrore);
+		}
+	}
 }
 
 function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora'> {

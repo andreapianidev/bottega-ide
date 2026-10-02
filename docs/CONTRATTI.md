@@ -1057,7 +1057,18 @@ nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard,
 - `POST /v1/chiedi {testo}` -> `{risposta, stato}`. `Assistant.askRemote`: stesso cervello, stessa storia e stessi
   strumenti della barra, con `speak` falso (il Mac sta zitto). Conferme a rischio (push) come sul Mac: il turno dopo
   e' il si' o il no. 409 se Melissa sta gia' rispondendo (`Assistant.busy()`).
+- `POST /v1/parla {testo}` -> `application/x-ndjson`, una riga per evento mentre Melissa risponde:
+  `{tipo: 'voce', ok}` (subito: c'e' la voce del Mac?), `{tipo: 'frase', testo}` (ogni frase appena pronta),
+  `{tipo: 'audio', pcm}` (PCM 16 bit, 24 kHz, mono, base64), `{tipo: 'voce-persa', errore}`, poi
+  `{tipo: 'fine', risposta, stato}` dopo l'ultimo audio, oppure `{tipo: 'errore', errore}`. `Assistant.askRemoteVoice`:
+  turno a voce come sul Mac (Agnes con `reasoning_effort: none`), ma ogni frase va al ponte invece che agli
+  altoparlanti; il Mac non si mette in ascolto e la sua sfera non si muove. Ogni frase va subito al Nucleo
+  (`ponte.flusso.testo`, in ordine) e l'audio torna come eventi `ponte.audio`. Se l'iPhone chiude la connessione,
+  `Assistant.interruptRemote` ferma la risposta e `ponte.flusso.ferma` la voce. 409 se Melissa sta gia' rispondendo.
+  Misura del 2/10/2026, prima di questo flusso: la voce partiva solo dopo tutta la risposta, la sintesi intera e il
+  download del WAV.
 - `POST /v1/voce {testo}` -> `audio/wav` (PCM 16 bit, 24 kHz, mono), dal Nucleo con `ponte.voce`. 503 senza Nucleo.
+  Resta per chi vuole una frase intera; l'app usa `/v1/parla`.
 - `POST /v1/lavoro {id, testo}` -> `{ok: true}` | 404: scrive nel terminale di un lavoro della Bottega.
 - Errori: `{errore}` in italiano, da mostrare cosi' com'e'.
 - Comando «Collega l'iPhone» (`bottega.ponte.collega`): pagina con il QR (dal Nucleo) di
@@ -1069,6 +1080,11 @@ nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard,
   Melissa, ripiego sulla voce di sistema) in un WAV sotto la cartella temporanea `bottega-ponte/`. L'estensione lo
   legge e lo cancella; i file piu' vecchi di dieci minuti li toglie il Nucleo al giro dopo.
 - `ponte.qr {testo}` -> `{png}`: QR in base64 (CoreImage, correzione M, 12 px per modulo).
+- `ponte.flusso.apri {id}` -> `{ok}`, `ponte.flusso.testo {id, testo}`, `ponte.flusso.fine {id}`,
+  `ponte.flusso.ferma {id}`: lo stesso socket ElevenLabs di Melissa (`eleven_v4_turbo`, la voce di Avo, text-to-dialogue
+  stream-input), ogni frase mandata e svuotata subito come in `Speaker.swift`. Eventi `ponte.audio {id, pcm}`,
+  `ponte.audio.fine {id}` (dopo l'ultima frase), `ponte.audio.errore {id, errore}` (anche dopo 8 s senza audio). Un
+  turno alla volta; il socket resta caldo 90 s dopo l'ultima frase.
 
 ### 9.3 L'app (`ios/`)
 
@@ -1080,8 +1096,10 @@ nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard,
   chiamano (`MetalEngine`, `Log`, `Out`, `Nucleo.bundle`, `OrbPanel`). Chi cambia l'interfaccia di quei tre file
   compila anche l'app.
 - Ascolto sull'iPhone come sul Mac: `SFSpeechRecognizer` it-IT, frase chiusa dopo 1,8 s senza parole nuove, otto
-  secondi senza parole chiudono la conversazione; «basta», «a dopo», «chiudi» la chiudono a voce. Risposta: il WAV
-  di `/v1/voce`, ripiego sulla voce italiana di iOS. Gettone nel portachiavi (`AfterFirstUnlockThisDeviceOnly`),
+  secondi senza parole chiudono la conversazione; «basta», «a dopo», «chiudi» la chiudono a voce. Risposta da
+  `/v1/parla`: ogni pezzo di audio va in coda su un `AVAudioPlayerNode` appena arriva (`FlussoVoce.swift`), la sfera
+  si muove con il suono vero (tap sul mixer, `AudioLevels`). Un tocco sulla sfera mentre parla chiude la connessione
+  e la risposta si ferma anche sul Mac. Senza audio dal Mac: la voce italiana di iOS con il testo intero. Gettone nel portachiavi (`AfterFirstUnlockThisDeviceOnly`),
   nome e porta nelle preferenze.
 - Rete: prima il nome MagicDNS (eccezione ATS per `ts.net`, HTTP dentro Tailscale), se non si risolve l'indirizzo
   100.x. Eventi ripresi da soli con attesa crescente fino a 30 s, fermi con l'app dietro.

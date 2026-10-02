@@ -158,8 +158,59 @@ final class Ponte {
         return r.risposta
     }
 
-    func voce(_ testo: String) async throws -> Data {
-        try await mandaDati("/v1/voce", ["testo": testo])
+    enum Parla {
+        case voce(Bool)
+        case frase(String)
+        case audio(Data)
+        case vocePersa(String)
+        case fine(String)
+    }
+
+    /// La domanda a voce: righe del ponte mentre Melissa risponde (frasi, audio), fino alla fine. Cancellare il
+    /// compito chiude la connessione e il Mac interrompe la risposta.
+    func parla(_ testo: String, riga: (Parla) -> Void) async throws {
+        struct Riga: Decodable {
+            let tipo: String
+            let ok: Bool?
+            let testo: String?
+            let pcm: String?
+            let errore: String?
+            let risposta: String?
+            let stato: StatoMac?
+        }
+        var req = try richiesta("/v1/parla")
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["testo": testo])
+        let bytes: URLSession.AsyncBytes
+        do {
+            let (b, r) = try await sessione.bytes(for: req)
+            if let h = r as? HTTPURLResponse, !(200..<300).contains(h.statusCode) {
+                var corpo = Data()
+                for try await x in b { corpo.append(x) }
+                try controlla(r, corpo: corpo)
+            }
+            bytes = b
+        } catch {
+            if scambiaSuIP(error) { return try await parla(testo, riga: riga) }
+            throw ErrorePonte(messaggio: spiega(error))
+        }
+        let dec = JSONDecoder()
+        for try await linea in bytes.lines {
+            guard let r = try? dec.decode(Riga.self, from: Data(linea.utf8)) else { continue }
+            switch r.tipo {
+            case "voce": riga(.voce(r.ok ?? false))
+            case "frase": riga(.frase(r.testo ?? ""))
+            case "audio": if let d = r.pcm.flatMap({ Data(base64Encoded: $0) }) { riga(.audio(d)) }
+            case "voce-persa": riga(.vocePersa(r.errore ?? ""))
+            case "fine":
+                if let s = r.stato { aggiorna(s) }
+                riga(.fine(r.risposta ?? ""))
+                return
+            case "errore": throw ErrorePonte(messaggio: r.errore ?? "Sul Mac qualcosa non è andato.")
+            default: break
+            }
+        }
     }
 
     func scriviLavoro(_ id: String, _ testo: String) async throws {

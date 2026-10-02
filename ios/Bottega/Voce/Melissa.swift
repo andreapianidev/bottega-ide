@@ -25,7 +25,10 @@ final class Melissa {
     private let ponte: Ponte
     private let ascolto = Ascolto()
     private let parlato = Parlato()
+    private let flusso = FlussoVoce()
     private var turno: Task<Void, Never>?
+    /// La risposta a voce in arrivo dal Mac: cancellarla chiude la connessione e il Mac smette di rispondere.
+    private var rete: Task<Void, Error>?
 
     private static let paroleFine = try! NSRegularExpression(pattern: "\\b(basta|a dopo|chiudi|ci sentiamo|stop|a pi[uù] tardi)\\b", options: .caseInsensitive)
 
@@ -42,7 +45,10 @@ final class Melissa {
         case .ascolta:
             ascolto.chiudi()
         case .parla:
-            parlato.ferma() // il giro riprende ad ascoltare da solo se la conversazione e' aperta
+            // interruzione: si tace, il Mac smette di rispondere, e in conversazione si torna ad ascoltare
+            rete?.cancel()
+            flusso.ferma()
+            parlato.ferma()
         case .pensa:
             break
         case .riposo, .errore:
@@ -54,6 +60,8 @@ final class Melissa {
     func chiudiConversazione() {
         conversazione = false
         ascolto.ferma()
+        rete?.cancel()
+        flusso.ferma()
         parlato.ferma()
         if sfera != .pensa { sfera = .riposo }
         parziale = ""
@@ -72,6 +80,7 @@ final class Melissa {
     /// L'app va dietro: niente microfono acceso di nascosto.
     func sospendi() {
         chiudiConversazione()
+        flusso.spegni()
     }
 
     // MARK: - il giro
@@ -117,30 +126,64 @@ final class Melissa {
     private func chiedi(_ testo: String) async {
         sfera = .pensa
         parziale = testo
-        let risposta: String
         do {
-            risposta = try await ponte.chiedi(testo)
+            if voceAccesa {
+                try await chiediAVoce(testo)
+            } else {
+                _ = try await ponte.chiedi(testo)
+            }
+        } catch is CancellationError {
+            // interrotta con un tocco: niente errore
         } catch {
-            avviso = error.localizedDescription
-            sfera = .errore
-            conversazione = false
-            parziale = ""
-            return
-        }
-        parziale = ""
-        if voceAccesa && !risposta.isEmpty {
-            sfera = .parla
-            do {
-                let wav = try await ponte.voce(risposta)
-                await parlato.suona(wav)
-            } catch {
-                await parlato.dici(risposta)
+            if (error as? URLError)?.code != .cancelled {
+                avviso = error.localizedDescription
+                sfera = .errore
+                conversazione = false
+                parziale = ""
+                return
             }
         }
+        parziale = ""
         sfera = .riposo
         if conversazione {
             try? await Task.sleep(nanoseconds: 250_000_000)
             if conversazione { await ascoltaFrase() }
+        }
+    }
+
+    /// La risposta arriva a frasi e la voce suona mentre Melissa sta ancora rispondendo (ponte /v1/parla).
+    /// Se dal Mac non arriva la voce, parla la voce italiana di iOS con il testo.
+    private func chiediAVoce(_ testo: String) async throws {
+        try? flusso.prepara()
+        var vocePonte = true
+        var risposta = ""
+        let compito = Task { @MainActor in
+            try await ponte.parla(testo) { riga in
+                switch riga {
+                case .voce(let ok): vocePonte = ok
+                case .frase:
+                    if sfera == .pensa { parziale = "" }
+                case .audio(let pcm):
+                    if sfera != .parla { sfera = .parla }
+                    flusso.accoda(pcm)
+                case .vocePersa: vocePonte = false
+                case .fine(let r): risposta = r
+                }
+            }
+        }
+        rete = compito
+        defer { if rete == compito { rete = nil } }
+        try await compito.value
+        try Task.checkCancellation()
+        if compito.isCancelled { throw CancellationError() }
+        if flusso.haSuonato {
+            sfera = .parla
+            await flusso.aspettaFine()
+        } else if !risposta.isEmpty {
+            // nessun audio dal Mac (ElevenLabs o il Nucleo giu'): la voce di iOS, con il testo intero
+            if vocePonte { Log.warn("il ponte non ha mandato audio: parla la voce di iOS") }
+            sfera = .parla
+            await parlato.dici(risposta)
         }
     }
 }

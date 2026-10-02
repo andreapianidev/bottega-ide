@@ -13,6 +13,7 @@ import * as path from 'path';
      GET  /v1/stato               -> Stato (Melissa, lavori, conti)
      GET  /v1/eventi              -> text/event-stream, una riga "data: Stato" a ogni cambio
      POST /v1/chiedi {testo}      -> {risposta, stato}      stesso cervello e stessa conversazione del Mac
+     POST /v1/parla {testo}       -> application/x-ndjson   la domanda a voce: frasi e audio mentre Melissa risponde
      POST /v1/voce {testo}        -> audio/wav              la voce di Melissa, sintetizzata sul Mac
      POST /v1/lavoro {id, testo}  -> {ok}                   scrive in un lavoro della Bottega */
 
@@ -50,6 +51,9 @@ export interface PonteDeps {
 	/** Vero mentre Melissa sta gia' rispondendo a qualcuno. */
 	occupata(): boolean;
 	chiedi(testo: string): Promise<string>;
+	/** Domanda a voce: `emetti` riceve le righe ({tipo: voce|frase|audio}) mentre Melissa risponde; `segnale`
+	 *  scatta se l'iPhone chiude (interruzione). Ritorna la risposta intera. */
+	parla(testo: string, emetti: (riga: RigaParla) => void, segnale: AbortSignal): Promise<string>;
 	voce(testo: string): Promise<Buffer>;
 	scriviLavoro(id: string, testo: string): boolean;
 	log(riga: string): void;
@@ -57,6 +61,12 @@ export interface PonteDeps {
 	indirizzo?: () => Promise<Rete | null>;
 	porta?: number;
 }
+
+export type RigaParla =
+	| { tipo: 'voce'; ok: boolean }
+	| { tipo: 'frase'; testo: string }
+	| { tipo: 'audio'; pcm: string }
+	| { tipo: 'voce-persa'; errore: string };
 
 export interface Rete {
 	ip: string;
@@ -270,6 +280,28 @@ export class Ponte {
 				this.deps.log(`ponte: domanda dall'iPhone (${testo.length} caratteri)`);
 				const risposta = await this.deps.chiedi(testo);
 				return json(200, { risposta, stato: this.stato() });
+			}
+			if (url === '/v1/parla') {
+				if (!testo) return json(400, { errore: 'Manca il testo.' });
+				if (this.deps.occupata()) return json(409, { errore: 'Melissa sta gia\' rispondendo: riprova tra un attimo.' });
+				this.deps.log(`ponte: domanda a voce dall'iPhone (${testo.length} caratteri)`);
+				res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
+				res.socket?.setNoDelay(true);
+				const riga = (o: unknown) => {
+					if (!res.writableEnded) res.write(JSON.stringify(o) + '\n');
+				};
+				const ac = new AbortController();
+				res.on('close', () => {
+					if (!res.writableFinished) ac.abort();
+				});
+				try {
+					const risposta = await this.deps.parla(testo, riga, ac.signal);
+					riga({ tipo: 'fine', risposta, stato: this.stato() });
+				} catch (e: any) {
+					riga({ tipo: 'errore', errore: e?.status ? e.message : 'Sul Mac qualcosa non e\' andato.' });
+					this.deps.log(`ponte: /v1/parla: ${e?.message ?? e}`);
+				}
+				return void res.end();
 			}
 			if (url === '/v1/voce') {
 				if (!testo) return json(400, { errore: 'Manca il testo.' });
