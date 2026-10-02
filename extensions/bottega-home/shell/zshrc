@@ -1,0 +1,16 @@
+# La Bottega: il .zshrc vero di Andrea, poi Agnes (agnes.zsh). Vedi .zshenv qui accanto.
+: ${__bottega_zdot:=${${(%):-%x}:A:h}} ${__bottega_utente:=${BOTTEGA_ZDOTDIR_UTENTE:-$HOME}}
+# la storia resta quella di sempre: /etc/zshrc e VS Code la metterebbero in questa cartella
+[[ $HISTFILE == $__bottega_zdot/* ]] && HISTFILE=$__bottega_utente/.zsh_history
+if [[ $__bottega_utente != $__bottega_zdot && -f $__bottega_utente/.zshrc ]]; then
+	ZDOTDIR=$__bottega_utente
+	. $__bottega_utente/.zshrc
+fi
+[[ $HISTFILE == $__bottega_zdot/* ]] && HISTFILE=$__bottega_utente/.zsh_history
+[[ -r $__bottega_zdot/agnes.zsh ]] && . $__bottega_zdot/agnes.zsh
+# una shell di login legge ancora .zlogin da qui; le altre tornano subito alla cartella di Andrea
+if [[ -o login ]]; then
+	ZDOTDIR=$__bottega_zdot
+else
+	ZDOTDIR=$__bottega_utente
+fi

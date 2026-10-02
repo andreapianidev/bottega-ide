@@ -180,6 +180,12 @@
         "title": "Apri in iTerm2",
         "category": "Bottega",
         "icon": "$(link-external)"
+      },
+      {
+        "command": "bottega.terminaleConsentiti",
+        "title": "Terminale: comandi consentiti",
+        "category": "Bottega",
+        "icon": "$(checklist)"
       }
     ],
     "viewsContainers": {
@@ -382,6 +388,39 @@
           ],
           "default": "iterm2",
           "description": "Quale terminale apre «Apri in iTerm2»."
+        },
+        "bottega.terminale.agnes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Nel terminale della Bottega (e nel profilo Bottega di iTerm2) scrivi in italiano cosa vuoi fare e Agnes propone il comando. Vale per i terminali aperti dopo. Spento: zsh di sempre, nessun socket."
+        },
+        "bottega.terminale.agnesModo": {
+          "type": "string",
+          "enum": [
+            "proponi",
+            "chiedi",
+            "auto"
+          ],
+          "enumDescriptions": [
+            "Il comando va nella riga: lo leggi, lo cambi se vuoi e premi Invio tu.",
+            "Il comando compare con la domanda «eseguo?»: Invio sì, s sempre, n no, m modifica. I consentiti partono da soli.",
+            "Partono da soli i consentiti e i comandi che leggono soltanto; gli altri chiedono."
+          ],
+          "default": "chiedi",
+          "description": "Cosa fa il terminale con il comando proposto da Agnes. Cancellazioni, git push, pubblicazioni, sudo e scritture fuori dalla cartella chiedono sempre, in ogni modo."
+        },
+        "bottega.terminale.cervello": {
+          "type": "string",
+          "enum": [
+            "agnes",
+            "deepseek"
+          ],
+          "enumDescriptions": [
+            "Agnes 3.0 Flash, senza ragionamento: risponde subito, gratis.",
+            "DeepSeek, a consumo."
+          ],
+          "default": "agnes",
+          "description": "Il cervello del terminale. Per una richiesta sola: «#! deepseek ...» o «#! agnes ...». Se non risponde si passa all'altro e poi ad Apple Intelligence."
         },
         "bottega.nucleoPath": {
           "type": "string",
@@ -611,7 +650,7 @@
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=out/extension.js",
     "typecheck": "tsc --noEmit",
-    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/whatsapp.cjs && node test/strumenti-connettori.cjs && node test/vercel.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs && node test/ponte-sessioni.cjs && node test/avvisi.cjs && node test/aggiorna.cjs && node test/cline.cjs && node test/terminale.cjs && node test/appstore.cjs"
+    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/whatsapp.cjs && node test/strumenti-connettori.cjs && node test/vercel.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs && node test/ponte-sessioni.cjs && node test/avvisi.cjs && node test/aggiorna.cjs && node test/cline.cjs && node test/terminale.cjs && node test/appstore.cjs && node test/terminale-agnes.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

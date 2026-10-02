@@ -1,0 +1,7 @@
+# La Bottega: il .zlogin vero di Andrea, poi ZDOTDIR torna la sua (anche per .zlogout e per le shell figlie).
+: ${__bottega_zdot:=${${(%):-%x}:A:h}} ${__bottega_utente:=${BOTTEGA_ZDOTDIR_UTENTE:-$HOME}}
+if [[ $__bottega_utente != $__bottega_zdot && -f $__bottega_utente/.zlogin ]]; then
+	ZDOTDIR=$__bottega_utente
+	. $__bottega_utente/.zlogin
+fi
+ZDOTDIR=$__bottega_utente

@@ -185,8 +185,9 @@ export function fontIterm(famiglia: string | undefined, dimensione: number | und
 const ANSI = ['Black', 'Red', 'Green', 'Yellow', 'Blue', 'Magenta', 'Cyan', 'White'];
 
 /** Il Dynamic Profile «Bottega» di iTerm2 dai colori del tema (chiavi `terminal.*` di VS Code) e dal carattere del
- *  terminale. Testo stabile: si riscrive il file solo se cambia. */
-export function profiloIterm(colori: Record<string, string>, carattere: { famiglia?: string; dimensione?: number; altezzaRiga?: number; cursore?: string }): string {
+ *  terminale; con `comando`, la shell da lanciare (lo zsh della Bottega con Agnes). Testo stabile: si riscrive il file
+ *  solo se cambia. */
+export function profiloIterm(colori: Record<string, string>, carattere: { famiglia?: string; dimensione?: number; altezzaRiga?: number; cursore?: string }, comando?: string): string {
 	const sfondo = colori['terminal.background'] ?? colori['editor.background'] ?? '#000000';
 	const testo = colori['terminal.foreground'] ?? colori['editor.foreground'] ?? '#ffffff';
 	const p: Record<string, unknown> = {
@@ -201,6 +202,11 @@ export function profiloIterm(colori: Record<string, string>, carattere: { famigl
 		'Blinking Cursor': true,
 		'Use Bold Font': true,
 	};
+	// lo stesso zsh dei terminali della Bottega, con Agnes (src/terminale-agnes.ts, comandoIterm)
+	if (comando) {
+		p['Custom Command'] = 'Yes';
+		p.Command = comando;
+	}
 	const metti = (chiave: string, colore: string | undefined) => {
 		const c = colore ? coloreIterm(colore, sfondo) : undefined;
 		if (c) p[chiave] = c;

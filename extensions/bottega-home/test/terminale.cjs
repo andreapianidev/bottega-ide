@@ -13,7 +13,7 @@ const esbuild = require('esbuild');
 
 const SRC = path.join(__dirname, '..', 'src');
 const OUT = path.join(__dirname, 'test-out', 'terminale');
-esbuild.buildSync({ entryPoints: ['terminale', 'terminale-host', 'cline'].map(n => path.join(SRC, n + '.ts')), outdir: OUT, format: 'cjs', platform: 'node', bundle: false, target: 'node20', logLevel: 'silent' });
+esbuild.buildSync({ entryPoints: ['terminale', 'terminale-host', 'terminale-agnes', 'cervello', 'cervelli', 'cline'].map(n => path.join(SRC, n + '.ts')), outdir: OUT, format: 'cjs', platform: 'node', bundle: false, target: 'node20', logLevel: 'silent' });
 
 const TEMI = path.join(__dirname, '..', '..', 'bottega-theme');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'bottega-terminale-'));
