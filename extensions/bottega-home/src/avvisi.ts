@@ -13,9 +13,11 @@ import type { Livello } from './tipi';
      FINITO    un lavoro della Bottega esce dalla lista mentre era «in corso»
      CONFERMA  Melissa aspetta un si' o un no
      REGOLA    un progetto passa a rosso nel semaforo
-   Le notifiche partono solo con Andrea lontano dal Mac (bottega.iphone.avvisi). ATTESA e CONFERMA aspettano che
-   si allontani finche' restano vere; FINITO e REGOLA sono momenti: con Andrea al Mac le ha gia' viste.
-   Live Activity e widget seguono il lavoro anche con Andrea al Mac.
+   Le notifiche partono solo con Andrea lontano dal Mac (bottega.iphone.avvisi). Con Andrea al Mac ATTESA, FINITO e
+   REGOLA le ha gia' viste (allontanandosi non gli arriva una raffica per ogni sessione ferma); solo CONFERMA aspetta
+   che si allontani, finche' la domanda resta aperta, e porta il suo numero: l'app lo rimanda col si' o col no.
+   Live Activity e widget seguono il lavoro anche con Andrea al Mac. La Live Activity vive finche' ci sono sessioni
+   AL LAVORO: le sessioni ferme in attesa contano come «ti aspetta» tutto il giorno e non la terrebbero mai chiusa.
 
    I testi passano dai server di Apple: nome del progetto e una frase breve, mai codice. */
 
@@ -32,8 +34,8 @@ export interface RegolaProgetto {
 export interface Istantanea {
 	lavori: WorkItem[];
 	conti: { inCorso: number; tiAspetta: number; vive: number };
-	/** La domanda di Melissa in attesa di un si' o un no. */
-	conferma?: string;
+	/** La domanda di Melissa in attesa di un si' o un no, con il suo numero. */
+	conferma?: { id: number; testo: string };
 	/** Il semaforo; null finche' non ha fatto il primo controllo. */
 	regole?: RegolaProgetto[] | null;
 }
@@ -82,7 +84,9 @@ export class Avvisi {
 	private prec = new Map<string, WorkItem>();
 	private readonly attese = new Map<string, Attesa>();
 	private readonly ultimaAttesa = new Map<string, number>();
-	private conferma?: { testo: string; avvisata: boolean };
+	private conferma?: { id: number; testo: string; avvisata: boolean };
+	/** Dopo un invio fallito (non per un token morto) le notifiche si riprovano, ma non prima di un minuto. */
+	private pausaFino = -Infinity;
 	private livelli?: Map<string, Livello>;
 	private la = { avviata: false, tentata: -Infinity, ultimoInvio: -Infinity, firma: '', tiAspetta: -1, vuotoDal: undefined as number | undefined };
 	private wg = { ultimo: -Infinity, inCorso: 0, tiAspetta: 0 };
@@ -94,6 +98,12 @@ export class Avvisi {
 	constructor(private readonly d: AvvisiDeps) {
 		this.ora = d.ora ?? Date.now;
 		this.log = d.log ?? (() => undefined);
+	}
+
+	/** Il ponte si riaccende dopo essere stato spento: il primo minuto torna a fare da linea di partenza, cosi' non
+	 *  suona tutto quello che e' cambiato nel frattempo. */
+	riparti(): void {
+		this.nato = undefined;
 	}
 
 	/** Un giro sull'istantanea di adesso. Mai due insieme: se ne arriva un altro durante, si rifa' alla fine. */
@@ -133,7 +143,7 @@ export class Avvisi {
 		this.prec = ora;
 
 		if (!ist.conferma) this.conferma = undefined;
-		else if (ist.conferma !== this.conferma?.testo) this.conferma = { testo: ist.conferma, avvisata: primo };
+		else if (ist.conferma.id !== this.conferma?.id) this.conferma = { ...ist.conferma, avvisata: primo };
 
 		const rossi: RegolaProgetto[] = [];
 		if (ist.regole) {
@@ -153,27 +163,43 @@ export class Avvisi {
 
 	private async notifiche(disp: Dispositivo, ist: Istantanea, now: number, finiti: WorkItem[], rossi: RegolaProgetto[]): Promise<void> {
 		const modo = this.d.modo();
-		if (modo === 'mai' || !disp.token) return;
+		if (modo === 'mai' || !disp.token || now < this.pausaFino) return;
 		const attese = ist.lavori.filter(w => {
 			const a = this.attese.get(w.key);
 			return a && !a.avvisata && now - (this.ultimaAttesa.get(w.key) ?? -Infinity) >= ATTESA_OGNI_MS;
 		});
 		const conferma = this.conferma && !this.conferma.avvisata ? this.conferma : undefined;
 		if (!attese.length && !conferma && !finiti.length && !rossi.length) return;
-		if (modo === 'lontano' && (await this.d.inattivoMs()) <= LONTANO_MS) return; // al Mac: FINITO e REGOLA li ha visti
+		if (modo === 'lontano' && (await this.d.inattivoMs()) <= LONTANO_MS) {
+			// al Mac: chi ti aspetta lo vedi li', FINITO e REGOLA pure; resta solo la CONFERMA
+			for (const w of attese) this.attese.get(w.key)!.avvisata = true;
+			return;
+		}
 
 		const token = disp.token;
-		const manda = async (payload: object, scadenza: number) => {
+		/** Vero se si puo' continuare; un errore di rete rimette in coda quello che non e' partito. */
+		const manda = async (payload: object, scadenza: number, annulla: () => void) => {
 			const e = await this.manda('token', { tipo: 'alert', token, ambiente: disp.ambiente, priorita: 10, scadenza: Math.floor(scadenza / 1000), payload });
-			return !tokenMorto(e);
+			if (e.ok) return true;
+			if (!tokenMorto(e)) {
+				annulla();
+				this.pausaFino = now + 60_000;
+			}
+			return false;
 		};
 		if (conferma) {
 			conferma.avvisata = true;
-			const vivo = await manda({ aps: { alert: { title: 'Melissa', body: pulisci(conferma.testo, 160) }, sound: 'default', category: 'CONFERMA', 'interruption-level': 'time-sensitive' } }, now + 10 * 60_000);
+			const vivo = await manda(
+				{ aps: { alert: { title: 'Melissa', body: pulisci(conferma.testo, 160) }, sound: 'default', category: 'CONFERMA', 'interruption-level': 'time-sensitive' }, conferma: conferma.id },
+				now + 10 * 60_000,
+				() => (conferma.avvisata = false),
+			);
 			if (!vivo) return;
 		}
 		for (const w of attese) {
-			this.attese.get(w.key)!.avvisata = true;
+			const a = this.attese.get(w.key)!;
+			const prima = this.ultimaAttesa.get(w.key);
+			a.avvisata = true;
 			this.ultimaAttesa.set(w.key, now);
 			const progetto = pulisci(w.project, 40) || 'Bottega';
 			const titolo = pulisci(w.title, 80);
@@ -184,17 +210,22 @@ export class Avvisi {
 					...(w.jobId ? { jobId: w.jobId } : {}),
 				},
 				now + 60 * 60_000,
+				() => {
+					a.avvisata = false;
+					if (prima === undefined) this.ultimaAttesa.delete(w.key);
+					else this.ultimaAttesa.set(w.key, prima);
+				},
 			);
 			if (!vivo) return;
 		}
 		for (const w of finiti) {
 			const progetto = pulisci(w.project, 40) || 'Bottega';
 			const titolo = pulisci(w.title, 80);
-			const vivo = await manda({ aps: { alert: { title: progetto, body: titolo ? `Ha finito: ${titolo}` : 'Il lavoro ha finito' }, category: 'FINITO', 'thread-id': progetto } }, now + 60 * 60_000);
+			const vivo = await manda({ aps: { alert: { title: progetto, body: titolo ? `Ha finito: ${titolo}` : 'Il lavoro ha finito' }, category: 'FINITO', 'thread-id': progetto } }, now + 60 * 60_000, () => undefined);
 			if (!vivo) return;
 		}
 		for (const r of rossi) {
-			const vivo = await manda({ aps: { alert: { title: pulisci(r.progetto, 40), body: pulisci(r.frase || 'Il semaforo è rosso.', 140) }, category: 'REGOLA' } }, now + 24 * 3600_000);
+			const vivo = await manda({ aps: { alert: { title: pulisci(r.progetto, 40), body: pulisci(r.frase || 'Il semaforo è rosso.', 140) }, category: 'REGOLA' } }, now + 24 * 3600_000, () => undefined);
 			if (!vivo) return;
 		}
 	}
@@ -202,7 +233,7 @@ export class Avvisi {
 	// ---------- Live Activity ----------
 
 	private async attivita(disp: Dispositivo, ist: Istantanea, now: number): Promise<void> {
-		const attive = ist.conti.inCorso + ist.conti.tiAspetta;
+		const attive = ist.conti.inCorso;
 		if (attive > 0) this.la.vuotoDal = undefined;
 		else this.la.vuotoDal ??= now;
 		const finita = this.la.vuotoDal !== undefined && now - this.la.vuotoDal >= LA_FINE_MS;
@@ -229,12 +260,15 @@ export class Avvisi {
 			if (!cambiata || now - this.la.ultimoInvio < LA_OGNI_MS) return;
 			const priorita = stato.tiAspetta !== this.la.tiAspetta ? 10 : 5;
 			this.la.ultimoInvio = now;
-			this.la.firma = firma;
-			this.la.tiAspetta = stato.tiAspetta;
-			await this.manda('attivita', {
+			const e = await this.manda('attivita', {
 				tipo: 'liveactivity', token: disp.attivita, ambiente: disp.ambiente, priorita,
 				payload: { aps: { timestamp: sec, event: 'update', 'content-state': stato, 'stale-date': Math.floor((now + LA_STALE_MS) / 1000) } },
 			});
+			// solo se e' arrivato: un errore di rete riprova al giro dopo i 15 s
+			if (e.ok) {
+				this.la.firma = firma;
+				this.la.tiAspetta = stato.tiAspetta;
+			}
 			return;
 		}
 
@@ -276,11 +310,11 @@ export class Avvisi {
 		const { inCorso, tiAspetta } = ist.conti;
 		if (inCorso === this.wg.inCorso && tiAspetta === this.wg.tiAspetta) return;
 		if (now - this.wg.ultimo < WIDGET_OGNI_MS && tiAspetta <= this.wg.tiAspetta) return;
-		this.wg = { ultimo: now, inCorso, tiAspetta };
-		await this.manda('widget', {
+		const e = await this.manda('widget', {
 			tipo: 'widgets', token: disp.widget, ambiente: disp.ambiente, priorita: 5, scadenza: Math.floor((now + 15 * 60_000) / 1000),
 			payload: { aps: { 'content-changed': true } },
 		});
+		this.wg = e.ok ? { ultimo: now, inCorso, tiAspetta } : { ...this.wg, ultimo: now };
 	}
 
 	private async manda(campo: CampoToken, p: Push) {

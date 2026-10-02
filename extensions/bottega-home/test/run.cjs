@@ -380,6 +380,36 @@ function makeAssistant(over = {}) {
 		assert.deepStrictEqual(nucleo.speaks.filter(x => x.append).map(x => x.text), ['Sul Mac.']);
 	});
 
+	await test('mentre risponde all\'iPhone il Mac non apre turni suoi e chiudere la conversazione non tronca l\'iPhone', async () => {
+		let libera;
+		const { a, nucleo } = makeAssistant({ stream: async (_m, _t, onDelta) => { await new Promise(r => (libera = r)); onDelta({ content: 'Per l\'iPhone.' }); } });
+		const frasi = [];
+		const turno = a.askRemoteVoice('dimmi', { frase: t => frasi.push(t), fine: () => {} });
+		await new Promise(r => setImmediate(r));
+		assert.ok(a.busy(), 'occupata durante il turno remoto');
+		assert.match(await a.ask('dal Mac'), /iPhone/, 'la barra non apre un secondo turno');
+		a.state.conversing = true;
+		a.stopConversation('prova');
+		libera();
+		const r = await turno;
+		assert.ok(r.includes('Per l\'iPhone'), 'il turno dell\'iPhone arriva intero');
+		assert.deepStrictEqual(frasi, ['Per l\'iPhone.']);
+		assert.ok(!a.busy());
+		assert.strictEqual(nucleo.speaks.length, 0);
+	});
+
+	await test('conferme numerate: la domanda ha un numero, che sparisce quando e\' chiusa', async () => {
+		const { a } = makeAssistant({ stream: scriptedStream([]) });
+		a.setPending({ describe: 'fare git push su X', run: () => {}, done: 'Fatto.', azione: 'push' });
+		const q = a.pendingQuestion();
+		assert.deepStrictEqual(q, { id: 1, testo: 'Posso fare git push su X?' });
+		assert.strictEqual(a.pendingConfirmation(), 1);
+		await a.askRemote('no');
+		assert.strictEqual(a.pendingConfirmation(), undefined);
+		a.setPending({ describe: 'fermare Y', run: () => {}, done: 'Fatto.', azione: 'stop' });
+		assert.strictEqual(a.pendingConfirmation(), 2, 'la domanda dopo ha un numero nuovo');
+	});
+
 	// ---- barge-in: interruzione dello stream ----
 	await test('a conversazione chiusa una frase in ritardo non diventa una domanda', async () => {
 		let calls = 0;

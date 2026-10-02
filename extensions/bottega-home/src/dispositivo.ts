@@ -52,7 +52,10 @@ function scrivi(dir: string, d: Dispositivo): void {
 
 /** Fonde i campi arrivati con quelli gia' noti: un campo vuoto ('') si toglie, uno assente resta com'era. */
 export function fondiDispositivo(dir: string, p: DispositivoParziale, ora = Date.now()): Dispositivo {
-	const d: Dispositivo = { ...(leggiDispositivo(dir) ?? {}), ambiente: p.ambiente, aggiornato: ora };
+	const prima = leggiDispositivo(dir);
+	// cambiato ambiente (Debug, TestFlight, Store): i token di prima valgono sull'altro server, si buttano
+	const base = prima && prima.ambiente === p.ambiente ? prima : {};
+	const d: Dispositivo = { ...base, ambiente: p.ambiente, aggiornato: ora };
 	for (const c of CAMPI_TOKEN) {
 		const v = p[c];
 		if (v === undefined) continue;

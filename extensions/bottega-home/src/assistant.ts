@@ -568,8 +568,11 @@ export class Assistant {
 	private readonly out = vscode.window.createOutputChannel('Melissa', { log: true });
 	/** Il turno in corso e' a voce: Agnes risponde subito, senza ragionare (come Avo). */
 	private spokenTurn = false;
-	/** Turno a voce dall'iPhone (src/ponte.ts): le frasi vanno qui invece che agli altoparlanti del Mac. */
+	/** Turno dall'iPhone in corso (src/ponte.ts): le frasi vanno qui invece che agli altoparlanti del Mac. Finche'
+	 *  c'e', il Mac non apre turni suoi (microfono, tasto, barra): i due turni condividerebbero lo stesso stato. */
 	private remote?: { frase(text: string): void; fine(): void };
+	private pendingSeq = 0;
+	private pendingId?: number;
 	private filled = false;
 	private lastLevelEmit = 0;
 
@@ -607,10 +610,12 @@ export class Assistant {
 	}
 	setPending(p: Pending): void {
 		this.pending = p;
+		this.pendingId = ++this.pendingSeq;
 	}
-	/** La domanda di un'azione a rischio in attesa del si' o del no (per la notifica CONFERMA sull'iPhone). */
-	pendingQuestion(): string | undefined {
-		return this.pending ? `Posso ${this.pending.describe}?` : undefined;
+	/** La domanda di un'azione a rischio in attesa del si' o del no, con il suo numero (per la notifica CONFERMA
+	 *  sull'iPhone: un si' da una notifica vecchia non deve confermare una domanda nuova). */
+	pendingQuestion(): { id: number; testo: string } | undefined {
+		return this.pending && this.pendingId ? { id: this.pendingId, testo: `Posso ${this.pending.describe}?` } : undefined;
 	}
 
 	private model(): string {
@@ -762,7 +767,7 @@ export class Assistant {
 	// ----- scorciatoia: tap = conversazione on/off, tieni premuto = parla una volta -----
 
 	private onHotkeyDown(): void {
-		if (!this.state.enabled) return;
+		if (!this.state.enabled || this.remote) return;
 		this.hotkeyDownAt = Date.now();
 		if (this.state.conversing) return; // mic gia' aperto: decido al rilascio (tap = spegni)
 		clearTimeout(this.orbHideTimer);
@@ -817,8 +822,8 @@ export class Assistant {
 		this.state.conversing = false;
 		this.deps.cervelli?.endConversation();
 		clearTimeout(this.silenceTimer);
-		// Chiusa vuol dire chiusa: si ferma anche la risposta in corso e la sua voce.
-		this.currentAbort?.abort();
+		// Chiusa vuol dire chiusa: si ferma anche la risposta in corso e la sua voce (non quella per l'iPhone).
+		if (!this.remote) this.currentAbort?.abort();
 		this.deps.nucleo.fireAndForget('voice.stopSpeaking');
 		this.deps.nucleo.fireAndForget('voice.converse.stop');
 		this.out.info(`conversazione chiusa: ${reason}`);
@@ -865,6 +870,10 @@ export class Assistant {
 
 	private async onVoiceFinal(text: string, mode?: string): Promise<void> {
 		if (!this.state.enabled || !text?.trim()) return;
+		if (this.remote) {
+			this.out.info(`frase ignorata, sto rispondendo all'iPhone: "${text}"`);
+			return;
+		}
 		const inConversation = this.state.conversing && mode !== 'push';
 		const ownPush = this.awaitingPushFinal && mode !== 'converse';
 		if (!inConversation && !ownPush) {
@@ -896,7 +905,19 @@ export class Assistant {
 
 	/** Vero mentre un turno e' in corso (pensa o parla): il ponte non ne apre un secondo. */
 	busy(): boolean {
-		return !!this.currentAbort || this.state.state === 'thinking' || this.state.state === 'speaking';
+		return !!this.remote || !!this.currentAbort || this.state.state === 'thinking' || this.state.state === 'speaking';
+	}
+
+	/** Il numero della conferma aperta adesso (POST /v1/chiedi con `conferma` da una notifica). */
+	pendingConfirmation(): number | undefined {
+		return this.pending ? this.pendingId : undefined;
+	}
+
+	/** Fine di un turno dall'iPhone: lo stato torna quello del Mac (in ascolto se la conversazione e' aperta). */
+	private endRemote(sink: { frase(text: string): void; fine(): void }): void {
+		if (this.remote !== sink) return;
+		this.remote = undefined;
+		this.setState(this.state.conversing ? 'listening' : 'idle');
 	}
 
 	/** Domanda a voce dall'iPhone: stesso cervello, stessa conversazione e stessa fretta di un turno a voce sul
@@ -908,10 +929,7 @@ export class Assistant {
 		try {
 			return cleanForVoice(await this.turn(text, true));
 		} finally {
-			if (this.remote === sink) {
-				this.remote = undefined;
-				if (this.state.state !== 'idle' && !this.state.conversing) this.setState('idle');
-			}
+			this.endRemote(sink);
 		}
 	}
 
@@ -924,16 +942,19 @@ export class Assistant {
 	 *  sta zitto. */
 	async askRemote(text: string): Promise<string> {
 		this.out.info(`domanda dall'iPhone: "${text.slice(0, 80)}"`);
-		const answer = await this.turn(text, false);
-		if (!this.state.conversing && this.state.state === 'thinking') {
-			this.setState('idle');
-			this.deps.nucleo.fireAndForget('orb.state', { state: 'idle' });
+		// un turno muto per il Mac: nessuna frase da dire, ma la sfera e il microfono del Mac restano fermi
+		const sink = { frase: () => undefined, fine: () => undefined };
+		this.remote = sink;
+		try {
+			return cleanForVoice(await this.turn(text, false));
+		} finally {
+			this.endRemote(sink);
 		}
-		return cleanForVoice(answer);
 	}
 
 	/** Domanda scritta dalla plancia: stesso cervello, parlata solo se la voce e' accesa. */
 	async ask(text: string): Promise<string> {
+		if (this.remote) return 'Sto rispondendo all\'iPhone: riprova tra un attimo.';
 		return this.turn(text, this.state.enabled && this.deps.nucleo.available);
 	}
 

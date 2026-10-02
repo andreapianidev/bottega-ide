@@ -55,6 +55,7 @@ function call(port, method, url, { token, body, raw } = {}) {
 
 	let busy = false;
 	let interrotte = 0;
+	let confermaAperta;
 	const asked = [];
 	const written = [];
 	const port = 20000 + Math.floor(Math.random() * 20000);
@@ -66,6 +67,7 @@ function call(port, method, url, { token, body, raw } = {}) {
 		stato: () => ({ melissa: { stato: busy ? 'thinking' : 'idle', cervello: 'agnes', registro: asked.map(t => ({ chi: 'tu', testo: t, alle: 1 })) }, lavori: [], conti: { inCorso: 0, tiAspetta: 1, inCoda: 0, vive: 1 } }),
 		occupata: () => busy,
 		chiedi: async t => (asked.push(t), `Risposta a: ${t}`),
+		confermaAttuale: () => confermaAperta,
 		parla: async (t, emetti, segnale) => {
 			emetti({ tipo: 'voce', ok: true });
 			emetti({ tipo: 'frase', testo: 'Prima frase.' });
@@ -113,6 +115,18 @@ function call(port, method, url, { token, body, raw } = {}) {
 	assert.strictEqual((await call(port, 'POST', '/v1/chiedi', { token: t1, body: { testo: 'ancora' } })).status, 409);
 	busy = false;
 	ok('domanda, testo vuoto, Melissa occupata');
+
+	// il si' da una notifica CONFERMA vale solo per la sua domanda
+	confermaAperta = 7;
+	assert.strictEqual((await call(port, 'POST', '/v1/chiedi', { token: t1, body: { testo: 'sì', conferma: 6 } })).status, 409, 'notifica vecchia');
+	assert.ok(!asked.includes('sì'));
+	confermaAperta = undefined;
+	assert.strictEqual((await call(port, 'POST', '/v1/chiedi', { token: t1, body: { testo: 'sì', conferma: 7 } })).status, 409, 'domanda gia\' chiusa');
+	confermaAperta = 7;
+	assert.strictEqual((await call(port, 'POST', '/v1/chiedi', { token: t1, body: { testo: 'sì', conferma: 7 } })).status, 200);
+	assert.strictEqual(asked.at(-1), 'sì');
+	assert.strictEqual((await call(port, 'POST', '/v1/chiedi', { token: t1, body: 'null' })).status, 400, 'corpo null');
+	ok('conferma: il si\' vale solo per la domanda della sua notifica');
 
 	const p = await call(port, 'POST', '/v1/parla', { token: t1, body: { testo: 'come va?' }, raw: true });
 	assert.strictEqual(p.status, 200);
@@ -197,8 +211,9 @@ function call(port, method, url, { token, body, raw } = {}) {
 
 	// troppi gettoni sbagliati: fuori
 	for (let i = 0; i < 20; i++) await call(port, 'GET', '/v1/stato', { token: 'sbagliato' });
-	assert.strictEqual((await call(port, 'GET', '/v1/stato', { token: t1 })).status, 429);
-	ok('dopo 20 gettoni sbagliati l\'indirizzo resta fuori');
+	assert.strictEqual((await call(port, 'GET', '/v1/stato', { token: 'sbagliato' })).status, 429);
+	assert.strictEqual((await call(port, 'GET', '/v1/stato', { token: t1 })).status, 200, 'il gettone giusto passa anche da un indirizzo bloccato');
+	ok('dopo 20 gettoni sbagliati quell\'indirizzo resta fuori, ma il gettone giusto passa');
 
 	ponte.stop();
 	assert.ok(!ponte.info().attivo);
