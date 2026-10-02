@@ -36,3 +36,10 @@ VS Code compilato dai sorgenti (tag in `bottega.json`), piu' estensioni proprie.
   nessun dato di clienti in codice, documenti o screenshot (nomi, email, descrizioni di progetti dei
   clienti: negli screenshot vanno sfocati), nessun dato aziendale oltre alla riga legale del README.
   Il vecchio repository privato `andreapianidev/bottega` e' stato tolto: si spinge solo su `origin`.
+- **Live Activity dell'iPhone: non togliere le due difese del token morto** (bug delle build 39-42, corretto nella 43).
+  Reinstallando l'app iOS chiude la Live Activity senza dirlo, e APNs risponde 200 anche al token di un'attivita'
+  chiusa: senza difese il Mac la aggiorna per sempre e non ne fa partire una nuova. Le difese: in
+  `ios/Bottega/Avvisi/Avvisi.swift` (`seguiAttivita`) l'app, senza attivita' aperte, manda `attivita: ""`; in
+  `src/avvisi.ts` un token tolto e non nostro fa ripartire subito, e oltre `LA_VITA_MS` (8 ore) il token si toglie.
+  Le prove in `test/avvisi.cjs` falliscono se una delle due sparisce. Dopo ogni installazione sull'iPhone l'app va
+  aperta una volta (lo fa Andrea): e' li' che il token vecchio si toglie. Contratto: `docs/CONTRATTI.md`, 9.4.
