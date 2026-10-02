@@ -558,6 +558,12 @@ export class Assistant {
 	/** Cosa ha detto Melissa di recente, per scartare l'eco della sua voce in conversazione. */
 	private recentSpeech: { text: string; at: number }[] = [];
 	private firstSpeakChunk = true;
+	/** In conversazione il testo della risposta finisce prima della voce: la barra resta su «parlo» finche' il
+	 *  Nucleo non dice che la voce e' finita (voice.state), poi torna a «ti ascolto» quando il microfono si riapre. */
+	private attesaVoce = false;
+	private vocePartita = false;
+	private voceFinita = false;
+	private attesaVoceTimer?: ReturnType<typeof setTimeout>;
 	private turnText = '';
 	private hotkeyDownAt = 0;
 	private pushStarted = false;
@@ -679,7 +685,15 @@ export class Assistant {
 		n.on('voice.bargein', () => this.onBargein());
 		// Un guasto della voce (microfono, trascrizione, connessione) arriva come voice.state {state: "error", message}:
 		// si dice in chiaro e la conversazione si chiude, invece di restare su "ti ascolto" senza ascoltare.
-		n.on('voice.state', (m: any) => m?.state === 'error' && this.voiceFailed(String(m.message || 'la voce si è interrotta')));
+		n.on('voice.state', (m: any) => {
+			if (m?.state === 'error') return this.voiceFailed(String(m.message || 'la voce si è interrotta'));
+			if (m?.state === 'speaking') {
+				this.vocePartita = true;
+				return;
+			}
+			if (this.vocePartita) this.voceFinita = true;
+			if (this.attesaVoce) this.fineAttesaVoce();
+		});
 		// Avvisi ed errori del Nucleo nel registro di Melissa; tutto quello che scrive (anche le righe informative) in
 		// ~/.bottega/nucleo.log, per capire dopo cosa e' successo alla voce.
 		n.on('log', (m: any) => this.out[m?.level === 'error' ? 'error' : 'warn'](`Nucleo: ${m?.message ?? ''}`));
@@ -1093,8 +1107,17 @@ export class Assistant {
 			void this.deps.nucleo.request('voice.listen', { mode: 'utterance' }, 15_000).catch((e: any) => this.voiceFailed(e?.message ?? String(e)));
 		} else if (this.state.conversing) {
 			this.armSilence();
+			if (this.attesaVoce) return;
 			this.setState('listening');
+			// Turno senza voce: il Nucleo riapre il microfono, chiuso da quando la frase e' stata chiusa.
+			this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });
 		}
+	}
+
+	private fineAttesaVoce(): void {
+		this.attesaVoce = false;
+		clearTimeout(this.attesaVoceTimer);
+		if (this.state.conversing && !this.speaking && this.state.state === 'speaking') this.setState('listening');
 	}
 
 	private trimHistory(): void {
@@ -1105,6 +1128,10 @@ export class Assistant {
 
 	private beginSpeech(): void {
 		this.speaking = true;
+		this.attesaVoce = false;
+		this.vocePartita = false;
+		this.voceFinita = false;
+		clearTimeout(this.attesaVoceTimer);
 		this.saidClauses.clear();
 		this.chunker = new ClauseChunker();
 		this.firstSpeakChunk = true;
@@ -1150,7 +1177,12 @@ export class Assistant {
 		}
 		if (sendFinal) this.deps.nucleo.fireAndForget('voice.speak', { final: true });
 		this.speaking = false;
-		if (this.state.conversing) {
+		if (this.state.conversing && this.saidClauses.size > 0 && !this.voceFinita) {
+			// Il Nucleo sta ancora parlando: «ti ascolto» arriva con la sua voice.state, non adesso.
+			this.attesaVoce = true;
+			clearTimeout(this.attesaVoceTimer);
+			this.attesaVoceTimer = setTimeout(() => this.fineAttesaVoce(), 180_000);
+		} else if (this.state.conversing) {
 			this.setState('listening');
 			this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });
 		} else {

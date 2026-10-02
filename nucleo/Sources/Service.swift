@@ -113,6 +113,8 @@ enum Service {
                     throw NucleoError("Stato della sfera non valido: usa idle, listening, thinking, speaking o error.")
                 }
                 OrbPanel.shared.set(state: st, caption: r.string("caption"))
+                // In conversation a turn that ends without voice reopens the microphone.
+                if st == .listening || st == .idle { Listener.shared.replyOver() }
                 r.respond()
 
             // MARK: hotkey, notifications, menu bar

@@ -59,8 +59,10 @@ Una riga JSON per messaggio su stdin/stdout, UTF-8. Lo stderr e' log libero.
 | `voice.converse.start` | `locale?` | `echoCancellation`, `backend` | modalita' conversazione: microfono sempre aperto, ogni frase che il server chiude (~0.8 s di silenzio) e' un turno dell'utente (`voice.final {text, mode:"converse"}`). Trascrizione (2/10/2026, `Voice/AppleSTT.swift`): come la Melissa di Avo Agency AI, SFSpeechRecognizer it-IT sul Mac,
 i buffer del microfono passati cosi' come sono, risultati parziali, una richiesta nuova per ogni frase, frase chiusa
 dopo 1,8 s senza parole nuove o quando il riconoscitore la da' per finita. Niente voice processing (VPIO affama il
-riconoscitore). Mentre Melissa parla il microfono non si ascolta e si riapre 250 ms dopo (Avo Agency AI: niente eco,
-niente interruzioni a voce; si interrompe con un tocco). Permesso "Riconoscimento vocale" per Bottega Nucleo, chiesto
+riconoscitore). Come in Avo Agency AI, dalla frase chiusa alla fine della voce il microfono e' spento davvero (motore
+audio fermo, niente pallino arancione di macOS) e si riapre 250 ms dopo che Melissa ha finito, oppure quando
+l'estensione chiude un turno senza voce con `orb.state` `listening` (niente eco, niente interruzioni a voce; si
+interrompe con un tocco). L'estensione resta su «parlo» finche' `voice.state` non lascia `speaking`. Permesso "Riconoscimento vocale" per Bottega Nucleo, chiesto
 con lo stesso tempo massimo del microfono. ElevenLabs realtime resta con `BOTTEGA_STT=elevenlabs`. Con ElevenLabs:
 si manda tutto l'audio, anche il silenzio: fino al 2/10/2026 passava solo quello sopra una soglia fissa (livello 0,08, circa -37 dBFS), e il microfono del MacBook Air senza voice processing restava sotto, quindi a ElevenLabs non arrivava niente. La conversazione si chiude dopo 60 s di silenzio, l'audio in piu' ha un tetto. Registro: `conversazione richiesta`, `trascrizione: primo audio inviato a ElevenLabs`, `prima trascrizione parziale ricevuta`, `conversazione chiusa dal Nucleo` con i secondi inviati; l'estensione scrive ogni tocco e il motivo di ogni chiusura. Se l'utente parla sopra Melissa, la voce si ferma ed esce `voice.bargein {text, trigger}` (`trigger`: `energy` con cancellazione dell'eco hardware, `speech` quando lo decide il testo parziale). Eco: prima la cancellazione hardware (voice processing), se fallisce il filtro software sul testo (parole in comune con quello che Melissa sta dicendo) |
 | `voice.converse.stop` | | | chiude la conversazione (emette `voice.final` se c'era una frase a meta') |
