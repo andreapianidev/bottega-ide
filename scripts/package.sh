@@ -146,3 +146,8 @@ if [[ -d "$NUCLEO_APP" ]]; then
   $LSREG -f "$NUCLEO_APP" && echo "Nucleo registrato (Comandi rapidi, Spotlight)"
   [[ -d "$NUCLEO_APP/Contents/PlugIns/BottegaWidget.appex" ]] && pluginkit -a "$NUCLEO_APP/Contents/PlugIns/BottegaWidget.appex" || true
 fi
+
+# La copia di lavoro in dist/ ha gia' fatto il suo dovere: resta una sola Bottega sul Mac, quella in
+# /Applications (Spotlight e LaunchServices non devono trovarne due). Si ricrea al prossimo package.
+$LSREG -u "$DIST" 2>/dev/null || true
+rm -rf "$ROOT/dist"

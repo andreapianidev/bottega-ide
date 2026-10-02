@@ -73,6 +73,13 @@ Eventi aggiuntivi: `voice.state {state, conversing, mode?, wake?, message?}` (`s
 (al massimo 15 al secondo, niente eventi mentre resta silenzio), `voice.bargein {text, trigger}`,
 `voice.engine {engine, reason}` (ElevenLabs e' caduto, si continua con la voce Apple), `orb.clicked {mode}` (`mode`: `docked` o `big`),
 `system.pressure {memoryPressure, thermal}` quando cambia, `log {level, message}`, `ready {version}`.
+L'estensione ascolta `voice.state` con `error`: scrive il messaggio nel registro di Melissa e nella barra, chiude la
+conversazione e mette la sfera in errore. `voice.converse.start` e `voice.listen` si aspettano con una risposta (15 s):
+un errore o un'attesa scaduta fanno lo stesso, la barra non resta mai su "ti ascolto" senza ascoltare. `log` va nel
+registro di Melissa; tutto lo stderr del Nucleo in `~/.bottega/nucleo.log` (oltre 2 MB si ricomincia, la copia di prima
+in `nucleo.log.1`). Il permesso del microfono si chiede con un tempo massimo di 20 s (il 2/10/2026 la richiesta restava
+appesa senza finestra): scaduto o negato, si apre Impostazioni di Sistema sul Microfono e la richiesta fallisce con il
+messaggio in italiano.
 
 Voce in uscita: ElevenLabs se c'e' la chiave (`ELEVENLABS_API_KEY` nell'ambiente, altrimenti `~/.secrets/elevenlabs.env`,
 con `ELEVENLABS_VOICE_ID` facoltativo, default Melissa `QITiGyM4owEZrBEf0QV8`), sempre in tempo reale sul socket

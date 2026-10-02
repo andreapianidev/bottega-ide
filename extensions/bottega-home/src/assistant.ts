@@ -8,6 +8,19 @@ import type { Cervelli } from './cervelli';
 import { BrainName, BrainRouter, OpenAiStreamFn, appleInstructions, appleOpenAiStream, appleToolSpecs } from './cervello';
 import { SystemStats } from './nucleo';
 
+const NUCLEO_LOG = path.join(os.homedir(), '.bottega', 'nucleo.log');
+
+/** Le righe del Nucleo (stderr) in ~/.bottega/nucleo.log: oltre 2 MB il file si ricomincia, tenendo la copia di prima. */
+function appendNucleoLog(chunk: string): void {
+	try {
+		const st = fs.statSync(NUCLEO_LOG, { throwIfNoEntry: false });
+		if (st && st.size > 2_000_000) fs.renameSync(NUCLEO_LOG, NUCLEO_LOG + '.1');
+		fs.appendFileSync(NUCLEO_LOG, chunk);
+	} catch {
+		// un registro che non si scrive non deve fermare la voce
+	}
+}
+
 // Melissa: il cervello della Bottega. Parla via Agnes AI (OpenAI-compatibile, in streaming) o il cervello scelto
 // nella barra; quando Agnes e' a terra, via Apple Intelligence sul Mac CON gli strumenti (src/cervello.ts).
 // La conversazione e' sempre in tempo reale: TTS a chunk mentre Agnes genera, barge-in quando
@@ -647,6 +660,13 @@ export class Assistant {
 		n.on('voice.final', (m: any) => void this.onVoiceFinal(m.text, m.mode));
 		n.on('voice.level', (m: any) => this.onLevel(m.level));
 		n.on('voice.bargein', () => this.onBargein());
+		// Un guasto della voce (microfono, trascrizione, connessione) arriva come voice.state {state: "error", message}:
+		// si dice in chiaro e la conversazione si chiude, invece di restare su "ti ascolto" senza ascoltare.
+		n.on('voice.state', (m: any) => m?.state === 'error' && this.voiceFailed(String(m.message || 'la voce si è interrotta')));
+		// Avvisi ed errori del Nucleo nel registro di Melissa; tutto quello che scrive (anche le righe informative) in
+		// ~/.bottega/nucleo.log, per capire dopo cosa e' successo alla voce.
+		n.on('log', (m: any) => this.out[m?.level === 'error' ? 'error' : 'warn'](`Nucleo: ${m?.message ?? ''}`));
+		n.on('stderr', (chunk: string) => appendNucleoLog(chunk));
 		// Clic sulla sfera: accende o spegne la conversazione (come un tocco di Opzione+Spazio).
 		n.on('orb.clicked', () => this.onOrbClicked());
 		// La sfera a riposo e' sempre visibile finche' la Bottega e' aperta e Melissa e' accesa.
@@ -738,7 +758,7 @@ export class Assistant {
 		this.showBigOrb();
 		this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });
 		this.setState('listening');
-		this.deps.nucleo.fireAndForget('voice.listen', { mode: 'push' });
+		void this.deps.nucleo.request('voice.listen', { mode: 'push' }, 15_000).catch((e: any) => this.voiceFailed(e?.message ?? String(e)));
 	}
 
 	private onHotkeyUp(): void {
@@ -769,7 +789,9 @@ export class Assistant {
 		this.state.conversing = true;
 		this.showBigOrb();
 		this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });
-		this.deps.nucleo.fireAndForget('voice.converse.start', { model: this.model(), locale: 'it-IT' });
+		this.deps.nucleo
+			.request('voice.converse.start', { model: this.model(), locale: 'it-IT' }, 15_000)
+			.catch((e: any) => this.voiceFailed(e?.message ?? String(e)));
 		this.setState('listening');
 		this.paintStatus();
 		this.armSilence();
@@ -789,6 +811,17 @@ export class Assistant {
 		this.restOrb();
 		this.setState('idle');
 		this.paintStatus();
+	}
+
+	/** La voce non funziona: lo si dice nella barra e nel registro, e la conversazione si chiude. */
+	private voiceFailed(message: string): void {
+		this.out.error(`voce: ${message}`);
+		const wasConversing = this.state.conversing;
+		this.stopConversation();
+		this.awaitingPushFinal = false;
+		this.pushLog('azione', `La voce non funziona: ${message}`);
+		this.setState('error', message);
+		if (!wasConversing) this.paintStatus();
 	}
 
 	private armSilence(): void {
@@ -981,7 +1014,7 @@ export class Assistant {
 			// azione a rischio: resto in ascolto per il si/no
 			this.setState('listening');
 			this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });
-			this.deps.nucleo.fireAndForget('voice.listen', { mode: 'utterance' });
+			void this.deps.nucleo.request('voice.listen', { mode: 'utterance' }, 15_000).catch((e: any) => this.voiceFailed(e?.message ?? String(e)));
 		} else if (this.state.conversing) {
 			this.armSilence();
 			this.setState('listening');

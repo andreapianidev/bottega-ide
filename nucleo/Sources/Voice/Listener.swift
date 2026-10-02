@@ -23,6 +23,7 @@
 //  listening window.
 //
 
+import AppKit
 import Foundation
 import AVFoundation
 import os
@@ -177,16 +178,47 @@ final class Listener {
 
     // MARK: - Permissions
 
+    /// The Privacy > Microphone pane of System Settings.
+    static let microphoneSettings = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
+
+    /// Microphone permission. The request has a time limit: the Nucleo is a helper with no
+    /// window, and on 2/10/2026 `requestAccess` never returned (no dialog on screen), which
+    /// left the voice hanging on "ti ascolto" with no error. Now it fails with a clear message
+    /// and opens the Microphone pane, where Andrea can switch Bottega on.
     static func ensureMicrophone() async throws {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        Log.info("permesso del microfono: \(status.rawValue) (0 non deciso, 2 negato, 3 autorizzato)")
+        switch status {
         case .authorized:
             return
         case .notDetermined:
-            let ok = await AVCaptureDevice.requestAccess(for: .audio)
-            if !ok { throw NucleoError("Il permesso del microfono e' stato negato.") }
+            let granted: Bool? = await withCheckedContinuation { (k: CheckedContinuation<Bool?, Never>) in
+                let once = OSAllocatedUnfairLock(initialState: false)
+                let finish: (Bool?) -> Void = { value in
+                    let first = once.withLock { done -> Bool in
+                        if done { return false }
+                        done = true
+                        return true
+                    }
+                    if first { k.resume(returning: value) }
+                }
+                AVCaptureDevice.requestAccess(for: .audio) { finish($0) }
+                DispatchQueue.global().asyncAfter(deadline: .now() + 20) { finish(nil) }
+            }
+            if granted == true { return }
+            openMicrophoneSettings()
+            if granted == nil {
+                throw NucleoError("macOS non ha risposto alla richiesta del microfono. Si è aperto Impostazioni di Sistema, Privacy e sicurezza, Microfono: accendi Bottega e riprova.")
+            }
+            throw NucleoError("Il permesso del microfono è stato negato. Si è aperto Impostazioni di Sistema, Privacy e sicurezza, Microfono: accendi Bottega e riprova.")
         default:
-            throw NucleoError("Il microfono non e' autorizzato: abilitalo per Bottega in Impostazioni di Sistema, Privacy e sicurezza, Microfono.")
+            openMicrophoneSettings()
+            throw NucleoError("Il microfono non è autorizzato per Bottega. Si è aperto Impostazioni di Sistema, Privacy e sicurezza, Microfono: accendi Bottega e riprova.")
         }
+    }
+
+    private static func openMicrophoneSettings() {
+        DispatchQueue.main.async { NSWorkspace.shared.open(microphoneSettings) }
     }
 
     // MARK: - STT socket

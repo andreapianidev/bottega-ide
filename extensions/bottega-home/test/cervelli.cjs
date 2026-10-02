@@ -144,7 +144,7 @@ function fakeFetch(opts = {}) {
 		assert.ok(st.options.filter(o => o.provider === 'openrouter').every(o => o.available));
 	});
 
-	await test('conti: Agnes senza saldo ma con richieste e 429, OpenRouter e DeepSeek dai loro endpoint, ElevenLabs contato in locale', async () => {
+	await test('conti: Agnes senza saldo ma con richieste e 429, OpenRouter e DeepSeek solo mentre si usano, ElevenLabs contato in locale', async () => {
 		let now = Date.UTC(2026, 9, 2, 9);
 		const usage = path.join(tmp, 'usage.json');
 		fs.writeFileSync(usage, JSON.stringify({ elevenLabsCharsByMonth: { '2026-10': 801 } }));
@@ -155,10 +155,14 @@ function fakeFetch(opts = {}) {
 		const by = id => st.accounts.find(a => a.id === id);
 		assert.strictEqual(by('agnes').text, 'gratis, nessun saldo da controllare; 2 richieste oggi dalla Bottega');
 		assert.strictEqual(by('agnes').local, true);
+		assert.strictEqual(by('openrouter'), undefined, 'con Agnes il saldo di OpenRouter non compare');
+		assert.strictEqual(by('deepseek'), undefined, 'con Agnes il saldo di DeepSeek non compare');
+		assert.ok(by('elevenlabs').text.startsWith('801 caratteri di voce a ottobre, contati dalla Bottega'));
+		await c.set('openrouter', 'anthropic/claude-sonnet-5.5');
+		st = await c.state();
 		assert.strictEqual(by('openrouter').text, 'saldo -0,13 $: va ricaricato');
 		assert.strictEqual(by('openrouter').tone, 'male');
-		assert.strictEqual(by('deepseek').text, 'saldo -0,01 $: senza credito');
-		assert.ok(by('elevenlabs').text.startsWith('801 caratteri di voce a ottobre, contati dalla Bottega'));
+		c.endConversation();
 		c.noteAgnes(429);
 		now += 60_000;
 		st = await c.state();

@@ -305,16 +305,18 @@ export class Cervelli {
 		return b;
 	}
 
-	private async accounts(credit: number | undefined): Promise<Account[]> {
+	/** I conti nella barra. Melissa pensa con Agnes, gratis (decisione di Andrea, 2 ottobre 2026): i servizi a pagamento
+	 *  (OpenRouter, DeepSeek) si vedono solo mentre una conversazione li sta usando, mai come allarme a riposo. */
+	private async accounts(credit: number | undefined, inUse: Provider): Promise<Account[]> {
 		const out: Account[] = [this.agnesAccount()];
 		const money = (n: number) => `${n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
-		if (credit !== undefined) {
+		if (credit !== undefined && inUse === 'openrouter') {
 			out.push(credit > 1
 				? { id: 'openrouter', label: 'OpenRouter', text: `restano ${money(credit)}`, tone: 'ok' }
 				: { id: 'openrouter', label: 'OpenRouter', text: credit > 0 ? `restano solo ${money(credit)}` : `saldo ${money(credit)}: va ricaricato`, tone: credit > 0 ? 'attesa' : 'male' });
 		}
 		const b = await this.otherBalances();
-		if (b.deepseek !== undefined) out.push({ id: 'deepseek', label: 'DeepSeek', text: b.deepseekOk ? `restano ${money(b.deepseek)}` : `saldo ${money(b.deepseek)}: senza credito`, tone: b.deepseekOk ? 'ok' : 'male' });
+		if (b.deepseek !== undefined && inUse === 'deepseek') out.push({ id: 'deepseek', label: 'DeepSeek', text: b.deepseekOk ? `restano ${money(b.deepseek)}` : `saldo ${money(b.deepseek)}: senza credito`, tone: b.deepseekOk ? 'ok' : 'male' });
 		if (b.elevenlabs !== undefined) {
 			const mese = new Date(this.now()).toLocaleDateString('it-IT', { month: 'long' });
 			out.push({ id: 'elevenlabs', label: 'ElevenLabs', text: `${b.elevenlabs.toLocaleString('it-IT')} caratteri di voce a ${mese}, contati dalla Bottega`, tone: 'ok', local: true });
@@ -413,7 +415,7 @@ export class Cervelli {
 			effort: c.effort,
 			options,
 			...(credit !== undefined ? { credit: { openrouter: credit } } : {}),
-			accounts: await this.accounts(credit),
+			accounts: await this.accounts(credit, c.provider),
 			checkedAt: this.checkedAt,
 		};
 	}
