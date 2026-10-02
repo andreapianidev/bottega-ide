@@ -1,3 +1,3 @@
 // Scritto da scripts/bump-build.sh: la Bottega per iPhone ha sempre la versione e la build della Bottega.
 MARKETING_VERSION = 0.1.0
-CURRENT_PROJECT_VERSION = 43
+CURRENT_PROJECT_VERSION = 44
