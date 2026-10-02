@@ -873,7 +873,7 @@
 
 	// ---------- Home: briefing, consigli, cifre, progetti fermi ----------
 
-	const POINT_KIND = { ore: 'Ore', lavori: 'Lavori', store: 'Store', soldi: 'Soldi', regole: 'Regole', dimenticati: 'Fermi', notte: 'Notte' };
+	const POINT_KIND = { ore: 'Ore', lavori: 'Lavori', store: 'Store', soldi: 'Soldi', regole: 'Regole', dimenticati: 'Fermi', notte: 'Notte', calendario: 'Agenda' };
 
 	function briefTitle(b) {
 		return !b.date || b.date === dayKey() ? 'Il briefing di oggi' : `Il briefing di ${dateWords(b.date)}`;

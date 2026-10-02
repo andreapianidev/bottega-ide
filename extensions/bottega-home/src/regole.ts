@@ -21,6 +21,7 @@ import { findSecrets } from '../../../memoria/lib/redact.mjs';
 import type { Project } from './scan';
 import type { Livello, ProjectRules, RadarState, RuleHit, RulesState } from './tipi';
 import { STATI_RILASCIO } from './radar';
+import { vercelHits } from './vercel';
 
 export type { Livello, ProjectRules, RuleHit, RulesState };
 
@@ -295,6 +296,7 @@ export class RulesEngine {
 		}
 		const rel = releaseHit(p.path, radar);
 		if (rel) hits.push(rel);
+		hits.push(...vercelHits(p.path, radar?.vercel));
 		if (cached.build) hits.push(cached.build);
 		if (g.ahead > 0 && g.upstream) {
 			hits.push({

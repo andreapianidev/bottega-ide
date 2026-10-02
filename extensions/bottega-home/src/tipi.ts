@@ -11,7 +11,7 @@ export interface RuleAction {
 }
 
 export interface RuleHit {
-	id: 'build' | 'push' | 'remoto' | 'pubblico' | 'rilascio' | 'segreti' | 'app-ads';
+	id: 'build' | 'push' | 'remoto' | 'pubblico' | 'rilascio' | 'segreti' | 'app-ads' | 'vercel';
 	livello: 'rosso' | 'giallo';
 	frase: string;
 	rimedio: string;
