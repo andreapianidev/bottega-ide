@@ -512,7 +512,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		},
 	},
 	plancia_mostra: {
-		spec: { type: 'function', function: { name: 'plancia_mostra', description: 'Mostra la plancia, eventualmente su una sezione (progetti, lavori, sessioni, memoria).', parameters: obj({ sezione: { type: 'string' } }) } },
+		spec: { type: 'function', function: { name: 'plancia_mostra', description: 'Mostra la plancia. Per aprire una stanza precisa (Lavori, Memoria, Cruscotto, Vedetta, App Store, Clienti, Connettori, Osservatorio) usa stanza_mostra.', parameters: obj({ sezione: { type: 'string' } }) } },
 		run(a, ctx) {
 			ctx.deps.actions.showPlancia(a.sezione);
 			ctx.azione('Ho aperto la plancia');

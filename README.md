@@ -249,7 +249,7 @@ caratteri di voce contati dalla Bottega. Melissa legge cosa hanno fatto le sessi
 Bottega, avvisa quando uno ti aspetta e muove il cruscotto mentre ti risponde («fammi vedere le ore di Woofmap questa
 settimana»). Usa anche i connettori che hai in Claude Code, sempre in sola lettura: legge da sola e gratis i server
 locali (AdMob, Search Console, App Store Connect...), chiede a Claude per Gmail, Calendar, Drive o Vercel solo dopo
-averti detto tempo e costo, e la mattina mette nel briefing gli appuntamenti di oggi. Chi vuole la sfera sullo schermo, come prima, imposta `bottega.voice.sfera` su `schermo`. Il Nucleo espone anche i Comandi rapidi
+averti detto tempo e costo, e la mattina mette nel briefing gli appuntamenti di oggi. Melissa legge e apre ogni stanza della plancia a voce («quante ore ho fatto su Woofmap questa settimana», «quanto ho guadagnato a settembre», «cosa mi resta da fare sulla Bottega», «i siti sono tutti su?»), dagli stessi dati che vedi, senza costi e senza chiamate in piu'. Chi vuole la sfera sullo schermo, come prima, imposta `bottega.voice.sfera` su `schermo`. Il Nucleo espone anche i Comandi rapidi
 («Chiedi a Melissa», «Avvia un lavoro», «Briefing», «Stato delle regole», anche con Siri), due widget da scrivania
 (il semaforo con il briefing, e «Oggi» con le ore, il grafico della settimana, chi ti aspetta e tre pulsanti), quattro
 controlli per il Centro di Controllo (Melissa, plancia, nuovo lavoro, Osservatorio), e mette progetti e ricordi in

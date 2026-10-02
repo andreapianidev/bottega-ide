@@ -1036,6 +1036,47 @@ Strumenti sui connettori (5.7), sempre in sola lettura:
   la spesa di oggi sul tetto; dopo il si' la delega parte in coda e la risposta arriva a voce con `announce` quando
   Melissa e' libera (al massimo un minuto di attesa). Con il tetto raggiunto non chiede nemmeno.
 
+Strumenti sulle stanze (`src/strumenti-stanze.ts`, provato da `test/strumenti-stanze.cjs`), registrati da
+`extension.ts` come gli altri (`Object.assign(TOOLS, STRUMENTI_STANZE)`, poi `registraStrumentiStanze(fonti)` con
+`resolveProject`, il calcolo del cruscotto, `appStore.state()`, `idee.rules.state()`, `idee.radar.state()`, le ore per
+cliente (`buildReport` sul registro appena calcolato), la Memoria, `stanzaConnettori()`, `idee.night.state()`,
+`showHome` e `panelHost.send`):
+
+- `stanza_leggi {stanza, progetto?, periodo?, mese?}`: stanza = `cruscotto | appstore | vedetta | siti | clienti |
+  posta | whatsapp | dafare | memoria | connettori | notte`. Restituisce un riassunto gia' pronto per la voce: frasi
+  corte, numeri arrotondati (ore a 5 minuti, euro interi sopra i 10, importi da fatturare al centesimo), al massimo
+  1200 caratteri, i cinque elementi che contano di piu'; se non ci sta tutto finisce con «Il resto è nella stanza:
+  chiedimi i dettagli.». Niente lineette lunghe o medie, nemmeno quelle che arrivano dai dati (commit, oggetti).
+  Legge solo lo stato che la plancia mostra: nessuna chiamata di rete, nessuna delega, nessun costo. Il cruscotto e le
+  ore per cliente ricalcolano in locale, in modo incrementale, come la Home (al massimo 20 secondi, poi «riprova tra
+  poco»). Dati piu' vecchi di mezz'ora: la frase finisce con l'eta' («Dati di 3 ore fa.»).
+  - `progetto`: risolto con `resolveProject`; per `appstore` vale anche il nome di un'app, per `clienti` il nome di un
+    cliente o di un suo progetto. Senza: il quadro di tutto.
+  - `periodo` in giorni, ricondotto a 1, 7, 30, 90, 365 (predefinito 7 per il cruscotto, 30 per l'App Store). Il
+    cruscotto tiene 90 giorni (365 diventa 90 e lo dice); l'App Store usa i giorni fino a 30 e i mesi oltre (90 = 3
+    mesi, 365 = 12 mesi compreso quello in corso), con il confronto sul periodo prima.
+  - `mese`: `YYYY-MM`, «settembre», «settembre 2025», «mese scorso», «questo mese» (senza anno: l'ultimo con quel
+    nome). Vale per `appstore`, `clienti` e `cruscotto` (solo il totale del mese).
+  - Cosa legge ogni stanza: `cruscotto` (`Stats`: ore tue e di Claude, sessioni, token, valore a listino, confronto,
+    da lunedi', primi cinque progetti, sessioni aperte); `appstore` (`AppStoreStato`: totale, AdMob, Store, download,
+    confronto, app migliori, buchi con stima, `storeFinoA`, errori); `vedetta` (`RulesState` piu' versione su App Store
+    e sito del progetto); `siti` (`RadarState.vercel`: fallite prima, in corso, ultime pubblicate; dice che guarda le
+    pubblicazioni, non se i siti rispondono); `clienti` (`ClientReport` del mese); `dafare` (la riga «Da fare:»
+    dell'ultimo riassunto di ogni progetto, `splitSummary` di `continua.ts`); `memoria` (bacheca delle ultime due ore,
+    decisioni e note recenti); `posta` (mail per progetto piu' il conto delle chat); `whatsapp` (chat che aspettano
+    risposta); `connettori` (stati e spesa delle deleghe); `notte` (finestra, coda, resoconto).
+- `stanza_mostra {stanza, progetto?}`: la Home su `cruscotto`, `appstore`, `vedetta` (anche `siti`), `clienti`,
+  `connettori` (anche `posta` e `whatsapp`), `plancia` (anche `dafare`, con il progetto in evidenza), `memoria`,
+  `lavori` (anche `notte`), `melissa`, oppure l'Osservatorio (`bottega.openOsservatorio`). Sul cruscotto con un
+  progetto manda anche `{type:'crus.focus', path}`.
+- `cruscotto_mostra` resta solo la vista: la sua descrizione e la sua risposta dicono di chiamare `stanza_leggi` per
+  dire le cifre.
+- Privacy: `posta` e `whatsapp` solo se Andrea chiede esplicitamente di mail, messaggi o di chi gli ha scritto (scritto
+  nella descrizione). Escono solo nome del contatto, progetto, oggetto della mail e, per WhatsApp e solo per un
+  progetto, un'anteprima di 60 caratteri dell'ultimo messaggio. Mai indirizzi, numeri di telefono, corpi delle mail.
+  Quello che Melissa legge con questi strumenti va al suo cervello (Agnes, o quello scelto per la conversazione): e'
+  una lettura che esce dal Mac, come per `connettore_leggi`.
+
 ## 7. La Bottega nativa: Apple Intelligence, Metal, macOS 27
 
 Tutto sul Mac, solo framework Apple. Apple Intelligence (FoundationModels) solo per compiti brevi e strutturati,

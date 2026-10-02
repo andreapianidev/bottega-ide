@@ -31,7 +31,7 @@ export interface NucleoBridge {
 /** Gli strumenti che Apple riceve, in ordine di importanza (il Nucleo toglie dalla coda se il contesto non basta). */
 export const APPLE_TOOLS = [
 	'progetti_cerca', 'progetto_stato', 'lavori_elenco', 'sessioni_attive', 'progetto_apri',
-	'lavoro_nuovo', 'memoria_cerca', 'regole_controlla', 'briefing', 'plancia_mostra',
+	'lavoro_nuovo', 'memoria_cerca', 'stanza_leggi', 'regole_controlla', 'briefing', 'stanza_mostra', 'plancia_mostra',
 	'sistema_stato', 'git_spingi', 'lavoro_ferma', 'memoria_ricorda', 'guarda_schermo',
 ];
 
