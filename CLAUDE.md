@@ -31,8 +31,8 @@ VS Code compilato dai sorgenti (tag in `bottega.json`), piu' estensioni proprie.
   finita si chiude cosi', senza chiedere: `scripts/bump-build.sh`, `scripts/package.sh` (installa
   in `/Applications/Bottega.app`; se la Bottega e' aperta la chiude, la sostituisce e la riapre),
   commit, push. Una modifica non e' finita finche' in /Applications non gira quella build.
-- **Il repository e' PUBBLICO** (`andreapianidev/bottega-ide`, open source MIT, scelta di Andrea del
-  2 ottobre 2026). Prima di ogni push: nessuna chiave nel diff (`git diff origin/main..HEAD`), nessun
-  dato di clienti in codice, documenti o screenshot (nomi, email, descrizioni di progetti dei
-  clienti: negli screenshot vanno sfocati), nessun dato aziendale oltre alla riga legale del README. Il vecchio repository
-  privato `andreapianidev/bottega` resta come remoto `privato`, non si cancella.
+- **Il repository e' PUBBLICO ed e' l'unico** (`andreapianidev/bottega-ide`, open source MIT, scelta di
+  Andrea del 2 ottobre 2026). Prima di ogni push: nessuna chiave nel diff (`git diff origin/main..HEAD`),
+  nessun dato di clienti in codice, documenti o screenshot (nomi, email, descrizioni di progetti dei
+  clienti: negli screenshot vanno sfocati), nessun dato aziendale oltre alla riga legale del README.
+  Il vecchio repository privato `andreapianidev/bottega` e' stato tolto: si spinge solo su `origin`.

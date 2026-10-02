@@ -68,3 +68,30 @@ s = (SRC / p).read_text()
 old = "description: localize('extensions.verifySignature', \"When enabled, extensions are verified to be signed before getting installed.\"),\n\t\t\t\tdefault: true,"
 new = "description: localize('extensions.verifySignature', \"When enabled, extensions are verified to be signed before getting installed.\"),\n\t\t\t\tdefault: false,"
 replace(p, old, new)
+
+# 7. Niente AI di VS Code fin dal primo avvio. La Bottega lo mette gia' a true nelle configurationDefaults
+#    di bottega-theme, ma quelle arrivano solo dopo che l'estensione e' registrata: nel frattempo
+#    l'agentHost (Copilot CLI) puo' partire e restare vivo fino alla chiusura.
+replace("src/vs/workbench/contrib/chat/browser/chat.shared.contribution.ts",
+        "\"Disable and hide built-in AI features provided by GitHub Copilot, including chat and inline suggestions.\"),\n\t\t\tdefault: false,",
+        "\"Disable and hide built-in AI features provided by GitHub Copilot, including chat and inline suggestions.\"),\n\t\t\tdefault: true,")
+
+# 8. Niente percorsi guidati e onboarding di primo avvio (propongono Copilot e i temi Dark/Light 2026).
+#    Sono impostazioni APPLICATION e MACHINE: le configurationDefaults di un'estensione le scartano.
+p = "src/vs/workbench/contrib/welcomeGettingStarted/browser/gettingStarted.contribution.ts"
+replace(p, "'workbench.welcomePage.walkthroughs.openOnInstall': {\n\t\t\tscope: ConfigurationScope.MACHINE,\n\t\t\ttype: 'boolean',\n\t\t\tdefault: true,",
+        "'workbench.welcomePage.walkthroughs.openOnInstall': {\n\t\t\tscope: ConfigurationScope.MACHINE,\n\t\t\ttype: 'boolean',\n\t\t\tdefault: false,")
+replace(p, "'workbench.welcomePage.experimentalOnboarding': {\n\t\t\tscope: ConfigurationScope.APPLICATION,\n\t\t\ttype: 'boolean',\n\t\t\tdefault: true,",
+        "'workbench.welcomePage.experimentalOnboarding': {\n\t\t\tscope: ConfigurationScope.APPLICATION,\n\t\t\ttype: 'boolean',\n\t\t\tdefault: false,")
+
+# 9. Niente finestra "Sessioni agenti" di VS Code: scripts/package.sh toglie out/vs/sessions (22 MB) quando
+#    trova questa patch compilata. Chi chiede quella finestra (--agents, link bottega:// di sessione,
+#    comandi) riceve una finestra normale, e un'area di lavoro degli agenti ripristinata si apre come
+#    finestra normale invece di caricare sessions.html, che non c'e' piu'.
+#    La condizione isMacintosh e' sempre vera (la Bottega e' solo per Mac): serve solo a non lasciare codice
+#    irraggiungibile, che il compilatore TypeScript di VS Code rifiuta.
+p = "src/vs/platform/windows/electron-main/windowsMainService.ts"
+replace(p, "\t\tthis.logService.trace('windowsManager#openAgentsWindow');\n",
+        "\t\tthis.logService.trace('windowsManager#openAgentsWindow');\n\t\tif (isMacintosh) {\n\t\t\treturn this.open(openConfig);\n\t\t}\n")
+replace(p, "\t\t\tisSessionsWindow: isWorkspaceIdentifier(options.workspace) && isEqual(options.workspace.configPath, this.environmentMainService.agentSessionsWorkspace),",
+        "\t\t\tisSessionsWindow: false,")

@@ -19,5 +19,8 @@
     "controlUrl": "",
     "nlsBaseUrl": ""
   },
-  "linkProtectionTrustedDomains": ["https://open-vsx.org", "https://claude.ai", "https://www.anthropic.com", "https://docs.anthropic.com"]
+  "linkProtectionTrustedDomains": ["https://open-vsx.org", "https://claude.ai", "https://www.anthropic.com", "https://docs.anthropic.com"],
+  "builtInExtensions": [],
+  "builtInExtensionsEnabledWithAutoUpdates": [],
+  "voiceWsUrl": ""
 }

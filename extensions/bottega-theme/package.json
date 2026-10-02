@@ -43,9 +43,29 @@
       "terminal.integrated.fontSize": 12.5,
       "terminal.integrated.lineHeight": 1.15,
       "terminal.integrated.cursorStyle": "line",
-      "git.autofetch": true,
       "window.commandCenter": true,
-      "chat.disableAIFeatures": true
+      "chat.disableAIFeatures": true,
+      "git.openRepositoryInParentFolders": "never",
+      "extensions.ignoreRecommendations": true,
+      "js/ts.tsserver.automaticTypeAcquisition.enabled": false,
+      "terminal.integrated.suggest.enabled": false,
+      "npm.autoDetect": "off",
+      "search.followSymlinks": false,
+      "workbench.settings.enableNaturalLanguageSearch": false,
+      "onboarding.enabled": false,
+      "files.watcherExclude": {
+        ".git/objects/**": true,
+        ".git/subtree-cache/**": true,
+        ".hg/store/**": true,
+        "*/.git/objects/**": true,
+        "*/.git/subtree-cache/**": true,
+        "*/.hg/store/**": true,
+        "**/dist/**": true,
+        "**/out/**": true,
+        "**/.build/**": true,
+        "**/DerivedData/**": true,
+        "**/.next/**": true
+      }
     }
   }
 }

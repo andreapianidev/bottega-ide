@@ -18,14 +18,53 @@ EXT=$DIST/Contents/Resources/app/extensions
 rm -rf $EXT/copilot
 for e in bottega-home bottega-theme; do
   rm -rf $EXT/$e && mkdir -p $EXT/$e
-  rsync -a --exclude node_modules --exclude src --exclude tsconfig.json --exclude package-lock.json $ROOT/extensions/$e/ $EXT/$e/
+  rsync -a --exclude node_modules --exclude src --exclude /test --exclude tsconfig.json --exclude package-lock.json $ROOT/extensions/$e/ $EXT/$e/
 done
 
+# Potatura: quello che VS Code porta con se' e alla Bottega non serve (analisi del 2 ottobre 2026).
+# Lavora solo sulla copia in dist/: la compilazione in vendor/ resta intera, quindi si torna indietro
+# togliendo una riga da qui e rilanciando scripts/build.sh --package.
+echo "== potatura ($(du -sm $DIST | cut -f1) MB)"
+APP=$DIST/Contents/Resources/app
+# Mappe dei sorgenti: servono solo a leggere i crash minificati (288 MB).
+find $DIST -name '*.map' -type f -delete
+# Copilot e la sandbox dei suoi agenti: li usa solo l'agentHost, spento con chat.disableAIFeatures (120 MB,
+# di cui 24 MB di eseguibili Windows e Linux).
+rm -rf $APP/node_modules.asar.unpacked/@github/copilot-sdk-darwin-arm64 $APP/node_modules.asar.unpacked/@microsoft/mxc-sdk
+# Lingue di Electron: restano inglese e italiano, con le varianti di genere (46 MB).
+for l in "$DIST/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/"*.lproj(N); do
+  case ${l:t:r} in en|en_*|it|it_*) ;; *) rm -rf "$l";; esac
+done
+# Estensioni integrate che Andrea non usa: notebook, account Microsoft e GitHub, integrazione GitHub nel
+# pannello Git, debugger JavaScript, inoltro porte, task di grunt/gulp/jake, temi in piu', grammatiche di
+# linguaggi assenti dai suoi progetti, linguaggi dei prompt di Copilot. Groovy resta (build.gradle),
+# C#, HLSL e ShaderLab restano (LaPalma3D, Unity).
+for e in ipynb notebook-renderers microsoft-authentication github github-authentication tunnel-forwarding \
+    ms-vscode.js-debug ms-vscode.js-debug-companion ms-vscode.vscode-js-profile-table debug-auto-launch debug-server-ready \
+    grunt gulp jake \
+    theme-abyss theme-kimbie-dark theme-monokai theme-monokai-dimmed theme-quietlight theme-red \
+    theme-solarized-dark theme-solarized-light theme-tomorrow-night-blue \
+    fsharp powershell perl julia r clojure coffeescript razor vb bat dart restructuredtext pug handlebars latex \
+    markdown-math prompt-basics; do
+  rm -rf $EXT/$e
+done
+# Finestra "Sessioni agenti": si toglie solo se la build contiene la patch 9 di patch-source.py (che non la
+# apre mai), altrimenti un link bottega:// di sessione aprirebbe una finestra vuota.
+SESSIONS=0
+if grep -q 'isSessionsWindow:!1' $APP/out/mainImpl.js; then
+  rm -rf $APP/out/vs/sessions && SESSIONS=1
+fi
+echo "   dopo: $(du -sm $DIST | cut -f1) MB"
+
 # product.json viene scritto al momento della compilazione: il numero di build si allinea qui.
-python3 - $DIST/Contents/Resources/app/product.json $VERSION $BUILD <<'PY'
+# Si rifonde anche product.bottega.json, cosi' le sue modifiche valgono senza ricompilare VS Code.
+python3 - $DIST/Contents/Resources/app/product.json $VERSION $BUILD $ROOT/product.bottega.json $SESSIONS <<'PY'
 import json, sys
-p, v, b = sys.argv[1], sys.argv[2], int(sys.argv[3])
-d = json.load(open(p)); d["bottegaVersion"] = v; d["bottegaBuild"] = b
+p, v, b, over, sessions = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5] == "1"
+d = json.load(open(p)); d.update(json.load(open(over))); d["bottegaVersion"] = v; d["bottegaBuild"] = b
+if sessions:
+    # Senza questi checksum VS Code direbbe "installazione danneggiata" per i file tolti.
+    d["checksums"] = {k: c for k, c in d.get("checksums", {}).items() if not k.startswith("vs/sessions/")}
 json.dump(d, open(p, "w"), indent="\t", ensure_ascii=False)
 PY
 
@@ -69,10 +108,15 @@ echo "== installazione in /Applications"
 # Andrea deve avere sempre l'ultima versione: se la Bottega e' aperta la si chiude con calma
 # (VS Code ritrova schede e file non salvati), la si sostituisce e la si riapre.
 WAS_RUNNING=0
-if pgrep -f "/Applications/Bottega.app/Contents/MacOS/Bottega$" >/dev/null; then
-  WAS_RUNNING=1
+MAIN='/Applications/Bottega.app/Contents/MacOS/Bottega( |$)'
+# La Bottega di Andrea (senza argomenti) si riapre alla fine; qualsiasi altra istanza lanciata da
+# /Applications (misure, prove) va chiusa comunque: togliere l'app sotto un processo vivo lo fa cadere.
+pgrep -f '/Applications/Bottega.app/Contents/MacOS/Bottega$' >/dev/null && WAS_RUNNING=1
+if pgrep -f "$MAIN" >/dev/null; then
   osascript -e 'tell application "Bottega" to quit' >/dev/null 2>&1 || true
-  for i in {1..30}; do pgrep -f "/Applications/Bottega.app/Contents/MacOS/Bottega$" >/dev/null || break; sleep 1; done
+  for i in {1..30}; do pgrep -f "$MAIN" >/dev/null || break; sleep 1; done
+  pkill -TERM -f "$MAIN" 2>/dev/null || true
+  for i in {1..10}; do pgrep -f "$MAIN" >/dev/null || break; sleep 1; done
 fi
 rm -rf /Applications/Bottega.app
 ditto $DIST /Applications/Bottega.app
