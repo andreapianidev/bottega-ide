@@ -10,6 +10,7 @@ import type { WorkCounts, WorkItem } from './jobs';
 import type { Nucleo } from './nucleo';
 import * as crypto from 'crypto';
 import { Ponte, PonteStato, RigaParla } from './ponte';
+import { creaSessioni } from './ponte-sessioni-host';
 
 /* Il ponte dentro la Bottega: lo accende con Tailscale, gli passa Melissa e i lavori, e mostra il QR per
    collegare l'iPhone (comando "Collega l'iPhone"). Il protocollo e' in src/ponte.ts e in docs/CONTRATTI.md, 9.
@@ -23,6 +24,11 @@ export interface PonteHostDeps {
 	writeJob(id: string, text: string): boolean;
 	/** Il semaforo per progetto; null finche' non ha fatto il primo controllo. */
 	regole?(): RegolaProgetto[] | null;
+	/** Per la scheda di sessione (9.5, src/ponte-sessioni.ts): le cartelle dei progetti, la scrittura grezza
+	 *  (Esc, invio) e il terminale di un lavoro della Bottega. */
+	projects?(): string[];
+	writeJobRaw?(id: string, data: string, invio: boolean): boolean;
+	jobTerminal?(id: string): vscode.Terminal | undefined;
 }
 
 export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps): { notify(): void } {
@@ -41,6 +47,7 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 				conti: { inCorso: c.inCorso, tiAspetta: c.tiAspetta, vive: c.vive },
 				conferma: deps.assistant()?.pendingQuestion(),
 				regole: deps.regole?.() ?? null,
+				segui: sessioni.seguito(),
 			};
 		},
 		invio: apns,
@@ -67,11 +74,22 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 	// i tempi della Live Activity (15 s, 2 minuti) e dei widget passano anche senza cambi
 	const giri = setInterval(() => disp && avvisa(), 5000);
 
+	// la scheda di sessione (9.5): la sessione seguita sulla Live Activity passa da avvisa()
+	const sessioni = creaSessioni(ctx, {
+		work: deps.work,
+		projects: () => deps.projects?.() ?? [],
+		writeJobRaw: deps.writeJobRaw,
+		jobTerminal: deps.jobTerminal,
+		cambiato: () => avvisa(),
+		log: line => out.info(line),
+	});
+
 	let impegnata = false;
 	const ponte = new Ponte({
 		dir,
 		versione: String(ctx.extension.packageJSON.version ?? ''),
 		stato: () => stato(deps),
+		sessioni,
 		// prenotata subito, prima di qualunque await: due domande dall'iPhone non passano insieme il controllo
 		occupata: () => impegnata || (deps.assistant()?.busy() ?? true),
 		confermaAttuale: () => deps.assistant()?.pendingConfirmation(),

@@ -2,8 +2,8 @@
 //  LavoriView.swift
 //  Bottega per iPhone
 //
-//  Tutte le sessioni Claude del Mac, come nella stanza Lavori: in cima chi ti aspetta. Ai lavori avviati dalla
-//  Bottega si puo' scrivere da qui; le sessioni aperte altrove si leggono chiedendo a Melissa.
+//  Tutte le sessioni Claude del Mac, come nella stanza Lavori: in cima chi ti aspetta. Un tocco apre la scheda
+//  della sessione (SessioneView): ai lavori avviati dalla Bottega si risponde da li', le altre si leggono.
 //
 
 import SwiftUI
@@ -23,7 +23,7 @@ struct LavoriView: View {
                 Section(g.0) {
                     ForEach(g.1) { l in
                         Button {
-                            if l.jobId != nil { scelto = l }
+                            scelto = l
                         } label: {
                             Riga(lavoro: l)
                         }
@@ -35,8 +35,7 @@ struct LavoriView: View {
         .scrollContentBackground(.hidden)
         .refreshable { await ponte.aggiornaStato() }
         .sheet(item: $scelto) { l in
-            ScriviLavoroView(ponte: ponte, lavoro: l)
-                .presentationDetents([.medium])
+            SessioneView(ponte: ponte, lavoro: l)
         }
     }
 
@@ -89,7 +88,7 @@ private struct Riga: View {
     }
 }
 
-private struct ScriviLavoroView: View {
+struct ScriviLavoroView: View {
     let ponte: Ponte
     let lavoro: StatoMac.Lavoro
     @Environment(\.dismiss) private var chiudi

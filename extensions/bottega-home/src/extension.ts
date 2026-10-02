@@ -619,6 +619,10 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		work: () => snapshot.work,
 		counts: () => snapshot.workCounts,
 		writeJob: (id, text) => !!jobManager?.write(id, text),
+		// la scheda di sessione dall'iPhone (CONTRATTI 9.5)
+		projects: () => snapshot.projects.map(p => p.path),
+		writeJobRaw: (id, data, invio) => !!jobManager?.type(id, data, invio),
+		jobTerminal: id => jobManager?.terminal(id),
 		regole: () => {
 			const r = idee?.rules.state();
 			if (!r?.checkedAt) return null;

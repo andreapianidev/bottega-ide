@@ -319,6 +319,20 @@ export class JobManager {
 		return true;
 	}
 
+	/** Scrive tasti grezzi nel terminale di un lavoro (Esc, solo invio), senza portarlo davanti: la risposta
+	 *  dall'iPhone al prompt di Claude Code (src/ponte-sessioni.ts). Falso se il terminale non c'e'. */
+	type(id: string, data: string, invio: boolean): boolean {
+		const term = this.terminals.get(id);
+		if (!term) return false;
+		term.sendText(data, invio);
+		return true;
+	}
+
+	/** Il terminale di un lavoro della Bottega, se e' ancora aperto. */
+	terminal(id: string): vscode.Terminal | undefined {
+		return this.terminals.get(id);
+	}
+
 	/** Trova un lavoro per id esatto o per nome progetto (preferendo quelli attivi). */
 	resolve(idOrProject: string): Job | undefined {
 		const exact = this.jobs.find(j => j.id === idOrProject);
@@ -420,7 +434,8 @@ export interface WorkCounts {
 	vive: number;
 }
 
-const LIVE_STATUS: Record<string, WorkItem['status']> = { busy: 'in corso', idle: 'ti aspetta', shell: 'nel terminale' };
+// waiting: Claude Code ha una domanda aperta (un permesso, una scelta), dal campo waitingFor del registro
+const LIVE_STATUS: Record<string, WorkItem['status']> = { busy: 'in corso', idle: 'ti aspetta', waiting: 'ti aspetta', shell: 'nel terminale' };
 
 export function workItems(
 	jobs: Job[],
