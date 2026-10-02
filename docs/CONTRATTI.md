@@ -55,7 +55,7 @@ Una riga JSON per messaggio su stdin/stdout, UTF-8. Lo stderr e' log libero.
 | `wake.enable` | `phrase` (default `melissa`), `locale?` | | ascolto continuo tramite la trascrizione ElevenLabs, ma solo intorno alla voce (il silenzio non si manda); evento `wake.detected {phrase, text}`. Sospeso mentre Melissa parla e durante ascolto o conversazione. Costa audio trascritto ogni volta che qualcuno parla nella stanza: va acceso solo se serve |
 | `wake.disable` | | | |
 | `orb.show` | | | sfera grande (~165 pt) in un pannello flottante di vetro, in basso al centro, con la didascalia sotto; trascinabile, la posizione resta. Se era agganciata, la piccola sparisce e la grande cresce al suo posto (solo dissolvenza con Riduci movimento) |
-| `orb.dock` | | `presentation` | sfera agganciata: piccola (~56 pt, pannello 72x72 pt), sempre a schermo finche' il Nucleo gira, su tutte le Scrivanie, non prende mai il fuoco, senza didascalia, trascinabile con una posizione sua (default in basso a destra sopra il Dock, margini 24 pt). Se la grande e' visibile si rimpicciolisce nella piccola. Costo misurato fuori schermo: 12 fps a riposo, ~13 µs di CPU e ~0.7 ms di GPU per fotogramma (CPU ~0.02%, GPU ~1%); 30 fps se lo stato e' listening o speaking. Lo stato `error` la tinge d'ambra; gli altri stati cambiano solo il colore (per ingrandirla l'estensione manda `orb.show`) |
+| `orb.dock` | | `presentation` | sfera agganciata: piccola (~56 pt, pannello 72x72 pt), sempre a schermo finche' il Nucleo gira, su tutte le Scrivanie, non prende mai il fuoco, senza didascalia, trascinabile con una posizione sua (default in basso a destra sopra il Dock, margini 24 pt). Se la grande e' visibile si rimpicciolisce nella piccola. A riposo (`idle`) e' ferma: un solo fotogramma, 0 fps, il Nucleo da fermo resta a 0% di CPU. Mentre pensa (`thinking`) o in `error` si anima a 12 fps (~13 µs di CPU e ~0.7 ms di GPU per fotogramma, misurati fuori schermo); 30 fps se lo stato e' listening o speaking. Lo stato `error` la tinge d'ambra; gli altri stati cambiano solo il colore (per ingrandirla l'estensione manda `orb.show`) |
 | `orb.hide` | | | sfera nascosta del tutto (solo quando Andrea spegne la voce); dopo 2 minuti nascosta libera anche la memoria grafica |
 | `orb.state` | `state`: `idle`, `listening`, `thinking`, `speaking`, `error`; `caption?` | | la sfera usa anche il livello audio interno. La sfera segue da sola la voce (ascolto, pensiero dopo `voice.final`, parlato) e la didascalia mostra la trascrizione parziale o la frase detta; lo stato e la didascalia mandati qui valgono fino alla prossima transizione della voce |
 | `hotkey.register` | `key` (es. `space`), `modifiers` (es. `["option"]`) | `label` | eventi `hotkey.down {key}`, `hotkey.up {key}`: tieni premuto per parlare. Default Option+Space. Cmd+Option+M e' rifiutata (e' di Melissa) |
@@ -65,7 +65,7 @@ Una riga JSON per messaggio su stdin/stdout, UTF-8. Lo stderr e' log libero.
 | `ai.generate` | `prompt`, `instructions?`, `maxTokens?` | `text` | Apple Intelligence sul dispositivo (FoundationModels) |
 | `ai.summarize` | `text`, `instructions?` | `text` | idem, con istruzioni di riassunto in italiano (richiesta, cosa e' stato fatto, decisioni, file, prossimi passi). Testi oltre la finestra di contesto: riassunto a pezzi da ~10.000 caratteri, poi fusione |
 | `ai.embed` | `texts: [string]`, `language` (`it`) | `vectors: [[number]]`, `dimension` | NLEmbedding di frase, vettori normalizzati (norma 1, quindi coseno = prodotto scalare). Una riga per testo, testo vuoto = vettore di zeri. La dimensione la decide il sistema: su macOS 27.2 per l'italiano e' **640**, non 512: chi salva vettori legga `dimension` |
-| `system.stats` | | `load: [1m,5m,15m]`, `memoryPressure: normal/warning/critical`, `memoryUsedGB`, `memoryTotalGB`, `thermal: nominal/fair/serious/critical`, `cores` | |
+| `system.stats` | | `load: [1m,5m,15m]`, `memoryPressure: normal/warning/critical`, `memoryUsedGB`, `memoryTotalGB`, `thermal: nominal/fair/serious/critical`, `cores` | l'estensione la chiede ogni 10 s con la Home davanti o con lavori in corso o in coda, ogni 60 s altrimenti |
 | `quit` | | | chiusura pulita |
 
 Eventi aggiuntivi: `voice.state {state, conversing, mode?, wake?, message?}` (`state`: `idle`, `listening`, `processing`,
@@ -155,6 +155,9 @@ Server MCP `bottega-memoria` registrato a livello utente, strumenti: `memoria_ce
 Estensione -> plancia:
 - `{type: "snapshot", snapshot}` (gia' esistente: projects, live, elsewhere, scannedAt, home) con in piu'
   `jobs: Job[]`, `system: SystemStats | null`, `assistant: AssistantState`
+  Si manda solo con la Home visibile: un'istantanea arrivata con la Home nascosta si manda quando torna
+  davanti (`retainContextWhenHidden` la tiene viva, ma ridisegnarla di nascosto e' lavoro sprecato).
+  Anche il cruscotto (`stats`) si ricalcola solo con la Home visibile.
 - `{type: "focus", path}`
 - `{type: "memoria", query, results: MemoryItem[]}` risposta a una ricerca
 - `{type: "assistant", state: AssistantState}` aggiornamento leggero mentre Melissa parla
@@ -564,3 +567,137 @@ repository principale e' tra i progetti, il worktree compare dentro di lui (`Pro
 ahead, upstream}[]`) e tutto cio' che succede li' (sessioni passate e vive, ore del cruscotto, memoria) e' del progetto
 principale. Una sola regola, in due copie allineate: `worktreeMain`/`canonKey` in `src/scan.ts` (usata da
 `sessionOwner`, quindi anche dal cruscotto) e `worktreeMain` in `memoria/lib/paths.mjs` (usata da `projectOf`).
+
+## 5. Connettori e posta per progetto
+
+La Bottega non tiene chiavi di Gmail, Vercel o simili: usa i connettori che l'utente ha gia' in Claude Code. Codice:
+`src/connettori.ts` (scoperta e mappa), `src/connettori-mappa.ts` (la mappa), `src/mcp.ts` (client MCP diretto),
+`src/delega.ts` (deleghe a `claude -p`), `src/posta.ts` (rubrica e fili), `src/connettori-host.ts` (la stanza,
+agganciata in `extension.ts` con `registerConnettori` e `handleConnettori`), `media/connettori.js` e `.css` (la stanza
+Connettori, ottava scheda della plancia).
+
+### 5.1 Due tipi di connettori
+
+| tipo | da dove | come si usa | costo |
+|---|---|---|---|
+| claude.ai (Gmail, Google Calendar, Vercel, Stripe...) | `claude mcp list` | solo delega a `claude -p` | da 20 a 70 s, da 0,14 a 0,46 $ |
+| locale stdio (mail-mcp, asc-mcp, google-play...) | `~/.claude.json`, `mcpServers` utente e per progetto | client MCP diretto | istantaneo, gratis |
+| remoto http e plugin | `claude mcp list` e `~/.claude.json` | delega (oggi non usati) | come claude.ai |
+
+`claude mcp list` controlla la salute di ogni server ed e' lento (circa 25 s): si lancia con `nice` dalla home, al
+massimo una volta al giorno (cache in globalStorage, `connettori-mcp-list.json`) o su richiesta. Riga per server:
+`<nome>: <destinazione> - <icona> <stato>`; stati `Connected` -> `connesso`, `Needs authentication` -> `da
+autenticare`, `Not configured` -> `non configurato`, `Failed` -> `errore`. I server in `~/.claude.json` che l'elenco
+non ha visto (quelli di progetto) entrano come `sconosciuto`. Dalla configurazione locale si leggono solo nomi e forma:
+comando, argomenti ed `env` restano in memoria il tempo di avviare il server, mai in cache, log o messaggi.
+
+Strumenti di Claude Code: `mcp__<nome con i caratteri fuori da [A-Za-z0-9_-] sostituiti da _>__<strumento>`, per
+esempio `mcp__claude_ai_Gmail__search_threads`, `mcp__plugin_design_slack__...`, `mcp__mail-mcp__search_messages`.
+
+### 5.2 Capacita' e mappa
+
+Capacita': `posta`, `calendario`, `deploy`, `store`, `file`, `pagamenti`, `pubblicita`, `ricerca`. La mappa
+(`src/connettori-mappa.ts`) lega a ogni capacita' dei nomi puliti (minuscolo, senza `claude.ai ` e `plugin:<x>:`),
+esatti o espressioni tra barre. L'impostazione `bottega.connettori.mappa` aggiunge voci, per esempio
+`{ "posta": ["mio-imap"] }`. Una capacita' e' accesa se almeno un connettore mappato e' connesso, o e' un server locale
+stdio a livello utente non ancora controllato.
+
+### 5.3 Sola lettura, sempre
+
+`soloLettura(nome)`: il nome breve dello strumento comincia per `search`, `list`, `get` o `read` e non contiene parole
+che scrivono (`send`, `reply`, `forward`, `delete`, `move`, `set`, `update`, `create`, `trash`, `label`, `save`,
+`token`...). Il client diretto (`ClientMcp.chiama`) rifiuta il resto prima ancora di avviare il server; la delega passa
+a `--allowedTools` solo strumenti che superano lo stesso filtro.
+
+### 5.4 Deleghe (`claude -p`)
+
+```
+nice -n 10 claude -p --output-format json --model <bottega.connettori.modello, default haiku>
+  --permission-mode dontAsk --no-session-persistence --max-budget-usd <min(tetto residuo, 0,80)>
+  --tools "" --allowedTools <strumenti di sola lettura, separati da virgola>
+  (prompt su stdin, cwd ~/.bottega/connettori, env BOTTEGA_DELEGA=1)
+```
+
+Il prompt chiede SOLO JSON, con lo schema scritto dentro. Una delega alla volta, in coda, timeout 180 s. Uscita
+letta: `{ result, is_error, subtype, total_cost_usd, num_turns }`; dentro `result` il JSON si estrae anche da un blocco
+```` ```json ````. Tetto giornaliero `bottega.connettori.tettoGiornalieroUsd` (default 1): se la spesa di oggi piu' la
+stima supera il tetto, la delega non parte. Stima = media delle ultime cinque deleghe riuscite della stessa capacita',
+altrimenti 60 s e 0,45 $. Spesa di oggi e tetto sono sempre scritti in testa alla scheda Connettori, anche a zero.
+
+Una delega non e' una sessione di Andrea:
+- **Hook della Memoria**: con `BOTTEGA_DELEGA=1` nell'ambiente escono subito con 0, prima di leggere il payload, senza
+  scrivere spool, bacheca o contesto (`memoria/lib/hook.mjs`, `guard`).
+- **Sessioni vive**: nel registro `~/.claude/sessions/<pid>.json` una delega e' `kind: interactive`,
+  `entrypoint: sdk-cli` (verificato il 2 ottobre 2026), come qualunque programma fatto con l'SDK. Il segno sicuro e'
+  la cartella di lavoro: `readLiveSessions` scarta le voci con `cwd` dentro `~/.bottega/connettori` (`isDelega`),
+  quindi le deleghe non compaiono tra le sessioni vive, nei Lavori e nel cruscotto.
+- `--no-session-persistence`: nessun jsonl in `~/.claude/projects`, quindi niente nelle sessioni passate.
+
+File, tutti 600 in una cartella 700:
+
+```ts
+// ~/.bottega/connettori/<capacita>.json, l'ultima delega di quella capacita'
+interface EsitoDelega { capacita: string; at: number; ok: boolean; costo: number; durataMs: number; turni?: number; errore?: string; data?: unknown }
+// ~/.bottega/connettori/spesa.json
+interface Spesa { giorni: Record<'YYYY-MM-DD', number>; storico: { at; capacita; costo; durataMs; ok }[] } // 60 giorni, 40 deleghe
+```
+
+### 5.5 Posta per progetto
+
+```ts
+// ~/.bottega/rubrica.json (600, mai nel repository)
+type Rubrica = Record<string /* percorso del progetto */, { indirizzi: string[]; domini: string[] }>;
+// ~/.bottega/connettori/posta-fili.json (600)
+interface FileFili { at: number; giorni: number; fonti: { locale?: FonteStato; gmail?: FonteStato }; fili: Filo[] }
+interface FonteStato { nome: string; at: number; n: number; costo?: number; durataMs?: number; errore?: string }
+interface Filo { id: string /* gmail:<threadId> | mail:<account>:<mailbox>:<id> */; fonte: 'gmail' | 'mail'; threadId?: string;
+  da: string; indirizzo: string; oggetto: string; data: string /* ISO */; nonLetto: boolean; anteprima: string; link?: string }
+```
+
+Fonti: il server di posta locale (un solo `search_messages {since, limit: 300, includeBody: false}`: mittente,
+oggetto, data e letto, mai il corpo) e Gmail di claude.ai (UNA delega con `search_threads`: i mittenti e i domini in
+rubrica, `newer_than:Nd {from:a from:dominio}`, piu' `newer_than:Nd is:unread in:inbox category:primary` per i
+mittenti nuovi). Ogni fonte sostituisce solo i suoi fili. Link Gmail: `https://mail.google.com/mail/u/0/#all/<threadId>`;
+per la posta locale si apre Mail.
+
+Regole di assegnazione: l'indirizzo esatto vince sul dominio; tra i domini vince il piu' lungo (`shop.cliente.it`
+batte `cliente.it`, un sottodominio del mittente vale); a parita' il filo va a tutti i progetti. Chi non corrisponde
+va in "Da assegnare", raggruppato per mittente; per i fornitori di posta (gmail.com, libero.it...) si offre solo
+l'indirizzo, mai il dominio. Suggerimenti: i domini di `package.json` (`homepage`), `vercel.json` (`alias`, `domains`),
+e degli URL in README e CLAUDE.md, senza quelli generici (github.com, vercel.app, apple.com, google.com...), senza quelli
+gia' in rubrica e senza `bottega.posta.dominiIgnorati`.
+
+Impostazioni: `bottega.posta.giorni` (7), `bottega.posta.aggiornaOgniMinuti` (0, solo su richiesta; aggiorna la fonte
+locale), `bottega.posta.gmailOgniMinuti` (0; se acceso, Gmail in automatico al massimo ogni 120 minuti).
+
+### 5.6 Messaggi plancia <-> estensione
+
+| messaggio | campi | risposta |
+|---|---|---|
+| `connettori.request` | | `connettori` e `posta`; avvia `claude mcp list` se la cache ha piu' di un giorno |
+| `connettori.refresh` | | rilegge `claude mcp list` adesso; `connettori` con `aggiornando: true`, poi il risultato |
+| `posta.refresh` | `fonte`: `locale` (default) o `gmail` | `posta` con `aggiornando`, poi i fili nuovi |
+| `rubrica.add` | `path`, `voce` (indirizzo se ha la chiocciola, altrimenti dominio) | `posta` |
+| `rubrica.remove` | `path`, `voce` | `posta` |
+| `posta.apri` | `id` del filo | apre Gmail nel browser o Mail |
+
+Estensione -> plancia (instradati da `plancia.js` alla stanza `BottegaConnettori`):
+
+```ts
+{ type: 'connettori', stato: ConnettoriStato & { deleghe: StatoDeleghe } }
+{ type: 'posta', stato: PostaStato }
+interface ConnettoriStato { aggiornatoAt: number; aggiornando: boolean; errore?: string; connettori: Connettore[];
+  capacita: { id; nome; cosa; accesa: boolean; fonti: string[] }[] }
+interface Connettore { nome; pulito; tipo: 'claude.ai' | 'plugin' | 'locale' | 'remoto';
+  stato: 'connesso' | 'da autenticare' | 'non configurato' | 'errore' | 'sconosciuto'; prefisso: string; capacita: string[];
+  diretto: boolean; ambito: 'claude.ai' | 'utente' | 'progetto' | 'plugin'; progetti?: string[] }
+interface StatoDeleghe { inCorso: string | null; coda: string[]; spesaOggi: number; tetto: number; modello: string;
+  stime: Record<string, { secondi: number; usd: number }> }
+interface PostaStato { aggiornatoAt; aggiornando: 'locale' | 'gmail' | null; errore?; giorni; fonti;
+  disponibili: { locale: string | null; gmail: boolean }; deleghe: StatoDeleghe;
+  progetti: { path; name; voce; fili: Filo[] /* max 30 */; nonLetti }[];
+  daAssegnare: { indirizzo; dominio; generico: boolean; nome; n; nonLetti; ultimo: Filo }[];
+  suggerimenti: { path; name; domini: string[] }[]; tuttiProgetti: { path; name }[] }
+```
+
+Comando: `bottega.openConnettori` apre la Home sulla stanza Connettori.

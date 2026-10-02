@@ -10,6 +10,9 @@ const started = Date.now();
 /** Rete di sicurezza: qualunque errore, qualunque attesa, l'hook esce con 0. */
 export function guard(budgetMs = 140) {
 	const bail = () => process.exit(0);
+	// Le deleghe dei Connettori (`claude -p` lanciato dalla Bottega) non sono sessioni di Andrea: niente spool,
+	// niente bacheca, niente contesto. Si esce prima di leggere qualunque cosa.
+	if (process.env.BOTTEGA_DELEGA === '1') bail();
 	process.on('uncaughtException', e => {
 		log(`hook: ${e?.stack || e}`);
 		bail();

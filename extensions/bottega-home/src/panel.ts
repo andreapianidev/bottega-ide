@@ -26,11 +26,31 @@ export class PlanciaPanel {
 		onChange: vscode.Event<Snapshot>,
 		private readonly onMessage: (msg: PlanciaMessage) => void,
 	) {
-		onChange(s => this.send({ type: 'snapshot', snapshot: s }));
+		onChange(s => this.pushSnapshot(s));
 	}
+
+	/** Chi deve sapere quando la Home compare o sparisce (statistiche, cruscotto). */
+	readonly onDidChangeVisibility = new vscode.EventEmitter<boolean>();
+	/** Una istantanea arrivata con la Home nascosta: la si manda quando torna davanti. */
+	private stale = false;
 
 	get isOpen(): boolean {
 		return !!this.panel;
+	}
+
+	get isVisible(): boolean {
+		return !!this.panel?.visible;
+	}
+
+	/** L'istantanea completa pesa circa 100 KB e fa ridisegnare la plancia: con la Home nascosta si rimanda. */
+	pushSnapshot(s: Snapshot) {
+		if (!this.panel) return;
+		if (!this.panel.visible) {
+			this.stale = true;
+			return;
+		}
+		this.stale = false;
+		this.send({ type: 'snapshot', snapshot: s });
 	}
 
 	/** La Home: si apre (o torna davanti) come prima scheda appuntata del primo gruppo. `preserveFocus` la
@@ -84,7 +104,7 @@ export class PlanciaPanel {
 		const css = panel.webview.asWebviewUri(vscode.Uri.joinPath(media, 'plancia.css'));
 		const js = panel.webview.asWebviewUri(vscode.Uri.joinPath(media, 'plancia.js'));
 		// cruscotto, vedetta e clienti stanno in file loro; i loro script vanno caricati prima di plancia.js, che li monta
-		const rooms = ['cruscotto', 'vedetta', 'clienti'];
+		const rooms = ['cruscotto', 'vedetta', 'clienti', 'connettori'];
 		const css2 = rooms.map(r => `<link rel="stylesheet" href="${panel.webview.asWebviewUri(vscode.Uri.joinPath(media, r + '.css'))}">`).join('\n');
 		const nonce = Array.from({ length: 24 }, () => Math.floor(Math.random() * 36).toString(36)).join('');
 		panel.webview.html = `<!doctype html>
@@ -110,7 +130,15 @@ ${rooms.map(r => `<script nonce="${nonce}" src="${panel.webview.asWebviewUri(vsc
 			}
 			this.onMessage(m);
 		});
-		panel.onDidDispose(() => (this.panel = undefined));
+		panel.onDidChangeViewState(e => {
+			const visible = e.webviewPanel.visible;
+			if (visible && this.stale) this.pushSnapshot(this.current());
+			this.onDidChangeVisibility.fire(visible);
+		});
+		panel.onDidDispose(() => {
+			this.panel = undefined;
+			this.onDidChangeVisibility.fire(false);
+		});
 		this.panel = panel;
 	}
 }

@@ -22,6 +22,7 @@
 		['cruscotto', 'Cruscotto'],
 		['vedetta', 'Vedetta'],
 		['clienti', 'Clienti'],
+		['connettori', 'Connettori'],
 	];
 	const reduced = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
 
@@ -490,6 +491,7 @@
 	<section class="vista" id="vista-cruscotto" role="tabpanel" aria-labelledby="tab-cruscotto" hidden></section>
 	<section class="vista" id="vista-vedetta" role="tabpanel" aria-labelledby="tab-vedetta" hidden></section>
 	<section class="vista" id="vista-clienti" role="tabpanel" aria-labelledby="tab-clienti" hidden></section>
+	<section class="vista" id="vista-connettori" role="tabpanel" aria-labelledby="tab-connettori" hidden></section>
 
 	<div class="velo" id="continua-velo" hidden>
 		<div class="dialogo" id="continua" role="dialog" aria-modal="true" aria-labelledby="continua-titolo" aria-describedby="continua-fonti">
@@ -523,6 +525,7 @@
 		['cruscotto', 'BottegaCruscotto', 'crus', 'Il cruscotto'],
 		['vedetta', 'BottegaVedetta', 'vedetta', 'La Vedetta'],
 		['clienti', 'BottegaClienti', 'clienti', 'La stanza dei clienti'],
+		['connettori', 'BottegaConnettori', 'connettori', 'La stanza dei connettori'],
 	];
 	/** @type {Record<string, any>} */ const rooms = {};
 	for (const [id, global, key, name] of ROOMS) {
@@ -2595,6 +2598,9 @@
 			case 'clients':
 			case 'clients.exported':
 				return room('clienti', 'message', m);
+			case 'connettori':
+			case 'posta':
+				return room('connettori', 'message', m);
 			case 'memoria': {
 				const sent = state.mem.sent;
 				// una risposta arrivata dopo che la ricerca e' cambiata non deve coprire quella nuova

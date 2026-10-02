@@ -1,0 +1,172 @@
+/* Bottega, i Connettori. Stessa notte "Roque" della plancia (plancia.css definisce i colori di base).
+   Il sodio segna solo cio' che chiede attenzione: fili non letti e capacita' accese. Il resto e' inchiostro. */
+
+.con { position: relative; max-width: 1080px; }
+.con-testa { margin-bottom: 18px; }
+.con-frase { margin-bottom: 8px; }
+.con-sotto { margin: 0; font-size: 14px; }
+
+.con-schede { display: inline-flex; gap: 6px; margin: 0 0 6px; }
+.con-schede [aria-pressed='true'] { color: var(--calima); border-color: var(--sodio); background: var(--sodio-velo); }
+
+.con-esito { min-height: 1.5em; margin: 6px 0 14px; font-size: 12.5px; color: var(--tinta); overflow-wrap: anywhere; }
+
+.con-comandi {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px 26px;
+	padding: 12px 0;
+	border-top: 1px solid var(--linea);
+	border-bottom: 1px solid var(--linea);
+}
+.con-cmd { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.con-comandi .act:disabled { opacity: 0.55; cursor: default; }
+
+.con-nota { font-size: 12px; color: var(--tinta); }
+.con-fonti { min-height: 1.4em; margin: 8px 0 22px; font-size: 12px; color: var(--tinta); overflow-wrap: anywhere; }
+.con-vuoto { color: var(--tinta); }
+
+.con-titolo {
+	font-family: var(--serif);
+	font-weight: 500;
+	font-size: 18px;
+	margin: 26px 0 10px;
+}
+
+.con-blocco { margin-top: 10px; }
+.con-blocco .con-nota { margin: 0 0 10px; }
+
+/* ---------- i progetti ---------- */
+
+.con-progetti, .con-fili, .con-chips, .con-sugg, .con-liberi, .con-cap, .con-lista { list-style: none; margin: 0; padding: 0; }
+
+.con-progetti {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
+	gap: 14px;
+}
+
+.con-progetto {
+	background: var(--basalto);
+	border: 1px solid var(--linea);
+	border-radius: 14px;
+	padding: 14px 16px 12px;
+	min-width: 0;
+}
+
+.con-p-testa { display: flex; align-items: baseline; gap: 10px; justify-content: space-between; }
+.con-p-testa h3 { font-family: var(--serif); font-weight: 500; font-size: 16px; margin: 0; overflow-wrap: anywhere; }
+.con-conta { font-size: 12px; color: var(--sodio); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.con-conta.con-letti { color: var(--tinta); }
+
+.con-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 10px; }
+.con-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	font-family: var(--mono);
+	font-size: 11px;
+	color: var(--tinta);
+	border: 1px solid var(--linea);
+	border-radius: 999px;
+	padding: 1px 2px 1px 9px;
+	max-width: 100%;
+}
+.con-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.con-togli { background: none; border: 0; color: var(--tinta); cursor: pointer; padding: 0 6px; font-size: 13px; line-height: 1; border-radius: 999px; }
+.con-togli:hover { color: var(--brace); }
+
+.con-filo {
+	display: grid;
+	grid-template-columns: 10px minmax(0, 1fr) auto auto;
+	align-items: center;
+	gap: 4px 10px;
+	padding: 7px 0;
+	border-top: 1px solid var(--linea);
+}
+.con-punto { width: 7px; height: 7px; border-radius: 50%; }
+.con-nonletto .con-punto { background: var(--sodio); }
+.con-filo-testo { display: flex; flex-direction: column; min-width: 0; }
+.con-oggetto { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.con-nonletto .con-oggetto { color: var(--calima); font-weight: 600; }
+.con-da { font-size: 11.5px; color: var(--tinta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.con-quando { font-size: 11.5px; color: var(--tinta); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.con-apri { font-size: 11px; padding: 2px 8px; }
+
+.con-nuovo { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; align-items: center; }
+.con-select, .con-campo {
+	background: var(--basalto);
+	border: 1px solid var(--linea);
+	border-radius: 8px;
+	padding: 5px 8px;
+	max-width: 100%;
+	color: var(--calima);
+}
+.con-campo { min-width: min(100%, 18em); font-family: var(--mono); font-size: 12px; }
+
+/* ---------- suggerimenti e da assegnare ---------- */
+
+.con-sugg li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 7px 0; border-top: 1px solid var(--linea); }
+.con-s-nome { min-width: 10em; }
+.con-s-domini { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.con-s-dom { font-family: var(--mono); font-size: 11.5px; padding: 3px 9px; }
+
+.con-libero {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: space-between;
+	gap: 8px 16px;
+	padding: 9px 0;
+	border-top: 1px solid var(--linea);
+}
+.con-l-chi { display: flex; flex-direction: column; min-width: 0; flex: 1 1 18em; }
+.con-l-chi .con-nota { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.con-ind { font-family: var(--mono); font-size: 11.5px; color: var(--tinta); }
+.con-l-azioni { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.con-l-azioni button:disabled { opacity: 0.45; cursor: default; }
+
+.con-privato { margin: 26px 0 8px; font-size: 11.5px; color: var(--tinta); max-width: 72ch; }
+.con-privato code { font-family: var(--mono); font-size: 11.5px; }
+
+/* ---------- connettori e capacita' ---------- */
+
+.con-cap { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 10px; }
+.con-k {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	border: 1px solid var(--linea);
+	border-radius: 12px;
+	padding: 10px 12px;
+	min-width: 0;
+}
+.con-k-nome { font-family: var(--serif); font-size: 15px; }
+.con-k-stato { font-size: 11.5px; color: var(--tinta); }
+.con-k-accesa { border-color: var(--sodio); background: var(--sodio-velo); }
+.con-k-accesa .con-k-stato { color: var(--sodio); }
+
+.con-c {
+	display: grid;
+	grid-template-columns: 10px minmax(8em, max-content) auto minmax(0, 1fr);
+	align-items: baseline;
+	gap: 4px 12px;
+	padding: 7px 0;
+	border-top: 1px solid var(--linea);
+}
+.con-c-luce { width: 7px; height: 7px; border-radius: 50%; background: var(--linea); align-self: center; }
+.con-c-connesso .con-c-luce { background: var(--laurisilva); }
+.con-c-errore .con-c-luce { background: var(--brace); }
+.con-c-nome { overflow-wrap: anywhere; }
+.con-c-stato { font-size: 12px; color: var(--tinta); white-space: nowrap; }
+.con-c .con-nota { overflow-wrap: anywhere; }
+
+.con-altri { margin-top: 14px; }
+.con-altri summary { cursor: pointer; color: var(--tinta); font-size: 12.5px; padding: 6px 0; }
+
+@media (max-width: 560px) {
+	.con-c { grid-template-columns: 10px minmax(0, 1fr) auto; }
+	.con-c .con-nota { grid-column: 2 / -1; }
+	.con-filo { grid-template-columns: 10px minmax(0, 1fr) auto; }
+	.con-apri { grid-column: 2 / -1; justify-self: start; }
+}

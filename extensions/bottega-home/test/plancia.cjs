@@ -2,7 +2,7 @@
 // Banco di prova della plancia (media/plancia.js) in jsdom. NON spedito (vedi .vscodeignore).
 // Finge acquireVsCodeApi (registra i postMessage) e le stanze esterne (Cruscotto, Vedetta, Clienti),
 // poi manda snapshot finti: progetti inventati, nessun dato vero, nessun nome di cliente.
-// Verifica: sette schede e tasti, briefing, consigli, cifre, progetti fermi, semaforo e filtro
+// Verifica: otto schede e tasti, briefing, consigli, cifre, progetti fermi, semaforo e filtro
 // Regole, dialogo Continua, coda della notte, «Dove l'ho gia' risolto?», niente lineette lunghe,
 // fuoco conservato tra due snapshot, snapshot vecchi senza i campi nuovi.
 
@@ -172,7 +172,7 @@ function boot({ rooms = true, saved = null } = {}) {
 	const calls = [];
 	const hosts = {};
 	if (rooms) {
-		for (const name of ['BottegaCruscotto', 'BottegaVedetta', 'BottegaClienti']) {
+		for (const name of ['BottegaCruscotto', 'BottegaVedetta', 'BottegaClienti', 'BottegaConnettori']) {
 			w[name] = {
 				mount(root, host) {
 					hosts[name] = host;
@@ -230,29 +230,29 @@ console.log('plancia.js in jsdom');
 
 // ---------- schede ----------
 
-test('sette schede, nell\'ordine, con i tasti da 1 a 7', () => {
+test('otto schede, nell\'ordine, con i tasti da 1 a 8', () => {
 	const t = boot();
 	t.send({ type: 'snapshot', snapshot: snapshot() });
 	const tabs = t.$$('[role="tab"]');
 	assert.deepStrictEqual(
 		tabs.map(x => x.querySelector('span:not(.segnale)').textContent),
-		['Plancia', 'Lavori', 'Memoria', 'Melissa', 'Cruscotto', 'Vedetta', 'Clienti'],
+		['Plancia', 'Lavori', 'Memoria', 'Melissa', 'Cruscotto', 'Vedetta', 'Clienti', 'Connettori'],
 	);
 	assert.match(tabs[5].getAttribute('title'), /tasto 6/);
-	const ids = ['plancia', 'lavori', 'memoria', 'melissa', 'cruscotto', 'vedetta', 'clienti'];
+	const ids = ['plancia', 'lavori', 'memoria', 'melissa', 'cruscotto', 'vedetta', 'clienti', 'connettori'];
 	ids.forEach((id, i) => {
 		t.key(String(i + 1));
 		assert.strictEqual(t.$('#tab-' + id).getAttribute('aria-selected'), 'true', `tasto ${i + 1}`);
 		assert.strictEqual(t.$('#vista-' + id).hidden, false);
 		assert.strictEqual(t.d.activeElement, t.$('#tab-' + id));
 	});
-	t.key('8'); // non esiste: resta su Clienti
-	assert.strictEqual(t.$('#tab-clienti').getAttribute('aria-selected'), 'true');
+	t.key('9'); // non esiste: resta su Connettori
+	assert.strictEqual(t.$('#tab-connettori').getAttribute('aria-selected'), 'true');
 	// frecce nella barra delle stanze
-	t.key('ArrowRight', t.$('#tab-clienti'));
+	t.key('ArrowRight', t.$('#tab-connettori'));
 	assert.strictEqual(t.$('#tab-plancia').getAttribute('aria-selected'), 'true');
 	t.key('End', t.$('#tab-plancia'));
-	assert.strictEqual(t.$('#tab-clienti').getAttribute('aria-selected'), 'true');
+	assert.strictEqual(t.$('#tab-connettori').getAttribute('aria-selected'), 'true');
 	assert.deepStrictEqual(t.errors, []);
 });
 
@@ -270,6 +270,12 @@ test('stanze esterne: montate, snapshot e messaggi instradati, show/hide/pause/r
 	t.send({ type: 'clients.exported', path: '/tmp/prova.csv' });
 	const cm = t.calls.filter(c => c[0] === 'BottegaClienti' && c[1] === 'message').map(c => c[2].type);
 	assert.deepStrictEqual(cm, ['clients', 'clients.exported']);
+	// connettori e posta vanno alla stanza Connettori
+	assert.ok(t.calls.some(c => c[0] === 'BottegaConnettori' && c[1] === 'mount'));
+	t.send({ type: 'connettori', stato: { connettori: [] } });
+	t.send({ type: 'posta', stato: { progetti: [] } });
+	const km = t.calls.filter(c => c[0] === 'BottegaConnettori' && c[1] === 'message').map(c => c[2].type);
+	assert.deepStrictEqual(km, ['connettori', 'posta']);
 	t.send({ type: 'view', view: 'vedetta' });
 	assert.strictEqual(t.$('#tab-vedetta').getAttribute('aria-selected'), 'true');
 	assert.ok(t.calls.some(c => c[0] === 'BottegaVedetta' && c[1] === 'show'));
@@ -802,7 +808,7 @@ test('nessuna lineetta lunga o media nel DOM, in nessuna stanza', () => {
 	s.briefing.heard = false;
 	t.send({ type: 'snapshot', snapshot: s });
 	t.send({ type: 'stats', stats: STATS });
-	for (const k of ['1', '2', '3', '4', '5', '6', '7']) {
+	for (const k of ['1', '2', '3', '4', '5', '6', '7', '8']) {
 		t.key(k);
 		noDashes(t.d);
 	}

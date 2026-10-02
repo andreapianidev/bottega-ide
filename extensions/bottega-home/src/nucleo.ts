@@ -58,6 +58,8 @@ export class Nucleo extends EventEmitter {
 	private backoff = 500;
 	private restartTimer?: NodeJS.Timeout;
 	private statsTimer?: NodeJS.Timeout;
+	/** Ogni quanto si chiedono le statistiche di sistema: spesso con la plancia davanti o con lavori in corso, di rado se no. */
+	private statsEvery = 10_000;
 	private stopped = false;
 	private execPath?: string;
 	private _available = false;
@@ -145,7 +147,14 @@ export class Nucleo extends EventEmitter {
 			}
 		};
 		void tick();
-		this.statsTimer = setInterval(tick, 10_000);
+		this.statsTimer = setInterval(tick, this.statsEvery);
+	}
+
+	/** Cambia il ritmo delle statistiche di sistema; se il Nucleo e' gia' vivo riparte subito con quello nuovo. */
+	setStatsInterval(ms: number): void {
+		if (ms === this.statsEvery) return;
+		this.statsEvery = ms;
+		if (this.statsTimer) this.startStatsLoop();
 	}
 
 	private onStdout(chunk: string): void {

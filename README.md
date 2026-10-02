@@ -120,6 +120,26 @@ La stanza Clienti raggruppa le ore del cruscotto per cliente (l'associazione pro
 `~/.bottega/clienti.json`, solo sul tuo Mac), arrotonda ogni giorno al quarto d'ora ed esporta il mese in CSV e in
 Markdown. «Dove l'ho già risolto?» cerca per significato in tutta la memoria e per testo nel codice di tutti i progetti.
 
+### Connettori e posta per progetto
+
+La Bottega non ha chiavi di Gmail, Vercel o altri servizi: usa i connettori che hai già in Claude Code, quindi
+funziona per chiunque scarichi il progetto. Si aggiungono in Claude Code: i connettori di claude.ai (Gmail, Google
+Calendar, Google Drive, Vercel, Stripe) dalle impostazioni di claude.ai, i server locali con `claude mcp add`. La stanza
+Connettori mostra cosa hai e cosa si accende nella Bottega: posta, calendario, pubblicazioni, Store, file, pagamenti,
+pubblicità, motori di ricerca.
+
+La prima capacità accesa è la posta per progetto. Una rubrica dice quali mittenti e quali domini sono di quale
+progetto, con suggerimenti presi dai file del progetto (homepage, `vercel.json`, URL nel README); un pulsante legge la
+posta degli ultimi giorni e la divide per progetto, e chi non è in rubrica finisce in «Da assegnare». Un server di
+posta locale (per esempio un server MCP per Apple Mail) si interroga direttamente, gratis e in pochi secondi. Gmail di
+claude.ai passa da una delega a Claude Code senza finestra: costa da 20 a 70 secondi e da 0,14 a 0,46 dollari, per
+questo c'è un tetto di spesa giornaliero (`bottega.connettori.tettoGiornalieroUsd`, 1 dollaro).
+
+Privacy. Il contenuto delle mail lette da Gmail passa da Claude e da Anthropic, come nell'uso normale dei connettori;
+con la fonte locale mittente, oggetto e data restano sul Mac. La rubrica (`~/.bottega/rubrica.json`) e la cache dei fili
+(`~/.bottega/connettori/`) restano sul tuo Mac, mai nel repository. La Bottega usa solo strumenti di lettura: nessuna
+mail viene mai inviata, nessuna bozza creata, niente spostato o cancellato.
+
 ### Melissa dentro l'IDE
 
 La sfera di Melissa vive nella barra laterale e nella barra di stato della Bottega, non sopra le altre app. Chi la vuole
@@ -233,6 +253,8 @@ Si toglie con `node ~/.bottega/memoria-app/cli.mjs uninstall`. Dettagli in
 - verso ElevenLabs: l'audio mentre Melissa ti ascolta (solo a conversazione aperta o col tasto
   premuto) e il testo che deve pronunciare;
 - verso Open VSX: le ricerche e i download delle estensioni.
+- verso Claude e Anthropic, solo se premi «Cerca anche in Gmail» (o accendi `bottega.posta.gmailOgniMinuti`): la
+  richiesta a Gmail e i mittenti, gli oggetti e le anteprime dei fili trovati, come nell'uso normale dei connettori.
 
 Nient'altro. La build dai sorgenti di VS Code non contiene telemetria; progetti, sessioni, memoria e
 statistiche restano in locale.

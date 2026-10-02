@@ -13,6 +13,7 @@ import { Assistant, AssistantState } from './assistant';
 import { StatsEngine } from './stats';
 import { Idee, IdeeDynamic } from './idee';
 import { SferaView } from './sfera';
+import { handleConnettori, registerConnettori } from './connettori-host';
 
 export interface Snapshot {
 	projects: Project[];
@@ -100,7 +101,7 @@ function withDynamic(base: Omit<Snapshot, 'jobs' | 'work' | 'workCounts' | 'jobL
 async function fullScan(): Promise<void> {
 	if (scanning) return scanning;
 	scanning = (async () => {
-		const past = readPastSessions();
+		const past = await readPastSessions();
 		const live = attachTitles(readLiveSessions(), past);
 		const projects = await scanProjects(cfg().get<string[]>('roots', []), cfg().get<string[]>('ignore', []), past, live);
 		const claimed = new Set(projects.flatMap(p => p.sessions.map(s => s.sessionId)));
@@ -114,7 +115,9 @@ async function fullScan(): Promise<void> {
 		changed.fire(snapshot);
 		void jobManager?.reconcile();
 		idee?.afterScan();
-		if (statsWanted) void sendStats(false);
+		// Il cruscotto legge centinaia di MB di registri: si ricalcola solo se la Home e' davanti.
+		if (statsWanted && panelHost?.isVisible) void sendStats(false);
+		statsPace();
 	})().finally(() => (scanning = undefined));
 	return scanning;
 }
@@ -134,8 +137,15 @@ function liveScan(): void {
 /** Ricalcola solo i campi dinamici e li manda alla plancia, senza ripassare git e trees. */
 function refreshDynamic(): void {
 	snapshot = withDynamic(snapshot);
-	panelHost?.send({ type: 'snapshot', snapshot });
+	panelHost?.pushSnapshot(snapshot);
 	paintStatus?.();
+}
+
+/** Statistiche di sistema ogni 10 s se servono (Home davanti, o lavori in corso o in coda che dipendono dalla
+ *  memoria libera), ogni 60 s se no. */
+function statsPace(): void {
+	const busy = (jobManager?.list() ?? []).some(j => j.status === 'in corso' || j.status === 'in coda');
+	nucleo?.setStatsInterval(panelHost?.isVisible || busy ? 10_000 : 60_000);
 }
 
 export function projectFor(p: string): Project | undefined {
@@ -383,6 +393,7 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 			if (m.text) await assistant?.ask(m.text);
 			return;
 		default:
+			if (await handleConnettori(m)) return;
 			await idee?.handle(m);
 	}
 }
@@ -479,6 +490,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		log: s => console.warn(s),
 	});
 	idee.start(ctx);
+	registerConnettori(ctx, { projects: () => snapshot.projects, send: msg => panelHost?.send(msg), showHome: view => showHome(view, undefined, true), log: s => console.warn(s) });
 
 	const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 1000);
 	status.command = 'bottega.openPlancia';
@@ -542,7 +554,10 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	nucleo.on('notify.clicked', (m: any) => {
 		if (typeof m?.id === 'string' && m.id.startsWith('job:')) jobManager?.focus(m.id.slice(4));
 	});
-	nucleo.start();
+	// Il Nucleo (embedding, Metal, scorciatoia di Melissa) parte qualche secondo dopo: i primi secondi sono della
+	// finestra e di Claude Code.
+	const nucleoStart = setTimeout(() => nucleo?.start(), 3000);
+	ctx.subscriptions.push({ dispose: () => clearTimeout(nucleoStart) });
 
 	// Il registro delle sessioni vive cambia spesso: lo si osserva, con un piccolo ritardo
 	// perche' Claude Code riscrive il file in piu' passate.
@@ -556,9 +571,18 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	} catch {
 		// Claude Code non ha ancora creato la cartella: resta il giro periodico
 	}
-	const tick = setInterval(liveScan, 15_000);
-	const slow = setInterval(() => void fullScan(), 120_000);
+	// Il registro delle sessioni lo segue gia' il watcher: il giro periodico e' solo una rete di sicurezza.
+	const tick = setInterval(liveScan, 60_000);
+	// La scansione completa (git in ogni progetto) solo con la finestra davanti; tornando davanti, se e' vecchia, la
+	// rifa il gestore qui sotto.
+	const slow = setInterval(() => vscode.window.state.focused && void fullScan(), 120_000);
 	ctx.subscriptions.push({ dispose: () => (clearInterval(tick), clearInterval(slow)) });
+	ctx.subscriptions.push(
+		panelHost.onDidChangeVisibility.event(visible => {
+			statsPace();
+			if (visible && statsWanted) void sendStats(false);
+		}),
+	);
 	vscode.window.onDidChangeWindowState(s => s.focused && Date.now() - snapshot.scannedAt > 30_000 && void fullScan(), null, ctx.subscriptions);
 
 	// Melissa ha la sua icona nella barra laterale: li' vive la sua sfera, dentro l'IDE.
@@ -606,7 +630,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	if (cfg().get('openOnStartup', true)) {
 		panelHost.show(undefined, { preserveFocus: !!vscode.workspace.workspaceFolders?.length });
 	}
-	await fullScan();
+	// Senza await: l'attivazione finisce subito e la scansione (ormai asincrona) riempie la Home quando e' pronta.
+	void fullScan();
 	ensureClaudeExtension(ctx);
 	ensureItalian(ctx);
 }

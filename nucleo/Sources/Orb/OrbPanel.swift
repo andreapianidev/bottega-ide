@@ -334,17 +334,22 @@ final class OrbPanel: NSObject, NSWindowDelegate {
     }
 
     /// 60 fps when the orb reacts to a voice, 30 when it only breathes, 0 when nobody
-    /// can see it.
+    /// can see it or when it rests in the dock.
     private func updateRendering() {
         guard let v = orbView else { return }
         let onScreen = isVisible && (panel?.occlusionState.contains(.visible) ?? false)
         let lively = state == .listening || state == .speaking
+        // Nel dock, a riposo, la sfera resta ferma sull'ultimo fotogramma: il Nucleo da fermo deve stare a 0% di CPU.
+        // Si muove mentre ascolta, parla, pensa o segnala un errore.
+        let restingInDock = presentation == .docked && (state == .idle)
         if presentation == .docked {
             v.preferredFramesPerSecond = lively ? 30 : Self.dockedIdleFPS
         } else {
             v.preferredFramesPerSecond = lively ? 60 : 30
         }
-        v.isPaused = !onScreen
+        v.isPaused = !onScreen || restingInDock
+        // Ferma si', vuota no: un fotogramma disegnato a mano quando si mette a riposo o compare gia' a riposo.
+        if restingInDock && onScreen { v.draw() }
     }
 
     func windowDidChangeOcclusionState(_ notification: Notification) {

@@ -124,6 +124,11 @@
         "command": "bottega.regole.controlla",
         "title": "Ricontrolla le regole",
         "category": "Bottega"
+      },
+      {
+        "command": "bottega.openConnettori",
+        "title": "Apri connettori e posta per progetto",
+        "category": "Bottega"
       }
     ],
     "viewsContainers": {
@@ -356,6 +361,55 @@
           "type": "boolean",
           "default": true,
           "description": "I consigli della Home li scrive Apple Intelligence sul Mac. Spento: consigli fissi ricavati dalle regole."
+        },
+        "bottega.connettori.mappa": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "Connettori di Claude Code in piu' per le capacita' della Bottega, per esempio { \"posta\": [\"mio-server-imap\"] }. Un nome esatto o un'espressione regolare tra barre. Si aggiungono alla mappa di base."
+        },
+        "bottega.connettori.modello": {
+          "type": "string",
+          "default": "haiku",
+          "description": "Il modello di Claude Code usato per le deleghe ai connettori di claude.ai (Gmail, Calendar, Vercel)."
+        },
+        "bottega.connettori.tettoGiornalieroUsd": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "description": "Spesa massima al giorno, in dollari, per le deleghe a Claude Code. Raggiunto il tetto, le deleghe aspettano il giorno dopo."
+        },
+        "bottega.posta.aggiornaOgniMinuti": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Ogni quanti minuti aggiornare la posta dal server di posta locale (gratis). 0: solo su richiesta."
+        },
+        "bottega.posta.gmailOgniMinuti": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Con l'aggiornamento automatico acceso, ogni quanti minuti cercare anche in Gmail con una delega a Claude Code (a pagamento, almeno 120). 0: Gmail solo su richiesta."
+        },
+        "bottega.posta.giorni": {
+          "type": "number",
+          "default": 7,
+          "minimum": 1,
+          "maximum": 90,
+          "description": "Quanti giorni di posta guardare."
+        },
+        "bottega.posta.dominiIgnorati": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Domini da non suggerire mai per la rubrica, per esempio il tuo sito personale."
         }
       }
     },
@@ -375,7 +429,7 @@
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=out/extension.js",
     "typecheck": "tsc --noEmit",
-    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs"
+    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

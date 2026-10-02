@@ -35,24 +35,45 @@ export function expand(p: string): string {
 	return p.startsWith('~') ? path.join(os.homedir(), p.slice(1)) : p;
 }
 
+// GIT_OPTIONAL_LOCKS=0: lo stato non riscrive l'indice, cosi' la scansione non si scontra con i git di Andrea.
+const GIT_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
+
 function run(cwd: string, args: string[]): Promise<string> {
 	return new Promise(resolve => {
-		execFile('git', args, { cwd, timeout: 8000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => resolve(err ? '' : stdout));
+		execFile('git', args, { cwd, env: GIT_ENV, timeout: 8000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => resolve(err ? '' : stdout));
 	});
 }
 
+/** Vero se la cartella sta dentro un repository (ha .git lei o una cartella sopra): fuori, git fallirebbe comunque
+ *  e lanciarlo costa un processo per niente. */
+function inRepo(dir: string): boolean {
+	for (let d = dir; ; d = path.dirname(d)) {
+		if (fs.existsSync(path.join(d, '.git'))) return true;
+		if (path.dirname(d) === d) return false;
+	}
+}
+
+/** Ultimo commit per cartella, valido finche' HEAD non cambia: git log si rilancia solo dopo un commit. */
+const lastCommit = new Map<string, { oid: string; at: number; subject: string }>();
+
 async function gitInfo(dir: string): Promise<Project['git']> {
+	if (!inRepo(dir)) {
+		return undefined;
+	}
 	const status = await run(dir, ['status', '--porcelain=v2', '--branch', '--untracked-files=normal']);
 	if (!status) {
 		return undefined;
 	}
+	let oid = '';
 	let branch = '?';
 	let ahead = 0;
 	let behind = 0;
 	let upstream = false;
 	let changes = 0;
 	for (const line of status.split('\n')) {
-		if (line.startsWith('# branch.head ')) {
+		if (line.startsWith('# branch.oid ')) {
+			oid = line.slice(13);
+		} else if (line.startsWith('# branch.head ')) {
 			branch = line.slice(14);
 		} else if (line.startsWith('# branch.upstream ')) {
 			upstream = true;
@@ -66,9 +87,15 @@ async function gitInfo(dir: string): Promise<Project['git']> {
 			changes++;
 		}
 	}
-	const log = (await run(dir, ['log', '-1', '--format=%ct%x09%s'])).trim();
-	const [ct, ...subj] = log.split('\t');
-	return { branch, ahead, behind, upstream, changes, lastCommitAt: (+ct || 0) * 1000, lastCommitSubject: subj.join('\t') };
+	let last = lastCommit.get(dir);
+	if (!last || last.oid !== oid || !oid) {
+		const log = (await run(dir, ['log', '-1', '--format=%ct%x09%s'])).trim();
+		const [ct, ...subj] = log.split('\t');
+		last = { oid, at: (+ct || 0) * 1000, subject: subj.join('\t') };
+		// "(initial)" e' un repository senza commit: niente da ricordare.
+		if (oid && oid !== '(initial)') lastCommit.set(dir, last);
+	}
+	return { branch, ahead, behind, upstream, changes, lastCommitAt: last.at, lastCommitSubject: last.subject };
 }
 
 function list(dir: string): string[] {
