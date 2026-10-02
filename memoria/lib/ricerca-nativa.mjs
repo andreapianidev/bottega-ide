@@ -123,7 +123,7 @@ function dot(a, b) {
  * Torna gli item come search() di core.mjs, con `score` e `via` (cosa li ha trovati).
  */
 export async function cercaNativa(query, opts = {}) {
-	const { progetto, limite = 10, store = openStore(), espandi = true, riordina = true, budgetMs = 1500, misura } = opts;
+	const { progetto, limite = 10, store = openStore(), espandi = true, riordina = true, budgetMs = 1500, misura, forma } = opts;
 	const t0 = Date.now();
 	const tempi = {};
 	const lists = [];
@@ -188,6 +188,7 @@ export async function cercaNativa(query, opts = {}) {
 				return { id: String(f.id), text: `${m?.title ?? ''}. ${m?.text ?? ''}`.replace(/\s+/g, ' ').slice(0, 300) };
 			}),
 			timeoutMs: left,
+			...(forma ? { forma } : {}),
 		}, left + 300);
 		tempi.riordino = Date.now() - t;
 		if (r?.completo && r.punteggi) {

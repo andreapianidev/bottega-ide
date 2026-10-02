@@ -114,6 +114,8 @@ const nativa = {
 	'nativa: RRF parole + contestuale': { espandi: false, riordina: false },
 	'nativa: + espansione': { espandi: true, riordina: false },
 	'nativa: + espansione + riordino': { espandi: true, riordina: true },
+	'tetto: RRF + riordino migliori 8 s': { espandi: false, riordina: true, budgetMs: 8000 },
+	'tetto: RRF + riordino punteggi 12 s': { espandi: false, riordina: true, budgetMs: 12000, forma: 'punteggi' },
 };
 const latenze = {};
 for (const [nome, o] of Object.entries(nativa)) {
