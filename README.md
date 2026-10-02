@@ -201,6 +201,11 @@ Cline. Si spegne con `bottega.cline.attivo`.
 della sessione o del file su cui stai lavorando. «Terminale qui» dal tasto destro sui file e sulle cartelle, e «Apri in
 iTerm2» con il profilo Bottega, stessi colori e stesso carattere del tema.
 
+Nel terminale si scrive in italiano cosa si vuole fare («trova i file piu' grandi di 100 MB qui») e si preme Invio: la
+Bottega riconosce da sola che e' una frase e non un comando, Agnes propone il comando e, secondo
+`bottega.terminale.agnesModo`, lo mette nella riga, chiede «eseguo?» o lo esegue se e' tra i consentiti; cancellazioni,
+push, pubblicazioni e sudo chiedono sempre. I tuoi file di zsh non vengono toccati.
+
 ### Connettori e posta per progetto
 
 La Bottega non ha chiavi di Gmail, Vercel o altri servizi: usa i connettori che hai già in Claude Code, quindi
@@ -412,6 +417,8 @@ Per le notifiche serve una chiave APNs del tuo account (Certificates, Identifier
 - verso open.er-api.com: una richiesta al giorno dei cambi delle valute, solo se apri la stanza App Store (nessun dato
   tuo, serve a portare in euro i ricavi dello Store);
 - verso Open VSX: le ricerche e i download delle estensioni, e una volta all'ora la versione dell'ultima Claude Code;
+- verso Agnes AI (o DeepSeek, se lo scegli), solo quando scrivi una frase nel terminale: la frase, la cartella corrente,
+  il ramo e uno stato git breve, l'ultimo comando con il suo esito; mai il contenuto dei file ne' la cronologia;
 - verso il fornitore scelto in Cline (DeepSeek, per esempio), solo se usi Cline: quello che gli chiedi, i file che legge
   e i risultati degli strumenti che usa, come con qualsiasi agente;
 - verso GitHub: l'ultima versione pubblicata di VS Code, al massimo una volta al giorno e solo quando Claude Code ne

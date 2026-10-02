@@ -1606,6 +1606,90 @@ in `extensions/bottega-theme`.
   corrente), nella Bottega o, con `esterno: true`, in iTerm2. Registrato da `extension.ts` come gli strumenti dei
   connettori (`Object.assign(TOOLS, STRUMENTI_TERMINALE)`).
 
+- **Agnes nel terminale** (`bottega.terminale.agnes`, predefinito acceso). Codice: `src/terminale-agnes.ts` (regole,
+  socket, cervelli, copia dei file; provato da `test/terminale-agnes.cjs`), il collegamento in `src/terminale-host.ts`, il
+  widget in `extensions/bottega-home/shell/agnes.zsh` con `zshenv`, `zprofile`, `zshrc`, `zlogin`.
+  - **Come si carica.** A ogni avvio l'estensione copia `shell/*` in `~/.bottega/zsh/` (cartella 700, file 600, solo i
+    file cambiati) e mette `ZDOTDIR=~/.bottega/zsh` nella variabile d'ambiente dell'estensione
+    (`ctx.environmentVariableCollection`, `persistent = false`, rimessa a ogni avvio solo dopo aver scritto i file). Vale
+    per tutti i terminali nuovi della Bottega, nessun file di Andrea viene toccato. I file di `~/.bottega/zsh` caricano
+    quelli veri (`$HOME/.zshenv`, `.zprofile`, `.zshrc`, `.zlogin`, oppure `BOTTEGA_ZDOTDIR_UTENTE` se la Bottega e' partita
+    con un altro ZDOTDIR) nello stesso ordine e con `ZDOTDIR` al loro posto, poi `agnes.zsh`. `HISTFILE` resta
+    `~/.zsh_history`. Alla fine `ZDOTDIR` torna `$HOME`: shell figlie e `.zlogout` sono quelle di sempre. Una shell non
+    interattiva (attivita', script) legge solo `.zshenv` e torna subito a casa.
+  - **Shell integration di VS Code.** Convivono senza patch: quando inietta, VS Code mette `ZDOTDIR` nella sua cartella
+    temporanea e prende quello che il terminale aveva (`~/.bottega/zsh`) come `USER_ZDOTDIR`, poi carica i nostri file
+    al posto di quelli di `$HOME` (`terminalEnvironment.ts`, `shellIntegration-*.zsh`). Il nostro `precmd` e' il primo
+    della lista e restituisce il codice d'uscita, quindi `__vsc_precmd` lo vede giusto. Provato da
+    `test/terminale-agnes.cjs` con gli script veri dell'app.
+  - **Comando o frase.** All'Invio il widget (che sostituisce `accept-line`, conservando quello di prima) decide in
+    locale, sotto il millisecondo (0,1 ms misurato), senza processi esterni:
+    - comando: riga vuota, su piu' righe o con `\` finale; prima parola (dopo `VAR=x`, `noglob`, `command`, `builtin`,
+      `nocorrect`, `exec`) che e' un percorso o contiene sintassi di shell; prima parola nota a `whence` seguita da flag,
+      percorsi, `$`, virgolette, redirezioni o glob; `echo`, `print`, `printf`, `say` e le parole riservate (`for`,
+      `if`...); una sola parola sconosciuta (zsh dice command not found come sempre);
+    - frase: almeno due parole con la prima sconosciuta e senza `| ; < > && $( )` e backtick (anche un errore di
+      battitura come «gti status»: Agnes propone `git status`); una prima parola nota seguita da almeno due parole
+      funzione italiane intere e minuscole (mi, il, la, i, un, di, che, per, con, tutti, questo, dove, come, fammi, dammi,
+      nel, dal, qui, quanto, piu', oggi... elenco in `agnes.zsh`), oppure da una sola con almeno tre parole dopo il
+      comando («find i file grossi»); una domanda di almeno tre parole che finisce con `?`.
+    - Per forzare: `# richiesta` e `? richiesta`; `#! deepseek richiesta` e `#! agnes richiesta` scelgono il cervello per
+      quella richiesta; `??` (con una nota facoltativa) spiega in due righe perche' l'ultimo comando e' fallito e propone
+      il rimedio. `#` resta: una riga che comincia con `# ` da sola non fa niente in zsh (con `interactivecomments` e'
+      un commento, senza e' un errore), e una riga incollata su piu' righe non viene mai intercettata.
+    - **Paracadute.** Doppio Invio veloce (il secondo arriva mentre Agnes pensa, o entro 1 s dal primo) ed Esc alla
+      domanda eseguono la riga com'era. Il caso opposto: `command_not_found_handler` passa ad Agnes una riga di almeno
+      due parole scritta da sola e senza sintassi di shell (scrive `~/.bottega/zsh/.richiesta.<pid>`, il prompt dopo la
+      chiede), salvo quando la riga era stata appena eseguita «com'era». Un gestore gia' definito da Andrea resta e viene
+      chiamato per gli altri casi.
+    - **Indizio.** Mentre si scrive, se la riga e' una frase, il nome del cervello in grigio dopo il testo (`POSTDISPLAY`
+      con `region_highlight` `fg=8,memo=bottega`, hook `line-pre-redraw`), solo se `POSTDISPLAY` e' libero.
+  - **Il socket.** `~/.bottega/terminale.sock`, permessi 600, protocollo a righe (niente HTTP, niente curl: il widget usa
+    `zsh/net/socket`). Richiesta: righe `chiave valore` (`azione proponi|consenti|stato`, `tipo comando|perche`,
+    `origine auto|forzata`, `cervello`, `cartella`, `zsh`, `ultimo`, `codice`, `richiesta`, `comando`; a capo dentro un
+    valore = `\x1e`), poi una riga vuota. Risposta: `esito ok|errore|aspetta`, `esegui subito|chiedi|proponi`,
+    `consentibile si|no`, `nota`, `spiega`, `avviso`, `errore` (zero o piu'), una riga vuota, poi il comando com'e'. Una
+    richiesta alla volta (la seconda: «aspetta un attimo, sto gia' pensando»). Con piu' finestre della Bottega il socket
+    e' della prima; le altre restano di riserva e lo riprendono entro 30 s quando sparisce. Alla chiusura si cancella solo
+    se e' ancora il nostro (inode).
+  - **Cervelli.** `bottega.terminale.cervello`: `agnes` (predefinito, `agnes-3.0-flash` con `reasoning_effort: none`,
+    tramite `Cervelli.streamFor` di `src/cervelli.ts`, quindi conta nelle richieste di oggi della barra) o `deepseek`
+    (stessa chiave e stesso endpoint di Melissa). Se non risponde (errore, 12 s), l'altro, poi Apple Intelligence
+    (`runAppleTurn` dal Nucleo, senza strumenti, 24 s); il cambio lo dice una riga grigia. Agnes al massimo una richiesta
+    ogni 3 secondi: da primo cervello risponde «aspetta un attimo», da riserva si salta. Nessuna chiave nella shell, in
+    env, nei file di zsh o nei log (il registro «Bottega, terminale» scrive cartella, cervello e tempo, non il testo).
+  - **Contesto mandato.** macOS e versione, versione di zsh, cartella corrente, ramo e `git status --short` (15 righe al
+    massimo), per `??` l'ultimo comando e il codice d'uscita. Mai il contenuto dei file, mai la storia. Prompt di sistema:
+    solo il comando, una riga (o piu' comandi con `&&`), BSD e macOS e non GNU, niente sudo se non indispensabile,
+    niente cancellazioni, pubblicazioni o push se non chiesti.
+  - **Tre modi** (`bottega.terminale.agnesModo`): `proponi` (il comando nel buffer, Invio di Andrea), `chiedi`
+    (predefinito: il comando nel buffer e sopra «eseguo? [invio] sì, [s]empre, [n]o, [m]odifica, [esc] la tua riga
+    com'era», una mappa di tasti sua `bottega_domanda`; le frecce non fanno niente), `auto` (partono da soli i consentiti
+    e i comandi che leggono soltanto: `ls`, `cat`, `du`, `git status`, `git log`, `find` senza `-delete`/`-exec`...).
+    Un comando che parte da solo lo dice in grigio («eseguo, e' tra i consentiti»).
+  - **Consentiti.** `~/.bottega/terminale-consentiti.json` (600, `{"forme": [...]}`). Si confronta la forma: programma
+    piu' sottocomando (`git status`, `npm test`, `npm run build`, `npx expo`), o programma piu' le opzioni iniziali (`ls`,
+    `du -sh`). `s` alla domanda aggiunge le forme di tutte le parti. Consentito vuol dire senza domanda in `chiedi` e in
+    `auto`. «Terminale: comandi consentiti» (`bottega.terminaleConsentiti`) li elenca, la x li toglie.
+  - **Paletti** (`decidi` in `src/terminale-agnes.ts`): nessun modo e nessun consentito li scavalca, chiedono sempre con
+    l'avviso in ambra («attenzione: ...») e non si possono consentire. `rm` (ogni forma), `shred`, `truncate`; `git push`
+    di ogni tipo, `reset --hard`, `clean -f`, `checkout --`/`restore`, `branch -D`, `stash drop/clear`; `dd`, `mkfs`,
+    `diskutil erase...`; `chmod/chown -R`; scritture su `/dev/*` (salvo null, stdout, stderr, tty); `curl|sh` e
+    `sh -c "$(curl ...)"`; `kill -9`, `killall`, `pkill`; `shutdown`, `reboot`; `find -delete`; impostazioni di sistema
+    (`defaults delete`, `csrutil`, `nvram`, `launchctl unload`...); pubblicazioni (`vercel` salvo i sottocomandi che
+    leggono, `npm/yarn/pnpm/bun publish`, `eas submit/update`, `xcrun altool`, `fastlane`, `gh release create`,
+    `gh pr merge`, `firebase/netlify/fly/wrangler deploy`, `cargo publish`, `pod trunk push`, `docker push`,
+    `supabase db push`, `heroku`, `twine`); installazioni globali (`brew install`, `npm i -g`, `pip install`); `sudo`;
+    scritture fuori dalla cartella corrente o direttamente nella home (`cp`, `mv`, `touch`, `mkdir`, `tee`, `>`...,
+    percorsi con variabili compresi; `cd` sposta la risoluzione dei percorsi ma non la cartella di riferimento). Una
+    catena (`&&`, `||`, `;`, `|`) va da sola solo se ci va ogni parte; una sostituzione `$( )` chiede sempre.
+  - **iTerm2.** Con Agnes accesa il profilo dinamico «Bottega» ha `Custom Command: Yes` e
+    `Command: /usr/bin/env ZDOTDIR=~/.bottega/zsh /bin/zsh -l` (la `$SHELL` di Andrea se e' zsh; niente se la shell non e'
+    zsh o il percorso ha spazi). Funziona anche a Bottega chiusa: niente socket, le frasi restano a zsh e `# ...` dice
+    «la Bottega e' chiusa».
+  - **Spento** (`bottega.terminale.agnes: false`): niente ZDOTDIR per i terminali nuovi, socket chiuso e cancellato,
+    profilo di iTerm2 senza comando. I file in `~/.bottega/zsh` restano (innocui).
+
 ## 13. La stanza App Store
 
 Codice: `src/appstore.ts` (motore, regole dei buchi e lettura dei repository, provato da `test/appstore.cjs`),
