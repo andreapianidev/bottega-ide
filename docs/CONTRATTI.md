@@ -1352,6 +1352,8 @@ ora: i campi si fondono; se cambia `ambiente` i token di prima si buttano. File 
 **Notifiche** (`apns-push-type: alert`). Solo quando Andrea e' lontano dal Mac: nessun input da tastiera o mouse da
 2 minuti (`HIDIdleTime`), impostazione `bottega.iphone.avvisi` (`lontano` | `sempre` | `mai`, default `lontano`).
 Il testo passa dai server di Apple: solo nome del progetto e una frase breve, mai codice o contenuto delle sessioni.
+Unica eccezione voluta, il `passo` di una sessione seguita (9.5): un verbo e il nome di un file o di un programma
+(«modifica ponte.ts»), al massimo 60 caratteri, mai percorsi, argomenti o testo dei comandi.
 - `ATTESA`: una sessione passa a «ti aspetta». `{aps: {alert: {title: <progetto>, body: "Ti aspetta: <titolo>"},
   sound: "default", category: "ATTESA", "thread-id": <progetto>, "interruption-level": "time-sensitive"},
   chiave: <work key>, jobId?: <id>}`. Azione «Rispondi» (testo) solo se c'e' `jobId`: l'app manda il testo con
@@ -1371,9 +1373,10 @@ primi 60 secondi fanno da linea di partenza: quello che c'e' gia' non suona. `ma
 Activity e widget restano.
 
 **Live Activity** (`apns-push-type: liveactivity`, attributi `BottegaAttivita` in `ios/Condiviso/BottegaAttivita.swift`).
-`content-state` = `{inCorso, tiAspetta, vive, righe: [{progetto, stato, da}], aggiornato}` (al massimo tre righe,
+`content-state` = `{inCorso, tiAspetta, vive, righe: [{progetto, stato, da}], segui?: {progetto, passo, stato}, aggiornato}` (al massimo tre righe,
 prima chi ti aspetta; `da` e `aggiornato` in ms dal 1970).
-- Vive finche' ci sono sessioni AL LAVORO (`inCorso`): quelle ferme contano come «ti aspetta» tutto il giorno e
+- Vive finche' ci sono sessioni AL LAVORO (`inCorso`) o una sessione seguita dall'iPhone (`segui`, 9.5, anche se
+  aspetta; allora l'avvio dice «Segui <progetto>»): quelle ferme contano come «ti aspetta» tutto il giorno e
   non la farebbero mai finire. Chi aspetta resta nel contenuto, in ambra, finche' l'attivita' vive.
 - Avvio con il token `avvio` quando ci sono sessioni al lavoro e non c'e' un'attivita' aperta:
   `{aps: {timestamp, event: "start", "content-state", "attributes-type": "BottegaAttivita", attributes: {mac},
@@ -1401,6 +1404,77 @@ e l'app lo manda al Mac): widget «Sessioni»
 
 **Siri** (App Intents nell'app): «Chiedi a Melissa» (`POST /v1/chiedi`, Siri legge la risposta) e «Chi mi aspetta»
 (dallo stato), con le frasi per Comandi rapidi e Siri.
+
+### 9.5 La scheda di una sessione (`src/ponte-sessioni.ts`, `src/ponte-sessioni-host.ts`, `src/sessione-lettura.ts`, `src/schermo.ts`)
+
+Per tutte le sessioni Claude del Mac, anche quelle aperte in iTerm o altrove. Le rotte passano dal gettone come le
+altre: `src/ponte.ts` le gira a `SessioniPonte.gestisci` dopo il controllo (`PonteDeps.sessioni`), e chiudendo il
+ponte si chiudono anche i flussi della scheda. `chiave` e' la `chiave` di `/v1/stato` (`job:<id>` o `sess:<sessionId>`).
+Nessuna rotta apre una shell o esegue comandi arbitrari.
+
+- `GET /v1/sessione?chiave=K` -> `Scheda` | 404:
+  `{chiave, origine: bottega|altrove, stato, progetto, titolo, da, jobId?, iniziata?, ultimo?, richiesta?, risposta?,
+  passi: [{testo, tipo: modifica|comando|lettura|ricerca|web|agente|altro, alle, inCorso?}], file: [percorso],
+  token?: {entrata, uscita, contesto, parziale?}, domanda?: Domanda, scrivibile, terminale, modifiche, seguita,
+  finita?}`. Fonti: la coda (256 KB) di `~/.claude/projects/<cartella>/<sessione>.jsonl` (come `src/mani.ts`) e il
+  registro `~/.claude/sessions/<pid>.json` (`status`, `waitingFor`, `startedAt`, `cwd`). Passi in chiaro, gli ultimi
+  20: «ha modificato ponte.ts», «sta lanciando <descrizione o comando>», «sta leggendo README.md». File relativi al
+  progetto. Token: `uscita` e `entrata` (input + cache creata) su tutta la sessione, una volta per messaggio
+  (`message.id`), contati la prima volta su tutto il file (al massimo gli ultimi 64 MB, allora `parziale`) e poi solo
+  sulla parte nuova; `contesto` = l'ultimo messaggio con la cache letta. `iniziata` = `startedAt` del registro.
+- `Domanda` = `{id, tipo: permesso|scelta|domanda|finestra, testo, strumento?, comando?, opzioni?, chiede?}`, solo
+  quando la sessione aspetta («ti aspetta» o `status: waiting` nel registro). `permesso`: `waitingFor` = «approve
+  <Strumento>: <comando>» (Claude Code lo scrive nel registro), descrizione dalla trascrizione; con Claude Code
+  vecchi, uno strumento senza risultato a sessione ferma. `scelta`: un `AskUserQuestion` aperto, con le opzioni.
+  `domanda`: Claude ha finito il giro, `testo` = la sua ultima risposta, `chiede` se finisce con una domanda.
+  `finestra`: un altro `waitingFor` («dialog open», «input needed», «approve plan»): si gestisce dal Mac. `id` cambia
+  a ogni domanda nuova.
+- `GET /v1/sessione/eventi?chiave=K` -> `text/event-stream`: subito `data: <Scheda>`, poi una a ogni cambio, `: ping`
+  ogni 25 s. Mentre almeno un flusso e' aperto un giro ogni 1,5 s guarda solo dimensione e data del jsonl e del
+  registro e lo stato del lavoro; la coda si rilegge solo se sono cambiati. Nessun flusso aperto: nessun timer.
+  Al massimo 8 flussi insieme (429).
+- `POST /v1/sessione/rispondi {chiave, domanda: <id>, risposta: si|no|testo, testo?}` -> `{ok: true}`. Solo lavori
+  della Bottega (403 «Questa sessione e' aperta in un'altra app: rispondi dal Mac.»), solo se `domanda` e' ancora
+  la domanda aperta adesso (409 altrimenti), mai per `finestra` (409). Tasti nel terminale (`JobManager.type`,
+  senza portarlo davanti): permesso si' = invio (la prima opzione, «Yes», e' gia' scelta), no = Esc, testo = Esc e
+  dopo 350 ms il testo con invio (no, e cosa fare invece); scelta: solo testo (Esc, poi il testo come messaggio);
+  domanda: «Sì», «No» o il testo, con invio. Testo senza a capo e caratteri di controllo, al massimo 2000.
+- `GET /v1/sessione/modifiche?chiave=K` -> `{cartella, ramo, file: [{percorso, aggiunte, tolte, tipo:
+  modificato|nuovo|tolto|binario}], nonTracciati, troncato}` | 403 fuori dai progetti | 409 non e' un repository.
+  Cartella: il `cwd` della sessione se sta dentro un progetto che la Bottega conosce (un worktree), altrimenti la
+  cartella del progetto; mai fuori dai progetti. `git diff HEAD --numstat --no-renames --relative` piu'
+  `git ls-files --others --exclude-standard` (i primi 40, con le righe contate).
+- `GET /v1/sessione/diff?chiave=K&file=F` -> `{file, diff, troncato, nuovo}`. `F` relativo, risolto dentro la
+  cartella (anche dopo i link simbolici), altrimenti 400/403. Un file tracciato: `git diff HEAD -- :(literal)F`; un
+  file nuovo solo se `ls-files --others --exclude-standard` lo elenca (mai un file ignorato come `.env`):
+  `git diff --no-index -- /dev/null F`.
+- git: sempre `spawn` senza shell, `--no-optional-locks`, `core.fsmonitor=false`, `--no-ext-diff --no-textconv`,
+  `GIT_TERMINAL_PROMPT=0`, 10 s al massimo, uscita tagliata a 200 KB (`troncato`).
+- `GET /v1/sessione/terminale?chiave=K` -> `text/event-stream` di `{righe: [..ultime 150], vivo}`. Solo lavori della
+  Bottega (403), 404 se il terminale e' chiuso, 409 con il motivo se non si puo' leggere. L'uscita viene dall'API
+  stabile della shell integration: `window.onDidStartTerminalShellExecution` ricorda il comando che gira in ogni
+  terminale, e solo mentre l'iPhone guarda si apre `execution.read()` (dati da quel momento in poi). `Schermo`
+  esegue le sequenze ANSI che servono a un'interfaccia in linea (a capo, cursore, cancella riga e schermo, schermo
+  alternativo) e scarta il resto; in memoria, mai su disco, al massimo quattro invii al secondo e tre terminali
+  insieme. Da qui non si scrive.
+- `POST /v1/sessione/segui {chiave}` -> `{ok, seguita}` (`chiave: ''` smette). Il Mac guarda quella sessione ogni 5 s
+  (solo mentre e' seguita) e la Live Activity porta nel `content-state` il campo facoltativo
+  `segui: {progetto, passo, stato}`. `passo` passa dai server di Apple, quindi e' corto e senza contenuti: un verbo e
+  il nome del file o del programma («modifica ponte.ts», «lancia npm», «chiede un permesso», «aspetta te»), mai
+  argomenti, percorsi o testo della sessione. Dopo due minuti fuori dalla lista si smette da soli. Una sessione seguita
+  tiene viva la Live Activity anche quando aspetta (9.4); la riga seguita sta in testa, con l'occhio.
+- `POST /v1/sessione/riassunto {chiave}` -> `application/x-ndjson` con le stesse righe di `/v1/parla` (`voce`,
+  `frase`, `audio`, `voce-persa`, `fine {risposta}`, `errore`), 409 se Melissa sta gia' rispondendo. La domanda a
+  Melissa e' «riassumimi a voce, in due frasi, la sessione su <progetto>» con la scheda in frasi brevi (sotto i 2000
+  caratteri): parla proprio di quella sessione anche se sullo stesso progetto ce n'e' piu' d'una. Resta nella
+  conversazione come le altre domande.
+- `src/jobs.ts`: `waiting` (Claude Code con una domanda aperta) conta come «ti aspetta» anche per le sessioni aperte
+  altrove (prima finiva in «nel terminale»).
+
+App (`ios/`): un tocco su una sessione nella stanza Lavori apre `SessioneView` (scheda in diretta, domanda in
+primo piano, «Riassumimelo», «Segui»), da li' `ModificheView` / `DiffView` e `TerminaleView`. Cliente a parte,
+`PonteSessioni` (stesso collegamento di `Ponte`, sue connessioni). La diretta vive solo con la scheda aperta e
+l'app davanti.
 
 ## 10. Gli aggiornamenti: VS Code solo quando serve, Claude Code sempre
 

@@ -39,6 +39,7 @@ struct AttivitaWidget: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(spacing: 6) {
+                        if let seg = s.segui { RigaSeguita(segui: seg) }
                         ForEach(Array(s.righe.prefix(3).enumerated()), id: \.offset) { _, r in
                             RigaAttivita(riga: r)
                         }
@@ -103,6 +104,30 @@ private struct Conti: View {
     }
 }
 
+/// La sessione seguita dall'iPhone, in testa: il progetto e il suo ultimo passo («modifica ponte.ts»).
+private struct RigaSeguita: View {
+    let segui: BottegaAttivita.ContentState.Segui
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "eye")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Pezzi.colore(segui.stato))
+            Text(segui.progetto)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Tinte.testo)
+                .lineLimit(1)
+            Text(segui.passo)
+                .font(.caption)
+                .foregroundStyle(segui.stato == "ti aspetta" ? Tinte.ambra : Tinte.tinta)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 2)
+    }
+}
+
 /// Una sessione: il punto del colore dello stato, il progetto, lo stato e da quanto.
 private struct RigaAttivita: View {
     let riga: BottegaAttivita.ContentState.Riga
@@ -153,6 +178,7 @@ private struct SchermataDiBlocco: View {
                 Conti(stato: stato)
                     .font(.subheadline.weight(.semibold))
             }
+            if let seg = stato.segui { RigaSeguita(segui: seg) }
             if !stato.righe.isEmpty {
                 VStack(spacing: 6) {
                     ForEach(Array(stato.righe.prefix(3).enumerated()), id: \.offset) { _, r in

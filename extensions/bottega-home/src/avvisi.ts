@@ -235,7 +235,8 @@ export class Avvisi {
 	// ---------- Live Activity ----------
 
 	private async attivita(disp: Dispositivo, ist: Istantanea, now: number): Promise<void> {
-		const attive = ist.conti.inCorso;
+		// una sessione seguita dall'iPhone tiene viva l'attivita' anche quando aspetta (o e' l'unica)
+		const attive = ist.conti.inCorso + (ist.segui ? 1 : 0);
 		if (attive > 0) this.la.vuotoDal = undefined;
 		else this.la.vuotoDal ??= now;
 		const finita = this.la.vuotoDal !== undefined && now - this.la.vuotoDal >= LA_FINE_MS;
@@ -277,13 +278,13 @@ export class Avvisi {
 		if (finita) this.la.avviata = false; // un giro senza sessioni chiude il ciclo: la prossima volta riparte
 		if (attive === 0 || !disp.avvio || this.la.avviata || now - this.la.tentata < LA_FINE_MS) return;
 		this.la.tentata = now;
-		const n = attive;
+		const n = ist.conti.inCorso;
 		const e = await this.manda('avvio', {
 			tipo: 'liveactivity', token: disp.avvio, ambiente: disp.ambiente, priorita: 10,
 			payload: {
 				aps: {
 					timestamp: sec, event: 'start', 'content-state': stato, 'attributes-type': 'BottegaAttivita', attributes: { mac: this.d.mac },
-					alert: { title: 'Bottega', body: n === 1 ? '1 sessione Claude al lavoro' : `${n} sessioni Claude al lavoro` },
+					alert: { title: 'Bottega', body: n === 0 && ist.segui ? `Segui ${pulisci(ist.segui.progetto, 40)}` : n === 1 ? '1 sessione Claude al lavoro' : `${n} sessioni Claude al lavoro` },
 				},
 			},
 		});

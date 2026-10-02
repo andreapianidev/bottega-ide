@@ -24,6 +24,14 @@ struct BottegaAttivita: ActivityAttributes {
         /// Al massimo tre, prima chi ti aspetta.
         var righe: [Riga]
         var aggiornato: Double
+        /// La sessione seguita dall'iPhone («segui questo lavoro»): progetto, ultimo passo corto (un verbo e un nome
+        /// di file o di programma, mai percorsi o argomenti) e stato. Facoltativo: manca quando non si segue niente.
+        struct Segui: Codable, Hashable {
+            var progetto: String
+            var passo: String
+            var stato: String
+        }
+        var segui: Segui? = nil
     }
 
     /// Il nome del Mac.

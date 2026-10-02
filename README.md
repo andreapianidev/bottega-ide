@@ -236,6 +236,13 @@ progetti, avvia lavori, legge le sessioni, chiede conferma per un push) e ti ris
 conversazione è la stessa della barra sul Mac. La stanza Lavori mostra tutte le sessioni Claude del Mac, con in cima
 chi ti aspetta, e ai lavori della Bottega puoi scrivere da lì.
 
+Toccando una sessione si apre la sua scheda, per tutte, anche quelle aperte in iTerm: cosa le hai chiesto, cosa ha
+risposto Claude, gli ultimi passi in chiaro («ha modificato ponte.ts», «sta lanciando i test»), i file toccati, da
+quanto lavora e i token, in diretta mentre lavora. Se ti aspetta, in cima c'è la sua domanda: a un lavoro della
+Bottega rispondi con Sì, No o due parole, le altre le leggi soltanto. Da lì vedi le modifiche al progetto con il diff
+colorato, il terminale dei lavori della Bottega in diretta, Melissa che te la riassume a voce in due frasi, e puoi
+scegliere la sessione da seguire nella Live Activity.
+
 iPhone e Mac si parlano solo dentro [Tailscale](https://tailscale.com), senza server in mezzo: la Bottega apre un
 piccolo ponte sull'indirizzo Tailscale del Mac, invisibile dal Wi-Fi e da internet, e ogni richiesta porta un
 gettone. Il Mac deve essere acceso, con la Bottega aperta. Per collegare l'iPhone: comando «Collega l'iPhone» nella

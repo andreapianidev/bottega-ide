@@ -48,6 +48,7 @@ function banco(opz = {}) {
 		lavori: [],
 		conferma: undefined,
 		regole: null,
+		segui: undefined,
 		modo: 'lontano',
 		inattivo: 5 * MIN,
 		letture: 0,
@@ -56,7 +57,7 @@ function banco(opz = {}) {
 		dir: fs.mkdtempSync(path.join(dir, 'b-')),
 	};
 	b.av = new Avvisi({
-		istantanea: () => ({ lavori: b.lavori, conti: conti(b.lavori), conferma: b.conferma, regole: b.regole }),
+		istantanea: () => ({ lavori: b.lavori, conti: conti(b.lavori), conferma: b.conferma, regole: b.regole, ...(b.segui ? { segui: b.segui } : {}) }),
 		invio: { manda: async p => (b.inviati.push(p), b.risposta(p)) },
 		dispositivo: () => leggiDispositivo(b.dir),
 		togliToken: (campo, token) => togliToken(b.dir, campo, token),
@@ -370,6 +371,29 @@ function banco(opz = {}) {
 		assert.strictEqual(la[0].payload.aps.event, 'start');
 		assert.strictEqual(la[0].payload.aps.alert.body, '1 sessione Claude al lavoro');
 		ok('Live Activity: avvio, aggiornamenti ogni 15 s al massimo, fine dopo 2 minuti, nuovo avvio');
+	}
+	{
+		// «segui questo lavoro»: la sessione seguita tiene viva l'attivita' anche quando aspetta
+		const b = banco();
+		fondiDispositivo(b.dir, { ambiente: 'sviluppo', avvio: hex(80) });
+		b.lavori = [lavoro('sess:s1', 'ti aspetta', { project: 'Uno' })];
+		b.segui = { progetto: 'Uno', passo: 'chiede un permesso per Bash e altro testo lungo che non deve passare intero dai server di Apple', stato: 'ti aspetta' };
+		await b.giro(1000);
+		let la = b.presi('liveactivity');
+		assert.strictEqual(la.length, 1, 'seguita e in attesa: l\'attivita\' parte');
+		assert.strictEqual(la[0].payload.aps.alert.body, 'Segui Uno');
+		const seg = la[0].payload.aps['content-state'].segui;
+		assert.strictEqual(seg.progetto, 'Uno');
+		assert.ok(seg.passo.length <= 60, 'passo corto: ' + seg.passo);
+		assert.ok(JSON.stringify(la[0].payload).length < 4096, 'sotto i 4 KB di APNs');
+		fondiDispositivo(b.dir, { ambiente: 'sviluppo', attivita: hex(80) });
+		await b.giro(3 * MIN);
+		assert.ok(!b.presi('liveactivity').some(p => p.payload.aps.event === 'end'), 'seguita: non finisce');
+		b.segui = undefined;
+		await b.giro(1000);
+		await b.giro(2 * MIN);
+		assert.ok(b.presi('liveactivity').some(p => p.payload.aps.event === 'end'), 'non piu\' seguita e nessuno al lavoro: finisce');
+		ok('Live Activity: una sessione seguita la tiene viva, passo corto, sotto i 4 KB');
 	}
 
 	// ---------- widget ----------
