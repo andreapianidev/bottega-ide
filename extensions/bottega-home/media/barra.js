@@ -631,6 +631,12 @@
 	}
 
 	$('sfera-tasto').addEventListener('click', () => post({ type: 'converse' }));
+	// anche la frase accanto alla sfera («Tocca la sfera per parlare») e il riquadro intorno: Andrea tocca la scritta
+	$('notte').addEventListener('click', ev => {
+		const t = /** @type {HTMLElement} */ (ev.target);
+		if (t.closest('button') || window.getSelection()?.toString()) return;
+		post({ type: 'converse' });
+	});
 	$('voce').addEventListener('click', () => post({ type: 'voice.toggle' }));
 	$('chiedi').addEventListener('submit', ev => {
 		ev.preventDefault();
@@ -904,6 +910,7 @@
 		setText($('sessioni-conto'), vive ? `${vive} ${vive === 1 ? 'viva' : 'vive'}` : '');
 		show($('sessioni-vuoto'), work.length === 0);
 		$('sessioni').classList.toggle('con-attesa', per['ti aspetta'].length > 0);
+		$('sessioni').classList.toggle('solo-attese', work.length > 0 && work.every(w => w.status === 'ti aspetta'));
 
 		// un nodo spostato da un gruppo all'altro perde il fuoco: lo si rimette dov'era, cursore compreso
 		if (attivo && attivo !== document.activeElement) {

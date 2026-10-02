@@ -141,13 +141,18 @@ body.ferma *::after { animation-play-state: paused !important; }
 }
 
 /* se tutte le sessioni aspettano Andrea, l'elenco delle altre e' vuoto: sparisce, e chi aspetta prende tutto lo spazio
-   (prima restava una fascia vuota sotto, e l'ultima scheda veniva tagliata) */
-.scorre:not(:has(> :not([hidden]))) { display: none; }
-.sessioni:has(.scorre:not(:has(> :not([hidden])))) .aspettano {
+   (prima restava una fascia vuota sotto, e l'ultima scheda veniva tagliata). La classe la mette barra.js: un :has
+   dentro un altro :has non e' CSS valido e il browser scartava la regola. */
+.sessioni.solo-attese .scorre { display: none; }
+.sessioni.solo-attese .aspettano {
 	flex: 1 1 auto;
+	min-height: 0;
 	max-height: none;
 	padding-bottom: 8px;
 }
+
+/* tutta la notte di Melissa si tocca per parlare, non solo la sfera */
+.notte { cursor: pointer; }
 
 /* ---------- testata: il cervello e l'impegno ---------- */
 
