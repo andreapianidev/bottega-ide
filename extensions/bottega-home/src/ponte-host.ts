@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { Apns } from './apns';
 import type { Assistant } from './assistant';
-import { Avvisi, inattivitaHID, ModoAvvisi, RegolaProgetto } from './avvisi';
+import { Avvisi, inattivitaHID, ModoAvvisi, RegolaProgetto, type AllarmeNegozio } from './avvisi';
 import { Dispositivo, fondiDispositivo, leggiDispositivo, togliToken } from './dispositivo';
 import type { WorkCounts, WorkItem } from './jobs';
 import type { Nucleo } from './nucleo';
@@ -24,6 +24,8 @@ export interface PonteHostDeps {
 	writeJob(id: string, text: string): boolean;
 	/** Il semaforo per progetto; null finche' non ha fatto il primo controllo. */
 	regole?(): RegolaProgetto[] | null;
+	/** Gli allarmi della stanza App Store (13.7); null finche' non ha fatto la prima lettura. */
+	negozio?(): AllarmeNegozio[] | null;
 	/** Per la scheda di sessione (9.5, src/ponte-sessioni.ts): le cartelle dei progetti, la scrittura grezza
 	 *  (Esc, invio) e il terminale di un lavoro della Bottega. */
 	projects?(): string[];
@@ -47,6 +49,7 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 				conti: { inCorso: c.inCorso, tiAspetta: c.tiAspetta, vive: c.vive },
 				conferma: deps.assistant()?.pendingQuestion(),
 				regole: deps.regole?.() ?? null,
+				negozio: deps.negozio?.() ?? null,
 				segui: sessioni.seguito(),
 			};
 		},

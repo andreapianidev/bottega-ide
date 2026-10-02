@@ -498,6 +498,13 @@
           "default": true,
           "description": "Il briefing del mattino dice gli appuntamenti di oggi da Google Calendar (una lettura via Claude al giorno, a pagamento)."
         },
+        "bottega.appstore.controlloOre": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0,
+          "maximum": 24,
+          "description": "Ogni quante ore la stanza App Store ricontrolla da sola AdMob e i report di Apple, anche chiusa, per gli allarmi (crollo dei guadagni, riempimento a picco, app non più approvata). 0: solo quando apri la stanza. I report di Apple già scaricati non si riscaricano."
+        },
         "bottega.vercel.ogniMinuti": {
           "type": "number",
           "default": 30,

@@ -1418,6 +1418,8 @@ Unica eccezione voluta, il `passo` di una sessione seguita (9.5): un verbo e il 
   conferma: <numero della domanda>}`. Azioni «Si'» e «No»: l'app manda
   `POST /v1/chiedi {testo: "si'"|"no", conferma}`; una notifica vecchia prende 409 e non conferma niente.
 - `REGOLA`: un progetto passa a rosso nel semaforo. `{aps: {alert: {title, body: <frase>}, category: "REGOLA"}}`.
+- Allarme della stanza App Store (13.7): `{aps: {alert: {title: <app>, body: <testo>}, "thread-id": "appstore"}}`, senza
+  categoria; al Mac no (e' gia' una notifica del Mac).
 Toccare una notifica apre l'app (ATTESA, FINITO: stanza Lavori; CONFERMA: Melissa).
 Con Andrea al Mac: ATTESA, FINITO e REGOLA si considerano viste (allontanandosi non arriva una raffica per ogni
 sessione ferma; arriva solo chi comincia ad aspettare mentre e' via); la CONFERMA resta in sospeso e parte quando si
@@ -1733,9 +1735,12 @@ in `extensions/bottega-theme`.
 
 ## 13. La stanza App Store
 
-Codice: `src/appstore.ts` (motore, regole dei buchi e lettura dei repository, provato da `test/appstore.cjs`),
+Codice: `src/appstore.ts` (motore, regole dei buchi, verifica, allarmi e lettura dei repository),
+`src/appstore-dati.ts` (lettori puri di abbonamenti, analisi della scheda e versioni), `src/appstore-storia.ts` (la
+memoria dei buchi), `src/appstore-host.ts` (aggancio: controllo periodico, notifiche, messaggi, strumento di Melissa),
 `media/appstore.js` e `media/appstore.css` (la stanza, montata da `plancia.js` come le altre: `BottegaAppStore.mount`).
-Aggancio in `extension.ts`: `new AppStore({ radar: () => idee.radar, projects, log })`.
+Tutto provato da `test/appstore.cjs`. Aggancio in `extension.ts`: `registerAppStore(ctx, { radar, projects, send,
+nucleo, showHome, log })` e `handleAppStore(m)` nel `default` dei messaggi.
 
 ### 13.1 Fonti
 
@@ -1749,11 +1754,28 @@ Tutte dirette, gratis, con le credenziali che il radar usa gia' (sezione 4.1). `
   in-app (`IA1`, `IA9`, `IAY`, `IAC`, `FI1`, con `Subscription` New o Renewal), ricavi = `Units` x `Developer Proceeds`
   nella `Currency of Proceeds`. Gli aggiornamenti (`7*`) no. Un acquisto va alla sua app con `Parent Identifier` (lo
   SKU della app); se lo SKU non si conosce resta sotto `sku:<sku>` e fuori dalle app.
+  Dalla colonna `Version` dei download e degli aggiornamenti si ricavano le uscite (`uscite` di `appstore-dati.ts`): il
+  giorno (o il mese) in cui compare una versione piu' alta di tutte quelle viste prima; il primo passo e' la base.
+- **Abbonamenti**: report `SUBSCRIPTION` e `SUBSCRIPTION_EVENT`, giornalieri, versione `1_4`, sugli stessi 62 giorni.
+  Dal primo: abbonati che pagano (prezzo pieno e offerte a pagamento), in prova gratuita, in ritardo di pagamento
+  (`Billing Retry`), in tolleranza (`Grace Period`), ricavi ricorrenti al mese (abbonati a prezzo pieno x ricavo
+  netto / mesi del periodo, in euro). Dal secondo, per categoria: prove, conversioni, nuovi, rinnovi, disdette
+  (`Cancel`, cioe' rinnovo spento), rimborsi, ritardi, ritorni (`Reactivate*`). Un errore su questi report non ferma
+  le vendite: il giorno resta vuoto.
   Risposte: 200 si legge e si tiene per sempre; 410 e' `perso` (Apple non lo da' piu': nei grafici e' n/d, non zero);
   404 con «no sales» e' `vuoto`, ma Apple risponde cosi' anche per un report non ancora pubblicato, quindi un vuoto
   degli ultimi 4 giorni o degli ultimi 3 mesi non si tiene e si richiede; ogni altro 404 si richiede.
+- **Scheda dello Store**: i report di analisi di App Store Connect. Per ogni app con almeno 10 download in 62 giorni:
+  la richiesta `ONGOING` (`GET /apps/{id}/analyticsReportRequests`, una volta al giorno; se manca o Apple l'ha fermata
+  per inattivita' la Bottega la crea con `POST /analyticsReportRequests`, e i dati arrivano dal giorno dopo), i due
+  report «App Store Discovery and Engagement Standard» (impressioni ed eventi `Page view` di pagina prodotto o foglio
+  dello Store, in dispositivi unici) e «App Downloads Standard» (`First-time download` per fonte, `Redownload` a
+  parte), le istanze `DAILY` non ancora lette (ogni 6 ore), i loro segmenti (CSV dentro gzip). Un'istanza contiene gli
+  eventi elaborati quel giorno, anche di giorni prima: le istanze si **sommano**. Fonti: ricerca, navigazione, web,
+  altre app. Apple le prepara con due o tre giorni di ritardo (`schedaFinoA`).
 - **AdMob**: `accounts`, `apps` e `adUnits` (elenchi) e cinque `networkReport:generate`: `DATE x APP` (62 giorni,
-  euro e impressioni), `MONTH x APP` (24 mesi), `APP x FORMAT`, `AD_UNIT` e `COUNTRY` sugli ultimi 30 giorni
+  euro e impressioni), `MONTH x APP` (24 mesi), `DATE x APP x FORMAT` (62 giorni: da qui i formati dei 30 giorni, la
+  verifica dopo una versione e gli allarmi), `AD_UNIT` e `COUNTRY` sugli ultimi 30 giorni
   (euro, richieste, abbinate, impressioni, clic). Si rileggono a ogni aggiornamento: AdMob ritocca gli ultimi giorni.
   Valuta del conto AdMob: euro.
 - **Cambi**: `https://open.er-api.com/v6/latest/EUR`, senza chiave, al massimo una volta al giorno; senza risposta si
@@ -1767,10 +1789,13 @@ Tutte dirette, gratis, con le credenziali che il radar usa gia' (sezione 4.1). `
   (segnaposto come `0000...` o `0123456789...` esclusi), acquisti in-app veri (non basta `import StoreKit`). Si
   rilegge ogni 6 ore o con «Aggiorna».
 
-Cache in `~/.bottega/appstore/` (cartella 700, file 600): `vendite.json` (report letti, SKU, nomi, cambi, repository)
-e `stato.json` (l'ultimo stato, mostrato subito all'apertura). Tra due letture almeno 45 minuti, salvo «Aggiorna».
-Prima lettura: circa 85 report, mezzo minuto; poi uno o due report al giorno. Se AdMob non risponde si tengono i suoi
-numeri dell'ultima lettura buona, spostati sulle date nuove.
+Cache in `~/.bottega/appstore/` (cartella 700, file 600): `vendite.json` (schema 2: report di vendita, abbonamenti,
+istanze di analisi, SKU, nomi, cambi, repository; con lo schema 1 i report si riscaricano, cambi e repository restano),
+`stato.json` (l'ultimo stato, mostrato subito all'apertura) e `storia.json` (13.6). Tra due letture almeno 45 minuti,
+**contati dall'ultima lettura salvata**, quindi anche dopo un riavvio della Bottega; «Aggiorna» li salta. Prima
+lettura: circa 210 report e le schede di una dozzina di app, un minuto e mezzo; poi pochi report al giorno e una
+lettura completa in pochi secondi. Se AdMob non risponde si tengono i suoi numeri dell'ultima lettura buona, spostati
+sulle date nuove.
 
 ### 13.2 Stato (`AppStoreStato`, estensione -> plancia `{ type: 'appstore', state }`)
 
@@ -1783,19 +1808,30 @@ numeri dell'ultima lettura buona, spostati sulle date nuove.
   mesi: string[],          // YYYY-MM, 24, fino al mese in corso
   storeFinoA?: string,     // ultimo giorno con il report dello Store (Apple pubblica verso le 14)
   storeSenzaDati: string[],// mesi «perso»
-  totale: { giorni: Serie, mesi: Serie },      // Serie = { admob: number[], store: number[], dl: number[] }, euro
+  abbFinoA?, schedaFinoA?, // ultimo giorno con abbonamenti e con i dati della scheda
+  totale: { giorni: Serie, mesi: Serie, abbonamenti?: Abbonamenti, scheda?: Scheda },
+                           // Serie = { admob: number[], store: number[], dl: number[] }, euro
   app: AppRiga[],          // ordinate per euro degli ultimi 30 giorni
   paesi: { codice, euro, impressioni }[],      // 30 giorni, i primi 12
-  buchi: Buco[],
+  buchi: Buco[],           // senza gli ignorati
+  risolti: BucoChiuso[],   // ultimi 60 giorni
+  ignorati: BucoChiuso[],  // con il motivo
+  allarmi: { id, chiave, app, testo, at }[],   // ultime 48 ore
+  controlloOre?: number,   // bottega.appstore.controlloOre
   senzaCambio: string[],
   publisher?: string,
 }
+Abbonamenti = { attivi, prove, mrr, ritardo, grazia: number[], eventi: Record<categoria, number[]> }   // 62 giorni
+Scheda = { imp, vis, dl: number[], fonti: Record<fonte, { imp, vis, dl }> }   // fonti sui 30 giorni fino a schedaFinoA
+BucoChiuso = { id, chiave, app, titolo, quando, daQuando, motivo?, prima?, dopo?, projectPath? }
 AppRiga = { chiave: 'ios:<Apple ID>' | 'android:<pacchetto>' | 'admob:<appId>', nome, piattaforma, ascId?, bundleId?,
   admobId?, approvazione?, collegata?, projectPath?, projectName?, giorni: Serie, mesi: Serie,
   formati: { formato, richieste, abbinate, impressioni, clic, euro }[], unita: { id, nome, formato, richieste,
-  impressioni, euro }[], acquisti: { nuovi, rinnovi, altri, euro }, repo?: RepoEsito }
+  impressioni, euro }[], acquisti: { nuovi, rinnovi, altri, euro }, repo?: RepoEsito,
+  versioni: { v, quando }[], versioniMesi: { v, quando }[], abbonamenti?: Abbonamenti, scheda?: Scheda }
 Buco = { id, chiave, app, gravita: 'alta' | 'media' | 'bassa', titolo, perche, cosa, stima?, stimaNota?,
-  projectPath?, compito? }
+  projectPath?, compito?, tipo, fonte: 'admob' | 'store' | 'codice' | 'abbonamenti' | 'scheda', misura?, soglia?,
+  daQuando?, verifica?: { versione, giorno, prima, dopo, giorniDopo, esito: 'risolto' | 'meglio' | 'uguale' | 'presto' } }
 ```
 
 Si mostrano le app che in 12 mesi hanno reso, venduto, avuto almeno 10 download o chiesto annunci. L'app di AdMob
@@ -1824,6 +1860,13 @@ onesto, e dice sempre come e' fatta (`stimaNota`):
 - AdMob in calo di oltre il 35% in una settimana (con almeno 5 euro la settimana prima): media; stima = la differenza
   portata a un mese. Download in calo di oltre il 30% sul mese prima (almeno 60): media.
 - Acquisti in-app nel codice, almeno 100 download e niente venduto: bassa.
+- Abbonamenti: abbonati in ritardo di pagamento e nessuno in tolleranza in 30 giorni, con almeno 5 abbonati (il periodo
+  di tolleranza e' probabilmente spento): media. Prove gratuite che diventano abbonamenti meno del 15% (le prove dei
+  giorni da 37 a 7 prima, contro le conversioni degli ultimi 30, almeno 10 prove): media. Piu' disdette che
+  abbonamenti nuovi in 30 giorni (almeno 5): bassa.
+- Scheda: conversione da impressioni a download sotto meta' della mediana delle app (almeno tre app con 2000
+  impressioni): media. Visite alla pagina che diventano download meno del 20% (almeno 200 visite): media. Impressioni
+  delle ultime due settimane con dati sotto il 70% delle due prima (almeno 1000): media.
 
 `compito` e' il testo gia' scritto per un lavoro Claude sul progetto (cita la skill `ios-admob-integration`).
 
@@ -1831,6 +1874,7 @@ onesto, e dice sempre come e' fatta (`stimaNota`):
 
 - plancia -> estensione: `{ type: 'appstore.request' }` all'apertura della stanza (risponde subito con lo stato salvato
   e rilegge se sono passati 45 minuti), `{ type: 'appstore.refresh' }` («Aggiorna», rilegge tutto subito),
+  `{ type: 'appstore.ignora', id, motivo }` e `{ type: 'appstore.ripristina', id }` (13.6, lo stato nuovo arriva subito),
   `{ type: 'job.prepare', path, task }` («Sistema con Claude»: il compositore dei Lavori gia' scritto, sezione 4.2),
   `{ type: 'open', path }` («Apri il progetto»).
 - estensione -> plancia: `{ type: 'appstore', state }` a ogni cambiamento (anche durante la lettura, per la fase).
@@ -1842,5 +1886,49 @@ Periodo Settimana (7 giorni contro i 7 prima), Mese (30 contro 30), Anno (12 mes
 cima, le cifre (totale, AdMob, Store, download, ognuna con la variazione), i guadagni a barre impilate (AdMob sotto,
 Store sopra, colori fissi verificati con il validatore della palette, suggerimento al passaggio), i download, «Dove
 intervenire» (tutti, subito, con una stima; i primi dieci, poi «Mostra tutti»), «App per app» (riga apribile con i
-formati, gli acquisti, cosa c'e' nel codice e i suoi buchi) e «Dove rende AdMob» per paese. I giorni dopo
-`storeFinoA` e i mesi `perso` non sono zero: la barra dello Store manca e il suggerimento dice perche'.
+formati, gli acquisti, le versioni uscite, cosa c'e' nel codice e i suoi buchi, «Mostra nei grafici») e «Dove rende
+AdMob» per paese. I giorni dopo `storeFinoA` e i mesi `perso` non sono zero: la barra dello Store manca e il
+suggerimento dice perche'. Novita' della build 50: in testa l'ora precisa dell'ultima lettura, se ricontrolla da sola
+e gli allarmi; una tendina sceglie l'app (grafici, cifre e buchi solo suoi, con le tacche tratteggiate delle versioni
+uscite); ogni buco dice da quanto c'e', l'esito dopo l'ultima versione e ha «Ignora» (il motivo si scrive nella
+pagina, mai una finestra del browser); in fondo «Risolti» e «Ignorati» (con «Ripristina»); le sezioni «Abbonamenti»
+(cifre, abbonati giorno per giorno, eventi del periodo, tabella per app) e «La scheda dello Store» (impressioni,
+visite, download nuovi, conversione, fonti, tabella per app), che compaiono solo se ci sono dati.
+
+### 13.6 La memoria dei buchi (`src/appstore-storia.ts`, `~/.bottega/appstore/storia.json`)
+
+- Ogni buco ha un id stabile (`<chiave>:<tipo>[:<formato>]`). Alla prima comparsa si segna `primaVolta` (in stato
+  `daQuando`); un buco risolto che torna riparte da adesso.
+- Un buco aperto che non scatta piu' diventa **risolto** solo se la sua `fonte` e' stata letta in quel giro: AdMob
+  giu' o un report di Apple mancante non chiudono niente. Si tengono la misura alla comparsa e quella attuale
+  (`misure` di `costruisci`, calcolate anche per i formati che non sono buchi): «dal 9% al 41%». I risolti restano 120
+  giorni, la stanza mostra quelli degli ultimi 60.
+- **Ignorato**: resta fuori dall'elenco a ogni lettura, con il motivo (300 caratteri al massimo), finche' Andrea non lo
+  ripristina.
+- **Verifica dopo una versione** (`verificaBuchi`, per riempimento e mostrati): l'ultima uscita con almeno 5 giorni
+  prima e 3 dopo nella finestra; quota nei 30 giorni prima contro i giorni dopo (servono 100 richieste o abbinate per
+  parte). `risolto` se dopo e' sopra la soglia, `meglio` se sale di un quarto e di almeno 3 punti, `uguale` dopo 7
+  giorni senza cambi, altrimenti `presto`.
+- `natoAt` e' la prima lettura: i buchi trovati quella volta c'erano gia', e il briefing non li annuncia come nuovi.
+
+### 13.7 Allarmi, controllo periodico, iPhone, Melissa e briefing
+
+- **Allarmi** (`trovaAllarmi`): un'app che AdMob non approva piu' (lo stato precedente sta in `storia.approvazioni`);
+  i guadagni AdMob di ieri sotto il 40% della media dei 7 giorni prima (con una media di almeno 2 euro); il
+  riempimento di ieri di un formato sotto meta' di quello dei 30 giorni (almeno 1000 richieste nei 30 giorni e 200
+  ieri). Crollo e riempimento solo dopo le 8 del mattino: prima AdMob non ha chiuso ieri. L'id contiene il giorno; un
+  allarme non si ripete per 7 giorni. Senza AdMob letto, niente allarmi.
+- Ogni allarme nuovo (al massimo tre per lettura) e' una **notifica del Mac** via Nucleo (`notify`, id
+  `bottega:appstore:<id>`, pulsante «Apri App Store»; il clic apre la stanza). Gli allarmi delle ultime 48 ore vanno
+  negli avvisi dell'iPhone (`Istantanea.negozio`, sezione 9.4): con Andrea lontano dal Mac suona quello che non c'era
+  al giro prima, mai alla partenza, con `thread-id: appstore`, al massimo tre. Al Mac no: c'e' gia' la notifica del Mac.
+- **Controllo periodico**: `bottega.appstore.controlloOre` (default 3, 0 lo spegne). Un giro ogni 15 minuti (il primo
+  dopo 2 minuti dall'avvio) rilegge se dall'ultima lettura sono passate quelle ore. Anche con la stanza chiusa: serve
+  agli allarmi. I report di Apple gia' scaricati non si riscaricano.
+- **Melissa**: lo strumento `app_guadagni { periodo?: 'ieri' | 'settimana' | 'mese' | 'anno', app?, mostra? }` risponde
+  con `AppStore.riassunto()`: quanto hanno reso, le prime tre app, gli abbonati, i primi tre buchi con la stima, gli
+  allarmi, l'eta' dei dati. Con dati vecchi di oltre tre ore risponde e intanto rilegge. Registrato in `extension.ts`
+  con `Object.assign(TOOLS, STRUMENTI_APPSTORE)`.
+- **Briefing**: `Facts.appstore` (`AppStore.briefing()`, solo con dati di meno di 36 ore) prende il posto della riga di
+  AdMob del radar: ieri AdMob e Store (o lo Store dell'altro ieri), la settimana contro quella prima, gli abbonati se
+  sono cambiati, il primo allarme, i buchi nuovi di ieri e oggi (non quelli della prima lettura), con «Apri App Store».

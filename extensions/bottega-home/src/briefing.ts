@@ -9,6 +9,7 @@
      Intelligence restano consigli fissi ricavati dalle regole.
    Contratto: docs/CONTRATTI.md, 4.1 (Briefing) e 4.7 (Advice). */
 
+import type { BriefingAppStore } from './appstore';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -51,6 +52,8 @@ export interface Facts {
 	now?: number;
 	/** Gli appuntamenti di oggi; assente = si chiede alla fonte registrata, null = nessuna riga. */
 	calendario?: EventoCalendario[] | null;
+	/** I soldi delle app dalla stanza App Store (src/appstore.ts, briefing()); se c'e' prende il posto della riga di AdMob. */
+	appstore?: BriefingAppStore | null;
 }
 
 export interface EventoCalendario {
@@ -64,6 +67,29 @@ export type FonteCalendario = (now: number) => EventoCalendario[] | null;
 let fonteCalendario: FonteCalendario | undefined;
 export function impostaFonteCalendario(f?: FonteCalendario): void {
 	fonteCalendario = f;
+}
+
+/** La riga dei soldi: ieri AdMob e Store, la settimana contro quella prima, gli abbonati, i buchi nuovi, gli allarmi. */
+export function fraseSoldi(a: BriefingAppStore): string {
+	const e = (n: number) => money(n, 'EUR');
+	const parti: string[] = [];
+	const store = a.store ? (a.store.giorno === a.ieri ? `, Store ${e(a.store.euro)}` : `; lo Store dell'altro ieri ${e(a.store.euro)}`) : '';
+	parti.push(`Ieri AdMob ha reso ${e(a.admobIeri)}${store}`);
+	if (a.settimanaPrima > 0) {
+		const v = (a.settimana - a.settimanaPrima) / a.settimanaPrima;
+		parti.push(`in sette giorni ${e(a.settimana)}, ${Math.abs(v) < 0.05 ? 'come la settimana prima' : `${Math.round(Math.abs(v) * 100)}% ${v > 0 ? 'in più' : 'in meno'} della settimana prima`}`);
+	} else parti.push(`in sette giorni ${e(a.settimana)}`);
+	if (a.abbonati && a.abbonati.attivi !== a.abbonati.prima) {
+		const d = a.abbonati.attivi - a.abbonati.prima;
+		parti.push(`abbonati ${a.abbonati.attivi} (${d > 0 ? '+' : '−'}${Math.abs(d)} in una settimana)`);
+	}
+	let t = parti.join(', ') + '.';
+	if (a.allarmi.length) t += ` Attenzione: ${a.allarmi[0]}`;
+	if (a.buchiNuovi.length) {
+		const b = a.buchiNuovi[0];
+		t += ` ${a.buchiNuovi.length === 1 ? 'Una cosa nuova da sistemare' : `${a.buchiNuovi.length} cose nuove da sistemare`}: ${b.app}, ${b.titolo.charAt(0).toLowerCase()}${b.titolo.slice(1)}.`;
+	}
+	return t;
 }
 
 /** «Oggi hai: 10:00 chiamata con Rossi, 16:30 dentista.» Al massimo cinque, gli altri contati. */
@@ -223,9 +249,12 @@ export function briefingPoints(f: Facts): BriefingPoint[] {
 		pts.push({ kind: 'store', text: `Dallo Store: ${t.filter(Boolean).join('; ')}.`, act: { act: 'view', label: 'Apri la Vedetta', args: { view: 'vedetta' } } });
 	}
 
-	// soldi
+	// soldi: la stanza App Store se ha dati freschi, altrimenti AdMob dal radar
+	const as = f.appstore;
 	const tot = f.radar?.totals;
-	if (tot && f.radar?.admobAt && now - f.radar.admobAt < 36 * 3_600_000) {
+	if (as) {
+		pts.push({ kind: 'soldi', text: fraseSoldi(as), act: { act: 'view', label: 'Apri App Store', args: { view: 'appstore' } } });
+	} else if (tot && f.radar?.admobAt && now - f.radar.admobAt < 36 * 3_600_000) {
 		pts.push({ kind: 'soldi', text: `AdMob ieri ha reso ${money(tot.yesterday, tot.currency)}, ${money(tot.last7, tot.currency)} negli ultimi sette giorni.` });
 	}
 

@@ -168,8 +168,29 @@ prima di avviarlo.
 
 App per app ci sono download, AdMob, Store e andamento; aprendo una riga, i formati (richieste, quante trovano un
 annuncio, quanti vengono mostrati, resa ogni mille) e cosa c'è nel codice. In fondo, i paesi dove AdMob rende di più.
-Servono le stesse credenziali del radar più `ASC_VENDOR_NUMBER` in `~/.secrets/appstoreconnect-api.env`; i report
-letti restano in `~/.bottega/appstore/`, così dopo la prima lettura (mezzo minuto) si scarica solo il giorno nuovo.
+Con la tendina scegli un'app: grafici, cifre e buchi diventano solo suoi, e una tacca tratteggiata segna il giorno in
+cui è uscita ogni versione, ricavato dai report di vendita. Così vedi se un cambio agli annunci ha reso.
+
+Ogni buco ha una memoria: da quanti giorni c'è, e dopo l'ultima versione uscita se la percentuale è salita («sembra
+risolto», «meglio», «non è cambiato niente»). Quando smette di scattare finisce tra i risolti, con i numeri di prima e
+di dopo; se la sua fonte non ha risposto (AdMob giù, un report di Apple in ritardo) non si chiude per sbaglio. Quello
+che hai deciso di lasciare com'è lo ignori con il motivo, e si ripristina quando vuoi.
+
+Ci sono anche gli abbonamenti (abbonati che pagano, prove, ricavi ricorrenti al mese, ritardi di pagamento, prove che
+diventano abbonamenti, disdette) e la scheda dello Store (impressioni, visite alla pagina, download nuovi, conversione,
+da dove arrivano: ricerca, navigazione, web, altre app), dai report di analisi di App Store Connect. Se un'app non ha
+ancora la richiesta di analisi la Bottega la crea, e i dati arrivano dal giorno dopo.
+
+La stanza ricontrolla da sola ogni tre ore (`bottega.appstore.controlloOre`, 0 la spegne), anche chiusa, per dare
+l'allarme se qualcosa si rompe: i guadagni di un'app crollati ieri, il riempimento di un formato a picco, un'app che
+AdMob non approva più. L'allarme è una notifica del Mac e, quando sei lontano, dell'iPhone. Il briefing del mattino
+dice ieri e la settimana di AdMob, Store e abbonati, con le cose nuove da sistemare; a Melissa puoi chiedere «quanto
+hanno reso le app questa settimana?» o «cosa sistemo per primo su Talky?».
+
+L'analisi non usa nessun modello: i buchi sono regole scritte nel codice, ognuna dice con quali numeri è nata.
+Servono le stesse credenziali del radar più `ASC_VENDOR_NUMBER` in `~/.secrets/appstoreconnect-api.env` (e il ruolo
+Finance o Sales della chiave per vendite e abbonamenti); i report letti restano in `~/.bottega/appstore/`, così dopo
+la prima lettura (un minuto e mezzo) si scarica solo il giorno nuovo.
 
 ### Il briefing del mattino, la notte, «continua da dove eri»
 
@@ -414,7 +435,7 @@ Per le notifiche serve una chiave APNs del tuo account (Certificates, Identifier
   riconoscimento vocale del Mac, che puo' usare i server di Apple come fa Siri;
 - verso ElevenLabs: il testo che Melissa deve pronunciare (e l'audio dell'ascolto solo con
   `BOTTEGA_STT=elevenlabs`);
-- verso open.er-api.com: una richiesta al giorno dei cambi delle valute, solo se apri la stanza App Store (nessun dato
+- verso open.er-api.com: una richiesta al giorno dei cambi delle valute, solo se usi la stanza App Store (nessun dato
   tuo, serve a portare in euro i ricavi dello Store);
 - verso Open VSX: le ricerche e i download delle estensioni, e una volta all'ora la versione dell'ultima Claude Code;
 - verso Agnes AI (o DeepSeek, se lo scegli), solo quando scrivi una frase nel terminale: la frase, la cartella corrente,

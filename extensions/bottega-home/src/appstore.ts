@@ -20,6 +20,13 @@ import * as path from 'path';
 import * as zlib from 'zlib';
 import type { Project } from './scan';
 import { projectBundleIds, readEnvFile, type Radar } from './radar';
+import {
+	EVENTI, type EventiAbb, type Fonte, type IstanzaScheda, leggiAbbonamenti, leggiEventi, leggiScaricamenti, leggiScoperta, type ReportAbb,
+	sommaIstanze, uscite,
+} from './appstore-dati';
+import { type Allarme, allarmiNuovi, applicaStoria, type BucoChiuso, type FonteBuco, ignora, ripristina, type Storia, storiaVuota } from './appstore-storia';
+
+export type { Allarme, BucoChiuso, FonteBuco };
 
 // ---------- forma dello stato (contratto, 13.2) ----------
 
@@ -70,6 +77,30 @@ export interface RepoEsito {
 	revenuecat: boolean;
 }
 
+/** Gli abbonamenti di un'app (o di tutte), giorno per giorno sugli stessi 62 giorni delle serie. */
+export interface Abbonamenti {
+	/** Abbonati che pagano, quel giorno. */
+	attivi: number[];
+	/** In prova gratuita, quel giorno. */
+	prove: number[];
+	/** Ricavi mensili ricorrenti in euro: abbonati a prezzo pieno per il ricavo netto, riportato a un mese. */
+	mrr: number[];
+	/** In ritardo di pagamento (Apple riprova ad addebitare) e in periodo di tolleranza. */
+	ritardo: number[];
+	grazia: number[];
+	/** Eventi del giorno per categoria: prove, conversioni, nuovi, rinnovi, disdette, rimborsi, ritardi, ritorni. */
+	eventi: Record<string, number[]>;
+}
+
+/** La scheda dello Store giorno per giorno (impressioni e visite in dispositivi unici, download nuovi), e le fonti
+ *  sugli ultimi 30 giorni con dati. */
+export interface Scheda {
+	imp: number[];
+	vis: number[];
+	dl: number[];
+	fonti: Record<string, Fonte>;
+}
+
 export interface AppRiga {
 	chiave: string;
 	nome: string;
@@ -90,6 +121,11 @@ export interface AppRiga {
 	unita: UnitaApp[];
 	acquisti: { nuovi: number; rinnovi: number; altri: number; euro: number };
 	repo?: RepoEsito;
+	/** Le uscite di versioni nuove, ricavate dai report di vendita: giorno (YYYY-MM-DD) e mese (YYYY-MM). */
+	versioni: { v: string; quando: string }[];
+	versioniMesi: { v: string; quando: string }[];
+	abbonamenti?: Abbonamenti;
+	scheda?: Scheda;
 }
 
 export type Gravita = 'alta' | 'media' | 'bassa';
@@ -108,13 +144,35 @@ export interface Buco {
 	projectPath?: string;
 	/** Il compito gia' scritto per un lavoro Claude sul progetto. */
 	compito?: string;
+	/** La regola (l'id senza l'app): fill, mostrati, ump, prove, conversione... */
+	tipo: string;
+	/** Da quale fonte nasce: un buco si chiude solo se la sua fonte e' stata letta (appstore-storia.ts). */
+	fonte: FonteBuco;
+	/** La quota misurata (tra 0 e 1) e la soglia sotto cui e' un buco, per le regole che le hanno. */
+	misura?: number;
+	soglia?: number;
+	/** Quando la Bottega l'ha visto la prima volta. */
+	daQuando?: number;
+	/** Prima e dopo l'ultima versione uscita: se la correzione ha funzionato. */
+	verifica?: Verifica;
+}
+
+export interface Verifica {
+	versione: string;
+	giorno: string;
+	prima: number;
+	dopo: number;
+	giorniDopo: number;
+	/** risolto: dopo la versione e' sopra la soglia; meglio: migliora di un quarto; uguale: 7 giorni e niente;
+	 *  presto: meno di 7 giorni di dati. */
+	esito: 'risolto' | 'meglio' | 'uguale' | 'presto';
 }
 
 export interface AppStoreStato {
 	aggiornatoAt: number;
 	aggiornando: boolean;
 	fase?: string;
-	errori: { store?: string; admob?: string; cambi?: string; repo?: string };
+	errori: { store?: string; admob?: string; cambi?: string; repo?: string; scheda?: string };
 	valuta: 'EUR';
 	/** Le date (YYYY-MM-DD) delle serie giornaliere, dalla piu' vecchia a ieri. */
 	giorni: string[];
@@ -124,10 +182,20 @@ export interface AppStoreStato {
 	storeFinoA?: string;
 	/** Mesi per cui Apple non da' piu' il report delle vendite (410): lo Store li' non ha numeri, non zero. */
 	storeSenzaDati: string[];
-	totale: { giorni: Serie; mesi: Serie };
+	/** Ultimo giorno con il report degli abbonamenti e con i dati della scheda (Apple li elabora con 2 o 3 giorni di ritardo). */
+	abbFinoA?: string;
+	schedaFinoA?: string;
+	totale: { giorni: Serie; mesi: Serie; abbonamenti?: Abbonamenti; scheda?: Scheda };
 	app: AppRiga[];
 	paesi: { codice: string; euro: number; impressioni: number }[];
 	buchi: Buco[];
+	/** Buchi chiusi negli ultimi 60 giorni, e quelli che Andrea ha deciso di ignorare (con il motivo). */
+	risolti: BucoChiuso[];
+	ignorati: BucoChiuso[];
+	/** Allarmi delle ultime 48 ore: un crollo, un riempimento a picco, un'app che AdMob non approva piu'. */
+	allarmi: (Allarme & { at: number })[];
+	/** Ogni quante ore la Bottega ricontrolla da sola (0: solo quando apri la stanza). */
+	controlloOre?: number;
 	/** Valute dei ricavi senza cambio: quei ricavi non sono nei totali. */
 	senzaCambio: string[];
 	publisher?: string;
@@ -142,7 +210,7 @@ const REPO_TTL = 6 * 3_600_000;
 const CAMBI_TTL = 24 * 3_600_000;
 const TIMEOUT = 30_000;
 const PARALLEL = 4;
-const SCHEMA = 1;
+const SCHEMA = 2; // 2: le versioni nei report di vendita, abbonamenti, scheda
 
 const DL = new Set(['1', '1F', '1T', 'F1', '1E', '1EP', '1EU']);
 const RIDL = new Set(['3', '3F', 'F3']);
@@ -180,6 +248,8 @@ export interface RigaVendite {
 	sn: number;
 	sr: number;
 	pr: Record<string, number>;
+	/** Le versioni dell'app viste nel report (download e aggiornamenti): da qui si ricavano le uscite. */
+	v?: string[];
 }
 
 /** Un report letto: chiave Apple ID (o "sku:<sku>" se l'acquisto non si riesce a collegare alla sua app). */
@@ -205,6 +275,7 @@ export function leggiReport(tsv: string, sku: Record<string, string>, nomi: Reco
 	const iApple = col('Apple Identifier');
 	const iPadre = col('Parent Identifier');
 	const iAbb = col('Subscription');
+	const iVer = col('Version');
 	const celle = righe.slice(1).map(r => r.split('\t'));
 	// prima le app, per sapere a chi appartengono gli acquisti in-app (Parent Identifier e' lo SKU della app)
 	for (const c of celle) {
@@ -234,6 +305,8 @@ export function leggiReport(tsv: string, sku: Record<string, string>, nomi: Reco
 			else if (abb === 'Renewal') r.sr += unita;
 			else r.iap += unita;
 		}
+		const ver = iVer >= 0 && !IAP.has(tipo) ? (c[iVer] ?? '').trim() : '';
+		if (ver && !(r.v ??= []).includes(ver)) r.v.push(ver);
 		const ricavo = Number(c[iRicavo]) || 0;
 		const valuta = (c[iValuta] ?? '').trim();
 		if (ricavo && valuta) r.pr[valuta] = (r.pr[valuta] ?? 0) + unita * ricavo;
@@ -416,7 +489,8 @@ export interface DatiAdmob {
 	unita: UnitaAdmob[];
 	giorni: RigaAdmob[];
 	mesi: RigaAdmob[];
-	formati: RigaAdmob[];
+	/** DATE x APP x FORMAT sui 62 giorni: da qui i formati dei 30 giorni, la verifica dopo una versione e gli allarmi. */
+	formatiGiorni: RigaAdmob[];
 	perUnita: RigaAdmob[];
 	paesi: RigaAdmob[];
 }
@@ -437,22 +511,35 @@ export interface Ingressi {
 	/** Chiave dell'app -> progetto. */
 	collegamenti: Record<string, { path: string; name: string }>;
 	repo: Record<string, RepoEsito>;
+	/** Report giornalieri degli abbonamenti (fotografia del giorno ed eventi). */
+	abbGiorni?: Record<string, VoceDi<ReportAbb> | undefined>;
+	eventiGiorni?: Record<string, VoceDi<EventiAbb> | undefined>;
+	/** La scheda dello Store per Apple ID, gia' sommata su tutte le istanze lette. */
+	scheda?: Record<string, IstanzaScheda>;
+	/** Lo stato di approvazione AdMob all'ultima lettura, per chiave dell'app. */
+	approvazioniPrima?: Record<string, string>;
 }
+
+export type VoceDi<T> = T | 'vuoto' | 'perso';
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
 const somma = (a: number[], da = 0, a2 = a.length) => a.slice(Math.max(0, da), a2).reduce((s, x) => s + x, 0);
 const vuota = (n: number): Serie => ({ admob: new Array(n).fill(0), store: new Array(n).fill(0), dl: new Array(n).fill(0) });
+const zeri = (n: number) => new Array(n).fill(0);
+const CATEGORIE = [...new Set([...Object.values(EVENTI), 'ritorni'])];
+const abbVuoti = (n: number): Abbonamenti => ({ attivi: zeri(n), prove: zeri(n), mrr: zeri(n), ritardo: zeri(n), grazia: zeri(n), eventi: Object.fromEntries(CATEGORIE.map(c => [c, zeri(n)])) });
 
-/** Una riga di vendite in euro; le valute senza cambio finiscono in `senza`. */
-function euro(r: RigaVendite, cambi: Record<string, number>, senza: Set<string>): number {
+/** Ricavi per valuta in euro; le valute senza cambio finiscono in `senza`. */
+function inEuro(pr: Record<string, number>, cambi: Record<string, number>, senza: Set<string>): number {
 	let e = 0;
-	for (const [v, x] of Object.entries(r.pr)) {
+	for (const [v, x] of Object.entries(pr)) {
 		if (v === 'EUR') e += x;
 		else if (cambi[v] > 0) e += x / cambi[v];
 		else if (x) senza.add(v);
 	}
 	return e;
 }
+const euro = (r: RigaVendite, cambi: Record<string, number>, senza: Set<string>) => inEuro(r.pr, cambi, senza);
 
 const FORMATO_ADMOB: Record<string, string> = {
 	BANNER: 'banner',
@@ -463,7 +550,25 @@ const FORMATO_ADMOB: Record<string, string> = {
 	NATIVE: 'native',
 };
 
-export function costruisci(x: Ingressi): Omit<AppStoreStato, 'aggiornatoAt' | 'aggiornando' | 'errori'> {
+/** Un formato di un'app giorno per giorno: richieste, abbinate, impressioni, clic, euro. */
+export interface FormatoGiorni {
+	r: number[];
+	a: number[];
+	i: number[];
+	c: number[];
+	e: number[];
+}
+
+export interface Costruito extends Omit<AppStoreStato, 'aggiornatoAt' | 'aggiornando' | 'errori' | 'risolti' | 'ignorati' | 'allarmi'> {
+	/** Tutti i buchi trovati, prima della storia (gli ignorati ci sono ancora). */
+	buchi: Buco[];
+	/** La misura attuale di ogni buco possibile, anche di quelli che non scattano: «dal 9% al 41%». */
+	misure: Record<string, number>;
+	allarmiTrovati: Allarme[];
+	approvazioni: Record<string, string>;
+}
+
+export function costruisci(x: Ingressi): Costruito {
 	const nG = x.giorni.length;
 	const nM = x.mesi.length;
 	const senza = new Set<string>();
@@ -472,7 +577,10 @@ export function costruisci(x: Ingressi): Omit<AppStoreStato, 'aggiornatoAt' | 'a
 	const prendi = (chiave: string, base: Partial<AppRiga>): AppRiga => {
 		let a = app.get(chiave);
 		if (!a) {
-			a = { chiave, nome: '', piattaforma: 'ios', giorni: vuota(nG), mesi: vuota(nM), formati: [], unita: [], acquisti: { nuovi: 0, rinnovi: 0, altri: 0, euro: 0 }, ...base };
+			a = {
+				chiave, nome: '', piattaforma: 'ios', giorni: vuota(nG), mesi: vuota(nM), formati: [], unita: [], acquisti: { nuovi: 0, rinnovi: 0, altri: 0, euro: 0 },
+				versioni: [], versioniMesi: [], ...base,
+			};
 			app.set(chiave, a);
 		}
 		return a;
@@ -491,6 +599,14 @@ export function costruisci(x: Ingressi): Omit<AppStoreStato, 'aggiornatoAt' | 'a
 	const giornoIdx = new Map(x.giorni.map((d, i) => [d, i]));
 	let storeFinoA: string | undefined;
 	const ultimi30 = new Set(x.giorni.slice(-30));
+	const versGiorni = new Map<string, { quando: string; versioni: string[] }[]>();
+	const versMesi = new Map<string, { quando: string; versioni: string[] }[]>();
+	const passo = (m: Map<string, { quando: string; versioni: string[] }[]>, k: string, quando: string, v?: string[]) => {
+		if (!v?.length) return;
+		const l = m.get(k) ?? [];
+		l.push({ quando, versioni: v });
+		m.set(k, l);
+	};
 	for (const [d, i] of giornoIdx) {
 		const v = x.venditeGiorni[d];
 		if (!v) continue;
@@ -502,6 +618,7 @@ export function costruisci(x: Ingressi): Omit<AppStoreStato, 'aggiornatoAt' | 'a
 			a.giorni.dl[i] += r.dl;
 			const e = euro(r, x.cambi, senza);
 			a.giorni.store[i] += e;
+			passo(versGiorni, k, d, r.v);
 			if (ultimi30.has(d)) {
 				a.acquisti.nuovi += r.sn;
 				a.acquisti.rinnovi += r.sr;
@@ -520,21 +637,30 @@ export function costruisci(x: Ingressi): Omit<AppStoreStato, 'aggiornatoAt' | 'a
 				const a = appIos(k);
 				a.mesi.dl[i] += r.dl;
 				a.mesi.store[i] += euro(r, x.cambi, senza);
+				passo(versMesi, k, m, r.v);
 			}
 			continue;
 		}
+		const viste = new Map<string, Set<string>>();
 		for (const [d, gi] of giornoIdx) {
 			if (!d.startsWith(m)) continue;
 			for (const a of app.values()) {
 				a.mesi.dl[i] += a.giorni.dl[gi];
 				a.mesi.store[i] += a.giorni.store[gi];
 			}
+			const vd = x.venditeGiorni[d];
+			if (vd && typeof vd !== 'string') for (const [k, r] of Object.entries(vd)) for (const ver of r.v ?? []) (viste.get(k) ?? viste.set(k, new Set()).get(k)!).add(ver);
 		}
+		for (const [k, set] of viste) passo(versMesi, k, m, [...set]);
 	}
+	for (const [k, passi] of versGiorni) appIos(k).versioni = uscite(passi);
+	for (const [k, passi] of versMesi) appIos(k).versioniMesi = uscite(passi);
 
 	// --- AdMob ---
 	const ad = x.admob;
 	const chiaveAdmob = new Map<string, string>();
+	/** chiave dell'app -> formato -> serie giornaliere */
+	const fg = new Map<string, Map<string, FormatoGiorni>>();
 	if (ad) {
 		for (const a of ad.app) {
 			let chiave: string;
@@ -571,10 +697,25 @@ export function costruisci(x: Ingressi): Omit<AppStoreStato, 'aggiornatoAt' | 'a
 			const i = idxM.get(r.dim.MONTH);
 			if (a && i !== undefined) a.mesi.admob[i] += r.euro;
 		}
-		for (const r of ad.formati) {
+		for (const r of ad.formatiGiorni) {
 			const a = riga(r.dim.APP);
-			if (!a) continue;
-			a.formati.push({ formato: r.dim.FORMAT, richieste: r.richieste, abbinate: r.abbinate, impressioni: r.impressioni, clic: r.clic, euro: r2(r.euro) });
+			const i = idxG.get(r.dim.DATE);
+			if (!a || i === undefined || !r.dim.FORMAT) continue;
+			const perApp = fg.get(a.chiave) ?? fg.set(a.chiave, new Map()).get(a.chiave)!;
+			const f = perApp.get(r.dim.FORMAT) ?? perApp.set(r.dim.FORMAT, { r: zeri(nG), a: zeri(nG), i: zeri(nG), c: zeri(nG), e: zeri(nG) }).get(r.dim.FORMAT)!;
+			f.r[i] += r.richieste;
+			f.a[i] += r.abbinate;
+			f.i[i] += r.impressioni;
+			f.c[i] += r.clic;
+			f.e[i] += r.euro;
+		}
+		for (const [k, perApp] of fg) {
+			const a = app.get(k)!;
+			for (const [formato, f] of perApp) {
+				const da = nG - 30;
+				const v = { formato, richieste: somma(f.r, da), abbinate: somma(f.a, da), impressioni: somma(f.i, da), clic: somma(f.c, da), euro: r2(somma(f.e, da)) };
+				if (v.richieste || v.impressioni || v.euro) a.formati.push(v);
+			}
 		}
 		const perUnita = new Map(ad.perUnita.map(r => [r.dim.AD_UNIT, r]));
 		for (const u of ad.unita) {
@@ -582,6 +723,70 @@ export function costruisci(x: Ingressi): Omit<AppStoreStato, 'aggiornatoAt' | 'a
 			if (!a) continue;
 			const r = perUnita.get(u.id);
 			a.unita.push({ id: u.id, nome: u.nome, formato: FORMATO_ADMOB[u.formato] ?? u.formato.toLowerCase(), richieste: r?.richieste ?? 0, impressioni: r?.impressioni ?? 0, euro: r2(r?.euro ?? 0) });
+		}
+	}
+
+	// --- abbonamenti ---
+	let abbFinoA: string | undefined;
+	if (x.abbGiorni || x.eventiGiorni) {
+		for (const [d, i] of giornoIdx) {
+			const ab = x.abbGiorni?.[d];
+			if (ab && typeof ab !== 'string') {
+				abbFinoA = d;
+				for (const [k, g] of Object.entries(ab)) {
+					const a = appIos(k);
+					const s = (a.abbonamenti ??= abbVuoti(nG));
+					s.attivi[i] += g.att;
+					s.prove[i] += g.prv;
+					s.ritardo[i] += g.rty;
+					s.grazia[i] += g.grz;
+					s.mrr[i] += inEuro(g.mrr, x.cambi, senza);
+				}
+			} else if (ab === 'vuoto') abbFinoA = d;
+			const ev = x.eventiGiorni?.[d];
+			if (ev && typeof ev !== 'string') {
+				for (const [k, e] of Object.entries(ev)) {
+					const a = appIos(k);
+					const s = (a.abbonamenti ??= abbVuoti(nG));
+					for (const [cat, q] of Object.entries(e)) (s.eventi[cat] ??= zeri(nG))[i] += q;
+				}
+			}
+		}
+	}
+
+	// --- scheda dello Store ---
+	let schedaFinoA: string | undefined;
+	for (const [appleId, ist] of Object.entries(x.scheda ?? {})) {
+		const date = Object.keys(ist).filter(d => giornoIdx.has(d));
+		if (!date.length) continue;
+		const a = appIos(appleId);
+		const s: Scheda = { imp: zeri(nG), vis: zeri(nG), dl: zeri(nG), fonti: {} };
+		for (const d of date) {
+			const i = giornoIdx.get(d)!;
+			const g = ist[d];
+			s.imp[i] = g.imp;
+			s.vis[i] = g.vis;
+			s.dl[i] = g.dl;
+			if (!schedaFinoA || d > schedaFinoA) schedaFinoA = d;
+		}
+		a.scheda = s;
+	}
+	if (schedaFinoA) {
+		// le fonti sui 30 giorni che finiscono all'ultimo giorno con dati
+		const fine = giornoIdx.get(schedaFinoA)!;
+		const dentro = new Set(x.giorni.slice(Math.max(0, fine - 29), fine + 1));
+		for (const [appleId, ist] of Object.entries(x.scheda ?? {})) {
+			const a = app.get('ios:' + appleId);
+			if (!a?.scheda) continue;
+			for (const [d, g] of Object.entries(ist)) {
+				if (!dentro.has(d)) continue;
+				for (const [k, f] of Object.entries(g.fonti)) {
+					const o = (a.scheda.fonti[k] ??= { imp: 0, vis: 0, dl: 0 });
+					o.imp += f.imp;
+					o.vis += f.vis;
+					o.dl += f.dl;
+				}
+			}
 		}
 	}
 
@@ -600,24 +805,44 @@ export function costruisci(x: Ingressi): Omit<AppStoreStato, 'aggiornatoAt' | 'a
 			s.admob = s.admob.map(r2);
 			s.store = s.store.map(r2);
 		}
+		if (a.abbonamenti) a.abbonamenti.mrr = a.abbonamenti.mrr.map(r2);
 	}
 
 	// --- totali, su tutte le app ---
-	const totale = { giorni: vuota(nG), mesi: vuota(nM) };
+	const totale: Costruito['totale'] = { giorni: vuota(nG), mesi: vuota(nM) };
 	for (const a of app.values()) {
 		for (const k of ['giorni', 'mesi'] as const) {
 			for (const s of ['admob', 'store', 'dl'] as const) a[k][s].forEach((v, i) => (totale[k][s][i] += v));
+		}
+		if (a.abbonamenti) {
+			const t = (totale.abbonamenti ??= abbVuoti(nG));
+			for (const k of ['attivi', 'prove', 'mrr', 'ritardo', 'grazia'] as const) a.abbonamenti[k].forEach((v, i) => (t[k][i] += v));
+			for (const [cat, serie] of Object.entries(a.abbonamenti.eventi)) serie.forEach((v, i) => ((t.eventi[cat] ??= zeri(nG))[i] += v));
+		}
+		if (a.scheda) {
+			const t = (totale.scheda ??= { imp: zeri(nG), vis: zeri(nG), dl: zeri(nG), fonti: {} as Record<string, Fonte> });
+			for (const k of ['imp', 'vis', 'dl'] as const) a.scheda[k].forEach((v, i) => (t[k][i] += v));
+			for (const [f, v] of Object.entries(a.scheda.fonti)) {
+				const o = (t.fonti[f] ??= { imp: 0, vis: 0, dl: 0 });
+				o.imp += v.imp;
+				o.vis += v.vis;
+				o.dl += v.dl;
+			}
 		}
 	}
 	for (const k of ['giorni', 'mesi'] as const) {
 		totale[k].admob = totale[k].admob.map(r2);
 		totale[k].store = totale[k].store.map(r2);
 	}
+	if (totale.abbonamenti) totale.abbonamenti.mrr = totale.abbonamenti.mrr.map(r2);
 
-	// si mostrano le app che in un anno hanno reso, venduto, scaricato o chiesto annunci
+	// si mostrano le app che in un anno hanno reso, venduto, scaricato, chiesto annunci o hanno abbonati
 	const mostrate = [...app.values()].filter(a => {
 		const anno = a.mesi.admob.slice(-12);
-		return somma(anno) > 0 || somma(a.mesi.store.slice(-12)) !== 0 || somma(a.mesi.dl.slice(-12)) >= 10 || a.formati.some(f => f.richieste > 0);
+		return (
+			somma(anno) > 0 || somma(a.mesi.store.slice(-12)) !== 0 || somma(a.mesi.dl.slice(-12)) >= 10 || a.formati.some(f => f.richieste > 0) || Math.max(0, ...(a.abbonamenti?.attivi ?? [])) > 0 ||
+			(a.scheda ? somma(a.scheda.imp) > 0 : false)
+		);
 	});
 	const ult30 = (a: AppRiga) => somma(a.giorni.admob, nG - 30) + somma(a.giorni.store, nG - 30);
 	mostrate.sort((p1, p2) => ult30(p2) - ult30(p1) || somma(p2.mesi.dl) - somma(p1.mesi.dl) || p1.nome.localeCompare(p2.nome));
@@ -628,19 +853,126 @@ export function costruisci(x: Ingressi): Omit<AppStoreStato, 'aggiornatoAt' | 'a
 		.sort((p1, p2) => p2.euro - p1.euro)
 		.slice(0, 12);
 
+	const buchi = trovaBuchi(mostrate, ad?.publisher, { abbFinoA, schedaFinoA, giorni: x.giorni });
+	verificaBuchi(buchi, mostrate, fg, x.giorni);
+	const approvazioni: Record<string, string> = {};
+	for (const a of app.values()) if (a.approvazione) approvazioni[a.chiave] = a.approvazione;
+
 	return {
 		valuta: 'EUR',
 		giorni: x.giorni,
 		mesi: x.mesi,
 		storeFinoA,
+		abbFinoA,
+		schedaFinoA,
 		totale,
 		app: mostrate,
 		paesi,
 		storeSenzaDati: x.mesi.filter(m => x.venditeMesi[m] === 'perso'),
-		buchi: trovaBuchi(mostrate, ad?.publisher),
+		buchi,
 		senzaCambio: [...senza].sort(),
 		publisher: ad?.publisher,
+		misure: misure(mostrate),
+		allarmiTrovati: trovaAllarmi(mostrate, fg, x.giorni, x.approvazioniPrima ?? {}, x.now),
+		approvazioni,
 	};
+}
+
+/** Le quote attuali di ogni formato e di abbonamenti e scheda, con l'id del buco che le userebbe. */
+function misure(apps: AppRiga[]): Record<string, number> {
+	const out: Record<string, number> = {};
+	for (const a of apps) {
+		for (const f of a.formati) {
+			if (f.richieste) out[`${a.chiave}:fill:${f.formato}`] = f.abbinate / f.richieste;
+			if (f.abbinate) out[`${a.chiave}:mostrati:${f.formato}`] = f.impressioni / f.abbinate;
+		}
+		const conv = convScheda(a);
+		if (conv) {
+			out[`${a.chiave}:conversione`] = conv.impDl;
+			if (conv.vis) out[`${a.chiave}:pagina`] = conv.visDl;
+		}
+	}
+	return out;
+}
+
+/** La conversione della scheda sugli ultimi 30 giorni con dati: download su impressioni e su visite. */
+function convScheda(a: AppRiga): { imp: number; vis: number; dl: number; impDl: number; visDl: number } | null {
+	const s = a.scheda;
+	if (!s) return null;
+	let fine = s.imp.length - 1;
+	while (fine > 0 && !s.imp[fine] && !s.dl[fine]) fine--;
+	const da = Math.max(0, fine - 29);
+	const imp = somma(s.imp, da, fine + 1);
+	const vis = somma(s.vis, da, fine + 1);
+	const dl = somma(s.dl, da, fine + 1);
+	if (!imp) return null;
+	return { imp, vis, dl, impDl: dl / imp, visDl: vis ? dl / vis : 0 };
+}
+
+/** Prima e dopo l'ultima versione uscita da almeno 3 giorni: per i buchi con una quota (riempimento, mostrati). */
+export function verificaBuchi(buchi: Buco[], apps: AppRiga[], fg: Map<string, Map<string, FormatoGiorni>>, giorni: string[]): void {
+	const idx = new Map(giorni.map((d, i) => [d, i]));
+	const perChiave = new Map(apps.map(a => [a.chiave, a]));
+	for (const b of buchi) {
+		if ((b.tipo !== 'fill' && b.tipo !== 'mostrati') || b.soglia === undefined) continue;
+		const formato = b.id.split(':').pop()!;
+		const f = fg.get(b.chiave)?.get(formato);
+		const a = perChiave.get(b.chiave);
+		if (!f || !a) continue;
+		const rel = [...a.versioni].reverse().find(v => {
+			const i = idx.get(v.quando);
+			return i !== undefined && i >= 5 && giorni.length - 1 - i >= 3;
+		});
+		if (!rel) continue;
+		const ri = idx.get(rel.quando)!;
+		const quota = (da: number, a2: number) => {
+			const num = b.tipo === 'fill' ? somma(f.a, da, a2) : somma(f.i, da, a2);
+			const den = b.tipo === 'fill' ? somma(f.r, da, a2) : somma(f.a, da, a2);
+			return den >= 100 ? num / den : undefined;
+		};
+		const prima = quota(Math.max(0, ri - 30), ri);
+		const dopo = quota(ri + 1, giorni.length);
+		if (prima === undefined || dopo === undefined) continue;
+		const giorniDopo = giorni.length - 1 - ri;
+		const esito: Verifica['esito'] = dopo >= b.soglia ? 'risolto' : dopo >= prima * 1.25 && dopo - prima >= 0.03 ? 'meglio' : giorniDopo >= 7 ? 'uguale' : 'presto';
+		b.verifica = { versione: rel.v, giorno: rel.quando, prima, dopo, giorniDopo, esito };
+	}
+}
+
+/** Gli allarmi di ieri: un'app che AdMob non approva piu', un crollo dei guadagni, un riempimento a picco.
+ *  Si guardano solo dopo le 8 del mattino: prima AdMob non ha ancora chiuso i numeri di ieri. */
+export function trovaAllarmi(apps: AppRiga[], fg: Map<string, Map<string, FormatoGiorni>>, giorni: string[], approvazioniPrima: Record<string, string>, now: number): Allarme[] {
+	const out: Allarme[] = [];
+	const n = giorni.length;
+	const ieri = giorni[n - 1];
+	const presto = new Date(now).getHours() < 8;
+	for (const a of apps) {
+		const prima = approvazioniPrima[a.chiave];
+		if (a.approvazione && prima === 'APPROVED' && a.approvazione !== 'APPROVED') {
+			out.push({ id: `${a.chiave}:approvazione:${a.approvazione}`, chiave: a.chiave, app: a.nome, testo: 'AdMob non approva più l\'app: gli annunci sono limitati. Guarda cosa chiede nella console.' });
+		}
+		if (presto || n < 9) continue;
+		const media = somma(a.giorni.admob, n - 8, n - 1) / 7;
+		const ultimo = a.giorni.admob[n - 1];
+		if (media >= 2 && ultimo < media * 0.4) {
+			out.push({ id: `${a.chiave}:crollo:${ieri}`, chiave: a.chiave, app: a.nome, testo: `AdMob ieri ${euroTesto(ultimo)}, di solito ${euroTesto(media)} al giorno.` });
+		}
+		for (const [formato, f] of fg.get(a.chiave) ?? []) {
+			const r30 = somma(f.r, n - 31, n - 1);
+			const fill30 = r30 ? somma(f.a, n - 31, n - 1) / r30 : 0;
+			const rIeri = f.r[n - 1];
+			const fillIeri = rIeri ? f.a[n - 1] / rIeri : 0;
+			if (r30 >= 1000 && fill30 >= 0.5 && rIeri >= 200 && fillIeri < fill30 * 0.5) {
+				out.push({
+					id: `${a.chiave}:fill:${formato}:${ieri}`,
+					chiave: a.chiave,
+					app: a.nome,
+					testo: `Annunci ${nomeFormato(formato)}: ieri solo il ${pct(fillIeri)} delle richieste ha trovato un annuncio, di solito il ${pct(fill30)}.`,
+				});
+			}
+		}
+	}
+	return out;
 }
 
 // ---------- i buchi ----------
@@ -661,6 +993,8 @@ const SOGLIA_MOSTRATI: Record<string, number> = { app_open: 0.2, interstitial: 0
 
 const euroTesto = (n: number) => `${n.toLocaleString('it-IT', { maximumFractionDigits: n < 10 ? 2 : 0 })} €`;
 const pct = (n: number) => `${Math.round(n * 100)}%`;
+/** Per le quote piccole (la conversione dalle impressioni): «2,4%». */
+const pctFine = (n: number) => `${(n * 100).toLocaleString('it-IT', { maximumFractionDigits: n < 0.1 ? 1 : 0 })}%`;
 
 /** RPM (euro ogni mille impressioni) del portafoglio per formato, negli ultimi 30 giorni. */
 function rpmPortafoglio(apps: AppRiga[]): Record<string, number> {
@@ -675,7 +1009,16 @@ function rpmPortafoglio(apps: AppRiga[]): Record<string, number> {
 	return out;
 }
 
-export function trovaBuchi(apps: AppRiga[], publisher?: string): Buco[] {
+/** Da quale fonte nasce ogni regola: se la fonte non risponde, i suoi buchi non si chiudono (appstore-storia.ts). */
+const FONTE_DI: Record<string, FonteBuco> = {
+	approvazione: 'admob', scollegata: 'admob', fill: 'admob', mostrati: 'admob', formati: 'admob', ferme: 'admob', calo: 'admob',
+	ferma: 'store', download: 'store', paywall: 'store',
+	ump: 'codice', att: 'codice', 'att-richiesta': 'codice', skan: 'codice', prova: 'codice', estranee: 'codice', 'altra-app': 'codice',
+	tolleranza: 'abbonamenti', 'prove-ferme': 'abbonamenti', disdette: 'abbonamenti',
+	conversione: 'scheda', pagina: 'scheda', visibilita: 'scheda',
+};
+
+export function trovaBuchi(apps: AppRiga[], publisher?: string, ctx: { abbFinoA?: string; schedaFinoA?: string; giorni?: string[] } = {}): Buco[] {
 	const out: Buco[] = [];
 	/** Unita' AdMob di tutte le app, per capire di chi e' un ID trovato nel codice. */
 	const diChi = new Map<string, AppRiga>();
@@ -702,7 +1045,10 @@ export function trovaBuchi(apps: AppRiga[], publisher?: string): Buco[] {
 		const r = a.repo;
 		const base = { chiave: a.chiave, app: a.nome, projectPath: a.projectPath };
 		const dove = a.projectName ? ` nel progetto ${a.projectName}` : '';
-		const add = (b: Omit<Buco, 'chiave' | 'app' | 'projectPath'>) => out.push({ ...base, ...b });
+		const add = (b: Omit<Buco, 'chiave' | 'app' | 'projectPath' | 'tipo' | 'fonte'>) => {
+			const tipo = b.id.slice(a.chiave.length + 1).split(':')[0];
+			out.push({ ...base, ...b, tipo, fonte: FONTE_DI[tipo] ?? 'admob' });
+		};
 
 		// 1. AdMob limita l'app
 		if (a.admobId && a.approvazione && a.approvazione !== 'APPROVED' && (richieste > 0 || dl30 > 0)) {
@@ -758,6 +1104,8 @@ export function trovaBuchi(apps: AppRiga[], publisher?: string): Buco[] {
 					titolo: `Annunci ${nomeFormato(f.formato)}: solo il ${pct(fill)} delle richieste trova un annuncio`,
 					perche: `${f.richieste.toLocaleString('it-IT')} richieste in 30 giorni, ${f.abbinate.toLocaleString('it-IT')} con un annuncio. Sotto il 60% c'è un problema: unità nuova o sbagliata, floor troppo alto, app non approvata o niente consenso in Europa.`,
 					cosa: fill < 0.2 ? 'Controlla che l\'ID dell\'unità nel codice sia giusto e di questa app, e che non abbia un floor di eCPM.' : 'Togli il floor dall\'unità o aggiungi una fonte di mediazione; controlla il consenso UMP.',
+					misura: fill,
+					soglia: 0.6,
 					stima: stima > 0.5 ? stima : undefined,
 					stimaNota: 'se trovasse un annuncio il 90% delle volte, alla resa media del formato',
 					compito: `Nell'app ${a.nome} le richieste di annunci ${nomeFormato(f.formato)} trovano un annuncio solo il ${pct(fill)} delle volte (30 giorni, ${f.richieste} richieste). Controlla l'ID dell'unità usato nel codice per quel formato, che non sia un ID di prova o di un'altra app, e il flusso del consenso UMP prima del caricamento. Usa la skill ios-admob-integration.`,
@@ -781,6 +1129,8 @@ export function trovaBuchi(apps: AppRiga[], publisher?: string): Buco[] {
 					gravita: mostrati < soglia / 2 ? 'alta' : 'media',
 					titolo: `Annunci ${nomeFormato(f.formato)} caricati e non mostrati: ${pct(mostrati)}`,
 					perche: `${f.abbinate.toLocaleString('it-IT')} annunci caricati in 30 giorni, ${f.impressioni.toLocaleString('it-IT')} mostrati. Un annuncio caricato e mai mostrato non rende e abbassa la resa delle richieste future.`,
+					misura: mostrati,
+					soglia,
 					cosa:
 						f.formato === 'app_open'
 							? 'Carica l\'annuncio di apertura una volta sola e mostralo al ritorno in primo piano (dopo almeno 30 secondi fuori), scartandolo dopo 4 ore; non ricaricarlo a ogni scena.'
@@ -924,6 +1274,106 @@ export function trovaBuchi(apps: AppRiga[], publisher?: string): Buco[] {
 			});
 		}
 	}
+
+	// --- abbonamenti e scheda dello Store ---
+	const giorni = ctx.giorni ?? [];
+	const fineAbb = ctx.abbFinoA ? giorni.indexOf(ctx.abbFinoA) : -1;
+	const conversioni = apps.map(convScheda).filter((c): c is NonNullable<typeof c> => !!c && c.imp >= 2000).map(c => c.impDl).sort((p, q) => p - q);
+	const medianaConv = conversioni.length >= 3 ? conversioni[Math.floor(conversioni.length / 2)] : 0;
+	for (const a of apps) {
+		const base = { chiave: a.chiave, app: a.nome, projectPath: a.projectPath };
+		const add = (b: Omit<Buco, 'chiave' | 'app' | 'projectPath' | 'tipo' | 'fonte'>) => {
+			const tipo = b.id.slice(a.chiave.length + 1).split(':')[0];
+			out.push({ ...base, ...b, tipo, fonte: FONTE_DI[tipo] ?? 'admob' });
+		};
+		const ab = a.abbonamenti;
+		if (ab && fineAbb >= 0) {
+			const f = fineAbb + 1;
+			const ev = (cat: string, da: number, a2: number) => somma(ab.eventi[cat] ?? [], da, a2);
+			const attivi = ab.attivi[fineAbb] ?? 0;
+			const ritardi = Math.max(0, ...ab.ritardo.slice(Math.max(0, f - 30), f));
+			const grazia = Math.max(0, ...ab.grazia.slice(Math.max(0, f - 30), f));
+			// 15. Ritardi di pagamento senza periodo di tolleranza
+			if (ritardi > 0 && grazia === 0 && attivi >= 5) {
+				add({
+					id: `${a.chiave}:tolleranza`,
+					gravita: 'media',
+					titolo: 'Abbonati in ritardo di pagamento, senza periodo di tolleranza',
+					perche: `Nell'ultimo mese fino a ${ritardi} abbonati sono finiti in ritardo di pagamento e nessuno era nel periodo di tolleranza: probabilmente è spento, e chi ha la carta scaduta perde subito l'accesso.`,
+					cosa: 'In App Store Connect, nella pagina degli abbonamenti dell\'app, attiva il periodo di tolleranza (Billing Grace Period): Apple riprova ad addebitare mentre l\'utente continua a usare la versione Pro.',
+				});
+			}
+			// 16. Prove che non diventano abbonamenti (le prove di 7 giorni prima di quelle che possono gia' convertire)
+			const prove = ev('prove', f - 37, f - 7);
+			const conv = ev('conversioni', f - 30, f);
+			if (prove >= 10 && conv / prove < 0.15) {
+				add({
+					id: `${a.chiave}:prove-ferme`,
+					gravita: 'media',
+					titolo: `Prove gratuite che non convertono: ${pct(conv / prove)}`,
+					perche: `${prove} prove iniziate e ${conv} diventate abbonamenti a pagamento. Di solito ne converte almeno una su cinque.`,
+					cosa: 'Ricorda la fine della prova un giorno prima (notifica locale), mostra cosa si perde, e controlla che la prova sia legata a una funzione che si usa davvero nei primi giorni.',
+					misura: conv / prove,
+					soglia: 0.15,
+				});
+			}
+			// 17. Piu' disdette che abbonamenti nuovi
+			const disd = ev('disdette', f - 30, f);
+			const nuovi = ev('nuovi', f - 30, f) + conv;
+			if (disd >= 5 && disd > nuovi) {
+				add({
+					id: `${a.chiave}:disdette`,
+					gravita: 'bassa',
+					titolo: 'Più disdette che abbonamenti nuovi',
+					perche: `In 30 giorni ${disd} hanno spento il rinnovo e ${nuovi} si sono abbonati: gli abbonati scendono.`,
+					cosa: 'Guarda le recensioni recenti e cosa è cambiato nell\'ultima versione; valuta un\'offerta di ritorno (win-back) per chi ha disdetto.',
+				});
+			}
+		}
+		const c = convScheda(a);
+		if (c) {
+			// 18. La scheda converte molto meno delle altre app
+			if (medianaConv && c.imp >= 2000 && c.impDl < medianaConv / 2) {
+				add({
+					id: `${a.chiave}:conversione`,
+					gravita: 'media',
+					titolo: `La scheda converte poco: ${pctFine(c.impDl)} delle impressioni diventa un download`,
+					perche: `${c.imp.toLocaleString('it-IT')} impressioni e ${c.dl.toLocaleString('it-IT')} download in 30 giorni; le tue altre app stanno intorno al ${pctFine(medianaConv)}.`,
+					cosa: 'Le prime due schermate e l\'icona decidono quasi tutto nei risultati di ricerca: rendile chiare su cosa fa l\'app, e controlla che titolo e sottotitolo corrispondano alle parole cercate.',
+					misura: c.impDl,
+					soglia: medianaConv / 2,
+				});
+			}
+			// 19. Chi apre la pagina non scarica
+			if (c.vis >= 200 && c.visDl < 0.2) {
+				add({
+					id: `${a.chiave}:pagina`,
+					gravita: 'media',
+					titolo: `Chi apre la pagina non scarica: ${pct(c.visDl)}`,
+					perche: `${c.vis.toLocaleString('it-IT')} visite alla pagina e ${c.dl.toLocaleString('it-IT')} download in 30 giorni.`,
+					cosa: 'Guarda schermate, video, valutazione e prime recensioni della pagina: chi la apre è già interessato, qualcosa lo ferma.',
+					misura: c.visDl,
+					soglia: 0.2,
+				});
+			}
+			// 20. Visibilita' nelle ricerche in calo
+			const s = a.scheda!;
+			let fine = s.imp.length - 1;
+			while (fine > 0 && !s.imp[fine]) fine--;
+			const ora14 = somma(s.imp, fine - 13, fine + 1);
+			const prima14 = somma(s.imp, fine - 27, fine - 13);
+			if (prima14 >= 1000 && ora14 < prima14 * 0.7) {
+				add({
+					id: `${a.chiave}:visibilita`,
+					gravita: 'media',
+					titolo: `Meno visibile sullo Store: impressioni ${pct(1 - ora14 / prima14)} in meno`,
+					perche: `${ora14.toLocaleString('it-IT')} impressioni nelle ultime due settimane con dati, ${prima14.toLocaleString('it-IT')} nelle due prima.`,
+					cosa: 'Controlla la posizione per le parole chiave principali e se un\'app concorrente è salita; un aggiornamento con note e schermate nuove spesso aiuta.',
+				});
+			}
+		}
+	}
+
 	const peso: Record<Gravita, number> = { alta: 0, media: 1, bassa: 2 };
 	out.sort((p, q) => peso[p.gravita] - peso[q.gravita] || (q.stima ?? 0) - (p.stima ?? 0) || p.app.localeCompare(q.app));
 	for (const b of out) if (b.stima !== undefined) b.stima = r2(b.stima);
@@ -940,46 +1390,92 @@ export interface AppStoreOpzioni {
 	now?: () => number;
 	fetch?: typeof fetch;
 	ascEnvFile?: string;
+	/** Ogni quante ore ricontrolla da solo (0 o assente: solo quando lo chiede la stanza). Solo per lo stato. */
+	controlloOre?: () => number;
+}
+
+/** La scheda dello Store di un'app: la richiesta di analisi, i suoi due report e le istanze gia' lette. */
+interface CacheScheda {
+	req?: string;
+	rep?: { scoperta?: string; download?: string };
+	ist: Record<string, { p: string; g: IstanzaScheda }>;
+	richiesteAt?: number;
+	istanzeAt?: number;
 }
 
 interface Cache {
 	schema: number;
 	giorni: Record<string, Voce>;
 	mesi: Record<string, Voce>;
+	abb: Record<string, VoceDi<ReportAbb>>;
+	eventi: Record<string, VoceDi<EventiAbb>>;
+	scheda: Record<string, CacheScheda>;
 	sku: Record<string, string>;
 	nomi: Record<string, string>;
 	cambi?: { at: number; rates: Record<string, number> };
 	repo: Record<string, RepoEsito>;
 }
 
+const NOME_SCOPERTA = 'App Store Discovery and Engagement Standard';
+const NOME_DOWNLOAD = 'App Downloads Standard';
+const SCHEDA_RICHIESTE_TTL = 24 * 3_600_000;
+const SCHEDA_ISTANZE_TTL = 6 * 3_600_000;
+
+/** Quello che il briefing del mattino racconta della stanza (src/briefing.ts). */
+export interface BriefingAppStore {
+	at: number;
+	ieri: string;
+	admobIeri: number;
+	/** Lo Store dell'ultimo giorno pubblicato (puo' essere l'altro ieri prima delle 14). */
+	store?: { giorno: string; euro: number };
+	settimana: number;
+	settimanaPrima: number;
+	abbonati?: { attivi: number; prima: number };
+	buchiNuovi: { app: string; titolo: string }[];
+	allarmi: string[];
+}
+
 export class AppStore {
 	private readonly dir: string;
 	private readonly file: string;
+	private readonly fileStoria: string;
 	private readonly now: () => number;
 	private readonly fetch: typeof fetch;
 	private readonly ascEnvFile: string;
 	private cache: Cache;
+	private storia: Storia;
 	private stato: AppStoreStato;
+	/** I buchi dell'ultima lettura prima della storia: servono a ricalcolare subito dopo un «ignora». */
+	private tutti: Buco[] = [];
+	private misure: Record<string, number> = {};
 	private running: Promise<void> | undefined;
 	private provatoAt = 0;
 	private listeners: ((s: AppStoreStato) => void)[] = [];
+	private suAllarmi: ((nuovi: Allarme[]) => void)[] = [];
 
 	constructor(private readonly o: AppStoreOpzioni) {
 		this.dir = o.dir ?? path.join(os.homedir(), '.bottega', 'appstore');
 		this.file = path.join(this.dir, 'vendite.json');
+		this.fileStoria = path.join(this.dir, 'storia.json');
 		this.now = o.now ?? Date.now;
 		this.fetch = o.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
 		this.ascEnvFile = o.ascEnvFile ?? path.join(os.homedir(), '.secrets', 'appstoreconnect-api.env');
 		this.cache = this.carica();
+		this.storia = this.caricaStoria();
 		this.stato = this.caricaStato();
 	}
 
 	state(): AppStoreStato {
-		return { ...this.stato, aggiornando: !!this.running };
+		return { ...this.stato, aggiornando: !!this.running, controlloOre: this.o.controlloOre?.() };
 	}
 
 	onChange(cb: (s: AppStoreStato) => void): void {
 		this.listeners.push(cb);
+	}
+
+	/** Gli allarmi nuovi di ogni lettura (gia' filtrati: non si ripetono per 7 giorni). */
+	onAllarmi(cb: (nuovi: Allarme[]) => void): void {
+		this.suAllarmi.push(cb);
 	}
 
 	private emit() {
@@ -998,23 +1494,44 @@ export class AppStore {
 	}
 
 	private carica(): Cache {
+		const vuota: Cache = { schema: SCHEMA, giorni: {}, mesi: {}, abb: {}, eventi: {}, scheda: {}, sku: {}, nomi: {}, repo: {} };
 		try {
 			const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-			if (raw?.schema === SCHEMA) return { repo: {}, ...raw };
+			if (raw?.schema === SCHEMA) return { ...vuota, ...raw };
+			// schema vecchio: i report si riscaricano (servono le versioni), i cambi e i repository restano
+			if (raw && typeof raw === 'object') return { ...vuota, cambi: raw.cambi, repo: raw.repo ?? {} };
 		} catch {
 			// prima volta
 		}
-		return { schema: SCHEMA, giorni: {}, mesi: {}, sku: {}, nomi: {}, repo: {} };
+		return vuota;
+	}
+
+	private caricaStoria(): Storia {
+		try {
+			const raw = JSON.parse(fs.readFileSync(this.fileStoria, 'utf8'));
+			if (raw?.schema === 1) return { ...storiaVuota(), ...raw };
+		} catch {
+			// prima volta
+		}
+		return storiaVuota();
 	}
 
 	private caricaStato(): AppStoreStato {
+		const vuoto: AppStoreStato = {
+			aggiornatoAt: 0, aggiornando: false, errori: {}, valuta: 'EUR', giorni: [], mesi: [], storeSenzaDati: [], totale: { giorni: vuota(0), mesi: vuota(0) },
+			app: [], paesi: [], buchi: [], risolti: [], ignorati: [], allarmi: [], senzaCambio: [],
+		};
 		try {
 			const raw = JSON.parse(fs.readFileSync(path.join(this.dir, 'stato.json'), 'utf8'));
-			if (raw?.schema === SCHEMA && raw.stato) return { ...raw.stato, aggiornando: false };
+			if (raw?.schema === SCHEMA && raw.stato) {
+				if (Array.isArray(raw.tutti)) this.tutti = raw.tutti;
+				if (raw.misure) this.misure = raw.misure;
+				return { ...vuoto, ...raw.stato, aggiornando: false };
+			}
 		} catch {
 			// prima volta
 		}
-		return { aggiornatoAt: 0, aggiornando: false, errori: {}, valuta: 'EUR', giorni: [], mesi: [], storeSenzaDati: [], totale: { giorni: vuota(0), mesi: vuota(0) }, app: [], paesi: [], buchi: [], senzaCambio: [] };
+		return vuoto;
 	}
 
 	private scrivi(file: string, dati: unknown) {
@@ -1029,10 +1546,17 @@ export class AppStore {
 		}
 	}
 
-	/** Una lettura alla volta; tra due letture almeno 45 minuti, salvo force. */
+	private salvaStato() {
+		this.scrivi(path.join(this.dir, 'stato.json'), { schema: SCHEMA, stato: this.stato, tutti: this.tutti, misure: this.misure });
+		this.scrivi(this.fileStoria, this.storia);
+	}
+
+	/** Una lettura alla volta; tra due letture almeno 45 minuti, anche dopo un riavvio della Bottega (conta l'ultima
+	 *  lettura salvata), salvo force. */
 	refresh(opts: { force?: boolean } = {}): Promise<void> {
 		if (this.running) return this.running;
-		if (!opts.force && this.now() - this.provatoAt < MIN_GAP && this.stato.aggiornatoAt) return Promise.resolve();
+		const ultima = Math.max(this.provatoAt, this.stato.aggiornatoAt);
+		if (!opts.force && this.now() - ultima < MIN_GAP && this.stato.aggiornatoAt) return Promise.resolve();
 		this.provatoAt = this.now();
 		this.running = this.run(!!opts.force)
 			.catch(e => this.log('appstore: ' + (e as Error).message))
@@ -1077,6 +1601,17 @@ export class AppStore {
 		if (admob.status === 'fulfilled') datiAdmob = admob.value;
 		else errori.admob = msg(admob.reason, 'AdMob');
 
+		// la scheda dello Store: dopo le vendite, per sapere quali app hanno download
+		let schedaOk = false;
+		if (!errori.store) {
+			try {
+				await this.schede(radar, giorni);
+				schedaOk = true;
+			} catch (e) {
+				errori.scheda = msg(e, 'L\'analisi di App Store Connect');
+			}
+		}
+
 		// collegamenti app -> progetto
 		const progetti = this.o.projects();
 		const collegamenti: Ingressi['collegamenti'] = {};
@@ -1109,6 +1644,8 @@ export class AppStore {
 			errori.repo = (e as Error).message;
 		}
 
+		const scheda: Record<string, IstanzaScheda> = {};
+		for (const [id, c] of Object.entries(this.cache.scheda)) scheda[id] = sommaIstanze(Object.values(c.ist).map(x => x.g));
 		const base = costruisci({
 			now,
 			giorni,
@@ -1121,6 +1658,10 @@ export class AppStore {
 			admob: datiAdmob,
 			collegamenti,
 			repo: this.cache.repo,
+			abbGiorni: this.cache.abb,
+			eventiGiorni: this.cache.eventi,
+			scheda,
+			approvazioniPrima: this.storia.approvazioni,
 		});
 		// senza AdMob si tengono i numeri AdMob dell'ultima lettura buona, invece di mostrare zeri
 		if (!datiAdmob && this.stato.giorni.length) {
@@ -1139,11 +1680,135 @@ export class AppStore {
 			base.totale.giorni.admob = riallinea(this.stato.giorni, this.stato.totale.giorni.admob, giorni);
 			base.totale.mesi.admob = riallinea(this.stato.mesi, this.stato.totale.mesi.admob, mesi);
 			base.paesi = this.stato.paesi;
-			base.buchi = trovaBuchi(base.app, this.stato.publisher);
+			base.buchi = trovaBuchi(base.app, this.stato.publisher, { abbFinoA: base.abbFinoA, schedaFinoA: base.schedaFinoA, giorni });
 		}
-		this.stato = { ...base, aggiornatoAt: now, aggiornando: false, errori };
+
+		// la memoria: buchi nuovi, risolti, ignorati; allarmi
+		const lette = new Set<FonteBuco>();
+		if (datiAdmob) lette.add('admob');
+		if (!errori.store) {
+			lette.add('store');
+			lette.add('abbonamenti');
+		}
+		if (!errori.repo) lette.add('codice');
+		if (schedaOk) lette.add('scheda');
+		const { misure, allarmiTrovati, approvazioni, ...resto } = base;
+		this.tutti = resto.buchi;
+		this.misure = misure;
+		const st = applicaStoria(resto.buchi.map(b => ({ ...b })), this.storia, now, lette, misure);
+		if (datiAdmob) this.storia.approvazioni = approvazioni;
+		const nuovi = datiAdmob ? allarmiNuovi(allarmiTrovati, this.storia, now) : [];
+		const recenti = (this.stato.allarmi ?? []).filter(a => now - a.at < 48 * 3_600_000 && !nuovi.some(n => n.id === a.id));
+		this.stato = { ...resto, buchi: st.buchi, risolti: st.risolti, ignorati: st.ignorati, allarmi: [...nuovi.map(a => ({ ...a, at: now })), ...recenti], aggiornatoAt: now, aggiornando: false, errori };
 		this.scrivi(this.file, this.cache);
-		this.scrivi(path.join(this.dir, 'stato.json'), { schema: SCHEMA, stato: this.stato });
+		this.salvaStato();
+		if (nuovi.length) for (const cb of this.suAllarmi) {
+			try {
+				cb(nuovi);
+			} catch (e) {
+				this.log('appstore: allarmi: ' + (e as Error).message);
+			}
+		}
+	}
+
+	// --- ignora e ripristina ---
+
+	/** Andrea ignora un buco con il motivo: sparisce dall'elenco e va tra gli ignorati, subito. */
+	ignora(id: string, motivo: string): boolean {
+		if (!ignora(this.storia, id, motivo, this.now())) return false;
+		this.ricalcolaStoria();
+		return true;
+	}
+
+	ripristina(id: string): boolean {
+		if (!ripristina(this.storia, id)) return false;
+		this.ricalcolaStoria();
+		return true;
+	}
+
+	private ricalcolaStoria() {
+		// nessuna fonte letta: niente si chiude, si rifanno solo gli elenchi
+		const st = applicaStoria(this.tutti.map(b => ({ ...b })), this.storia, this.now(), new Set(), this.misure);
+		this.stato = { ...this.stato, buchi: st.buchi, risolti: st.risolti, ignorati: st.ignorati };
+		this.salvaStato();
+		this.emit();
+	}
+
+	// --- per Melissa e per il briefing ---
+
+	/** Gli allarmi delle ultime 48 ore, per gli avvisi dell'iPhone (src/avvisi.ts). */
+	allarmiRecenti(): Allarme[] | null {
+		return this.stato.aggiornatoAt ? this.stato.allarmi.map(({ at: _at, ...a }) => a) : null;
+	}
+
+	/** Quello che il briefing del mattino dice dei soldi delle app. null se i dati sono vecchi di oltre 36 ore. */
+	briefing(): BriefingAppStore | null {
+		const s = this.stato;
+		const n = s.giorni.length;
+		if (!s.aggiornatoAt || !n || this.now() - s.aggiornatoAt > 36 * 3_600_000) return null;
+		const t = s.totale.giorni;
+		const fino = s.storeFinoA ? s.giorni.indexOf(s.storeFinoA) : -1;
+		const sett = (da: number, a2: number) => somma(t.admob, da, a2) + somma(t.store, Math.max(da, 0), Math.min(a2, fino + 1));
+		const ab = s.totale.abbonamenti;
+		const fa = s.abbFinoA ? s.giorni.indexOf(s.abbFinoA) : -1;
+		const ieriInizio = new Date(this.now()).setHours(0, 0, 0, 0) - 86_400_000;
+		return {
+			at: s.aggiornatoAt,
+			ieri: s.giorni[n - 1],
+			admobIeri: t.admob[n - 1],
+			store: fino >= 0 ? { giorno: s.giorni[fino], euro: t.store[fino] } : undefined,
+			settimana: r2(sett(n - 7, n)),
+			settimanaPrima: r2(sett(n - 14, n - 7)),
+			abbonati: ab && fa >= 7 ? { attivi: ab.attivi[fa], prima: ab.attivi[fa - 7] } : undefined,
+			// alla prima lettura tutti i buchi sono «nuovi»: c'erano gia', non si annunciano
+			buchiNuovi: s.buchi
+				.filter(b => (b.daQuando ?? 0) >= ieriInizio && (b.daQuando ?? 0) > (this.storia.natoAt ?? 0) + 3_600_000 && b.gravita !== 'bassa')
+				.map(b => ({ app: b.app, titolo: b.titolo })),
+			allarmi: s.allarmi.map(a => `${a.app}: ${a.testo}`),
+		};
+	}
+
+	/** Un riassunto a parole per Melissa: quanto hanno reso le app nel periodo, le prime app, le cose da sistemare. */
+	riassunto(periodo: 'ieri' | 'settimana' | 'mese' | 'anno' = 'settimana', nomeApp?: string): string {
+		const s = this.stato;
+		if (!s.aggiornatoAt || !s.giorni.length) return 'Non ho ancora letto i numeri delle app: apri la stanza App Store o dimmi di aggiornarli.';
+		const k = nomeApp?.toLowerCase().trim();
+		const app = k ? s.app.find(a => a.nome.toLowerCase().includes(k) || (a.projectName ?? '').toLowerCase() === k) : undefined;
+		if (k && !app) return `Non trovo un'app che si chiami "${nomeApp}" tra quelle che rendono.`;
+		const n = s.giorni.length;
+		const fino = s.storeFinoA ? s.giorni.indexOf(s.storeFinoA) : -1;
+		const serie = app ?? { giorni: s.totale.giorni, mesi: s.totale.mesi };
+		let admob: number, store: number, dl: number, quando: string;
+		if (periodo === 'anno') {
+			admob = somma(serie.mesi.admob, s.mesi.length - 12);
+			store = somma(serie.mesi.store, s.mesi.length - 12);
+			dl = somma(serie.mesi.dl, s.mesi.length - 12);
+			quando = 'Negli ultimi dodici mesi';
+		} else {
+			const k2 = periodo === 'ieri' ? 1 : periodo === 'settimana' ? 7 : 30;
+			admob = somma(serie.giorni.admob, n - k2);
+			store = somma(serie.giorni.store, n - k2, fino + 1);
+			dl = somma(serie.giorni.dl, n - k2, fino + 1);
+			quando = periodo === 'ieri' ? 'Ieri' : periodo === 'settimana' ? 'Negli ultimi sette giorni' : 'Negli ultimi trenta giorni';
+		}
+		const righe = [`${quando} ${app ? app.nome : 'le app'} ${app ? 'ha' : 'hanno'} reso ${euroTesto(admob + store)}: ${euroTesto(admob)} da AdMob e ${euroTesto(store)} dallo Store, con ${dl.toLocaleString('it-IT')} download.`];
+		if (fino >= 0 && fino < n - 1 && periodo !== 'anno') righe.push(`Lo Store arriva fino a ${giornoParlato(s.storeFinoA!)}: Apple non ha ancora pubblicato i giorni dopo.`);
+		if (!app) {
+			const prime = s.app.slice(0, 3).map(a => `${a.nome} ${euroTesto(somma(a.giorni.admob, n - 30) + somma(a.giorni.store, n - 30, fino + 1))}`);
+			if (prime.length) righe.push(`Le prime negli ultimi trenta giorni: ${prime.join(', ')}.`);
+		}
+		const ab = (app ?? { abbonamenti: s.totale.abbonamenti }).abbonamenti;
+		const fa = s.abbFinoA ? s.giorni.indexOf(s.abbFinoA) : -1;
+		if (ab && fa >= 0 && ab.attivi[fa]) righe.push(`Abbonati che pagano: ${ab.attivi[fa]}, circa ${euroTesto(ab.mrr[fa])} al mese di ricavi ricorrenti.`);
+		const buchi = s.buchi.filter(b => !app || b.chiave === app.chiave);
+		const alte = buchi.filter(b => b.gravita === 'alta');
+		if (buchi.length) {
+			righe.push(`Da sistemare: ${buchi.length}${alte.length ? `, ${alte.length} subito` : ''}. ${buchi.slice(0, 3).map(b => `${app ? '' : b.app + ', '}${b.titolo.toLowerCase()}${b.stima ? ` (circa ${euroTesto(b.stima)} al mese)` : ''}`).join('; ')}.`);
+		}
+		for (const a of s.allarmi.filter(x => !app || x.chiave === app.chiave).slice(0, 2)) righe.push(`Allarme su ${a.app}: ${a.testo}`);
+		const min = Math.round((this.now() - s.aggiornatoAt) / 60_000);
+		righe.push(`Dati di ${min < 2 ? 'adesso' : min < 90 ? `${min} minuti fa` : `${Math.round(min / 60)} ore fa`}.`);
+		return righe.join('\n');
 	}
 
 	// --- App Store Connect ---
@@ -1163,10 +1828,9 @@ export class AppStore {
 		return out;
 	}
 
-	private async report(radar: Radar, vendor: string, frequenza: 'DAILY' | 'MONTHLY', data: string): Promise<Voce | undefined> {
-		const versione = frequenza === 'DAILY' ? '1_1' : '1_0';
+	private async report<T>(radar: Radar, vendor: string, tipo: string, frequenza: 'DAILY' | 'MONTHLY', data: string, versione: string, leggi: (t: string) => T): Promise<VoceDi<T> | undefined> {
 		const url =
-			'https://api.appstoreconnect.apple.com/v1/salesReports?filter[reportType]=SALES&filter[reportSubType]=SUMMARY' +
+			`https://api.appstoreconnect.apple.com/v1/salesReports?filter[reportType]=${tipo}&filter[reportSubType]=SUMMARY` +
 			`&filter[frequency]=${frequenza}&filter[reportDate]=${data}&filter[vendorNumber]=${encodeURIComponent(vendor)}&filter[version]=${versione}`;
 		const res = await this.fetch(url, { headers: { Authorization: `Bearer ${radar.ascJwt()}` }, signal: AbortSignal.timeout(TIMEOUT) });
 		if (res.ok) {
@@ -1177,7 +1841,7 @@ export class AppStore {
 			} catch {
 				testo = buf.toString('utf8');
 			}
-			return leggiReport(testo, this.cache.sku, this.cache.nomi);
+			return leggi(testo);
 		}
 		let detail = '';
 		try {
@@ -1188,7 +1852,7 @@ export class AppStore {
 		}
 		if (res.status === 410) return 'perso';
 		// 404: «no sales» e' definitivo; tutto il resto (report non ancora pronto) si riprova alla prossima lettura
-		if (res.status === 404) return /no sales/i.test(detail) ? 'vuoto' : undefined;
+		if (res.status === 404) return /no sales|no data|were no/i.test(detail) ? 'vuoto' : undefined;
 		if (res.status === 401 || res.status === 403) throw new Error('App Store Connect non dà accesso ai report di vendita con questa chiave (serve il ruolo Finance o Sales).');
 		if (res.status === 429) throw new Error('App Store Connect chiede di rallentare (429): riprovo più tardi.');
 		throw new Error(`App Store Connect ha risposto ${res.status} ai report di vendita${detail ? ': ' + detail.slice(0, 120) : ''}.`);
@@ -1198,33 +1862,137 @@ export class AppStore {
 		const vendor = readEnvFile(this.ascEnvFile).ASC_VENDOR_NUMBER;
 		if (!vendor) throw new Error('Manca ASC_VENDOR_NUMBER in ~/.secrets/appstoreconnect-api.env: serve per i report di vendita.');
 		const meseCorrente = mesi[mesi.length - 1];
-		const lavori: { tipo: 'g' | 'm'; data: string }[] = [];
-		for (const d of giorni) if (!this.cache.giorni[d]) lavori.push({ tipo: 'g', data: d });
-		for (const m of mesi) if (m !== meseCorrente && !this.cache.mesi[m]) lavori.push({ tipo: 'm', data: m });
+		type Lavoro = { dove: 'giorni' | 'mesi' | 'abb' | 'eventi'; data: string };
+		const lavori: Lavoro[] = [];
+		for (const d of giorni) if (!this.cache.giorni[d]) lavori.push({ dove: 'giorni', data: d });
+		for (const m of mesi) if (m !== meseCorrente && !this.cache.mesi[m]) lavori.push({ dove: 'mesi', data: m });
+		for (const d of giorni) if (!this.cache.abb[d]) lavori.push({ dove: 'abb', data: d });
+		for (const d of giorni) if (!this.cache.eventi[d]) lavori.push({ dove: 'eventi', data: d });
 		const recenti = new Set([...giorni.slice(-4), ...mesi.slice(-3)]);
 		let fatti = 0;
 		let errore: unknown;
 		let i = 0;
+		const scarica = (l: Lavoro): Promise<VoceDi<unknown> | undefined> => {
+			if (l.dove === 'giorni') return this.report(radar, vendor, 'SALES', 'DAILY', l.data, '1_1', t => leggiReport(t, this.cache.sku, this.cache.nomi));
+			if (l.dove === 'mesi') return this.report(radar, vendor, 'SALES', 'MONTHLY', l.data, '1_0', t => leggiReport(t, this.cache.sku, this.cache.nomi));
+			if (l.dove === 'abb') return this.report(radar, vendor, 'SUBSCRIPTION', 'DAILY', l.data, '1_4', leggiAbbonamenti);
+			return this.report(radar, vendor, 'SUBSCRIPTION_EVENT', 'DAILY', l.data, '1_4', leggiEventi);
+		};
 		await Promise.all(
 			Array.from({ length: Math.min(PARALLEL, lavori.length) }, async () => {
 				while (i < lavori.length && !errore) {
 					const l = lavori[i++];
 					try {
-						const v = await this.report(radar, vendor, l.tipo === 'g' ? 'DAILY' : 'MONTHLY', l.data);
+						const v = await scarica(l);
 						// Apple dice «no sales» anche per un report non ancora pubblicato: un vuoto recente non si tiene
-						if (v && !(v === 'vuoto' && recenti.has(l.data))) (l.tipo === 'g' ? this.cache.giorni : this.cache.mesi)[l.data] = v;
+						if (v && !(v === 'vuoto' && recenti.has(l.data))) (this.cache[l.dove] as Record<string, unknown>)[l.data] = v;
 					} catch (e) {
-						errore = e;
+						// gli abbonamenti mancano a chi non ne ha: non fermano le vendite
+						if (l.dove === 'abb' || l.dove === 'eventi') (this.cache[l.dove] as Record<string, unknown>)[l.data] = 'vuoto';
+						else errore = e;
 					}
 					fatti++;
-					if (lavori.length > 8 && fatti % 6 === 0) this.fase(`Scarico le vendite dello Store: ${fatti} report su ${lavori.length}`);
+					if (lavori.length > 8 && fatti % 6 === 0) this.fase(`Scarico i report dello Store: ${fatti} su ${lavori.length}`);
 				}
 			}),
 		);
 		// i giorni usciti dalla finestra non servono piu'
 		const tieni = new Set(giorni);
-		for (const d of Object.keys(this.cache.giorni)) if (!tieni.has(d)) delete this.cache.giorni[d];
+		for (const k of ['giorni', 'abb', 'eventi'] as const) for (const d of Object.keys(this.cache[k])) if (!tieni.has(d)) delete this.cache[k][d];
 		if (errore) throw errore;
+	}
+
+	// --- la scheda dello Store (report di analisi) ---
+
+	/** Per ogni app con download: la richiesta di analisi continua (creata se manca), i due report che servono e le
+	 *  istanze giornaliere non ancora lette. Le richieste si ricontrollano una volta al giorno, le istanze ogni 6 ore. */
+	private async schede(radar: Radar, giorni: string[]) {
+		const dl = new Map<string, number>();
+		for (const d of giorni) {
+			const v = this.cache.giorni[d];
+			if (!v || typeof v === 'string') continue;
+			for (const [k, r] of Object.entries(v)) if (!k.startsWith('sku:')) dl.set(k, (dl.get(k) ?? 0) + r.dl);
+		}
+		const app = [...dl].filter(([, n]) => n >= 10).map(([k]) => k);
+		const now = this.now();
+		let errore: unknown;
+		let i = 0;
+		let fatte = 0;
+		await Promise.all(
+			Array.from({ length: Math.min(3, app.length) }, async () => {
+				while (i < app.length) {
+					const id = app[i++];
+					try {
+						await this.scheda(radar, id, now);
+					} catch (e) {
+						errore ??= e;
+					}
+					fatte++;
+					if (app.length > 4 && fatte % 3 === 0) this.fase(`Leggo le schede dello Store: ${fatte} app su ${app.length}`);
+				}
+			}),
+		);
+		// le istanze piu' vecchie della finestra si buttano
+		const primo = giorni[0];
+		for (const c of Object.values(this.cache.scheda)) for (const [k, v] of Object.entries(c.ist)) if (v.p < primo) delete c.ist[k];
+		if (errore) throw errore;
+	}
+
+	private async scheda(radar: Radar, appId: string, now: number) {
+		const c = (this.cache.scheda[appId] ??= { ist: {} });
+		if (!c.req || now - (c.richiesteAt ?? 0) > SCHEDA_RICHIESTE_TTL) {
+			const j = await radar.asc('GET', `/apps/${appId}/analyticsReportRequests?filter[accessType]=ONGOING`);
+			const viva = (j?.data ?? []).find((r: any) => r.attributes?.accessType === 'ONGOING' && !r.attributes?.stoppedDueToInactivity);
+			if (viva) c.req = String(viva.id);
+			else {
+				// la prima volta (o se Apple l'ha fermata per inattivita'): si chiede ad Apple di cominciare a preparare i dati
+				try {
+					const n = await radar.asc('POST', '/analyticsReportRequests', { data: { type: 'analyticsReportRequests', attributes: { accessType: 'ONGOING' }, relationships: { app: { data: { type: 'apps', id: appId } } } } });
+					c.req = n?.data?.id ? String(n.data.id) : undefined;
+					this.log(`appstore: richiesta di analisi creata per ${appId}`);
+				} catch (e) {
+					if (!/409/.test((e as Error).message)) throw e;
+				}
+				c.rep = undefined;
+			}
+			c.richiesteAt = now;
+		}
+		if (!c.req) return;
+		if (!c.rep?.scoperta || !c.rep?.download) {
+			const cerca = async (nome: string) => {
+				const j = await radar.asc('GET', `/analyticsReportRequests/${c.req}/reports?filter[name]=${encodeURIComponent(nome)}`);
+				return j?.data?.[0]?.id ? String(j.data[0].id) : undefined;
+			};
+			c.rep = { scoperta: await cerca(NOME_SCOPERTA), download: await cerca(NOME_DOWNLOAD) };
+		}
+		if (now - (c.istanzeAt ?? 0) < SCHEDA_ISTANZE_TTL) return;
+		for (const [quale, rep] of [['scoperta', c.rep.scoperta], ['download', c.rep.download]] as const) {
+			if (!rep) continue;
+			const j = await radar.asc('GET', `/analyticsReports/${rep}/instances?filter[granularity]=DAILY&limit=200`);
+			for (const inst of j?.data ?? []) {
+				const k = `${quale}:${inst.id}`;
+				if (c.ist[k]) continue;
+				const segs = await radar.asc('GET', `/analyticsReportInstances/${inst.id}/segments`);
+				const g: IstanzaScheda = {};
+				for (const seg of segs?.data ?? []) {
+					const url = seg?.attributes?.url;
+					if (!url) continue;
+					const res = await this.fetch(url, { signal: AbortSignal.timeout(TIMEOUT) });
+					if (!res.ok) throw new Error(`il segmento di un report di analisi ha risposto ${res.status}`);
+					const buf = Buffer.from(await res.arrayBuffer());
+					let testo: string;
+					try {
+						testo = zlib.gunzipSync(buf).toString('utf8');
+					} catch {
+						testo = buf.toString('utf8');
+					}
+					if (quale === 'scoperta') leggiScoperta(testo, g);
+					else leggiScaricamenti(testo, g);
+				}
+				c.ist[k] = { p: String(inst.attributes?.processingDate ?? ''), g };
+			}
+		}
+		c.istanzeAt = now;
 	}
 
 	// --- AdMob ---
@@ -1255,13 +2023,13 @@ export class AppStore {
 			leggiAdmob(await radar.admob('POST', `/${publisher}/networkReport:generate`, { reportSpec: { dateRange: { startDate: inizio, endDate: fine }, dimensions: dim, metrics: metriche } }));
 		const tutte = ['ESTIMATED_EARNINGS', 'AD_REQUESTS', 'MATCHED_REQUESTS', 'IMPRESSIONS', 'CLICKS'];
 		this.fase('Leggo AdMob');
-		const [app, unita, perGiorno, perMese, formati, perUnita, paesi] = await Promise.all([
+		const [app, unita, perGiorno, perMese, formatiGiorni, perUnita, paesi] = await Promise.all([
 			elenco('apps'),
 			elenco('adUnits'),
 			report(['DATE', 'APP'], ['ESTIMATED_EARNINGS', 'IMPRESSIONS'], giorno(giorni[0])),
 			// il mese in corso arriva fino a oggi: AdMob lo da' gia' parziale
 			report(['MONTH', 'APP'], ['ESTIMATED_EARNINGS'], { year: y0, month: m0, day: 1 }),
-			report(['APP', 'FORMAT'], tutte, da30),
+			report(['DATE', 'APP', 'FORMAT'], tutte, giorno(giorni[0])),
 			report(['AD_UNIT'], tutte, da30),
 			report(['COUNTRY'], ['ESTIMATED_EARNINGS', 'IMPRESSIONS'], da30),
 		]);
@@ -1277,7 +2045,7 @@ export class AppStore {
 			unita: unita.map(u => ({ id: String(u.adUnitId), appId: String(u.appId), nome: String(u.displayName ?? ''), formato: String(u.adFormat ?? '') })),
 			giorni: perGiorno,
 			mesi: perMese,
-			formati,
+			formatiGiorni,
 			perUnita,
 			paesi,
 		};
@@ -1298,6 +2066,14 @@ export class AppStore {
 	}
 }
 
+const GIORNI_SETT = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
+const MESI_NOMI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+/** «mercoledì 1 ottobre», per Melissa che lo dice a voce. */
+function giornoParlato(d: string): string {
+	const x = new Date(d + 'T12:00:00');
+	return `${GIORNI_SETT[x.getDay()]} ${x.getDate()} ${MESI_NOMI[x.getMonth()]}`;
+}
+
 /** Una serie salvata su un asse di date vecchio, spostata sul nuovo (gli assi scorrono di un giorno al giorno). */
 function riallinea(vecchieDate: string[], valori: number[], nuoveDate: string[]): number[] {
 	const m = new Map(vecchieDate.map((d, i) => [d, valori[i] ?? 0]));
@@ -1307,6 +2083,6 @@ function riallinea(vecchieDate: string[], valori: number[], nuoveDate: string[])
 function msg(e: unknown, chi: string): string {
 	const m = e instanceof Error ? e.message : String(e);
 	if (/abort|timeout/i.test(m)) return `${chi} non risponde (tempo scaduto).`;
-	if (/^(App Store|AdMob|Manca|Il permesso|Il servizio)/.test(m)) return m;
+	if (/^(App Store|AdMob|Manca|Il permesso|Il servizio|L'analisi)/.test(m)) return m;
 	return `${chi}: ${m.slice(0, 160)}`;
 }

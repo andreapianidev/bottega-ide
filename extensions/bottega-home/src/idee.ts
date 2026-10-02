@@ -56,6 +56,8 @@ export interface IdeeHost {
 	openProject(path: string): void;
 	refresh(): void;
 	log(s: string): void;
+	/** I soldi delle app dalla stanza App Store, per il briefing (null se i dati sono vecchi). */
+	appstore?(): import('./appstore').BriefingAppStore | null;
 }
 
 const URI_AUTHORITY = 'andreapiani.bottega-home';
@@ -325,6 +327,7 @@ export class Idee {
 			night: this.night.state(),
 			projects: this.h.projects().map(p => ({ name: p.name, path: p.path })),
 			seen: this.briefingMemory,
+			appstore: this.h.appstore?.() ?? null,
 		};
 	}
 

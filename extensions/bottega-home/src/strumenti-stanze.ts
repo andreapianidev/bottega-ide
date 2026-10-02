@@ -898,10 +898,10 @@ export const STRUMENTI_STANZE: Record<string, StrumentoStanza> = {
 				name: 'stanza_leggi',
 				description:
 					'Legge una stanza della plancia e restituisce un riassunto gia\' pronto da dire a voce, dagli stessi dati che Andrea vede: gratis, subito, nessuna chiamata di rete. Ripeti i numeri come arrivano, senza aggiungerne. ' +
-					'Stanze: cruscotto (ore tue e di Claude, sessioni, token, valore a listino, per progetto e periodo), appstore (guadagni AdMob e vendite dello Store, download, app che rendono di piu\', buchi da sistemare), ' +
+					'Stanze: cruscotto (ore tue e di Claude, sessioni, token, valore a listino, per progetto e periodo), appstore (solo per un mese preciso, "a settembre", "il mese scorso": per ieri, la settimana, il mese o l\'anno in corso e per i buchi da sistemare usa app_guadagni), ' +
 					'vedetta (semaforo delle regole), siti (pubblicazioni su Vercel), clienti (ore per cliente e quanto fatturare nel mese), dafare (le cose rimaste da fare, dai riassunti della Memoria), memoria (decisioni recenti, cosa scrivono le sessioni), ' +
 					'posta e whatsapp (chi ha scritto per un progetto), connettori (stato e spesa delle deleghe), notte (coda e resoconto della notte). ' +
-					'Esempi: "quante ore ho fatto su Woofmap questa settimana" (cruscotto, Woofmap, 7), "quanto ho guadagnato a settembre" (appstore, mese settembre), "quanto ha reso Talky quest\'anno" (appstore, Talky, 365), ' +
+					'Esempi: "quante ore ho fatto su Woofmap questa settimana" (cruscotto, Woofmap, 7), "quanto ho guadagnato a settembre" (appstore, mese settembre), ' +
 					'"cosa mi resta da fare sulla Bottega" (dafare, Bottega), "chi mi ha scritto per CheckIn Facile" (posta, CheckIn Facile), "quali mail non lette ho dei clienti" (posta), ' +
 					'"quanto devo fatturare a quel cliente questo mese" (clienti, con il nome del cliente o di un suo progetto), "i siti sono tutti su?" (siti). ' +
 					'posta e whatsapp SOLO se Andrea chiede esplicitamente di mail, messaggi o di chi gli ha scritto, mai di tua iniziativa: danno nomi, oggetti e anteprime brevi. Se vuole anche vedere, chiama stanza_mostra.',
