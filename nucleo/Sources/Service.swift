@@ -9,6 +9,7 @@
 
 import AppKit
 import Metal
+import WidgetKit
 
 enum StdinReader {
     static func start() {
@@ -141,9 +142,44 @@ enum Service {
                     guard let id = d["id"].map({ "\($0)" }), let title = d["title"] as? String else { return nil }
                     return MenuBar.Item(id: id, title: title, status: (d["status"] as? String) ?? "")
                 }
+                let lines = r.dicts("lines")?.compactMap { d -> MenuBar.Line? in
+                    guard let title = d["title"] as? String else { return nil }
+                    return MenuBar.Line(id: d["id"].flatMap { $0 is NSNull ? nil : "\($0)" }, title: title,
+                                        tone: d["tone"] as? String)
+                }
+                // tone: absent = keep, null = no dot, "rosso" / "giallo" = dot.
+                let tone: String?? = r.args["tone"] == nil ? .none : .some(r.string("tone"))
                 MenuBar.shared.update(busy: r.int("busy") ?? 0, waiting: r.int("waiting") ?? 0,
                                       queued: r.int("queued") ?? 0, title: r.string("title"),
-                                      items: items, visible: r.bool("visible"))
+                                      items: items, visible: r.bool("visible"), lines: lines, tone: tone)
+                r.respond()
+
+            // MARK: power
+            case "power.status":
+                r.respond(Power.snapshot())
+
+            case "power.keepAwake":
+                r.respond(["token": try Power.shared.keepAwake(reason: r.string("reason") ?? "")])
+
+            case "power.release":
+                guard let token = r.string("token") else { throw NucleoError("Manca il token da rilasciare.") }
+                try Power.shared.release(token: token)
+                r.respond()
+
+            // MARK: Spotlight
+            case "spotlight.index":
+                let items = try (r.dicts("items") ?? []).map(Spotlight.Item.init)
+                let count = try await Spotlight.index(items, replace: r.bool("replace") ?? false)
+                r.respond(["count": count])
+
+            case "spotlight.clear":
+                try await Spotlight.clear(kind: r.string("kind"))
+                r.respond()
+
+            // MARK: widget
+            case "widget.reload":
+                // stato.json changed: the desktop widget redraws now instead of within 15 minutes.
+                WidgetCenter.shared.reloadAllTimelines()
                 r.respond()
 
             // MARK: Apple Intelligence
@@ -181,6 +217,7 @@ enum Service {
 
     static func shutdown(reason: String) {
         Log.info("chiusura: \(reason)")
+        Power.shared.releaseAll()
         Hotkey.shared.unregister()
         MenuBar.shared.remove()
         Speaker.shared.stopSpeaking()

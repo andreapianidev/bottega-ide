@@ -67,6 +67,7 @@ const vscodeMock = {
 			get: (k, def) => (k in configStore ? configStore[k] : def),
 			update: async () => {},
 		}),
+		onDidChangeConfiguration: () => ({ dispose() {} }),
 	},
 	ThemeIcon: class {
 		constructor(id) {
@@ -451,6 +452,50 @@ function makeAssistant(over = {}) {
 	});
 
 	// ---- collaudo reale contro Agnes: consuma la quota condivisa, quindi solo su richiesta ----
+	// ---- il loop di Melissa: risposta detta due volte, strumenti richiamati in tondo, eco della sua voce ----
+	await test('una frase gia\' detta in un passo con strumenti non si ridice al passo dopo', async () => {
+		const { a, nucleo } = makeAssistant({
+			stream: scriptedStream([
+				[{ content: 'Apro Peak. ' }, { tool_call: { index: 0, id: 't1', name: 'progetto_apri', arguments: '{"progetto":"Peak"}' } }],
+				[{ content: 'Apro Peak. Fatto, è aperta.' }],
+			]),
+		});
+		await a.turn('apri peak', true);
+		const said = nucleo.speaks.map(s => s.text).filter(Boolean);
+		assert.strictEqual(said.filter(t => t === 'Apro Peak.').length, 1, `detto: ${JSON.stringify(said)}`);
+		assert.ok(said.includes('Fatto, è aperta.'));
+	});
+
+	await test('lo stesso strumento con gli stessi argomenti non si riesegue e il giro si chiude', async () => {
+		let opened = 0;
+		const call = () => [{ tool_call: { index: 0, id: 'x' + Math.random(), name: 'progetto_apri', arguments: '{"progetto":"Peak"}' } }];
+		const { a } = makeAssistant({
+			actions: { openProject: () => opened++ },
+			stream: scriptedStream([call(), call(), call(), call(), call(), call(), [{ content: 'mai' }]]),
+		});
+		const answer = await a.turn('apri peak', false);
+		assert.strictEqual(opened, 1, 'aperto una volta sola');
+		assert.ok(!answer.includes('mai'), 'il giro si ferma prima');
+	});
+
+	await test('in conversazione Melissa non risponde alla propria voce (eco)', async () => {
+		let turns = 0;
+		const { a, nucleo } = makeAssistant({ stream: async (_m, _t, onDelta) => (turns++, onDelta({ content: 'Peak ha tre commit da spingere e la build ferma.' })) });
+		a.wire({ subscriptions: [] });
+		nucleo.fire('orb.clicked', {});
+		nucleo.fire('voice.final', { text: 'come sta peak', mode: 'converse' });
+		await new Promise(r => setTimeout(r, 30));
+		assert.strictEqual(turns, 1);
+		nucleo.fire('voice.final', { text: 'Peak ha tre commit da spingere e la build', mode: 'converse' });
+		await new Promise(r => setTimeout(r, 30));
+		assert.strictEqual(turns, 1, 'l\'eco non diventa una domanda');
+		nucleo.fire('voice.final', { text: 'e Fontanelle invece', mode: 'converse' });
+		await new Promise(r => setTimeout(r, 30));
+		assert.strictEqual(turns, 2, 'una domanda vera passa');
+		assert.ok(asst.echoScore('Peak ha tre commit da spingere', 'Peak ha tre commit da spingere e la build ferma.') >= 0.6);
+		assert.strictEqual(asst.echoScore('ok', 'ok va bene'), 0);
+	});
+
 	// BOTTEGA_TEST_REALE=1 npm test
 	if (process.env.BOTTEGA_TEST_REALE === '1') await test('REALE: Agnes chiama progetti_cerca con il vero formato tool', async () => {
 		const fs = require('fs');

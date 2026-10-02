@@ -535,6 +535,10 @@ interface ProjAcc {
 	last: number;
 }
 
+/** Intervalli di lavoro (gia' fusi, ms) di ogni progetto, chiave: path del progetto o null per le sessioni fuori.
+ *  Lo usano le ore per cliente (src/clienti.ts), che fanno l'unione tra progetti dello stesso cliente. */
+export type Ledger = Map<string | null, { name: string; spans: number[] }>;
+
 export interface StatsEngineOptions {
 	storageDir?: string;
 	projectsDir?: string;
@@ -549,6 +553,8 @@ export class StatsEngine {
 	private readonly cacheFile: string | undefined;
 	/** Tempi dell'ultimo calcolo, per il banco di prova. */
 	lastTiming = { listMs: 0, readMs: 0, aggregateMs: 0, saveMs: 0, busyMs: 0 };
+	/** Intervalli per progetto dell'ultimo calcolo. */
+	lastLedger: Ledger = new Map();
 
 	constructor(private readonly opts: StatsEngineOptions = {}) {
 		this.root = opts.projectsDir ?? path.join(os.homedir(), '.claude', 'projects');
@@ -628,7 +634,9 @@ export class StatsEngine {
 		if (Object.keys(cache.files).length !== Object.keys(next).length) this.dirty = true;
 		cache.files = next;
 		const t2 = performance.now();
-		const stats = aggregate(next, input, input.now ?? Date.now());
+		const ledger: Ledger = new Map();
+		const stats = aggregate(next, input, input.now ?? Date.now(), ledger);
+		this.lastLedger = ledger;
 		const t3 = performance.now();
 		try {
 			await this.save();
@@ -650,7 +658,7 @@ const r2 = (x: number) => Math.round(x * 100) / 100;
 const tok4 = (v: number[]): Tok => [v[0], v[1], v[2], v[3]];
 const tokSum = (t: number[]) => t[0] + t[1] + t[2] + t[3];
 
-export function aggregate(files: Record<string, FileRec>, input: StatsInput, now: number): Stats {
+export function aggregate(files: Record<string, FileRec>, input: StatsInput, now: number, ledger?: Ledger): Stats {
 	// 1. sessioni: file principale + sottoagenti
 	interface Sess {
 		sid: string;
@@ -773,6 +781,7 @@ export function aggregate(files: Record<string, FileRec>, input: StatsInput, now
 	}
 	for (const p of projects.values()) {
 		p.spans = mergeSpans(p.spans, 0);
+		if (ledger && p.spans.length) ledger.set(p.path, { name: p.name, spans: p.spans });
 		for (let i = 0; i + 1 < p.spans.length; i += 2) {
 			walk(p.spans[i], p.spans[i + 1], (day, h, min) => {
 				const pd = dayOf(p.days, day);

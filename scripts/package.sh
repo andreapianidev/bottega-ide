@@ -129,3 +129,14 @@ mkdir -p ~/.local/bin
 ln -sf /Applications/Bottega.app/Contents/Resources/app/bin/code ~/.local/bin/bottega
 echo "Bottega $VERSION (build $BUILD) su VS Code $(python3 -c "import json;print(json.load(open('$DIST/Contents/Resources/app/package.json'))['version'])") installata."
 if (( WAS_RUNNING )); then open -a /Applications/Bottega.app && echo "Bottega riaperta"; fi
+
+# Comandi rapidi, Spotlight e il widget trovano il Nucleo solo se LaunchServices lo conosce: si
+# registra la copia installata e si dimentica quella di sviluppo (stesso bundle id, widget doppio).
+LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+NUCLEO_APP="$APPEXT/nucleo/Bottega Nucleo.app"
+if [[ -d "$NUCLEO_APP" ]]; then
+  $LSREG -u "$ROOT/nucleo/build/Bottega Nucleo.app" 2>/dev/null || true
+  pluginkit -r "$ROOT/nucleo/build/Bottega Nucleo.app/Contents/PlugIns/BottegaWidget.appex" 2>/dev/null || true
+  $LSREG -f "$NUCLEO_APP" && echo "Nucleo registrato (Comandi rapidi, Spotlight)"
+  [[ -d "$NUCLEO_APP/Contents/PlugIns/BottegaWidget.appex" ]] && pluginkit -a "$NUCLEO_APP/Contents/PlugIns/BottegaWidget.appex" || true
+fi

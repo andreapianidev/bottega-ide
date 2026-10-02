@@ -27,6 +27,8 @@ export interface Project {
 	live: LiveSession[];
 	/** Ultimo momento in cui qualcuno (commit, file, Claude) ha toccato il progetto. */
 	touchedAt: number;
+	/** Worktree git di questo repository che stanno sotto le radici: non sono progetti a se', stanno qui. */
+	worktrees?: { path: string; branch: string; changes: number; ahead: number; upstream: boolean }[];
 }
 
 export function expand(p: string): string {
@@ -167,15 +169,38 @@ const norm = (p: string) => p.toLowerCase().replace(/\/+$/, '');
 /** Chiave di confronto di una cartella di progetto: minuscole, con la barra finale. */
 export const projectKey = (p: string) => norm(p) + '/';
 
+/** Se `dir` e' un worktree git (.git e' un FILE "gitdir: <repo>/.git/worktrees/<nome>"), il repository principale.
+ *  Stessa regola di memoria/lib/paths.mjs. */
+export function worktreeMain(dir: string): string | undefined {
+	try {
+		const g = path.join(dir, '.git');
+		if (!fs.statSync(g).isFile()) return undefined;
+		return /^gitdir:\s*(.+?)\/\.git\/worktrees\/[^/\n]+\s*$/m.exec(fs.readFileSync(g, 'utf8'))?.[1];
+	} catch {
+		return undefined;
+	}
+}
+
+/** Worktree conosciuti: chiave del worktree -> chiave del repository principale. Li riempie scanProjects. */
+const aliases = new Map<string, string>();
+
+/** Chiave di un percorso con i worktree ricondotti al progetto principale: una sessione che lavora in
+ *  Bottega-idee e' una sessione di Bottega, per la plancia, il cruscotto e la memoria. */
+export function canonKey(p: string): string {
+	const k = projectKey(p);
+	for (const [a, m] of aliases) if (k.startsWith(a)) return m + k.slice(a.length);
+	return k;
+}
+
 /** A quale progetto appartiene una sessione: quello della cartella di partenza, altrimenti quello
  *  in cui ha toccato piu' cartelle e file (almeno due). La usano la plancia e il cruscotto, cosi'
  *  una sessione finisce nello stesso progetto in tutte e due. `keys` sono chiavi di `projectKey`. */
 export function sessionOwner(keys: string[], cwd: string, touched: Iterable<string>): string | undefined {
-	const start = keys.find(k => projectKey(cwd).startsWith(k));
+	const start = keys.find(k => canonKey(cwd).startsWith(k));
 	if (start) return start;
 	const hits = new Map<string, number>();
 	for (const t of touched) {
-		const k = keys.find(k => projectKey(t).startsWith(k));
+		const k = keys.find(k => canonKey(t).startsWith(k));
 		if (k) hits.set(k, (hits.get(k) ?? 0) + 1);
 	}
 	const best = [...hits].sort((a, b) => b[1] - a[1])[0];
@@ -186,6 +211,7 @@ export async function scanProjects(roots: string[], ignore: string[], past: Past
 	const ignoreRe = ignore.map(s => new RegExp(s, 'i'));
 	const seen = new Set<string>();
 	const candidates: { name: string; path: string; root: string }[] = [];
+	const worktrees: { path: string; main: string }[] = [];
 	for (const r of roots.map(expand)) {
 		for (const name of list(r)) {
 			if (ignoreRe.some(re => re.test(name))) continue;
@@ -198,8 +224,23 @@ export async function scanProjects(roots: string[], ignore: string[], past: Past
 			const key = norm(fs.realpathSync(p));
 			if (seen.has(key)) continue;
 			seen.add(key);
+			const main = worktreeMain(p);
+			if (main && norm(main) !== norm(p)) {
+				worktrees.push({ path: p, main });
+				continue;
+			}
 			candidates.push({ name, path: p, root: r });
 		}
+	}
+
+	// Un worktree il cui repository principale e' tra i progetti diventa un ramo di quel progetto;
+	// gli altri (principale fuori dalle radici) restano progetti come prima.
+	aliases.clear();
+	const byKey = new Map(candidates.map(c => [projectKey(c.path), c]));
+	for (const w of worktrees) {
+		const main = byKey.get(projectKey(w.main)) ?? candidates.find(c => projectKey(fs.realpathSync(c.path)) === projectKey(w.main));
+		if (main) aliases.set(projectKey(w.path), projectKey(main.path));
+		else candidates.push({ name: path.basename(w.path), path: w.path, root: path.dirname(w.path) });
 	}
 
 	// Ogni sessione va a un solo progetto: quello della cartella di partenza, altrimenti
@@ -216,7 +257,7 @@ export async function scanProjects(roots: string[], ignore: string[], past: Past
 		const git = await gitInfo(c.path);
 		const key = norm(c.path) + '/';
 		const sessions = past.filter(s => owner.get(s.sessionId) === key);
-		const liveHere = live.filter(s => (norm(s.cwd) + '/').startsWith(key) || owner.get(s.sessionId) === key);
+		const liveHere = live.filter(s => canonKey(s.cwd).startsWith(key) || owner.get(s.sessionId) === key);
 		let mtime = 0;
 		try {
 			mtime = fs.statSync(c.path).mtimeMs;
@@ -234,6 +275,15 @@ export async function scanProjects(roots: string[], ignore: string[], past: Past
 			live: liveHere,
 			touchedAt: Math.max(git?.lastCommitAt ?? 0, sessions[0]?.mtime ?? 0, mtime),
 		};
+		const mine = worktrees.filter(w => aliases.get(projectKey(w.path)) === key);
+		if (mine.length) {
+			project.worktrees = await Promise.all(
+				mine.map(async w => {
+					const g = await gitInfo(w.path);
+					return { path: w.path, branch: g?.branch ?? path.basename(w.path), changes: g?.changes ?? 0, ahead: g?.ahead ?? 0, upstream: !!g?.upstream };
+				}),
+			);
+		}
 		return project;
 	});
 	return projects.sort((a, b) => b.touchedAt - a.touchedAt);

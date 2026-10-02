@@ -43,7 +43,9 @@ ciascuno, da riprendere con un clic.
 Piu' sessioni Claude in parallelo, ognuna in una scheda dell'editor. Scegli il progetto, scrivi cosa
 deve fare Claude, avvia. Quando un lavoro ha bisogno di te diventa la cosa piu' luminosa della
 pagina e arriva una notifica di macOS. Una coda rispetta i limiti del Mac: con 16 GB lavorano al
-massimo tre sessioni insieme, meno se la memoria e' sotto pressione o il Mac e' caldo.
+massimo tre sessioni insieme, meno se la memoria e' sotto pressione o il Mac e' caldo. Nella stanza Lavori
+compaiono anche le sessioni Claude aperte fuori dalla Bottega (un terminale, un'altra app): ogni sessione viva è un
+lavoro, e tutti i numeri della Bottega li contano allo stesso modo.
 
 ### La memoria
 
@@ -73,7 +75,8 @@ push, chiedono sempre conferma.
   cosi' Melissa comincia a parlare mentre la risposta e' ancora in arrivo.
 - Voce: ElevenLabs `eleven_v4_turbo` su canale tenuto caldo, circa 0,2 secondi al primo suono.
   Se ElevenLabs non risponde, parla con una voce di sistema di macOS.
-- La sfera e' disegnata in Metal, in un pannello di vetro che fluttua sopra le finestre.
+- La sfera vive dentro la Bottega, nella barra laterale e nella barra di stato. Con `bottega.voice.sfera` su
+  `schermo` torna la sfera disegnata in Metal dal Nucleo, in un pannello di vetro sopra le finestre.
 
 ### Il Nucleo
 
@@ -82,6 +85,48 @@ fare: audio, sfera Metal, scorciatoia globale, notifiche, icona nella barra dei 
 memoria e temperatura del Mac, Apple Intelligence (FoundationModels) ed embedding di frase
 (NaturalLanguage). Solo framework Apple, nessuna dipendenza esterna. Da fermo: 0% di CPU, circa
 30 MB di memoria, nessuna connessione aperta.
+
+### La Home
+
+La plancia è la Home dell'app: una scheda appuntata che si apre sempre, anche con una cartella aperta, e che si
+ritrova al riavvio. In cima il briefing del giorno e i consigli scritti da Apple Intelligence sul Mac (senza Apple
+Intelligence restano consigli fissi ricavati dalle regole), poi i numeri che contano, i progetti dimenticati e l'elenco
+dei progetti con il loro semaforo.
+
+### Il semaforo delle regole e la Vedetta
+
+Ogni progetto ha un semaforo che si accende quando una regola è violata: un commit che tocca il codice di un'app senza
+far salire il numero di build, commit non spinti, repository senza remoto, repository pubblici non voluti, chiavi nei
+commit non ancora spinti, una versione su App Store Connect che non andrà in rilascio automatico, `app-ads.txt` diverso
+tra i siti che lo servono. Per ogni violazione c'è la frase che dice come rimediare e, quando si può, il pulsante che lo
+fa. La stanza Vedetta mette tutto insieme, accanto al radar dello Store: stato di ogni app su App Store Connect,
+ultime recensioni e quanto ha reso su AdMob ieri e negli ultimi sette giorni. Funziona anche senza rete, con l'età del
+dato in chiaro. Le chiavi si leggono da `~/.secrets/` e dal server MCP di AdMob già autenticato: nel repository non c'è
+niente.
+
+### Il briefing del mattino, la notte, «continua da dove eri»
+
+Alla prima apertura della giornata Melissa dice in trenta secondi cosa conta: ore e progetti di ieri, lavori che
+aspettano, novità dallo Store, soldi di ieri, regole violate, progetti dimenticati, cosa è successo stanotte. Una volta
+sola, poi resta una card nella Home. I lavori si possono mettere in fila per la notte: partono nella finestra scelta
+(di default dall'una alle sei), uno o due alla volta, solo se il Mac è alla corrente e la memoria è tranquilla; il
+Nucleo tiene sveglio il Mac mentre lavorano e il loro prompt vieta push e pubblicazioni. Su ogni progetto, «Continua da
+dove eri» prepara un lavoro che riparte dall'ultimo riassunto della memoria e dalle cose rimaste da fare: il prompt si
+legge e si cambia prima di partire.
+
+### Ore per cliente e «Dove l'ho già risolto?»
+
+La stanza Clienti raggruppa le ore del cruscotto per cliente (l'associazione progetto e cliente sta in
+`~/.bottega/clienti.json`, solo sul tuo Mac), arrotonda ogni giorno al quarto d'ora ed esporta il mese in CSV e in
+Markdown. «Dove l'ho già risolto?» cerca per significato in tutta la memoria e per testo nel codice di tutti i progetti.
+
+### Melissa dentro l'IDE
+
+La sfera di Melissa vive nella barra laterale e nella barra di stato della Bottega, non sopra le altre app. Chi la vuole
+sullo schermo, come prima, imposta `bottega.voice.sfera` su `schermo`. Il Nucleo espone anche i Comandi rapidi
+(«Chiedi a Melissa», «Avvia un lavoro», «Briefing», «Stato delle regole», anche con Siri), un widget da scrivania
+con il semaforo delle regole e il briefing, e mette progetti e ricordi in Spotlight (se l'indicizzazione di Spotlight è
+accesa sul Mac).
 
 ### L'aspetto
 

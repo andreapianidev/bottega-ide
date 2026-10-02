@@ -100,6 +100,9 @@ BottegaNucleo --cli summarize [--instructions "..."] < testo  -> riassunto su st
 BottegaNucleo --cli generate --instructions "..." [--max-tokens N] < prompt
 BottegaNucleo --cli embed [--language it] < una frase per riga -> JSON {"dimension":640,"vectors":[[...]]}
 BottegaNucleo --cli stats                       -> JSON come system.stats
+BottegaNucleo --cli power                       -> JSON come power.status
+BottegaNucleo --cli stato [--file stato.json]   -> le frasi che direbbero «Briefing» e «Stato delle regole»
+BottegaNucleo --cli spotlight-find <testo>      -> gli elementi della Bottega nell'indice di Spotlight (diagnosi)
 BottegaNucleo --cli capabilities                -> JSON come capabilities
 BottegaNucleo --cli tts --out f.wav [--engine elevenlabs|apple] [--via ws|rest] [--model m] < testo
                                                 -> scrive un WAV 24 kHz senza suonarlo (prova della voce)
@@ -244,3 +247,280 @@ interface Stats {
   unpricedTokens: number;
 }
 ```
+
+## 4. Le otto idee: regole, radar, briefing, continua, clienti, notte, dimenticati, ricerca
+
+Tutto quello che segue e' calcolato dall'estensione (`src/regole.ts`, `src/radar.ts`, `src/briefing.ts`,
+`src/continua.ts`, `src/clienti.ts`, `src/notte.ts`, `src/dimenticati.ts`, `src/ricerca.ts`) e arriva alla
+plancia nello `snapshot` o come risposta a una richiesta. File su disco, tutti fuori dal repository:
+
+| file | chi lo scrive | cosa contiene |
+|---|---|---|
+| `~/.bottega/regole-cache.json` | regole | esiti per progetto (chiave: HEAD), visibilita' GitHub (24 h), app-ads.txt (6 h) |
+| `~/.bottega/regole.json` | Andrea (facoltativo) | `{"pubbliciPerScelta": ["owner/nome"], "commitDaControllare": 10}`; la Bottega (`andreapianidev/bottega-ide`) e' pubblica per scelta anche senza questo file |
+| `~/.bottega/radar/stato.json` | radar | ultimo dato di App Store Connect e AdMob, con la sua eta' |
+| `~/.bottega/briefing.json` | briefing | ultimo briefing (`date`, `text`, `points`, `heard`) |
+| `~/.bottega/clienti.json` | plancia (Clienti) | `{"version":1,"rounding":15,"clients":[{"id","nome","progetti":[path],"tariffa"?}]}`: nomi di clienti, mai nel repository |
+| `~/.bottega/notte.json` | plancia (Lavori) | finestra e parallelismo della coda della notte, resoconto dell'ultima notte |
+| `~/.bottega/stato.json` | estensione | riassunto per App Intents e widget (vedi 4.9), mode 600 |
+
+### 4.1 Lo snapshot si allarga
+
+```ts
+interface Snapshot { /* ...campi della sezione 3... */
+  rules: RulesState;
+  radar: RadarState;
+  briefing: Briefing | null;
+  forgotten: Forgotten[];
+  night: NightState;
+}
+type Livello = 'rosso' | 'giallo' | 'verde';
+interface RuleAction { act: string; label: string; args?: Record<string, string> } // act = messaggio plancia -> estensione
+interface RuleHit {
+  id: 'build' | 'push' | 'remoto' | 'pubblico' | 'rilascio' | 'segreti' | 'app-ads';
+  livello: 'rosso' | 'giallo';
+  frase: string;     // cosa e' violato, una frase
+  rimedio: string;   // come si rimedia, una frase
+  azione?: RuleAction;
+  dettagli?: string[]; // per esempio i commit incriminati: "a1b2c3d Sistema il login"
+}
+interface ProjectRules { path: string; livello: Livello; hits: RuleHit[]; checkedAt: number }
+interface RulesState {
+  projects: Record<string, ProjectRules>; // chiave: path del progetto
+  global: RuleHit[];                      // regole non legate a un progetto (app-ads.txt)
+  appAds: { checkedAt: number; identical: boolean; hosts: { host: string; md5: string | null; error?: string }[] } | null;
+  counts: { rosso: number; giallo: number; verde: number };
+  checkedAt: number; running: boolean;
+}
+```
+
+Regole (rosso: si rimedia subito; giallo: va sistemato):
+- `segreti` rosso: chiavi nei commit non ancora spinti (`git diff @{u}..HEAD`, schemi di `memoria/lib/redact.mjs` tramite
+  `findSecrets`; le regole basate sul nome della variabile contano nei file di configurazione, o nel codice solo con un
+  valore letterale). Il valore trovato non viene mai mostrato: solo file e tipo. Con segreti, niente pulsante «Spingi»:
+  l'azione e' `job.prepare` («Fai togliere la chiave»).
+- `pubblico` rosso: `gh api repos/OWNER/NAME` dice `private: false`, Andrea ha il permesso di scrittura (i cloni di progetti
+  altrui non contano) e il repository non e' tra i pubblici per scelta.
+- `rilascio` rosso: versione su App Store Connect in lavorazione (PREPARE_FOR_SUBMISSION, READY_FOR_REVIEW,
+  WAITING_FOR_EXPORT_COMPLIANCE, WAITING_FOR_REVIEW, IN_REVIEW, o rifiutata e quindi destinata a tornare in revisione:
+  REJECTED, METADATA_REJECTED, DEVELOPER_REJECTED, INVALID_BINARY) con `releaseType` diverso da `AFTER_APPROVAL`. Azione
+  `rule.fix {path, rule: 'rilascio'}`: dopo conferma modale la Bottega la mette in rilascio automatico
+  (`Radar.setAutomaticRelease`, che lancia un errore in italiano se App Store Connect rifiuta).
+- `build` giallo: negli ultimi N commit (default 10, solo ultimi 60 giorni) un commit tocca il codice di un'app senza che
+  salga il numero di build nello stesso commit (`CURRENT_PROJECT_VERSION`, `versionCode`, `"build"` di `bottega.json`).
+  Codice = estensioni di sorgenti (swift, m, h, kt, java, ts, tsx, js, mjs, cjs, py, metal, xib, storyboard, xcstrings,
+  strings, plist, gradle, kts, css, html; le cartelle generate `out/`, `test-out/`, `dist/`, `build/`, `Pods/` no). Il numero
+  di build si cerca in pbxproj, xcconfig, `project.yml` (XcodeGen), gradle, `*.properties` e `bottega.json`. Si leggono solo
+  i nomi dei file degli ultimi N commit, poi `git log --no-walk -G` sui commit sospetti. Azione `job.prepare {path, task}`.
+- `push` giallo: commit non spinti. Azione `push {path}`.
+- `remoto` giallo: repository senza remoto (o ramo senza upstream).
+- `app-ads` rosso, globale: `app-ads.txt` non identico byte per byte sui tre host (www.andreapiani.com,
+  privacypolicyhub.vercel.app, walkie-talky.vercel.app; elenco cambiabile con `appAdsHosts` in `regole.json`).
+
+I progetti senza git non entrano in `projects`. `counts` comprende anche le regole globali. Costo misurato su 68
+progetti: primo controllo 11 s (quasi tutto `gh`), i successivi 0,4 s (solo `rev-parse`, nessun ricalcolo).
+Un pulsante d'azione manda `{type: act, ...args}`; se `args` non ha `path`, la plancia aggiunge quello del progetto.
+
+```ts
+interface RadarApp {
+  ascId: string;          // Apple ID dell'app
+  bundleId: string;       // identificatore tecnico: si usa per collegare, MAI mostrato come nome
+  name: string;           // nome su App Store Connect
+  projectPath?: string;   // progetto collegato tramite PRODUCT_BUNDLE_IDENTIFIER
+  version?: { string: string; state: string; label: string; tone: 'ok'|'attesa'|'male'; build?: string; releaseType?: string; at?: number };
+  live?: string;          // ultima versione pubblicata
+  reviews: { stars: number; title: string; body: string; territory?: string; at: number }[]; // ultime 5
+  money?: { yesterday: number; last7: number; daily: number[]; currency: string }; // daily: 7 giorni fino a ieri, dal piu' vecchio
+}
+interface RadarState {
+  apps: RadarApp[];
+  totals: { yesterday: number; last7: number; daily: number[]; currency: string } | null;
+  ascAt: number; admobAt: number;   // 0 = mai letto
+  ascError?: string; admobError?: string;
+  refreshing: boolean;
+}
+interface Briefing {
+  date: string;            // YYYY-MM-DD
+  at: number;
+  text: string;            // quello che Melissa dice (circa trenta secondi)
+  points: { kind: 'ore'|'lavori'|'store'|'soldi'|'regole'|'dimenticati'|'notte'; text: string; act?: RuleAction }[];
+  heard: boolean;          // gia' ascoltato o chiuso oggi
+}
+interface Forgotten { path: string; name: string; idleDays: number; reasons: string[] } // fermi da 14 giorni o piu'
+interface NightState {
+  from: string; to: string;      // "01:00", "06:00"
+  parallel: number;              // 1 o 2
+  queued: number; running: number;
+  ac: boolean | null;            // alimentazione dalla corrente (null: Nucleo assente)
+  why: string;                   // perche' adesso parte o non parte, una frase
+  report: { date: string; jobs: { id: string; project: string; task: string; status: string; summary?: string }[] } | null;
+}
+```
+
+Il `Job` della sezione 3 acquista `night?: boolean` e lo stato `'stanotte'` (in fila per la notte: non parte di giorno).
+I lavori notturni partono con un preambolo che vieta push, pubblicazioni e deploy, e con il modo di permessi
+`bottega.notte.permessi` (default `acceptEdits`).
+
+### 4.2 Messaggi nuovi, plancia -> estensione
+
+| messaggio | campi | risposta |
+|---|---|---|
+| `rules.refresh` | | snapshot |
+| `rule.fix` | `path`, `rule` | snapshot (conferma modale prima di toccare App Store Connect) |
+| `job.prepare` | `path`, `task` | `{type:'composer', path, task}`: la plancia apre Lavori con il compositore gia' scritto |
+| `radar.refresh` | | snapshot |
+| `briefing.listen` | | Melissa lo dice a voce |
+| `briefing.make` | | rifa' il briefing adesso, snapshot |
+| `briefing.dismiss` | | `heard = true`, snapshot |
+| `continua.prepare` | `path` | `{type:'continua', path, prompt, sources: string[]}` |
+| `job.new` | `path`, `task`, `night?` | come prima; con `night: true` va in fila per la notte |
+| `notte.config` | `from`, `to`, `parallel` | snapshot |
+| `notte.now` | `id` | fa partire subito un lavoro della notte |
+| `clients.request` | `month?` (`YYYY-MM`, default mese in corso) | `{type:'clients', report: ClientReport}` |
+| `clients.save` | `clients: Client[]` | `{type:'clients', report}` |
+| `clients.export` | `month`, `format`: `csv` o `md` | `{type:'clients.exported', path}` (dialogo di salvataggio, poi Finder) |
+| `ricerca` | `query` | `{type:'ricerca', query, memoria: MemoryItem[], codice: CodeHit[], ms, error?}` |
+
+```ts
+interface Client { id: string; nome: string; progetti: string[]; tariffa?: number } // tariffa in euro l'ora, facoltativa
+interface ClientReport {
+  month: string; months: string[];  // mesi con ore registrate, dal piu' recente
+  rounding: number;                 // 15: ogni giorno di ogni cliente si arrotonda al quarto d'ora piu' vicino
+  clients: { id: string; nome: string; minutes: number; raw: number; amount?: number;
+             days: { date: string; minutes: number }[]; projects: { path: string; name: string; minutes: number }[] }[];
+  unassigned: { path: string | null; name: string; minutes: number }[];
+  config: Client[];
+  projects: { path: string; name: string }[];
+}
+interface CodeHit { project: string; projectPath: string; file: string; line: number; text: string }
+```
+
+Le ore di un cliente sono l'unione degli intervalli di tutte le sue sessioni (stessa regola del cruscotto: due
+sessioni insieme contano una volta), giorno per giorno, poi arrotondate al quarto d'ora piu' vicino. Il totale e' la
+somma dei giorni arrotondati.
+
+### 4.3 Estensione -> plancia, messaggi nuovi
+
+`{type:'composer', path, task, night?}`, `{type:'continua', ...}`, `{type:'clients', report}`,
+`{type:'clients.exported', path}`, `{type:'ricerca', ...}` (vedi sopra).
+
+### 4.4 Nucleo: comandi nuovi
+
+| cmd | argomenti | risposta | note |
+|---|---|---|---|
+| `power.status` | | `ac: bool`, `battery: number\|null`, `charging: bool`, `lowPower: bool` | IOKit `IOPSCopyPowerSourcesInfo`; `battery` null su un Mac senza batteria |
+| `power.keepAwake` | `reason` | `token` (`sveglio-N`) | `IOPMAssertionCreateWithName` (`PreventUserIdleSystemSleep`), nome visibile in `pmset -g assertions`: `Bottega: <reason>`. Chiuso il Nucleo, tutte le asserzioni si rilasciano |
+| `power.release` | `token` | | errore in italiano se il token non esiste |
+| `spotlight.index` | `items: [{id, kind: 'progetto'\|'ricordo', title, text?, url, keywords?, date?}]`, `replace?: bool` | `count` | CoreSpotlight, `domainIdentifier` = kind, `uniqueIdentifier` = `kind:id`. `date`: millisecondi, secondi o `YYYY-MM-DD`. `replace` svuota prima i domini dei kind presenti. Ogni chiamata ha 10 s; se Spotlight e' spento (`mdutil`) risponde con un errore in italiano (CoreSpotlight -1003). Gli url stanno anche in `~/.bottega/nucleo/spotlight.json` (600), perche' il clic su un risultato porta solo l'identificatore |
+| `spotlight.clear` | `kind?` | | senza `kind` svuota tutto |
+| `widget.reload` | | | WidgetKit ridisegna subito il widget: l'estensione lo manda dopo aver riscritto `stato.json` |
+
+Eventi nuovi: `power.changed {ac, battery, charging}` (notifica di IOKit, nessun polling).
+`menubar.update` accetta anche `lines?: [{id?, title, tone?: 'rosso'\|'giallo'\|'ok'}]` (righe in cima al menu: soldi di
+ieri, regole violate, briefing) e `tone?: 'rosso'\|'giallo'\|null` (un puntino colorato sull'icona). Un clic su una riga
+con `id` emette `menubar.clicked {item: id}`.
+`lines` e `tone` assenti lasciano quelli di prima; `tone: null` toglie il puntino. `tone: 'ok'` non disegna il puntino
+sull'icona (le righe con `tone: 'ok'` hanno un puntino verde). Le righe senza `id` non sono cliccabili. I numeri
+(`busy`, `waiting`, `queued`) vengono da `workCounts` (4.9): `inCorso`, `tiAspetta`, `inCoda + stanotte`.
+
+Il Nucleo lanciato da macOS e non dall'estensione (App Intents, un clic su Spotlight, il widget) si riconosce perche'
+stdin non e' una pipe, ne' un socket, ne' un terminale (`BOTTEGA_NUCLEO_MODO=servizio|macos` lo forza). In quel modo
+non scrive JSON su stdout, non accende voce, sfera, scorciatoia o barra dei menu, ed esce da solo dopo 30 secondi di
+quiete. Il Nucleo lanciato dall'estensione non risulta a LaunchServices: intents e clic arrivano sempre a una seconda
+copia in modo macOS, che convive con il servizio.
+
+### 4.5 Schema URL `bottega://andreapiani.bottega-home/<via>`
+
+`progetto?path=`, `ricordo?id=&q=`, `chiedi?testo=`, `lavoro?progetto=&compito=` (sempre con conferma modale: un link
+non avvia mai un lavoro da solo), `briefing`, `vedetta`, `continua?progetto=`, `cerca?q=`.
+
+### 4.6 App Intents, Comandi rapidi e widget
+
+Il Nucleo espone «Chiedi a Melissa», «Avvia un lavoro», «Briefing», «Stato delle regole». I primi due aprono lo schema
+URL; gli altri leggono `~/.bottega/stato.json`:
+
+```json
+{ "aggiornato": 1790900000000,
+  "briefing": { "date": "2026-10-02", "text": "..." },
+  "regole": { "rosso": 1, "giallo": 4, "verde": 30, "voci": [{ "progetto": "Peak", "livello": "rosso", "frase": "..." }] },
+  "soldi": { "ieri": 12.3, "sette": 80.1, "valuta": "USD", "aggiornato": 1790900000000 },
+  "lavori": { "inCorso": 1, "tiAspetta": 0, "inCoda": 0, "stanotte": 2, "vive": 3 } }
+```
+
+Intents (identificatori nel bundle): `ChiediAMelissa` (testo), `AvviaLavoro` (progetto, compito), `LeggiBriefing`
+(restituisce il testo come dialogo e apre `briefing`), `StatoDelleRegole` (una frase: quante rosse e gialle, poi le prime
+tre voci, rosse prima). Frasi: «Chiedi a Melissa con <app>», «Avvia un lavoro con <app>», «Briefing di <app>», «Stato
+delle regole di <app>» e una variante ciascuna. Sono in `Contents/Resources/Metadata.appintents`, generato da
+`nucleo/build.sh` con `appintentsmetadataprocessor` (la build si ferma se mancano); `scripts/package.sh` registra il
+Nucleo installato con `lsregister -f` e il widget con `pluginkit -a`.
+
+Widget: `Bottega Nucleo.app/Contents/PlugIns/BottegaWidget.appex` (`com.andreapiani.bottega.nucleo.widget`, kind
+`com.andreapiani.bottega.stato`), piccolo, medio e grande: semaforo delle regole, conteggi, prime tre voci, briefing.
+Sandbox con sola lettura di `~/.bottega/stato.json`. Si aggiorna ogni 15 minuti, o subito con `widget.reload`. Un tocco
+apre `bottega://andreapiani.bottega-home/briefing` (lo riceve il Nucleo e lo gira alla Bottega).
+
+### 4.7 La Plancia e' la Home, fissa
+
+La Plancia si apre sempre all'avvio, anche con una cartella aperta (senza rubare il fuoco), come prima scheda
+appuntata del primo gruppo. Chiuderla e' possibile, ma il comando `bottega.openPlancia` (Cmd+Maiusc+H) e l'icona della
+barra di stato la riaprono appuntata. Un serializzatore la ripristina al riavvio.
+
+Nello snapshot, `advice: Advice | null`:
+```ts
+interface Advice {
+  at: number;                      // quando sono stati generati
+  engine: 'apple' | 'regole';      // Apple Intelligence sul Mac, oppure frasi fisse se non c'e'
+  items: { text: string; act?: RuleAction }[]; // da 3 a 5 consigli, una frase ciascuno
+}
+```
+I consigli si generano con `ai.generate` del Nucleo a partire dai fatti gia' noti (regole, radar, dimenticati, ore di
+ieri e della settimana, lavori), al massimo una volta ogni 3 ore o quando cambia molto il quadro; messaggio
+`advice.refresh` per rifarli a mano.
+
+### 4.8 Melissa vive dentro l'IDE
+
+`bottega.voice.sfera`: `ide` (default) o `schermo`. Con `ide` l'estensione non manda mai `orb.show` ne' `orb.dock` (e
+all'avvio manda `orb.hide`): la sfera del Nucleo non galleggia sullo schermo e non copre le altre app (per esempio la
+Melissa di Avo Agency AI, che ha una sfera sua e la scorciatoia Cmd+Opzione+M). Melissa sta in due posti dell'IDE:
+
+- la vista `bottega.melissa` nella barra laterale (icona di Melissa): una webview (`media/sfera.js`, `sfera.css`) con la
+  sfera disegnata in Canvas 2D come quella della pagina di Melissa, lo stato, l'ultima frase e un campo per scriverle.
+  Riceve `{type:'assistant', state: AssistantState}`; manda `ready`, `converse` (apre o chiude la conversazione),
+  `ask {text}`, `open` (pagina di Melissa nella Home), `voice.toggle`. Quando Melissa comincia ad ascoltare la vista si
+  mostra senza rubare il fuoco. Gira solo se visibile, con riduci movimento resta ferma.
+- la barra di stato: `Melissa` con l'icona dello stato (microfono, ascolto, rotella che pensa, altoparlante, avviso),
+  colorata col sodio quando e' attiva; un clic apre o chiude la conversazione.
+
+Con `schermo` torna il comportamento di prima (sfera grande in conversazione, piccola agganciata con
+`bottega.voice.orbAlwaysVisible`).
+
+### 4.9 Il lavoro in giro: una sola fonte di verita'
+
+Per Andrea ogni sessione Claude viva e' un lavoro, avviata dalla Bottega o no. Lo snapshot porta:
+
+```ts
+interface WorkItem {
+  key: string;                       // "job:<id>" oppure "sess:<sessionId>"
+  source: 'bottega' | 'altrove';     // lavoro della Bottega o sessione aperta fuori (terminale, altra app)
+  status: 'in corso' | 'ti aspetta' | 'nel terminale' | 'in coda' | 'stanotte';
+  project: string; path: string; title: string; since: number;
+  jobId?: string; sessionId?: string; pid?: number; night?: boolean;
+}
+interface WorkCounts { inCorso: number; tiAspetta: number; nelTerminale: number; inCoda: number; stanotte: number; vive: number }
+// Snapshot: work: WorkItem[] (prima chi ti aspetta), workCounts: WorkCounts
+```
+
+Da `registro ~/.claude/sessions`: `busy` = in corso, `idle` = ti aspetta, `shell` = nel terminale. Un lavoro della
+Bottega appena partito, che non ha ancora la sua sessione, assorbe la sessione nata dopo nella stessa cartella (niente
+doppioni). `workItems` e `workCounts` (in `src/jobs.ts`) sono le sole funzioni che contano: frasi della Home e di
+Lavori, numero sulla scheda Lavori, barra di stato, barra dei menu del Nucleo, `stato.json` e gli strumenti di Melissa
+`lavori_elenco` e `sessioni_attive`. Messaggio `bacheca.sessione {sessionId}` -> `{type:'bacheca.sessione', sessionId,
+items}`: cosa ha fatto quella sessione nelle ultime tre ore, dalla bacheca della Memoria.
+
+### 4.10 Worktree git
+
+Una cartella il cui `.git` e' un FILE (`gitdir: <repo>/.git/worktrees/<nome>`) e' un worktree, non un progetto. Se il
+repository principale e' tra i progetti, il worktree compare dentro di lui (`Project.worktrees: {path, branch, changes,
+ahead, upstream}[]`) e tutto cio' che succede li' (sessioni passate e vive, ore del cruscotto, memoria) e' del progetto
+principale. Una sola regola, in due copie allineate: `worktreeMain`/`canonKey` in `src/scan.ts` (usata da
+`sessionOwner`, quindi anche dal cruscotto) e `worktreeMain` in `memoria/lib/paths.mjs` (usata da `projectOf`).

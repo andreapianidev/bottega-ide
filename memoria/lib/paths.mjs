@@ -75,6 +75,28 @@ export function projectKey(name, projectPath) {
 	return `${slug}-${fnv(norm(projectPath))}`;
 }
 
+const worktreeCache = new Map();
+/**
+ * Se la cartella e' un worktree git (.git e' un FILE con "gitdir: <repo>/.git/worktrees/<nome>"), il percorso
+ * del repository principale; altrimenti undefined. Un worktree non e' un progetto: le sue sessioni vanno al
+ * progetto principale (stessa regola di scan.ts nella plancia).
+ */
+export function worktreeMain(dir) {
+	if (worktreeCache.has(dir)) return worktreeCache.get(dir);
+	let main;
+	try {
+		const g = path.join(dir, '.git');
+		if (fs.statSync(g).isFile()) {
+			const m = /^gitdir:\s*(.+?)\/\.git\/worktrees\/[^/\n]+\s*$/m.exec(fs.readFileSync(g, 'utf8'));
+			if (m) main = m[1];
+		}
+	} catch {
+		// non e' un repository, o non si legge
+	}
+	worktreeCache.set(dir, main);
+	return main;
+}
+
 /**
  * Progetto che contiene un percorso: la sottocartella diretta di una delle radici.
  * Ritorna undefined per la home, per una radice stessa e per tutto cio' che sta fuori.
@@ -92,6 +114,11 @@ export function projectOf(p) {
 		if (ignore.some(re => re.test(name))) return undefined;
 		// Le maiuscole come le ha scritte chi chiama (il disco non le distingue), la chiave senza.
 		const projectPath = p.slice(0, rk.length) + name;
+		const main = worktreeMain(projectPath);
+		if (main && norm(main) !== norm(projectPath)) {
+			const mp = projectOf(main + '/');
+			if (mp) return mp;
+		}
 		return { name, path: projectPath, key: projectKey(name, projectPath) };
 	}
 	return undefined;
@@ -133,6 +160,7 @@ export function listProjects() {
 		for (const name of names) {
 			if (ignore.some(re => re.test(name))) continue;
 			const projectPath = path.join(r, name);
+			if (worktreeMain(projectPath)) continue;
 			out.push({ name, path: projectPath, key: projectKey(name, projectPath) });
 		}
 	}

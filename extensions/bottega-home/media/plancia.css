@@ -17,6 +17,12 @@
 	--laurisilva: #74b98f;
 	--focus: #9cc2ff;
 	--ombra: rgba(4, 7, 16, 0.5);
+	/* brace: le regole rosse. Validata (dataviz) accanto al sodio: deuteranopia ΔE 14, visione
+	   normale ΔE 20. Va sempre con una forma diversa (anello) e con la parola, mai da sola. */
+	--brace: #f2607a;
+	--brace-velo: rgba(242, 96, 122, 0.12);
+	--velo-dialogo: rgba(4, 7, 16, 0.62);
+	--stella: #6683e6; /* la notte dei lavori: la stessa luce fredda di Claude nel cruscotto */
 
 	/* la notte di Melissa resta notte anche nel tema chiaro */
 	--notte: #121a2e;
@@ -43,6 +49,10 @@ body.vscode-light {
 	--laurisilva: #2c7549;
 	--focus: #2a62c9;
 	--ombra: rgba(24, 33, 58, 0.16);
+	--brace: #b42a5c; /* accanto a #a85f00: deuteranopia ΔE 9,8, visione normale ΔE 15,7 */
+	--brace-velo: rgba(180, 42, 92, 0.09);
+	--velo-dialogo: rgba(24, 33, 58, 0.34);
+	--stella: #3557c0;
 }
 
 * { box-sizing: border-box; }
@@ -109,7 +119,7 @@ kbd {
 	font-weight: 500;
 }
 
-.tabs { display: flex; gap: 2px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 2px; }
 
 .tabs button {
 	display: inline-flex;
@@ -167,6 +177,7 @@ kbd {
 .segnale.st-thinking { background: #cba6fe; }
 .segnale.st-speaking { background: #ade5bf; }
 .segnale.st-error { background: var(--sodio); }
+.segnale.st-rosso { background: var(--brace); box-shadow: 0 0 0 2px var(--brace-velo); }
 
 .sistema {
 	margin: 0 0 0 auto;
@@ -374,9 +385,27 @@ kbd {
 	font-size: 17px;
 	font-weight: 600;
 	letter-spacing: -0.005em;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.name-t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* il semaforo delle regole: accanto al nome, mai al posto del segno del progetto.
+   Rosso = brace con anello (forma diversa dal giallo), giallo = sodio pieno. */
+.semaforo {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--sodio);
+}
+
+.semaforo.rosso {
+	background: var(--brace);
+	box-shadow: 0 0 0 2px var(--cielo), 0 0 0 3.5px var(--brace);
 }
 
 .what { color: var(--tinta); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -942,11 +971,597 @@ mark {
 
 .chiedi textarea { min-height: 44px; background: var(--basalto); }
 
+/* ---------- la Home: il mattino ---------- */
+
+.mattino {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 28px;
+	margin: 0 0 40px;
+}
+
+.mattino.affiancati {
+	grid-template-columns: minmax(0, 1.45fr) minmax(260px, 1fr);
+	gap: 40px;
+	align-items: start;
+}
+
+/* Il briefing e' l'alba sul Roque: notte sopra, una luce di sodio che sale dall'orizzonte,
+   l'orizzonte stesso come un filo acceso sul bordo basso. L'unico oggetto audace della Home. */
+.alba {
+	position: relative;
+	overflow: hidden;
+	padding: 24px 28px 22px;
+	border-radius: 18px;
+	border: 1px solid color-mix(in srgb, var(--sodio) 32%, var(--linea));
+	background:
+		radial-gradient(85% 60% at 50% 118%, var(--sodio-luce), transparent 70%),
+		linear-gradient(180deg, var(--basalto) 35%, color-mix(in srgb, var(--basalto) 92%, var(--sodio)) 100%);
+}
+
+.alba::after {
+	content: '';
+	position: absolute;
+	left: 6%;
+	right: 6%;
+	bottom: 0;
+	height: 1px;
+	background: linear-gradient(90deg, transparent, var(--sodio) 30%, var(--sodio) 70%, transparent);
+	opacity: 0.75;
+}
+
+.alba-testa {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 4px 14px;
+	margin-bottom: 10px;
+}
+
+.alba h2, .alba-apri {
+	font-family: var(--serif);
+	font-size: 15px;
+	font-weight: 500;
+	color: var(--tinta);
+	margin: 0;
+}
+
+.alba-testo {
+	font-family: var(--serif);
+	font-size: clamp(17px, 1.5vw, 20px);
+	line-height: 1.55;
+	max-width: 62ch;
+	margin: 0;
+	text-wrap: pretty;
+	white-space: pre-line;
+}
+
+.punti {
+	list-style: none;
+	margin: 18px 0 0;
+	padding: 0;
+	max-width: 74ch;
+}
+
+.punto {
+	display: grid;
+	grid-template-columns: 64px minmax(0, 1fr) auto;
+	gap: 4px 14px;
+	align-items: baseline;
+	padding: 8px 0;
+	border-top: 1px solid color-mix(in srgb, var(--linea) 80%, transparent);
+}
+
+.punto-tipo { font-size: 12px; color: var(--tinta); }
+.punto p { margin: 0; overflow-wrap: anywhere; }
+.punto .act { align-self: center; }
+
+.act.piccolo { padding: 3px 10px; font-size: 12px; }
+
+.alba-piede { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+
+/* gia' ascoltato: resta una riga sola, accesa appena */
+.alba.chiusa {
+	padding: 10px 18px;
+	border-radius: 12px;
+	border-color: var(--linea);
+	background: var(--basalto);
+}
+
+.alba.chiusa::after { opacity: 0.35; }
+
+.alba-riga, .alba-riga-vuota {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 14px;
+	margin: 0;
+	color: var(--tinta);
+}
+
+.alba-riga .link { margin-left: auto; }
+
+.alba-apri {
+	display: inline-flex;
+	align-items: center;
+	gap: 10px;
+	background: none;
+	border: 0;
+	padding: 2px 0;
+	cursor: pointer;
+	color: var(--calima);
+}
+
+.freccia {
+	width: 7px;
+	height: 7px;
+	border-right: 1.5px solid var(--tinta);
+	border-bottom: 1.5px solid var(--tinta);
+	transform: rotate(-45deg);
+	transition: transform 0.15s;
+}
+
+.alba-apri[aria-expanded='true'] .freccia { transform: rotate(45deg); }
+.alba-corpo { padding: 12px 0 8px 17px; }
+.alba-corpo .alba-testo { font-size: 16px; }
+
+/* i consigli: frasi brevi, ognuna con la sua lampada accesa a margine */
+.consigli h2 {
+	font-family: var(--serif);
+	font-weight: 500;
+	font-size: 20px;
+	margin: 0 0 10px;
+}
+
+.consigli-lista { list-style: none; margin: 0; padding: 0; }
+
+.consigli-lista li {
+	position: relative;
+	padding: 9px 0 9px 20px;
+	border-top: 1px solid var(--linea);
+}
+
+.consigli-lista li:first-child { border-top: 0; }
+
+.consigli-lista li::before {
+	content: '';
+	position: absolute;
+	left: 2px;
+	top: 17px;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--sodio);
+	box-shadow: 0 0 8px 1px var(--sodio-alone);
+}
+
+.consigli-lista p {
+	margin: 0;
+	font-family: var(--serif);
+	font-size: 16px;
+	line-height: 1.45;
+	max-width: 52ch;
+	text-wrap: pretty;
+}
+
+.consigli-lista .link { padding-left: 0; margin-top: 2px; }
+
+.origine {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 12px;
+	margin: 8px 0 0 20px;
+	font-size: 11.5px;
+	color: var(--tinta);
+}
+
+/* ---------- il quadro in cifre: una fascia sola, divisa da filetti ---------- */
+
+.quadro { margin: 0 0 44px; }
+
+.quadro-cifre {
+	list-style: none;
+	margin: 0;
+	padding: 1px 0;
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+	gap: 1px;
+	background: var(--linea);
+}
+
+.cifra-h { background: var(--cielo); min-width: 0; }
+
+.cifra-h button {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 2px;
+	width: 100%;
+	height: 100%;
+	padding: 13px 16px 14px;
+	background: none;
+	border: 0;
+	text-align: left;
+	cursor: pointer;
+}
+
+.cifra-h button:hover { background: color-mix(in srgb, var(--basalto) 70%, transparent); }
+.cifra-nome { font-size: 12px; color: var(--tinta); }
+
+.cifra-h b {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 21px;
+	font-weight: 600;
+	letter-spacing: -0.01em;
+	font-variant-numeric: tabular-nums;
+}
+
+.cifra-h small { font-size: 11.5px; color: var(--tinta); line-height: 1.4; }
+
+/* stato: forma e colore accanto al numero, il testo resta del colore del testo */
+.cifra-h.rosso b::before, .cifra-h.giallo b::before {
+	content: '';
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--sodio);
+}
+
+.cifra-h.rosso b::before { background: var(--brace); box-shadow: 0 0 0 2px var(--cielo), 0 0 0 3.5px var(--brace); }
+
+/* ---------- i progetti fermi ---------- */
+
+.fermi { margin: 0 0 44px; max-width: 980px; }
+
+.fermi h2 {
+	font-family: var(--serif);
+	font-weight: 500;
+	font-size: 20px;
+	margin: 0 0 2px;
+}
+
+.fermi .nota { margin: 0 0 10px; color: var(--tinta); font-size: 12px; }
+.fermi-lista { list-style: none; margin: 0; padding: 0; }
+
+.fermo {
+	display: grid;
+	grid-template-columns: minmax(120px, 0.9fr) 130px minmax(0, 2fr);
+	gap: 4px 18px;
+	align-items: baseline;
+	width: 100%;
+	padding: 9px 4px;
+	background: none;
+	border: 0;
+	border-top: 1px solid var(--linea);
+	text-align: left;
+	cursor: pointer;
+}
+
+.fermi-lista li:first-child .fermo { border-top: 0; }
+.fermo:hover { background: color-mix(in srgb, var(--basalto) 60%, transparent); }
+.fermo-nome { font-family: var(--serif); font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fermo-giorni { color: var(--tinta); font-size: 12px; font-variant-numeric: tabular-nums; }
+.fermo-perche { color: var(--tinta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- le regole nel dettaglio di un progetto ---------- */
+
+.regole-progetto {
+	grid-column: 1 / -1;
+	padding: 2px 0 6px;
+}
+
+.regole-progetto h3 { font-family: var(--serif); font-weight: 500; font-size: 15px; margin: 0 0 6px; }
+.regole-progetto h3 .w { font-family: var(--sans); font-weight: 400; margin-left: 6px; }
+.regole-progetto > ul { list-style: none; margin: 0; padding: 0; }
+
+.hit {
+	display: grid;
+	grid-template-columns: 12px minmax(0, 1fr) auto;
+	gap: 4px 14px;
+	align-items: start;
+	padding: 10px 12px;
+	border-radius: 10px;
+}
+
+.hit + .hit { margin-top: 4px; }
+.hit.l-rosso { background: var(--brace-velo); }
+.hit.l-giallo { background: var(--sodio-velo); }
+.hit .semaforo { margin-top: 6px; }
+.hit-corpo { min-width: 0; }
+.hit-frase { margin: 0; font-weight: 600; }
+.hit-rimedio { margin: 2px 0 0; color: var(--tinta); }
+.hit-dettagli { margin: 6px 0 0; padding: 0; list-style: none; font-family: var(--mono); font-size: 11.5px; color: var(--tinta); }
+.hit-dettagli li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hit .act { align-self: center; }
+
+/* ---------- caselle: Stanotte ---------- */
+
+.spunta {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 12px;
+	cursor: pointer;
+	font-weight: 500;
+}
+
+.spunta input { width: 15px; height: 15px; margin: 0; accent-color: var(--sodio); }
+.spunta-nota { margin: 4px 0 0 23px; font-size: 12px; color: var(--tinta); }
+
+/* ---------- Lavori: la coda della notte ---------- */
+
+.stanotte {
+	padding: 18px 20px 16px;
+	border-radius: 14px;
+	border: 1px solid var(--notte-bordo);
+	background: radial-gradient(70% 90% at 100% 0%, color-mix(in srgb, var(--stella) 13%, transparent), transparent 70%), var(--basalto);
+}
+
+.stanotte h2 { font-size: 20px; margin-bottom: 4px; }
+.notte-riga p { margin: 0; }
+.notte-perche { font-family: var(--serif); font-size: 15px; line-height: 1.45; }
+.notte-batteria { color: var(--sodio); font-size: 12.5px; margin-top: 2px !important; }
+.notte-finestra { color: var(--tinta); font-size: 12.5px; margin-top: 4px !important; }
+.notte-finestra .link { padding: 0 2px; }
+
+.notte-form {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 10px;
+	margin: 12px 0 0;
+	padding: 12px;
+	border-radius: 10px;
+	background: var(--cielo);
+	border: 1px solid var(--linea);
+}
+
+.notte-form .campo { display: inline; margin: 0; }
+
+.notte-form input, .notte-form select {
+	background: var(--basalto);
+	border: 1px solid var(--linea);
+	border-radius: 7px;
+	padding: 5px 8px;
+}
+
+.notte-form-piede { display: inline-flex; gap: 8px; margin-left: auto; }
+
+.promemoria {
+	margin: 12px 0 4px;
+	padding-left: 10px;
+	border-left: 2px solid var(--sodio);
+	font-size: 12.5px;
+}
+
+.notte-vuota { margin: 8px 0 0; font-size: 12.5px; }
+.s-stanotte .dot { background: none; border: 2px solid var(--stella); }
+
+.di-notte {
+	font-size: 11px;
+	color: var(--tinta);
+	border: 1px solid var(--linea);
+	border-radius: 999px;
+	padding: 0 7px;
+}
+
+.resoconto { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--linea); }
+.resoconto h3 { font-family: var(--serif); font-weight: 500; font-size: 15px; margin: 0 0 6px; }
+.resoconto ul { list-style: none; margin: 0; padding: 0; }
+.resoconto-voce { padding: 6px 0; }
+.resoconto-voce .nome { font-family: var(--serif); font-weight: 600; }
+.resoconto-sunto { margin: 3px 0 0; font-size: 12.5px; }
+
+/* ---------- Memoria: due modi di cercare ---------- */
+
+.modi {
+	display: inline-flex;
+	gap: 2px;
+	padding: 2px;
+	margin: 0 0 14px;
+	border-radius: 9px;
+	background: var(--basalto);
+	border: 1px solid var(--linea);
+}
+
+.modi button {
+	background: none;
+	border: 0;
+	border-radius: 7px;
+	padding: 5px 12px;
+	color: var(--tinta);
+	cursor: pointer;
+}
+
+.modi button:hover { color: var(--calima); }
+.modi button[aria-pressed='true'] { background: var(--linea); color: var(--calima); font-weight: 600; }
+
+#ric-cerca .search { max-width: 560px; }
+
+.ric-colonne {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+	gap: 36px;
+	align-items: start;
+}
+
+.ric-blocco h2 { font-family: var(--serif); font-weight: 500; font-size: 20px; margin: 0 0 6px; }
+.ric-lista { list-style: none; margin: 0; padding: 0; }
+.ric-voce { padding: 11px 0; border-top: 1px solid var(--linea); }
+.ric-testa { margin: 0 0 2px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.ric-testa b { font-weight: 600; }
+
+.vicinanza { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--tinta); }
+
+/* tre gradini di distanza: pieno, a meta', vuoto */
+.vicinanza i { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--sodio); }
+.v-molto-vicino i { background: var(--sodio); }
+.v-vicino i { background: linear-gradient(90deg, var(--sodio) 50%, transparent 50%); }
+.v-lontano i { border-color: var(--tinta); }
+
+.ric-estratto {
+	margin: 2px 0 0;
+	color: var(--tinta);
+	overflow: hidden;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
+	overflow-wrap: anywhere;
+}
+
+.ric-piede { margin: 4px 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; }
+.ric-piede .link { padding-left: 0; }
+.ric-lista > li:first-child, .ric-lista > li:first-child .ric-codice { border-top: 0; }
+
+.ric-codice {
+	display: grid;
+	gap: 4px;
+	width: 100%;
+	padding: 10px 6px;
+	background: none;
+	border: 0;
+	border-top: 1px solid var(--linea);
+	text-align: left;
+	cursor: pointer;
+}
+
+.ric-codice:hover { background: color-mix(in srgb, var(--basalto) 70%, transparent); }
+.ric-file { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; min-width: 0; }
+.ric-percorso { color: var(--tinta); font-size: 12px; overflow-wrap: anywhere; }
+.ric-riga { color: var(--tinta); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.ric-codice code {
+	font-family: var(--mono);
+	font-size: 12px;
+	white-space: pre;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	padding: 6px 8px;
+	border-radius: 6px;
+	background: var(--basalto);
+}
+
+.ric-tempo { margin: 18px 0 0; }
+
+/* ---------- il dialogo di Continua ---------- */
+
+body.con-dialogo { overflow: hidden; }
+
+.velo {
+	position: fixed;
+	inset: 0;
+	z-index: 20;
+	display: grid;
+	place-items: center;
+	padding: 24px 16px;
+	background: var(--velo-dialogo);
+}
+
+.dialogo {
+	width: min(680px, 100%);
+	max-height: calc(100vh - 48px);
+	overflow: auto;
+	padding: 22px 24px 18px;
+	border-radius: 18px;
+	border: 1px solid color-mix(in srgb, var(--sodio) 30%, var(--linea));
+	background: var(--basalto);
+	box-shadow: 0 24px 60px var(--ombra);
+}
+
+.dialogo h2 { font-family: var(--serif); font-weight: 500; font-size: 22px; margin: 0 0 4px; text-wrap: balance; }
+.fonti { margin: 0 0 6px; font-size: 12px; color: var(--tinta); }
+
+.dialogo textarea {
+	width: 100%;
+	min-height: 220px;
+	resize: vertical;
+	display: block;
+	background: var(--cielo);
+	border: 1px solid var(--linea);
+	border-radius: 8px;
+	padding: 10px 12px;
+	line-height: 1.5;
+}
+
+.dialogo .composer-piede { flex-wrap: wrap; }
+.dialogo .tasti { margin-left: auto; }
+
+/* ---------- worktree: altri rami dello stesso progetto ---------- */
+
+.rami {
+	flex: none;
+	font-family: var(--sans);
+	font-size: 11.5px;
+	font-weight: 400;
+	color: var(--tinta);
+	white-space: nowrap;
+}
+
+.worktree { grid-column: 1 / -1; }
+.worktree h3 { font-family: var(--serif); font-weight: 500; font-size: 15px; margin: 0 0 6px; }
+.worktree h3 .w { font-family: var(--sans); margin-left: 6px; }
+.worktree ul { list-style: none; margin: 0; padding: 0; }
+
+.worktree li {
+	display: grid;
+	grid-template-columns: minmax(90px, max-content) minmax(0, 1fr) auto auto;
+	gap: 4px 14px;
+	align-items: center;
+	padding: 7px 0;
+	border-top: 1px solid var(--linea);
+}
+
+.worktree li:first-child { border-top: 0; }
+.wt-ramo { font-weight: 600; }
+.wt-dove { font-family: var(--mono); font-size: 11.5px; color: var(--tinta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-stato { font-size: 12px; color: var(--tinta); }
+.wt-stato .warn { color: var(--sodio); }
+
+/* ---------- Lavori: sessioni aperte fuori dalla Bottega ---------- */
+
+.provenienza {
+	font-size: 11px;
+	color: var(--tinta);
+	border: 1px dashed var(--linea);
+	border-radius: 999px;
+	padding: 0 7px;
+}
+
+.lavoro.altrove .nome { font-weight: 500; }
+.s-terminale .dot { background: var(--linea); border: 2px solid var(--tinta); }
+
+.sessione-bacheca {
+	margin: 8px 0 2px;
+	padding: 8px 12px;
+	border-radius: 8px;
+	background: var(--cielo);
+	border: 1px solid var(--linea);
+}
+
+.lavoro.s-aspetta .sessione-bacheca { background: color-mix(in srgb, var(--cielo) 70%, transparent); }
+.sessione-bacheca p { margin: 0; }
+.sessione-bacheca ol { list-style: none; margin: 0; padding: 0; }
+
+.sessione-bacheca li {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 10px;
+	padding: 4px 0;
+	font-size: 12.5px;
+	border-top: 1px solid var(--linea);
+}
+
+.sessione-bacheca li:first-child { border-top: 0; }
+.sessione-bacheca code { font-family: var(--mono); font-size: 11.5px; color: var(--tinta); }
+
 /* ---------- movimento ---------- */
 
 @media (prefers-reduced-motion: reduce) {
 	.busy .dot, .s-corso .dot { animation: none; }
-	.binario, .binario i, .mem-risultati { transition: none; }
+	.binario, .binario i, .mem-risultati, .freccia { transition: none; }
 }
 
 /* ---------- larghezze ---------- */
@@ -964,6 +1579,9 @@ mark {
 	.memoria .mem-lato { margin: 40px 0 0; }
 
 	.melissa { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+
+	.mattino.affiancati { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+	.ric-colonne { grid-template-columns: minmax(0, 1fr); gap: 28px; }
 
 	.notte {
 		position: static;
@@ -989,7 +1607,7 @@ mark {
 }
 
 @media (max-width: 700px) {
-	.tabs button { font-size: 16px; padding: 6px 8px 6px 6px; }
+	.tabs button { font-size: 15.5px; padding: 5px 7px 5px 5px; gap: 6px; }
 	.brand { display: none; }
 	.lavoro, .lavoro.s-aspetta { grid-template-columns: 10px minmax(0, 1fr); }
 	.lavoro-azioni { grid-column: 2; justify-content: flex-start; }
@@ -998,6 +1616,19 @@ mark {
 	.quando { flex-direction: row; gap: 10px; }
 	.registro li { grid-template-columns: 54px minmax(0, 1fr); }
 	.registro time { display: none; }
+	.alba { padding: 18px 18px 16px; }
+	.punto { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+	.punto .act { justify-self: start; margin-top: 4px; }
+	.fermo { grid-template-columns: minmax(0, 1fr) auto; }
+	.fermo-perche { grid-column: 1 / -1; white-space: normal; }
+	.hit { grid-template-columns: 12px minmax(0, 1fr); }
+	.hit .act { grid-column: 2; justify-self: start; }
+	.worktree li { grid-template-columns: minmax(0, 1fr) auto; }
+	.wt-dove, .wt-stato { grid-column: 1; }
+	.worktree li .act { grid-column: 2; grid-row: 1 / span 3; }
+	.quadro-cifre { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.notte-form-piede { margin-left: 0; }
+	.dialogo { padding: 18px 16px 14px; }
 	.notte { grid-template-columns: 110px minmax(0, 1fr); }
 	#sfera { width: 110px; height: 110px; }
 }

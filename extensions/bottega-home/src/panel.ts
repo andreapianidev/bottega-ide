@@ -13,6 +13,8 @@ export interface PlanciaMessage {
 	section?: string;
 	/** stats.request: periodo che la plancia sta guardando (7, 30, 90 giorni). */
 	period?: number;
+	/** Campi dei messaggi della sezione 4 del contratto (rule.fix, notte.config, clients.*, ...). */
+	[k: string]: any;
 }
 
 export class PlanciaPanel {
@@ -31,14 +33,31 @@ export class PlanciaPanel {
 		return !!this.panel;
 	}
 
-	show(focus?: string) {
+	/** La Home: si apre (o torna davanti) come prima scheda appuntata del primo gruppo. `preserveFocus` la
+	 *  apre senza togliere il fuoco a cio' che Andrea sta facendo (avvio con una cartella aperta). */
+	show(focus?: string, opts: { preserveFocus?: boolean } = {}) {
 		if (this.panel) {
-			this.panel.reveal(vscode.ViewColumn.One);
+			this.panel.reveal(this.panel.viewColumn ?? vscode.ViewColumn.One, opts.preserveFocus);
 		} else {
-			this.create();
+			this.create(opts.preserveFocus);
 		}
 		this.send({ type: 'snapshot', snapshot: this.current() });
 		if (focus) this.send({ type: 'focus', path: focus });
+	}
+
+	/** Ripristino al riavvio: VS Code ridà la scheda (gia' appuntata) e qui la si riempie. */
+	adopt(panel: vscode.WebviewPanel) {
+		if (this.panel && this.panel !== panel) {
+			panel.dispose();
+			return;
+		}
+		this.setup(panel);
+	}
+
+	private async pin(panel: vscode.WebviewPanel) {
+		// pinEditor agisce sull'editor attivo: la Home lo e' appena creata, anche con preserveFocus
+		if (!panel.active) return;
+		await vscode.commands.executeCommand('workbench.action.pinEditor').then(undefined, () => undefined);
 	}
 
 	/** Manda un messaggio alla plancia (snapshot, focus, memoria, assistant). */
@@ -46,19 +65,27 @@ export class PlanciaPanel {
 		this.panel?.webview.postMessage(msg);
 	}
 
-	private create() {
+	private create(preserveFocus = false) {
 		const media = vscode.Uri.joinPath(this.root, 'media');
-		const panel = vscode.window.createWebviewPanel('bottega.plancia', 'Bottega', vscode.ViewColumn.One, {
+		const panel = vscode.window.createWebviewPanel('bottega.plancia', 'Home', { viewColumn: vscode.ViewColumn.One, preserveFocus }, {
 			enableScripts: true,
 			retainContextWhenHidden: true,
 			localResourceRoots: [media],
 		});
+		this.setup(panel);
+		void this.pin(panel);
+	}
+
+	private setup(panel: vscode.WebviewPanel) {
+		const media = vscode.Uri.joinPath(this.root, 'media');
+		panel.title = 'Home';
+		panel.webview.options = { enableScripts: true, localResourceRoots: [media] };
 		panel.iconPath = vscode.Uri.joinPath(media, 'activity.svg');
 		const css = panel.webview.asWebviewUri(vscode.Uri.joinPath(media, 'plancia.css'));
 		const js = panel.webview.asWebviewUri(vscode.Uri.joinPath(media, 'plancia.js'));
-		// il cruscotto sta in file suoi; il suo script va caricato prima di plancia.js, che lo monta
-		const crusCss = panel.webview.asWebviewUri(vscode.Uri.joinPath(media, 'cruscotto.css'));
-		const crusJs = panel.webview.asWebviewUri(vscode.Uri.joinPath(media, 'cruscotto.js'));
+		// cruscotto, vedetta e clienti stanno in file loro; i loro script vanno caricati prima di plancia.js, che li monta
+		const rooms = ['cruscotto', 'vedetta', 'clienti'];
+		const css2 = rooms.map(r => `<link rel="stylesheet" href="${panel.webview.asWebviewUri(vscode.Uri.joinPath(media, r + '.css'))}">`).join('\n');
 		const nonce = Array.from({ length: 24 }, () => Math.floor(Math.random() * 36).toString(36)).join('');
 		panel.webview.html = `<!doctype html>
 <html lang="it">
@@ -67,12 +94,12 @@ export class PlanciaPanel {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; img-src ${panel.webview.cspSource} data:; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="${css}">
-<link rel="stylesheet" href="${crusCss}">
+${css2}
 <title>Bottega</title>
 </head>
 <body>
 <main id="app"></main>
-<script nonce="${nonce}" src="${crusJs}"></script>
+${rooms.map(r => `<script nonce="${nonce}" src="${panel.webview.asWebviewUri(vscode.Uri.joinPath(media, r + '.js'))}"></script>`).join('\n')}
 <script nonce="${nonce}" src="${js}"></script>
 </body>
 </html>`;
