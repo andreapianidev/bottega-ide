@@ -14,6 +14,8 @@ struct BottegaApp: App {
     @State private var ponte = Ponte.shared
     @State private var melissa = Melissa(ponte: Ponte.shared)
     @Environment(\.scenePhase) private var fase
+    /// Un link della Bottega non valido arrivato da scollegati: lo mostra la schermata di benvenuto.
+    @State private var avvisoLink: String?
 
     var body: some Scene {
         WindowGroup {
@@ -21,20 +23,32 @@ struct BottegaApp: App {
                 if ponte.collegato {
                     PlanciaView(ponte: ponte, melissa: melissa, davanti: fase == .active)
                 } else {
-                    BenvenutoView(ponte: ponte)
+                    BenvenutoView(ponte: ponte, avvisoLink: $avvisoLink)
                 }
             }
             .preferredColorScheme(.dark)
             .tint(Tinte.ambra)
             .onOpenURL { url in
-                if let errore = Navigazione.shared.apri(url, ponte: ponte) { melissa.avviso = errore }
+                guard let errore = Navigazione.shared.apri(url, ponte: ponte) else { return }
+                // l'avviso di Melissa vive nella plancia: da scollegati non si vedrebbe
+                if ponte.collegato { melissa.avviso = errore } else { avvisoLink = errore }
             }
             .onChange(of: ponte.collegato) { _, si in
-                if si { Avvisi.shared.avvia() } else { Avvisi.shared.dimentica() }
+                if si {
+                    avvisoLink = nil
+                    Avvisi.shared.avvia()
+                } else {
+                    Avvisi.shared.dimentica()
+                    Navigazione.shared.ascoltaSubito = false
+                }
             }
             .onChange(of: fase) { _, nuova in
                 switch nuova {
-                case .active: ponte.avvia(); Avvisi.shared.avvia()
+                case .active:
+                    // aperta prima del primo sblocco il gettone non si leggeva: si riprova
+                    ponte.ricarica()
+                    ponte.avvia()
+                    Avvisi.shared.avvia()
                 case .background: ponte.ferma(); melissa.sospendi()
                 default: break
                 }

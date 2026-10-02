@@ -44,6 +44,7 @@ struct PlanciaView: View {
             // dal Centro di Controllo: la sfera comincia ad ascoltare
             guard si else { return }
             nav.ascoltaSubito = false
+            guard ponte.collegato else { return }
             if melissa.sfera == .riposo || melissa.sfera == .errore { melissa.tocca() }
         }
         .sheet(isPresented: $impostazioni) {

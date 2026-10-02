@@ -9,6 +9,7 @@ struct ImpostazioniView: View {
     let ponte: Ponte
     @Bindable var melissa: Melissa
     @Environment(\.dismiss) private var chiudi
+    @State private var scollego = false
 
     var body: some View {
         NavigationStack {
@@ -27,11 +28,16 @@ struct ImpostazioniView: View {
                     Text("Passa da Tailscale: il Mac deve essere acceso, con la Bottega aperta. Il gettone resta nel portachiavi di questo iPhone.")
                 }
                 Section {
-                    Button("Scollega questo iPhone", role: .destructive) {
+                    Button(scollego ? "Scollego…" : "Scollega questo iPhone", role: .destructive) {
+                        scollego = true
                         melissa.chiudiConversazione()
-                        ponte.scollega()
-                        chiudi()
+                        Task {
+                            // prima il Mac smette di mandare notifiche e Live Activity a questo iPhone
+                            await ponte.scollega()
+                            chiudi()
+                        }
                     }
+                    .disabled(scollego)
                 }
             }
             .navigationTitle("Impostazioni")

@@ -1115,6 +1115,16 @@ nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard,
   nome e porta nelle preferenze.
 - Rete: prima il nome MagicDNS (eccezione ATS per `ts.net`, HTTP dentro Tailscale), se non si risolve l'indirizzo
   100.x. Eventi ripresi da soli con attesa crescente fino a 30 s, fermi con l'app dietro.
+  Un 401 ferma gli eventi (niente tentativi che farebbero bloccare l'indirizzo): si riparte con un nuovo QR o al
+  ritorno davanti dell'app. `/v1/parla` tollera 180 s senza dati (strumenti lenti), le altre richieste 90 s.
+- Audio: si guarda sempre `motore.isRunning` (Siri, chiamate e cuffie fermano il motore: suonare su un motore fermo
+  fa cadere l'app); a fine giro senza conversazione aperta, alla chiusura e con l'app dietro la sessione audio si
+  rilascia (`setActive(false, .notifyOthersOnDeactivation)`), cosi' musica e podcast ripartono. Con `voce-persa` a
+  meta' risposta, le frasi non ancora dette le dice la voce di iOS. Un solo giro di ascolto alla volta (contatore di
+  giro: i callback di un riconoscimento fermato non toccano quello nuovo).
+- Token per le push osservati da `didFinishLaunching`, anche quando iOS sveglia l'app in background per una Live
+  Activity; il token del widget arriva con un avviso Darwin. «Scollega» avvisa prima il Mac (token vuoti) e chiude
+  le Live Activity.
 
 ### 9.4 Notifiche, Live Activity, widget, Siri
 

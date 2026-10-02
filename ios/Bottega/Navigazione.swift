@@ -34,7 +34,9 @@ final class Navigazione {
             stanza = .lavori
         case "melissa":
             stanza = .melissa
-            if URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "ascolta" && $0.value == "1" }) == true {
+            // da scollegati resterebbe armato e la sfera partirebbe da sola al collegamento
+            if ponte.collegato,
+               URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "ascolta" && $0.value == "1" }) == true {
                 ascoltaSubito = true
             }
         default:

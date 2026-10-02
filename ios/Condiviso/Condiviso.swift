@@ -16,4 +16,6 @@ enum Condiviso {
     static let preferenze = UserDefaults(suiteName: gruppo) ?? .standard
     /// Il token delle push dei widget (WidgetPushHandler): lo scrive l'estensione, lo manda al Mac l'app.
     static let chiaveTokenWidget = "tokenWidget"
+    /// La notifica di Darwin con cui l'estensione avvisa l'app che il token dei widget e' cambiato.
+    static let avvisoTokenWidget = "com.andreapiani.bottega.ios.tokenWidget"
 }

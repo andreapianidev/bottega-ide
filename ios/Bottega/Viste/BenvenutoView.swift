@@ -10,6 +10,8 @@ import UIKit
 
 struct BenvenutoView: View {
     let ponte: Ponte
+    /// Un QR o un link non valido aperto da fuori (BottegaApp).
+    @Binding var avvisoLink: String?
     @State private var avviso: String?
 
     var body: some View {
@@ -65,6 +67,11 @@ struct BenvenutoView: View {
                 .padding(.bottom, 40)
             }
         }
+        .alert("Collegamento", isPresented: Binding(get: { avvisoLink != nil }, set: { if !$0 { avvisoLink = nil } })) {
+            Button("Va bene", role: .cancel) {}
+        } message: {
+            Text(avvisoLink ?? "")
+        }
     }
 
     private func passo(_ n: Int, _ testo: String) -> some View {
@@ -88,5 +95,7 @@ struct BenvenutoView: View {
             return
         }
         avviso = nil
+        // il gettone non resta negli appunti, dove lo leggerebbe qualunque app
+        UIPasteboard.general.items = []
     }
 }

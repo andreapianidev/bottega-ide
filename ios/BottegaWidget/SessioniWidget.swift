@@ -126,7 +126,7 @@ struct FornitoreSessioni: TimelineProvider {
 /// se e' aperta.
 struct SpintaWidget: WidgetPushHandler {
     static let chiave = Condiviso.chiaveTokenWidget
-    static let avviso = "com.andreapiani.bottega.ios.tokenWidget"
+    static let avviso = Condiviso.avvisoTokenWidget
 
     init() {}
 

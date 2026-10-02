@@ -20,8 +20,11 @@ final class Ascolto {
     private var compito: SFSpeechRecognitionTask?
     private var silenzio: Task<Void, Never>?
     private var ultimo = ""
-    private var chiusa = false
     private var fine: ((String) -> Void)?
+    /// Il giro di adesso: i callback di un riconoscimento fermato (l'errore del compito cancellato arriva dopo)
+    /// non chiudono quello nuovo.
+    private var giro = 0
+    private var tapMesso = false
 
     var parziale: ((String) -> Void)?
 
@@ -37,45 +40,54 @@ final class Ascolto {
         return mic ? nil : "Il microfono non è autorizzato: accendilo in Impostazioni, Bottega."
     }
 
-    /// Ascolta una frase; `fine` arriva una volta sola, con il testo (vuoto se non hai detto niente).
+    /// Ascolta una frase; `fine` arriva una volta sola, con il testo (vuoto se non hai detto niente o se l'ascolto
+    /// viene fermato). Un ascolto ancora aperto si chiude prima, e il suo `fine` riceve "".
     func ascolta(fine: @escaping (String) -> Void) throws {
         ferma()
+        let g = giro
         guard let riconoscitore, riconoscitore.isAvailable else {
             throw ErrorePonte(messaggio: "Il riconoscimento vocale italiano non è disponibile adesso.")
         }
-        let sessione = AVAudioSession.sharedInstance()
-        try sessione.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothA2DP])
-        try sessione.setActive(true, options: .notifyOthersOnDeactivation)
-
         let r = SFSpeechAudioBufferRecognitionRequest()
-        r.shouldReportPartialResults = true
-        r.addsPunctuation = true
-        r.taskHint = .dictation
-        richiesta = r
-        ultimo = ""
-        chiusa = false
-        self.fine = fine
+        do {
+            let sessione = AVAudioSession.sharedInstance()
+            try sessione.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothA2DP])
+            try sessione.setActive(true)
 
-        let ingresso = motore.inputNode
-        let formato = ingresso.outputFormat(forBus: 0)
-        ingresso.removeTap(onBus: 0)
-        ingresso.installTap(onBus: 0, bufferSize: 1024, format: formato) { [weak r] buf, _ in
-            r?.append(buf)
-            let livello = AudioLevels.rms(buf)
-            AudioLevels.shared.set(.mic, level: livello, bands: AudioLevels.bands(buf, loudness: livello))
+            r.shouldReportPartialResults = true
+            r.addsPunctuation = true
+            r.taskHint = .dictation
+            richiesta = r
+            ultimo = ""
+
+            let ingresso = motore.inputNode
+            let formato = ingresso.outputFormat(forBus: 0)
+            ingresso.removeTap(onBus: 0)
+            try ingresso.installAudioTap(onBus: 0, bufferSize: 1024, format: formato) { [weak r] pezzo, _ in
+                let buf = AVAudioPCMBuffer(copying: pezzo)
+                r?.append(buf)
+                let livello = AudioLevels.rms(buf)
+                AudioLevels.shared.set(.mic, level: livello, bands: AudioLevels.bands(buf, loudness: livello))
+            }
+            tapMesso = true
+            motore.prepare()
+            try motore.start()
+        } catch {
+            ferma()
+            throw error
         }
-        motore.prepare()
-        try motore.start()
+        // solo adesso: se qualcosa sopra fallisce, `fine` non resta in giro da riprendere due volte
+        self.fine = fine
 
         compito = riconoscitore.recognitionTask(with: r) { [weak self] esito, errore in
             let testo = esito?.bestTranscription.formattedString
             let finale = esito?.isFinal ?? false
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.giro == g else { return }
                 if let testo, testo != self.ultimo {
                     self.ultimo = testo
                     self.parziale?(testo)
-                    self.armaSilenzio()
+                    self.armaSilenzio(g)
                 }
                 if finale || (errore != nil && esito == nil) { self.chiudi() }
             }
@@ -83,40 +95,44 @@ final class Ascolto {
         // se non dici niente per otto secondi la frase si chiude vuota
         silenzio = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 8_000_000_000)
-            if !Task.isCancelled { self?.chiudi() }
+            if !Task.isCancelled, self?.giro == g { self?.chiudi() }
         }
     }
 
     /// Chiude la frase adesso (un tocco sulla sfera mentre ascolta).
     func chiudi() {
-        guard !chiusa else { return }
-        chiusa = true
+        guard let f = fine else { return }
+        fine = nil
         let testo = ultimo.trimmingCharacters(in: .whitespacesAndNewlines)
         ferma()
-        let f = fine
-        fine = nil
-        f?(testo)
+        f(testo)
     }
 
+    /// Spegne microfono e riconoscimento; chi aspettava la frase la riceve vuota.
     func ferma() {
+        giro += 1
         silenzio?.cancel()
         silenzio = nil
-        if motore.isRunning {
-            motore.stop()
+        if motore.isRunning { motore.stop() }
+        if tapMesso {
             motore.inputNode.removeTap(onBus: 0)
+            tapMesso = false
         }
         richiesta?.endAudio()
         compito?.cancel()
         richiesta = nil
         compito = nil
         AudioLevels.shared.reset(.mic)
+        let f = fine
+        fine = nil
+        f?("")
     }
 
-    private func armaSilenzio() {
+    private func armaSilenzio(_ g: Int) {
         silenzio?.cancel()
         silenzio = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.silenzioFineFrase * 1_000_000_000))
-            if !Task.isCancelled { self?.chiudi() }
+            if !Task.isCancelled, self?.giro == g { self?.chiudi() }
         }
     }
 }

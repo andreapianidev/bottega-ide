@@ -20,6 +20,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         UNUserNotificationCenter.current().setNotificationCategories(Avvisi.categorie)
+        // anche lanciata dietro dal sistema (push-to-start della Live Activity), quando una scena non c'e'
+        MainActor.assumeIsolated { Avvisi.shared.osserva() }
         return true
     }
 
@@ -66,6 +68,9 @@ final class Avvisi {
     private var mandati: [String: String] = Condiviso.preferenze.dictionary(forKey: "tokenMandati") as? [String: String] ?? [:]
     private var inAttesa: [String: String] = [:]
     private var osservaAttivita: Task<Void, Never>?
+    /// Il token di ogni Live Activity (per id): alla fine di una si toglie dal Mac solo se e' ancora il suo.
+    private var tokenAttivita: [String: String] = [:]
+    private var seguite: Set<String> = []
 
     #if DEBUG
     private let ambiente = "sviluppo"
@@ -73,24 +78,66 @@ final class Avvisi {
     private let ambiente = "produzione"
     #endif
 
-    /// A collegamento fatto: permesso (la prima volta lo chiede iOS), registrazione, token della Live Activity e
-    /// dei widget. Si puo' chiamare a ogni apertura: rimanda solo cio' che e' cambiato.
+    /// Da quando l'app parte, anche lanciata dietro dal sistema senza scena (push-to-start): i token delle Live
+    /// Activity e quello del widget arrivano e vanno al Mac. Il permesso delle notifiche no, quello solo con l'app
+    /// davanti (avvia()). Si puo' chiamare piu' volte.
+    func osserva() {
+        guard osservaAttivita == nil else { return }
+        osservaAttivita = Task { await self.seguiAttivita() }
+        // il widget avvisa con una notifica di Darwin quando cambia il suo token (SpintaWidget)
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
+            Task { @MainActor in Avvisi.shared.tokenWidget() }
+        }, Condiviso.avvisoTokenWidget as CFString, nil, .deliverImmediately)
+        leggiTokenWidget()
+    }
+
+    /// A collegamento fatto, con l'app davanti: permesso (la prima volta lo chiede iOS), registrazione, token
+    /// della Live Activity e dei widget. Si puo' chiamare a ogni apertura: rimanda solo cio' che e' cambiato.
     func avvia() {
+        osserva()
         guard ponte.collegato else { return }
         Task {
             let c = UNUserNotificationCenter.current()
             let ok = (try? await c.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
             if ok { UIApplication.shared.registerForRemoteNotifications() }
         }
-        if osservaAttivita == nil { osservaAttivita = Task { await self.seguiAttivita() } }
-        if let w = Condiviso.preferenze.string(forKey: Condiviso.chiaveTokenWidget), !w.isEmpty { inAttesa["widget"] = w }
+        leggiTokenWidget()
         Task { await manda() }
     }
 
-    /// Scollegato: il Mac non sa piu' niente di questo iPhone.
+    /// Scollegato, o collegato a un altro Mac: quel Mac non sa niente di questo iPhone.
     func dimentica() {
         mandati = [:]
         Condiviso.preferenze.removeObject(forKey: "tokenMandati")
+    }
+
+    /// «Scollega»: prima il Mac toglie i token di questo iPhone (campi vuoti), poi si chiudono le Live Activity
+    /// aperte qui. Pochi secondi al massimo: con il Mac spento si scollega lo stesso.
+    func congeda() async {
+        if ponte.collegato {
+            do {
+                try await ponte.registraDispositivo(["ambiente": ambiente, "token": "", "avvio": "", "attivita": "", "widget": ""],
+                                                    timeout: 6)
+            } catch {
+                Log.warn("notifiche: il Mac non ha tolto i token (\(error.localizedDescription)), scollego lo stesso")
+            }
+        }
+        for a in Activity<BottegaAttivita>.activities {
+            await a.end(nil, dismissalPolicy: .immediate)
+        }
+        inAttesa["attivita"] = nil
+        tokenAttivita = [:]
+    }
+
+    /// Il widget ha un token nuovo (notifica di Darwin): va al Mac adesso, non alla prossima apertura.
+    func tokenWidget() {
+        leggiTokenWidget()
+        Task { await manda() }
+    }
+
+    /// Il token dei widget, scritto dall'estensione nelle preferenze condivise.
+    private func leggiTokenWidget() {
+        if let w = Condiviso.preferenze.string(forKey: Condiviso.chiaveTokenWidget), !w.isEmpty { inAttesa["widget"] = w }
     }
 
     func token(_ campo: String, _ dati: Data) {
@@ -100,7 +147,10 @@ final class Avvisi {
 
     private func manda() async {
         let nuovi = inAttesa.filter { mandati[$0.key] != $0.value }
-        guard !nuovi.isEmpty, ponte.collegato else { return }
+        guard !nuovi.isEmpty else { return }
+        // lanciata dietro prima del primo sblocco il gettone non si leggeva: si riprova qui
+        ponte.ricarica()
+        guard ponte.collegato else { return }
         var campi = nuovi
         campi["ambiente"] = ambiente
         do {
@@ -122,13 +172,24 @@ final class Avvisi {
     }
 
     private func seguiUna(_ a: Activity<BottegaAttivita>) {
+        let id = a.id
+        guard seguite.insert(id).inserted else { return }
         Task {
-            for await t in a.pushTokenUpdates { self.token("attivita", t) }
+            for await t in a.pushTokenUpdates {
+                self.tokenAttivita[id] = t.map { String(format: "%02x", $0) }.joined()
+                self.token("attivita", t)
+            }
         }
         Task {
             for await s in a.activityStateUpdates where s == .ended || s == .dismissed {
-                self.inAttesa["attivita"] = ""
-                await self.manda()
+                // al Mac va "" solo se il token che ha e' ancora quello di questa attivita': se nel frattempo e'
+                // arrivato quello di un'altra, quella resta
+                if let mio = self.tokenAttivita.removeValue(forKey: id), self.inAttesa["attivita"] == mio {
+                    self.inAttesa["attivita"] = ""
+                    await self.manda()
+                }
+                self.seguite.remove(id)
+                break
             }
         }
     }
@@ -144,18 +205,24 @@ final class Avvisi {
                 guard let testo = (r as? UNTextInputNotificationResponse)?.userText.trimmingCharacters(in: .whitespacesAndNewlines),
                       !testo.isEmpty, let id = info["jobId"] as? String else { return }
                 try await ponte.scriviLavoro(id, testo)
-            case "si":
-                _ = try await ponte.chiedi("sì")
-            case "no":
-                _ = try await ponte.chiedi("no")
+            case "si", "no":
+                // il numero della domanda: se nel frattempo e' cambiata il Mac risponde 409 e non conferma niente
+                let conferma = (info["conferma"] as? NSNumber)?.intValue
+                _ = try await ponte.chiedi(r.actionIdentifier == "si" ? "sì" : "no", conferma: conferma)
             default:
                 Navigazione.shared.stanza = categoria == "CONFERMA" ? .melissa : .lavori
             }
         } catch {
-            // Il Mac non ha risposto (Tailscale spento sull'iPhone?): lo si dice con una notifica locale.
             let c = UNMutableNotificationContent()
-            c.title = "Bottega"
-            c.body = "Non sono riuscita a raggiungere il Mac: \(error.localizedDescription)"
+            if let e = error as? ErrorePonte, e.codice == 409 {
+                // la domanda non e' piu' quella (o Melissa sta gia' rispondendo): il Mac dice perche'
+                c.title = "Melissa"
+                c.body = e.messaggio
+            } else {
+                // Il Mac non ha risposto (Tailscale spento sull'iPhone?): lo si dice con una notifica locale.
+                c.title = "Bottega"
+                c.body = "Non sono riuscita a raggiungere il Mac: \(error.localizedDescription)"
+            }
             try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
         }
     }
