@@ -19,6 +19,8 @@ import { Cervelli, Effort, FAMILIES, Provider, spokenChoice } from './cervelli';
 import { digest, digestText } from './mani';
 import { CategorieMinuti, Osservatorio, categorieMinuti, fraseCategorie } from './osservatorio';
 import { registerPonte } from './ponte-host';
+import { registerAggiornamenti } from './aggiorna-host';
+import { Aggiornamenti } from './aggiorna';
 
 export interface Snapshot {
 	projects: Project[];
@@ -68,6 +70,7 @@ let appleOk = false;
 /** I lavori che aspettavano al giro prima: Melissa avvisa a voce solo dei nuovi. */
 let waitingBefore = new Set<string>();
 let osservatorio: Osservatorio | undefined;
+let aggiornamenti: Aggiornamenti | undefined;
 let ponte: { notify(): void } | undefined;
 let categorieCache: { at: number; value: CategorieMinuti | null } = { at: 0, value: null };
 let paintStatus: (() => void) | undefined;
@@ -717,7 +720,10 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	nucleo.on('system.pressure', () => jobManager?.kick());
 	nucleo.on('notify.clicked', (m: any) => {
 		if (typeof m?.id === 'string' && m.id.startsWith('job:')) jobManager?.focus(m.id.slice(4));
+		if (typeof m?.id === 'string' && m.id.startsWith('aggiorna:')) void aggiornamenti?.clic(m.id, m.action);
 	});
+	// VS Code solo quando Claude Code lo chiede, Claude Code sempre aggiornato (src/aggiorna.ts)
+	aggiornamenti = registerAggiornamenti(ctx, () => nucleo);
 	// Il Nucleo (embedding, Metal, scorciatoia di Melissa) parte qualche secondo dopo: i primi secondi sono della
 	// finestra e di Claude Code.
 	const nucleoStart = setTimeout(() => nucleo?.start(), 3000);
