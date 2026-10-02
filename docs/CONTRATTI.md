@@ -304,7 +304,7 @@ normale e al massimo circa 12 KB (40 sessioni).
 ## 4. Le otto idee: regole, radar, briefing, continua, clienti, notte, dimenticati, ricerca
 
 Tutto quello che segue e' calcolato dall'estensione (`src/regole.ts`, `src/radar.ts`, `src/briefing.ts`,
-`src/continua.ts`, `src/clienti.ts`, `src/notte.ts`, `src/dimenticati.ts`, `src/ricerca.ts`) e arriva alla
+`src/continua.ts`, `src/clienti.ts`, `src/notte.ts`, `src/dimenticati.ts`, `src/ricerca.ts`, `src/vercel.ts`) e arriva alla
 plancia nello `snapshot` o come risposta a una richiesta. File su disco, tutti fuori dal repository:
 
 | file | chi lo scrive | cosa contiene |
@@ -312,6 +312,7 @@ plancia nello `snapshot` o come risposta a una richiesta. File su disco, tutti f
 | `~/.bottega/regole-cache.json` | regole | esiti per progetto (chiave: HEAD), visibilita' GitHub (24 h), app-ads.txt (6 h) |
 | `~/.bottega/regole.json` | Andrea (facoltativo) | `{"pubbliciPerScelta": ["owner/nome"], "commitDaControllare": 10}`; la Bottega (`andreapianidev/bottega-ide`) e' pubblica per scelta anche senza questo file |
 | `~/.bottega/radar/stato.json` | radar | ultimo dato di App Store Connect e AdMob, con la sua eta' |
+| `~/.bottega/radar/vercel.json` | radar (Vercel) | ultima pubblicazione di produzione di ogni sito collegato, domini, dettagli gia' letti, con la loro eta' (600) |
 | `~/.bottega/briefing.json` | briefing | ultimo briefing (`date`, `text`, `points`, `heard`) |
 | `~/.bottega/clienti.json` | plancia (Clienti) | `{"version":1,"rounding":15,"clients":[{"id","nome","progetti":[path],"tariffa"?}]}`: nomi di clienti, mai nel repository |
 | `~/.bottega/notte.json` | plancia (Lavori) | finestra e parallelismo della coda della notte, resoconto dell'ultima notte |
@@ -330,7 +331,7 @@ interface Snapshot { /* ...campi della sezione 3... */
 type Livello = 'rosso' | 'giallo' | 'verde';
 interface RuleAction { act: string; label: string; args?: Record<string, string> } // act = messaggio plancia -> estensione
 interface RuleHit {
-  id: 'build' | 'push' | 'remoto' | 'pubblico' | 'rilascio' | 'segreti' | 'app-ads';
+  id: 'build' | 'push' | 'remoto' | 'pubblico' | 'rilascio' | 'segreti' | 'app-ads' | 'vercel';
   livello: 'rosso' | 'giallo';
   frase: string;     // cosa e' violato, una frase
   rimedio: string;   // come si rimedia, una frase
@@ -369,6 +370,11 @@ Regole (rosso: si rimedia subito; giallo: va sistemato):
 - `remoto` giallo: repository senza remoto (o ramo senza upstream).
 - `app-ads` rosso, globale: `app-ads.txt` non identico byte per byte sui tre host (www.andreapiani.com,
   privacypolicyhub.vercel.app, walkie-talky.vercel.app; elenco cambiabile con `appAdsHosts` in `regole.json`).
+- `vercel` rosso: l'ultima pubblicazione di produzione del sito collegato al progetto e' fallita (`state: 'ERROR'` in
+  `RadarState.vercel`, `vercelHits` di `src/vercel.ts`, chiamata da `regole.ts`). Frase "L'ultima pubblicazione di
+  <nome> su Vercel è fallita (<giorno mese>).", rimedio "Online resta quella del <giorno mese>. Guarda il registro su
+  Vercel, correggi e ripubblica." (senza la prima frase se non c'e' una pubblicazione pronta prima), dettagli: commit,
+  errore, indirizzo su vercel.com. Nessun pulsante.
 
 I progetti senza git non entrano in `projects`. `counts` comprende anche le regole globali. Costo misurato su 68
 progetti: primo controllo 11 s (quasi tutto `gh`), i successivi 0,4 s (solo `rev-parse`, nessun ricalcolo).
@@ -391,12 +397,29 @@ interface RadarState {
   ascAt: number; admobAt: number;   // 0 = mai letto
   ascError?: string; admobError?: string;
   refreshing: boolean;
+  vercel?: VercelState;   // assente se il radar non legge Vercel (prove con dir o fetch finti)
 }
+interface VercelSito {
+  projectId: string;
+  name: string;           // nome del progetto su Vercel
+  projectPath: string;    // progetto collegato
+  via: 'project.json' | 'repo.json' | 'github' | 'nome';
+  state: string;          // READY, ERROR, BUILDING, INITIALIZING, QUEUED, CANCELED
+  label: string;          // "pubblicata", "fallita", "in costruzione", "in coda", "annullata"
+  tone: 'ok' | 'attesa' | 'male';
+  at: number; readyAt?: number;
+  domain?: string;        // dall'alias dell'ultima pronta: prima un dominio vero, poi *.vercel.app
+  url: string;            // dettaglio della pubblicazione su vercel.com (solo https://vercel.com/...)
+  commit?: { sha: string; message: string; ref?: string };
+  error?: string;         // solo per le fallite
+  lastReady?: { at: number; url: string }; // se l'ultima non e' pronta: quella che resta online
+}
+interface VercelState { sites: VercelSito[]; at: number; error?: string; refreshing: boolean } // at 0 = mai letto
 interface Briefing {
   date: string;            // YYYY-MM-DD
   at: number;
   text: string;            // quello che Melissa dice (circa trenta secondi)
-  points: { kind: 'ore'|'lavori'|'store'|'soldi'|'regole'|'dimenticati'|'notte'; text: string; act?: RuleAction }[];
+  points: { kind: 'ore'|'lavori'|'store'|'soldi'|'regole'|'calendario'|'dimenticati'|'notte'; text: string; act?: RuleAction }[];
   heard: boolean;          // gia' ascoltato o chiuso oggi
 }
 interface Forgotten { path: string; name: string; idleDays: number; reasons: string[] } // fermi da 14 giorni o piu'
@@ -411,6 +434,29 @@ interface NightState {
   report: { date: string; jobs: { id: string; project: string; task: string; status: string; summary?: string }[] } | null;
 }
 ```
+
+Siti su Vercel (`src/vercel.ts`, agganciato al radar: stessa cartella, stessa spinta, cadenza sua):
+- Nessuna chiave nuova: la CLI di Vercel gia' collegata (`vercel api`, che firma da sola). Il token non passa mai
+  dalla Bottega. Elenco chiuso (`comandoAmmesso`): `whoami`, `ls`, `inspect`, `project ls` e `api` solo con `-X GET`
+  su `/vN/deployments`, `/vN/projects`, `/vN/user` (piu' un id); rifiutati prima di lanciare il processo `deploy`,
+  `rm`, `env`, `promote`, `rollback`, `redeploy`, `alias`, `--token`, `-F`, `--input` e tutto il resto.
+- Collegamento: `.vercel/project.json` (nella cartella o in una sottocartella), `.vercel/repo.json`; in mancanza il
+  repository GitHub del remoto origin (letto da `.git/config`) o il nome (cartella, `vercel.json`, `package.json`,
+  non i nomi generici come web, app, sito) uguale a quello di una pubblicazione recente.
+- Costo misurato su 144 progetti (42 collegati): prima lettura 35 chiamate in 26 s, poi a regime UNA chiamata
+  (`/v6/deployments?target=production&limit=100`, circa 1 s). I progetti fuori dalle ultime 100 si leggono uno per
+  uno solo se la lettura precedente potrebbe aver perso qualcosa (in pratica ogni qualche giorno); i dettagli
+  (`/v13/deployments/<id>`: alias ed errore) solo per le pubblicazioni nuove. Al massimo 3 pagine, 16 progetti e
+  16 dettagli per lettura, due processi insieme, `nice -n 10`, 30 s di tempo massimo per chiamata.
+- Cadenza: `bottega.vercel.ogniMinuti` (default 30, tra 10 e 1440); `radar.refresh` la forza, al massimo una volta
+  al minuto. Un progetto tolto da Vercel (404) si ricorda e non si richiede a ogni lettura.
+- Cache `~/.bottega/radar/vercel.json` (cartella 700, file 600): solo stati, date, domini, messaggi di commit e
+  indirizzi di vercel.com. Le variabili d'ambiente che l'API manda con i dettagli restano in memoria.
+- Una pubblicazione di produzione fallita accende il semaforo rosso del progetto (regola `vercel`, sopra).
+
+Punto `calendario` del briefing (nella plancia «Agenda»), subito dopo le regole: «Oggi hai: 09:00 ..., 16:30 ...»
+(`fraseCalendario`: ordinati per ora, al massimo cinque, gli altri contati; «Oggi in agenda non hai niente.» se vuoto).
+Viene dalla delega del calendario (5.7); se la delega e' in corso, fallita, spenta o fermata dal tetto, la riga non c'e'.
 
 Il `Job` della sezione 3 acquista `night?: boolean` e lo stato `'stanotte'` (in fila per la notte: non parte di giorno).
 I lavori notturni partono con un preambolo che vieta push, pubblicazioni e deploy, e con il modo di permessi
@@ -596,8 +642,9 @@ principale. Una sola regola, in due copie allineate: `worktreeMain`/`canonKey` i
 ## 5. Connettori e posta per progetto
 
 La Bottega non tiene chiavi di Gmail, Vercel o simili: usa i connettori che l'utente ha gia' in Claude Code. Codice:
-`src/connettori.ts` (scoperta e mappa), `src/connettori-mappa.ts` (la mappa), `src/mcp.ts` (client MCP diretto),
-`src/delega.ts` (deleghe a `claude -p`), `src/posta.ts` (rubrica e fili), `src/connettori-host.ts` (la stanza,
+`src/connettori.ts` (scoperta, mappa, sola lettura), `src/connettori-mappa.ts` (la mappa), `src/mcp.ts` (client MCP
+diretto), `src/delega.ts` (deleghe a `claude -p`), `src/posta.ts` (rubrica e fili), `src/whatsapp.ts` (chat per
+progetto), `src/strumenti-connettori.ts` (gli strumenti di Melissa, 5.7), `src/connettori-host.ts` (la stanza,
 agganciata in `extension.ts` con `registerConnettori` e `handleConnettori`), `media/connettori.js` e `.css` (la stanza
 Connettori, ottava scheda della plancia).
 
@@ -605,49 +652,99 @@ Connettori, ottava scheda della plancia).
 
 | tipo | da dove | come si usa | costo |
 |---|---|---|---|
-| claude.ai (Gmail, Google Calendar, Vercel, Stripe...) | `claude mcp list` | solo delega a `claude -p` | da 20 a 70 s, da 0,14 a 0,46 $ |
-| locale stdio (mail-mcp, asc-mcp, google-play...) | `~/.claude.json`, `mcpServers` utente e per progetto | client MCP diretto | istantaneo, gratis |
+| claude.ai (Gmail, Google Calendar, Vercel, Stripe...) | `claude mcp list` | solo delega a `claude -p` | da 8 a 80 s, da 0,02 a 0,08 $ (con il perimetro, 5.4) |
+| locale stdio (mail-mcp, asc-mcp, google-play, whatsapp-business, whatsapp-personal...) | `~/.claude.json`, `mcpServers` utente e per progetto | client MCP diretto | istantaneo, gratis |
 | remoto http e plugin | `claude mcp list` e `~/.claude.json` | delega (oggi non usati) | come claude.ai |
 
 `claude mcp list` controlla la salute di ogni server ed e' lento (circa 25 s): si lancia con `nice` dalla home, al
 massimo una volta al giorno (cache in globalStorage, `connettori-mcp-list.json`) o su richiesta. Riga per server:
-`<nome>: <destinazione> - <icona> <stato>`; stati `Connected` -> `connesso`, `Needs authentication` -> `da
-autenticare`, `Not configured` -> `non configurato`, `Failed` -> `errore`. I server in `~/.claude.json` che l'elenco
-non ha visto (quelli di progetto) entrano come `sconosciuto`. Dalla configurazione locale si leggono solo nomi e forma:
-comando, argomenti ed `env` restano in memoria il tempo di avviare il server, mai in cache, log o messaggi.
+`<nome>: <destinazione> - <icona> <stato>`; stati (`statoDa`) `Needs authentication` -> `da autenticare`,
+`Not configured` -> `non configurato`, `Connected` -> `connesso`. `Connected` vince su `fail` e `timed out`: la riga
+`! Connected · tools fetch failed, Request timed out` e' `connesso` con `avviso: "collegato, il controllo degli
+strumenti è scaduto"` (`"... non è riuscito"` senza timeout), perche' e' scaduto il controllo di salute, non il server.
+`Failed to connect`, `Disconnected` e un timeout senza `Connected` restano `errore`. I server in `~/.claude.json` che
+l'elenco non ha visto (quelli di progetto) entrano come `sconosciuto`. Dalla configurazione locale si leggono solo nomi
+e forma: comando, argomenti ed `env` restano in memoria il tempo di avviare il server, mai in cache, log o messaggi.
+Dei remoti e di claude.ai si tiene `origine` (`origineDi`): schema e host dell'indirizzo
+(`https://gmailmcp.googleapis.com`), mai percorso o query, che possono contenere chiavi.
+
+Nella stanza i plugin non collegati (`tipo: 'plugin'`, stato diverso da `connesso`) stanno in un riquadro chiuso in
+fondo, una riga per nome pulito e stato ("gmail, non configurato, in 5 plugin: sales, design...").
 
 Strumenti di Claude Code: `mcp__<nome con i caratteri fuori da [A-Za-z0-9_-] sostituiti da _>__<strumento>`, per
 esempio `mcp__claude_ai_Gmail__search_threads`, `mcp__plugin_design_slack__...`, `mcp__mail-mcp__search_messages`.
 
 ### 5.2 Capacita' e mappa
 
-Capacita': `posta`, `calendario`, `deploy`, `store`, `file`, `pagamenti`, `pubblicita`, `ricerca`. La mappa
-(`src/connettori-mappa.ts`) lega a ogni capacita' dei nomi puliti (minuscolo, senza `claude.ai ` e `plugin:<x>:`),
-esatti o espressioni tra barre. L'impostazione `bottega.connettori.mappa` aggiunge voci, per esempio
-`{ "posta": ["mio-imap"] }`. Una capacita' e' accesa se almeno un connettore mappato e' connesso, o e' un server locale
-stdio a livello utente non ancora controllato.
+Capacita': `posta`, `calendario`, `deploy`, `store`, `file`, `pagamenti`, `pubblicita`, `ricerca`, `messaggi` (le chat
+WhatsApp dei clienti di ogni progetto, mappa `['/^whatsapp/']`). La mappa (`src/connettori-mappa.ts`) lega a ogni
+capacita' dei nomi puliti (minuscolo, senza `claude.ai ` e `plugin:<x>:`), esatti o espressioni tra barre.
+L'impostazione `bottega.connettori.mappa` aggiunge voci, per esempio `{ "posta": ["mio-imap"] }`. Una capacita' e'
+accesa se almeno un connettore mappato e' connesso, o e' un server locale stdio a livello utente non ancora
+controllato. `STRUMENTI` della stessa mappa dice quali strumenti usare per capacita' e connettore (per `messaggi`:
+`list_chats`, `search_contacts`); tutti passano comunque da `soloLettura`.
 
 ### 5.3 Sola lettura, sempre
 
-`soloLettura(nome)`: il nome breve dello strumento comincia per `search`, `list`, `get` o `read` e non contiene parole
-che scrivono (`send`, `reply`, `forward`, `delete`, `move`, `set`, `update`, `create`, `trash`, `label`, `save`,
-`token`...). Il client diretto (`ClientMcp.chiama`) rifiuta il resto prima ancora di avviare il server; la delega passa
-a `--allowedTools` solo strumenti che superano lo stesso filtro.
+`soloLettura(nome, annotazioni?, server?)` (`src/connettori.ts`), sul nome breve dello strumento spezzato in parole
+(`search_threads`, `getThread`):
+1. falso, sempre, se una parola e' tra quelle che scrivono, inviano, cancellano o spendono (`send`, `reply`, `delete`,
+   `update`, `create`, `generate`, `token`, `download`, `publish`, `sync`, `transcribe`... elenco `SCRIVE`), quindi
+   `get_or_create`, `list_and_delete`, `auth_generate_token` restano fuori;
+2. falso, sempre, anche con `readOnlyHint` o con il permesso a mano, se il nome corrisponde a
+   `SENSIBILI = /one_time_code_values|certificate|verify_signature|parse_payload|secret|credential|password/i`: codici
+   promozionali riscattabili, certificati, firme e contenuti dei webhook. Non scrivono, ma il loro contenuto finirebbe
+   nel contesto di Melissa e del suo cervello;
+3. vero se una parola e' un verbo o un nome di lettura, in qualunque posizione (asc-mcp e google-play scrivono
+   `apps_list`, `builds_get_processing_state`): `search`, `list`, `get`, `read`, `query`, `fetch`, `find`, `count`,
+   `check`, `inspect`, `analyze`, `analysis`, `compare`, `comparison`, `explore`, `trend`, `stats`, `report`, `summary`,
+   `overview`, `breakdown`, `status` (elenco `LEGGE`);
+4. vero se `annotazioni.readOnlyHint === true` (da tools/list: `ClientMcp.chiama` le passa quando ha gia' fatto
+   `strumenti()`);
+5. vero se il server e' in `bottega.connettori.letturaPermessa` con un nome breve che corrisponde
+   (`{ "admob": ["/.*/"] }`, chiavi e valori esatti o /regex/), per i server di sola analisi i cui strumenti non hanno
+   un verbo (`top_apps`, `wow_revenue`). Server: il terzo argomento, o il prefisso `mcp__<server>__` del nome. Default
+   `admob`, `searchconsole`, `keyword-suggest` con `/.*/`; la stanza lo carica con `impostaLetturaPermessa` all'avvio e
+   a ogni cambio dell'impostazione.
+
+Conteggi su tools/list del 2 ottobre 2026, prima e dopo le regole 3, 4 e 5: admob 4 e 34 su 36, asc-mcp 0 e 195 su
+389, google-play 0 e 26 su 48, searchconsole 4 e 13 su 17, keyword-suggest 0 e 9 su 9.
+
+Il client diretto (`ClientMcp.chiama`) rifiuta il resto prima ancora di avviare il server; la delega passa a
+`--allowedTools` solo strumenti che superano lo stesso filtro (con il nome completo, quindi anche la regola 5).
 
 ### 5.4 Deleghe (`claude -p`)
 
 ```
-nice -n 10 claude -p --output-format json --model <bottega.connettori.modello, default haiku>
-  --permission-mode dontAsk --no-session-persistence --max-budget-usd <min(tetto residuo, 0,80)>
+nice -n 10 claude -p --output-format stream-json --verbose --model <bottega.connettori.modello, default haiku>
+  --permission-mode dontAsk --no-session-persistence --max-budget-usd <min(tetto residuo, 0,40)>
+  --settings '{"disableAllHooks":true,"allowedMcpServers":[{"serverUrl":"<origine>/*"}]}'
   --tools "" --allowedTools <strumenti di sola lettura, separati da virgola>
+  --disallowedTools <gli altri strumenti visti dello stesso server, o gli altri server se l'origine manca>
   (prompt su stdin, cwd ~/.bottega/connettori, env BOTTEGA_DELEGA=1)
 ```
 
-Il prompt chiede SOLO JSON, con lo schema scritto dentro. Una delega alla volta, in coda, timeout 180 s. Uscita
-letta: `{ result, is_error, subtype, total_cost_usd, num_turns }`; dentro `result` il JSON si estrae anche da un blocco
-```` ```json ````. Tetto giornaliero `bottega.connettori.tettoGiornalieroUsd` (default 1): se la spesa di oggi piu' la
-stima supera il tetto, la delega non parte. Stima = media delle ultime cinque deleghe riuscite della stessa capacita',
-altrimenti 60 s e 0,45 $. Spesa di oggi e tetto sono sempre scritti in testa alla scheda Connettori, anche a zero.
+Il perimetro (`perimetroDelega`): Claude Code carica gli schemi degli strumenti di tutti i server MCP (997 il 2 ottobre
+2026) e haiku, senza ricerca differita, sforava ("Prompt is too long"). `--strict-mcp-config` toglie anche i connettori
+di claude.ai; `allowedMcpServers` con `serverName` non li riconosce; con `serverUrl` carica solo quel server e non avvia
+nemmeno i server locali. Per un server locale si usa `serverName`. Se un server da usare non ha ne' origine ne' tipo
+locale, `allowedMcpServers` non si scrive e si negano per nome tutti gli altri server noti. Il primo messaggio di
+stream-json (`system/init`) elenca gli strumenti caricati: i nomi (solo nomi) si uniscono in
+`~/.bottega/connettori/strumenti-visti.json` (600) e dalla delega successiva gli altri strumenti dello stesso server si
+negano. `disableAllHooks`: nessun hook dell'utente (uno costava 6 s a ogni delega). `CodaOpts.server?: () => { nome,
+prefisso, tipo?, origine? }[]` porta i connettori conosciuti (la stanza passa quelli di `claude mcp list`).
+
+Misure (una ricerca Gmail): tutti i server con haiku "Prompt is too long"; sonnet con ricerca differita 0,72 $ al
+primo turno; haiku con gli altri server negati 16 s e 0,068 $; haiku con solo search_threads e senza hook 9 s e
+0,028 $; la delega vera della posta 81 s e 0,077 $ con 24 fili, da 8 a 9 s e circa 0,02 $ con pochi risultati.
+
+Il prompt chiede SOLO JSON, con lo schema scritto dentro, e di chiamare sempre gli strumenti prima di rispondere (una
+volta haiku aveva risposto `[]` a memoria). Una delega alla volta, in coda, timeout 180 s. Uscita letta dall'ultima
+riga di stream-json con `result`: `{ result, is_error, subtype, total_cost_usd, num_turns }`; dentro `result` il JSON
+si estrae anche da un blocco ```` ```json ````. Tetto giornaliero `bottega.connettori.tettoGiornalieroUsd` (default 1):
+se la spesa di oggi piu' la stima supera il tetto, la delega non parte; una delega sola non supera mai 0,40 $
+(`MASSIMO_PER_DELEGA`). Stima = media delle ultime cinque deleghe riuscite della stessa capacita', altrimenti
+`STIMA_BASE` 60 s e 0,08 $. Spesa di oggi e tetto sono sempre scritti in testa alla scheda Connettori, anche a zero.
 
 Una delega non e' una sessione di Andrea:
 - **Hook della Memoria**: con `BOTTEGA_DELEGA=1` nell'ambiente escono subito con 0, prima di leggere il payload, senza
@@ -661,50 +758,128 @@ Una delega non e' una sessione di Andrea:
 File, tutti 600 in una cartella 700:
 
 ```ts
-// ~/.bottega/connettori/<capacita>.json, l'ultima delega di quella capacita'
+// ~/.bottega/connettori/<capacita>.json, l'ultima delega di quella capacita' (posta, chiedi, calendario...)
 interface EsitoDelega { capacita: string; at: number; ok: boolean; costo: number; durataMs: number; turni?: number; errore?: string; data?: unknown }
 // ~/.bottega/connettori/spesa.json
 interface Spesa { giorni: Record<'YYYY-MM-DD', number>; storico: { at; capacita; costo; durataMs; ok }[] } // 60 giorni, 40 deleghe
+// ~/.bottega/connettori/strumenti-visti.json: { at, strumenti: string[] }, nomi completi visti nei messaggi init
 ```
 
 ### 5.5 Posta per progetto
 
 ```ts
 // ~/.bottega/rubrica.json (600, mai nel repository)
-type Rubrica = Record<string /* percorso del progetto */, { indirizzi: string[]; domini: string[] }>;
+type Rubrica = Record<string /* percorso del progetto */, { indirizzi: string[]; domini: string[];
+  telefoni?: string[] /* E.164: "+34600000000" */; gruppi?: string[] /* "<cifre>@g.us" */ }>;
+// telefoni e gruppi si scrivono solo se non vuoti: le rubriche di prima restano valide
 // ~/.bottega/connettori/posta-fili.json (600)
 interface FileFili { at: number; giorni: number; fonti: { locale?: FonteStato; gmail?: FonteStato }; fili: Filo[] }
-interface FonteStato { nome: string; at: number; n: number; costo?: number; durataMs?: number; errore?: string }
+interface FonteStato { nome: string; at: number; n: number; costo?: number; durataMs?: number; errore?: string; pieno?: boolean }
 interface Filo { id: string /* gmail:<threadId> | mail:<account>:<mailbox>:<id> */; fonte: 'gmail' | 'mail'; threadId?: string;
   da: string; indirizzo: string; oggetto: string; data: string /* ISO */; nonLetto: boolean; anteprima: string; link?: string }
 ```
 
-Fonti: il server di posta locale (un solo `search_messages {since, limit: 300, includeBody: false}`: mittente,
-oggetto, data e letto, mai il corpo) e Gmail di claude.ai (UNA delega con `search_threads`: i mittenti e i domini in
-rubrica, `newer_than:Nd {from:a from:dominio}`, piu' `newer_than:Nd is:unread in:inbox category:primary` per i
-mittenti nuovi). Ogni fonte sostituisce solo i suoi fili. Link Gmail: `https://mail.google.com/mail/u/0/#all/<threadId>`;
-per la posta locale si apre Mail.
+Fonti: il server di posta locale (un solo `search_messages {since, limit: 500, includeBody: false}`, il massimo di
+mail-mcp: mittente, oggetto, data e letto, mai il corpo; se torna pieno `pieno: true` e la stanza dice che i messaggi
+potrebbero essere di piu') e Gmail di claude.ai (UNA delega con `search_threads`: i mittenti e i domini in rubrica,
+`newer_than:Nd {from:a from:dominio}`, piu' `newer_than:Nd is:unread in:inbox category:primary` per i mittenti nuovi).
+Ogni fonte sostituisce solo i suoi fili; gli errori di una fonte si salvano in `posta-fili.json` e i fili di prima
+restano. Link Gmail: `https://mail.google.com/mail/u/0/#all/<threadId>`; per la posta locale si apre Mail.
 
 Regole di assegnazione: l'indirizzo esatto vince sul dominio; tra i domini vince il piu' lungo (`shop.cliente.it`
 batte `cliente.it`, un sottodominio del mittente vale); a parita' il filo va a tutti i progetti. Chi non corrisponde
 va in "Da assegnare", raggruppato per mittente; per i fornitori di posta (gmail.com, libero.it...) si offre solo
-l'indirizzo, mai il dominio. Suggerimenti: i domini di `package.json` (`homepage`), `vercel.json` (`alias`, `domains`),
-e degli URL in README e CLAUDE.md, senza quelli generici (github.com, vercel.app, apple.com, google.com...), senza quelli
-gia' in rubrica e senza `bottega.posta.dominiIgnorati`.
+l'indirizzo, mai il dominio. `rubrica.add` riconosce un gruppo (`...@g.us`), un indirizzo (chiocciola), un telefono
+(cifre, spazi, `+`, `00`, normalizzato in E.164) o un dominio.
+
+Proposte e suggerimenti:
+- `indiceProgetti`: i domini dei file di ogni progetto (`package.json` homepage, `vercel.json` alias e domains, URL di
+  README e CLAUDE.md), senza quelli generici (github.com, vercel.app, apple.com, google.com...) e senza
+  `bottega.posta.dominiIgnorati`. I domini che compaiono in PIU' di un progetto sono di fornitori e si scartano;
+- `proposte(fili, indice)`: per ogni mittente in "Da assegnare", dal motivo piu' forte: il dominio sta nei file di un
+  solo progetto ("il dominio è nel README"), il dominio richiama il nome del progetto, il nome del mittente lo cita, un
+  oggetto lo cita ("l'oggetto cita <progetto>"). Citare (`citaProgetto`) = parole intere di seguito che attaccate fanno
+  il nome attaccato ("CheckIn Facile" = "checkin facile" = "checkinfacile"), nomi sotto le 4 lettere esclusi. A parita'
+  tra piu' progetti nessuna proposta. La voce proposta e' il dominio per i primi due motivi su un dominio proprio,
+  altrimenti l'indirizzo;
+- mittenti automatici (`mittenteAutomatico`: `noreply`, `no-reply`, `donotreply`, `notifications`, `mailer-daemon`,
+  `postmaster`, `newsletter`, `bounce`, `alerts`...) fuori da "Da assegnare" e dalle proposte, solo contati; si
+  assegnano a mano o con un dominio gia' in rubrica;
+- i domini dei file di un solo progetto non ancora in rubrica restano come indizio debole, in un riquadro chiuso in
+  fondo (`suggerimenti`).
 
 Impostazioni: `bottega.posta.giorni` (7), `bottega.posta.aggiornaOgniMinuti` (0, solo su richiesta; aggiorna la fonte
-locale), `bottega.posta.gmailOgniMinuti` (0; se acceso, Gmail in automatico al massimo ogni 120 minuti).
+locale e WhatsApp), `bottega.posta.gmailOgniMinuti` (0; se acceso, Gmail in automatico al massimo ogni 120 minuti).
 
-### 5.6 Messaggi plancia <-> estensione
+### 5.6 WhatsApp per progetto
+
+Fonti: i server locali stdio con capacita' `messaggi` (whatsapp-business, whatsapp-personal), interrogati con il
+client diretto (`src/whatsapp.ts`, `StanzaConnettori.serverDiretto`). `list_chats {limit: 100, page,
+include_last_message: true, sort_by: 'last_active'}`, al massimo 5 pagine, fino alla prima chat piu' vecchia di
+`bottega.whatsapp.giorni`; ogni riga e' un JSON `{ jid, name, last_message_time, last_message, last_sender,
+last_is_from_me }`. Le chat `@lid` non hanno il numero nel JID: si trova con `search_contacts {query: <cifre del lid>}`,
+voce con lo stesso `jid`, campo `phone_number`. Stato (`@broadcast`), bot e canali si scartano.
+
+```ts
+// ~/.bottega/connettori/whatsapp.json (600), al massimo 600 chat
+interface FileWa { at: number; giorni: number; fonti: { business?: FonteWaStato; personale?: FonteWaStato }; chat: ChatWa[] }
+interface FonteWaStato { nome: string; at: number; n: number; durataMs?: number; errore?: string }
+interface ChatWa { id: string /* wa:<fonte>:<jid> */; fonte: 'business' | 'personale'; server: string; jid: string;
+  gruppo: boolean; contatto: string; telefono: string /* E.164 o vuoto */; ultimo: string /* max 120 */;
+  data: string /* ISO */; mio: boolean /* l'ultimo l'ha scritto Andrea */; nonLetto?: boolean /* solo se il server lo dice */ }
+```
+
+Privacy (`ammessa`, applicata prima di scrivere su disco e prima di mostrare): una chat del numero personale entra solo
+se il numero o il gruppo e' in rubrica, oppure, con `bottega.whatsapp.personaleDaAssegnare` (default false), se e' di
+una persona; le altre non vengono nemmeno scritte. Le chat del numero business entrano tutte, gruppi compresi. Dei
+messaggi si tiene solo l'anteprima dell'ultimo. Si assegna per `telefoni` e `gruppi`; le chat senza numero non vanno in
+"Da assegnare", dove una chat ha una proposta se il nome del contatto cita un solo progetto. Aprire: `open
+whatsapp://send?phone=<cifre>` (solo persone con numero; non invia niente). Aggiornamento con il pulsante o insieme alla
+posta locale (`bottega.posta.aggiornaOgniMinuti`).
+
+Per gli altri moduli (`connettori-host.ts`): `stanzaConnettori(): StanzaConnettori | undefined`, la stanza attiva;
+`StanzaConnettori.serverDiretto(nome): { nome; avvio: AvvioServer } | undefined`, un server locale stdio utilizzabile
+(diretto, connesso o non ancora controllato a livello utente) con il modo di avviarlo, da passare a
+`conServer`/`ClientMcp`. L'avvio contiene comando ed env: solo in memoria.
+
+### 5.7 Melissa e i connettori
+
+Codice: `src/strumenti-connettori.ts`. Gli strumenti entrano nell'elenco di Melissa da `extension.ts`
+(`Object.assign(TOOLS, STRUMENTI_CONNETTORI)`, prima che nasca l'assistente) e il modulo riceve la stanza con
+`registraStrumentiConnettori(registerConnettori(...))`. Gli strumenti sono in sezione 6 («Le mani di Melissa»).
+
+- Sola lettura prima di avviare qualsiasi processo: `connettore_leggi` e gli elenchi (`strumentiLeggibili`,
+  `strumentiNoti`) chiamano `soloLettura(nome breve)` senza annotazioni ne' server, quindi per Melissa valgono oggi le
+  regole 1, 2 e 3 di 5.3: gli strumenti di admob senza verbo (`top_apps`, `wow_revenue`) non le arrivano, anche se
+  `letturaPermessa` li ammette per la stanza e per le deleghe.
+- Server locali stdio: `conServer` per chiamata, timeout 60 s, server chiuso a fine chiamata. Gli elenchi degli
+  strumenti (`tools/list`: nome, descrizione, schema; mai comando o env) restano in memoria 5 minuti.
+- Risultati per Melissa: campi vuoti tolti, testi oltre 500 caratteri accorciati, tutto troncato a 6000 caratteri con
+  la lunghezza vera dichiarata. Quello che legge passa al suo cervello (Agnes, o quello scelto per la conversazione).
+- Log: solo server, strumento e durata. Mai argomenti, contenuti o env.
+- Deleghe di Melissa: capacita' `chiedi` (`~/.bottega/connettori/chiedi.json`), schema
+  `{"risposta": "testo breve da leggere a voce"}`, strumenti presi da `STRUMENTI` della mappa piu' un piccolo elenco
+  (`STRUMENTI_IN_PIU`), sempre filtrati con `soloLettura`.
+- Calendario del briefing: capacita' `calendario`, una delega al giorno al massimo, dalle 5 del mattino, la prima volta
+  che si raccolgono i fatti del briefing della giornata (briefing o consigli), solo se `claude.ai Google Calendar` e'
+  connesso e `bottega.briefing.calendario` (default true) e' acceso. Strumento: solo `list_events`. Esito in
+  `~/.bottega/connettori/calendario.json` (600, cartella 700), con
+  `data: { giorno: 'YYYY-MM-DD', eventi: { ora: 'HH:MM' | 'tutto il giorno', titolo: string }[] }`. Un esito di oggi,
+  anche fallito, vale come tentativo: non si riprova fino a domani. Se il file non e' di oggi o non e' riuscito, il
+  briefing esce senza la riga (punto `calendario`, 4.1).
+
+### 5.8 Messaggi plancia <-> estensione
 
 | messaggio | campi | risposta |
 |---|---|---|
 | `connettori.request` | | `connettori` e `posta`; avvia `claude mcp list` se la cache ha piu' di un giorno |
 | `connettori.refresh` | | rilegge `claude mcp list` adesso; `connettori` con `aggiornando: true`, poi il risultato |
 | `posta.refresh` | `fonte`: `locale` (default) o `gmail` | `posta` con `aggiornando`, poi i fili nuovi |
-| `rubrica.add` | `path`, `voce` (indirizzo se ha la chiocciola, altrimenti dominio) | `posta` |
+| `whatsapp.refresh` | | `posta` con `whatsapp.aggiornando`, poi le chat |
+| `rubrica.add` | `path`, `voce` (gruppo, indirizzo, telefono o dominio, 5.5) | `posta` |
 | `rubrica.remove` | `path`, `voce` | `posta` |
 | `posta.apri` | `id` del filo | apre Gmail nel browser o Mail |
+| `whatsapp.apri` | `id` della chat | apre la chat in WhatsApp sul Mac (persone con numero) |
 
 Estensione -> plancia (instradati da `plancia.js` alla stanza `BottegaConnettori`):
 
@@ -715,17 +890,28 @@ interface ConnettoriStato { aggiornatoAt: number; aggiornando: boolean; errore?:
   capacita: { id; nome; cosa; accesa: boolean; fonti: string[] }[] }
 interface Connettore { nome; pulito; tipo: 'claude.ai' | 'plugin' | 'locale' | 'remoto';
   stato: 'connesso' | 'da autenticare' | 'non configurato' | 'errore' | 'sconosciuto'; prefisso: string; capacita: string[];
-  diretto: boolean; ambito: 'claude.ai' | 'utente' | 'progetto' | 'plugin'; progetti?: string[] }
+  diretto: boolean; ambito: 'claude.ai' | 'utente' | 'progetto' | 'plugin'; progetti?: string[];
+  avviso?: string; origine?: string /* 5.1 */ }
 interface StatoDeleghe { inCorso: string | null; coda: string[]; spesaOggi: number; tetto: number; modello: string;
   stime: Record<string, { secondi: number; usd: number }> }
 interface PostaStato { aggiornatoAt; aggiornando: 'locale' | 'gmail' | null; errore?; giorni; fonti;
   disponibili: { locale: string | null; gmail: boolean }; deleghe: StatoDeleghe;
-  progetti: { path; name; voce; fili: Filo[] /* max 30 */; nonLetti }[];
-  daAssegnare: { indirizzo; dominio; generico: boolean; nome; n; nonLetti; ultimo: Filo }[];
-  suggerimenti: { path; name; domini: string[] }[]; tuttiProgetti: { path; name }[] }
+  progetti: { path; name; voce; fili: Filo[] /* max 30 */; nonLetti; chat: ChatWa[] /* max 20 */; chatDaRispondere: number }[];
+  daAssegnare: { indirizzo; dominio; generico: boolean; nome; n; nonLetti; ultimo: Filo;
+    proposta?: { path; name; voce; motivo } }[];   // max 40, senza i mittenti automatici, prima le proposte
+  automatici: number;                              // mittenti automatici tolti da "Da assegnare"
+  suggerimenti: { path; name; domini: string[] }[]; // solo domini di un progetto solo, mostrati chiusi in fondo
+  whatsapp: { aggiornatoAt; aggiornando: boolean; errore?; giorni; fonti: { business?; personale? };
+    disponibili: string[]; daAssegnare: (ChatWa & { proposta?: { path; name; motivo } })[] /* max 30 */ };
+  tuttiProgetti: { path; name }[] }
 ```
 
 Comando: `bottega.openConnettori` apre la Home sulla stanza Connettori.
+
+Impostazioni della sezione: `bottega.connettori.mappa` ({}), `bottega.connettori.letturaPermessa`
+(`{ "admob": ["/.*/"], "searchconsole": ["/.*/"], "keyword-suggest": ["/.*/"] }`), `bottega.connettori.modello`
+(haiku), `bottega.connettori.tettoGiornalieroUsd` (1), le tre `bottega.posta.*` (5.5), `bottega.whatsapp.giorni` (7, da
+1 a 90), `bottega.whatsapp.personaleDaAssegnare` (false), `bottega.briefing.calendario` (true).
 
 ## 6. La barra di Melissa
 
@@ -822,6 +1008,19 @@ sessioni aperte altrove e' sola lettura), `cruscotto_mostra {progetto?, giorni?}
 `{type:'crus.focus', path?, period?}`: il cruscotto cambia periodo e accende il progetto sul cielo e in classifica
 mentre Melissa risponde; un comando arrivato prima dei dati si applica al loro arrivo). In conversazione, quando un
 lavoro comincia ad aspettare, Melissa lo dice una volta («Peak ti aspetta»).
+
+Strumenti sui connettori (5.7), sempre in sola lettura:
+- `connettori_elenco {server?, cerca?}`: senza server, i connettori con stato e tipo (diretti e gratis, oppure via
+  Claude e a pagamento) e i nomi degli strumenti di sola lettura dei diretti (al massimo 20 per server, tre server
+  avviati alla volta); con server, i suoi strumenti di sola lettura con descrizione breve e argomenti (`nome*: tipo`,
+  asterisco = obbligatorio), filtrabili con `cerca`.
+- `connettore_leggi {server, strumento, argomenti?}`: uno strumento di sola lettura di un server locale stdio,
+  gratis e subito. Quello che non passa `soloLettura` viene rifiutato senza avviare il server. `whatsapp-personal` e
+  `mail-mcp` solo su richiesta esplicita di Andrea (scritto nella descrizione dello strumento).
+- `connettore_chiedi {compito, connettori[]}` (`risky`): delega a `claude -p` per i connettori di claude.ai. Chiede
+  sempre conferma con la stima di tempo e costo (`stime.chiedi` della coda, altrimenti `STIMA_BASE`, 60 s e 0,08 $) e
+  la spesa di oggi sul tetto; dopo il si' la delega parte in coda e la risposta arriva a voce con `announce` quando
+  Melissa e' libera (al massimo un minuto di attesa). Con il tetto raggiunto non chiede nemmeno.
 
 ## 7. La Bottega nativa: Apple Intelligence, Metal, macOS 27
 

@@ -146,9 +146,11 @@ far salire il numero di build, commit non spinti, repository senza remoto, repos
 commit non ancora spinti, una versione su App Store Connect che non andrà in rilascio automatico, `app-ads.txt` diverso
 tra i siti che lo servono. Per ogni violazione c'è la frase che dice come rimediare e, quando si può, il pulsante che lo
 fa. La stanza Vedetta mette tutto insieme, accanto al radar dello Store: stato di ogni app su App Store Connect,
-ultime recensioni e quanto ha reso su AdMob ieri e negli ultimi sette giorni. Funziona anche senza rete, con l'età del
-dato in chiaro. Le chiavi si leggono da `~/.secrets/` e dal server MCP di AdMob già autenticato: nel repository non c'è
-niente.
+ultime recensioni e quanto ha reso su AdMob ieri e negli ultimi sette giorni. La Vedetta guarda anche i siti: per ogni
+progetto collegato a Vercel mostra l'ultima pubblicazione di produzione (pronta, in costruzione o fallita), il dominio e
+da quanto tempo, con la CLI di Vercel già collegata, in sola lettura e senza chiavi nuove; una pubblicazione fallita
+accende di rosso il semaforo del progetto. Funziona anche senza rete, con l'età del dato in chiaro. Le chiavi si leggono
+da `~/.secrets/` e dal server MCP di AdMob già autenticato: nel repository non c'è niente.
 
 ### Il briefing del mattino, la notte, «continua da dove eri»
 
@@ -172,19 +174,30 @@ La Bottega non ha chiavi di Gmail, Vercel o altri servizi: usa i connettori che 
 funziona per chiunque scarichi il progetto. Si aggiungono in Claude Code: i connettori di claude.ai (Gmail, Google
 Calendar, Google Drive, Vercel, Stripe) dalle impostazioni di claude.ai, i server locali con `claude mcp add`. La stanza
 Connettori mostra cosa hai e cosa si accende nella Bottega: posta, calendario, pubblicazioni, Store, file, pagamenti,
-pubblicità, motori di ricerca.
+pubblicità, motori di ricerca, messaggi. Un connettore collegato il cui controllo è solo scaduto resta collegato, con
+una nota; i plugin non collegati stanno in un riquadro chiuso in fondo.
 
-La prima capacità accesa è la posta per progetto. Una rubrica dice quali mittenti e quali domini sono di quale
-progetto, con suggerimenti presi dai file del progetto (homepage, `vercel.json`, URL nel README); un pulsante legge la
-posta degli ultimi giorni e la divide per progetto, e chi non è in rubrica finisce in «Da assegnare». Un server di
-posta locale (per esempio un server MCP per Apple Mail) si interroga direttamente, gratis e in pochi secondi. Gmail di
-claude.ai passa da una delega a Claude Code senza finestra: costa da 20 a 70 secondi e da 0,14 a 0,46 dollari, per
-questo c'è un tetto di spesa giornaliero (`bottega.connettori.tettoGiornalieroUsd`, 1 dollaro).
+La prima capacità accesa è la posta per progetto. Una rubrica dice quali mittenti, domini, numeri di telefono e gruppi
+WhatsApp sono di quale progetto; un pulsante legge la posta degli ultimi giorni e la divide per progetto, e chi non è in
+rubrica finisce in «Da assegnare». Lì la Bottega propone il progetto giusto per i mittenti nuovi, con il motivo («il
+dominio è nel README», «l'oggetto cita il nome del progetto»), e lascia fuori i mittenti automatici (noreply,
+notifiche, newsletter); i domini che compaiono nei file di più progetti sono di fornitori e non vengono proposti. Un
+server di posta locale (per esempio un server MCP per Apple Mail) si interroga direttamente, gratis e in pochi secondi.
+Gmail di claude.ai passa da una delega a Claude Code senza finestra, che carica solo il connettore Gmail: costa da 8 a
+80 secondi e da 0,02 a 0,08 dollari, e c'è comunque un tetto di spesa giornaliero
+(`bottega.connettori.tettoGiornalieroUsd`, 1 dollaro).
+
+Accanto ai fili di posta, ogni progetto mostra le chat WhatsApp dei suoi contatti, se hai in Claude Code i server
+locali di WhatsApp: tutte quelle del numero business, e di quello personale solo i numeri e i gruppi che hai messo in
+rubrica. Per ogni chat c'è il contatto, l'ultimo messaggio accorciato, chi ha scritto per ultimo e un pulsante che la
+apre in WhatsApp sul Mac.
 
 Privacy. Il contenuto delle mail lette da Gmail passa da Claude e da Anthropic, come nell'uso normale dei connettori;
-con la fonte locale mittente, oggetto e data restano sul Mac. La rubrica (`~/.bottega/rubrica.json`) e la cache dei fili
-(`~/.bottega/connettori/`) restano sul tuo Mac, mai nel repository. La Bottega usa solo strumenti di lettura: nessuna
-mail viene mai inviata, nessuna bozza creata, niente spostato o cancellato.
+con la fonte locale mittente, oggetto e data restano sul Mac. Delle chat WhatsApp si tiene solo l'anteprima
+dell'ultimo messaggio, e le chat personali fuori rubrica non vengono nemmeno scritte su disco. La rubrica
+(`~/.bottega/rubrica.json`) e la cache di fili e chat (`~/.bottega/connettori/`) restano sul tuo Mac, mai nel
+repository. La Bottega usa solo strumenti di lettura, e lascia fuori anche quelli che leggono codici, certificati o
+password: nessuna mail o messaggio viene mai inviato, nessuna bozza creata, niente spostato o cancellato.
 
 ### Melissa dentro l'IDE
 
@@ -196,7 +209,9 @@ anche a voce («usa Claude», «pensa più a fondo»), e alla fine si torna ad A
 vere: il saldo di OpenRouter e DeepSeek letto dai servizi, le richieste di oggi ad Agnes (che non ha un saldo) e i
 caratteri di voce contati dalla Bottega. Melissa legge cosa hanno fatto le sessioni, passa istruzioni ai lavori della
 Bottega, avvisa quando uno ti aspetta e muove il cruscotto mentre ti risponde («fammi vedere le ore di Woofmap questa
-settimana»). Chi vuole la sfera sullo schermo, come prima, imposta `bottega.voice.sfera` su `schermo`. Il Nucleo espone anche i Comandi rapidi
+settimana»). Usa anche i connettori che hai in Claude Code, sempre in sola lettura: legge da sola e gratis i server
+locali (AdMob, Search Console, App Store Connect...), chiede a Claude per Gmail, Calendar, Drive o Vercel solo dopo
+averti detto tempo e costo, e la mattina mette nel briefing gli appuntamenti di oggi. Chi vuole la sfera sullo schermo, come prima, imposta `bottega.voice.sfera` su `schermo`. Il Nucleo espone anche i Comandi rapidi
 («Chiedi a Melissa», «Avvia un lavoro», «Briefing», «Stato delle regole», anche con Siri), due widget da scrivania
 (il semaforo con il briefing, e «Oggi» con le ore, il grafico della settimana, chi ti aspetta e tre pulsanti), quattro
 controlli per il Centro di Controllo (Melissa, plancia, nuovo lavoro, Osservatorio), e mette progetti e ricordi in
@@ -348,6 +363,15 @@ Per le notifiche serve una chiave APNs del tuo account (Certificates, Identifier
   dei lavori, le risposte e la loro voce;
 - verso Claude e Anthropic, solo se premi «Cerca anche in Gmail» (o accendi `bottega.posta.gmailOgniMinuti`): la
   richiesta a Gmail e i mittenti, gli oggetti e le anteprime dei fili trovati, come nell'uso normale dei connettori.
+  Lo stesso per le domande di Melissa ai connettori di claude.ai, che confermi una per una, e per la lettura degli
+  appuntamenti di oggi per il briefing, una al giorno se Google Calendar è collegato (si spegne con
+  `bottega.briefing.calendario`);
+- verso Agnes AI (o il cervello scelto per la conversazione): quello che Melissa legge dai server locali dei
+  connettori quando glielo chiedi, già accorciato, perché possa risponderti. Melissa ha l'istruzione di leggere
+  chat e posta personali solo se glielo chiedi tu in modo esplicito.
+
+Le chat WhatsApp della stanza Connettori invece non escono: le legge la Bottega dai server locali e le anteprime
+restano sul Mac.
 
 Nient'altro. La build dai sorgenti di VS Code non contiene telemetria; progetti, sessioni, memoria e
 statistiche restano in locale.
