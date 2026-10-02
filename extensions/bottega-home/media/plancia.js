@@ -439,7 +439,20 @@
 		<h1 class="sentence media" id="frase-memoria"></h1>
 		<section class="mem-grafici" id="mem-grafici" aria-labelledby="mem-grafici-titolo" hidden>
 			<h2 class="mem-grafici-titolo" id="mem-grafici-titolo">Come lavora la memoria</h2>
-			<div id="mem-grafici-corpo"></div>
+			<div id="mem-tessere"></div>
+			<div class="mem-griglia">
+				<div class="mem-tre" id="mem-tre"></div>
+				<figure class="mem-grafico" id="mem-battito">
+					<figcaption><span class="mem-gtitolo">Il battito della memoria</span><span class="mem-gnota" id="battito-nota">Quando nascono i ricordi, ora per ora, giorno per giorno.</span></figcaption>
+					<div class="battito-scala" aria-hidden="true"><span>meno</span><i></i><span>più</span></div>
+					<div class="battito-tela" id="battito-tela">
+						<canvas id="battito-canvas" aria-hidden="true"></canvas>
+						<svg class="battito-fermo" id="battito-fermo" aria-hidden="true" hidden></svg>
+						<div class="battito-etichette" id="battito-etichette" aria-hidden="true"></div>
+					</div>
+					<div id="battito-tabella"></div>
+				</figure>
+			</div>
 			<div class="mem-tip" id="mem-tip" role="tooltip" hidden></div>
 		</section>
 		<div class="memoria">
@@ -1850,15 +1863,19 @@
 	/* Colori: la tavolozza di riferimento a quattro (blu, arancio, acqua, giallo), controllata contro il fondo
 	   scuro e chiaro (--m1..--m4 in plancia.css). Ogni grafico ha la sua tabella, «Mostra i numeri». */
 	const SERIE_SCRITTI = [
-		['fatti', 'Fatti e note', 'var(--m1)'],
-		['decisioni', 'Decisioni', 'var(--m2)'],
-		['riassunti', 'Riassunti', 'var(--m3)'],
-		['schermate', 'Schermate', 'var(--m4)'],
+		['fatti', 'Fatti e note', 'm1'],
+		['decisioni', 'Decisioni', 'm2'],
+		['riassunti', 'Riassunti', 'm3'],
+		['schermate', 'Schermate', 'm4'],
 	];
 	const SERIE_LETTI = [
-		['avvio', 'Contesto a ogni sessione', 'var(--m1)'],
-		['ricerche', 'Ricerche di Claude', 'var(--m2)'],
+		['avvio', 'Contesto a ogni sessione', 'm1'],
+		['ricerche', 'Ricerche di Claude', 'm2'],
 	];
+	const GIORNI_SETTIMANA = ['lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica'];
+	const BATTITO = { sx: 40, su: 22 };
+	/** @type {any} */ let battito = null;
+	let battitoFermo = '';
 	const mese = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
 	const giornoBreve = g => {
 		const [, mm, dd] = g.split('-').map(Number);
@@ -1870,7 +1887,10 @@
 		const sez = $('mem-grafici');
 		const d = state.mem.grafici;
 		sez.hidden = !d || state.mem.mode !== 'ricordi';
-		if (sez.hidden) return;
+		if (sez.hidden) {
+			if (battito) battito.attiva(false);
+			return;
+		}
 		const t = d.totali;
 		const ultimo = t.ultimo ? new Date(t.ultimo) : null;
 		const ora = ultimo ? `${String(ultimo.getHours()).padStart(2, '0')}:${String(ultimo.getMinutes()).padStart(2, '0')}` : '';
@@ -1898,8 +1918,128 @@
 			SERIE_LETTI,
 		);
 		const c = barre('progetti', 'Di quali progetti ricorda', `I progetti con più ricordi negli ultimi ${d.giorni} giorni.`, d.progetti);
-		setHTML($('mem-grafici-corpo'), `${tess}<div class="mem-griglia">${a}${b}${c}</div>`);
+		if (!sez.dataset.visto) {
+			// la prima volta colonne e barre crescono dalla base; ai rinfreschi dopo no
+			sez.dataset.visto = '1';
+			sez.classList.add('entra');
+			setTimeout(() => sez.classList.remove('entra'), 1600);
+		}
+		setHTML($('mem-tessere'), tess);
+		setHTML($('mem-tre'), `${a}${b}${c}`);
+		renderBattito(d);
 	}
+
+	// ---------- il battito: 7 giorni per 24 ore, in WebGPU (Metal sul Mac), motore/battito-gpu.js ----------
+
+	function renderBattito(d) {
+		const ore = d.ore || Array.from({ length: 7 }, () => Array(24).fill(0));
+		const tot = ore.map(r => r.reduce((a, b) => a + b, 0));
+		const tutti = tot.reduce((a, b) => a + b, 0);
+		let pieno = { g: 0, o: 0, v: -1 };
+		ore.forEach((r, g) => r.forEach((v, o) => v > pieno.v && (pieno = { g, o, v })));
+		setHTML(
+			$('battito-nota'),
+			tutti
+				? `Quando nascono i ricordi negli ultimi ${d.giorni} giorni. L'ora più piena: ${GIORNI_SETTIMANA[pieno.g]} dalle ${pieno.o} alle ${pieno.o + 1}, ${pieno.v} ricordi.`
+				: `Quando nascono i ricordi: ancora niente negli ultimi ${d.giorni} giorni.`,
+		);
+		setHTML(
+			$('battito-tabella'),
+			tabellaHTML(
+				'battito',
+				['Giorno', 'Ricordi', 'Ora più piena'],
+				ore.map((r, g) => {
+					const m = Math.max(...r);
+					return [GIORNI_SETTIMANA[g], tot[g], m ? `dalle ${r.indexOf(m)} alle ${r.indexOf(m) + 1} (${m})` : 'n/d'];
+				}),
+			),
+		);
+		battitoDati = { ore, adesso: d.adesso || null };
+		$('mem-battito').setAttribute('aria-label', `Il battito della memoria: ${GIORNI_SETTIMANA.map((g, i) => `${g} ${tot[i]}`).join(', ')}`);
+		misuraBattito();
+		if (!battito && !battitoFermo) {
+			const motore = /** @type {any} */ (window).BottegaBattito;
+			if (motore) {
+				battito = motore.monta($('battito-canvas'), {
+					margine: BATTITO,
+					onFail: motivo => {
+						console.warn('Bottega: battito senza WebGPU, griglia ferma:', motivo);
+						battito = null;
+						battitoFermo = motivo || 'WebGPU spento';
+						disegnaBattitoFermo();
+					},
+				});
+			} else battitoFermo = 'motore WebGPU non caricato';
+		}
+		if (battito) {
+			coloriBattito();
+			battito.dati(ore, battitoDati.adesso);
+			battito.attiva(state.view === 'memoria' && state.mem.mode === 'ricordi');
+		} else disegnaBattitoFermo();
+	}
+	/** @type {{ore: number[][], adesso: any} | null} */ let battitoDati = null;
+
+	/** L'altezza segue la larghezza (celle quasi quadrate); etichette dei giorni e delle ore in HTML, nitide. */
+	function misuraBattito() {
+		const tela = $('battito-tela');
+		const w = tela.clientWidth;
+		if (!w) return;
+		const cw = (w - BATTITO.sx) / 24;
+		const h = Math.round(BATTITO.su + 7 * cw * 0.92);
+		tela.style.height = `${h}px`;
+		const ch = (h - BATTITO.su) / 7;
+		const giorni = GIORNI_SETTIMANA.map(g => `<span class="giorno">${g.slice(0, 3)}</span>`);
+		const ore = [0, 6, 12, 18].map(o => `<span class="ora">${o}</span>`);
+		setHTML($('battito-etichette'), giorni.join('') + ore.join(''));
+		[...$('battito-etichette').querySelectorAll('.giorno')].forEach((el, i) => {
+			el.style.top = `${BATTITO.su + (i + 0.5) * ch}px`;
+		});
+		[...$('battito-etichette').querySelectorAll('.ora')].forEach((el, i) => {
+			el.style.left = `${BATTITO.sx + i * 6 * cw}px`;
+		});
+		if (battitoFermo) disegnaBattitoFermo();
+	}
+
+	function coloriBattito() {
+		if (!battito) return;
+		const cs = getComputedStyle(document.body);
+		const v = n => cs.getPropertyValue(n).trim();
+		battito.colori({ vuota: v('--linea') || '#263150', piena: v('--sodio') || '#f4ab3c', fondo: v('--cielo') || '#121a2e' });
+	}
+
+	/** Senza WebGPU: la stessa griglia, ferma, in SVG. */
+	function disegnaBattitoFermo() {
+		const svg = $('battito-fermo');
+		const tela = $('battito-tela');
+		if (!battitoDati || !tela.clientWidth) return;
+		const w = tela.clientWidth, h = tela.clientHeight;
+		const cw = (w - BATTITO.sx) / 24, ch = (h - BATTITO.su) / 7;
+		const max = Math.max(1, ...battitoDati.ore.flat());
+		let out = '';
+		battitoDati.ore.forEach((r, g) =>
+			r.forEach((v, o) => {
+				const op = (0.18 + 0.82 * Math.sqrt(v / max)).toFixed(2);
+				out += `<rect class="${v ? 'piena' : 'vuota'}" x="${(BATTITO.sx + o * cw + 1.5).toFixed(1)}" y="${(BATTITO.su + g * ch + 1.5).toFixed(1)}" width="${(cw - 3).toFixed(1)}" height="${(ch - 3).toFixed(1)}" rx="3" fill-opacity="${v ? op : 1}"/>`;
+			}),
+		);
+		svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+		setHTML(svg, out);
+		svg.hidden = false;
+		$('battito-canvas').hidden = true;
+	}
+
+	/** La cella sotto il mouse: si accende e dice quanti ricordi. */
+	function cellaBattito(e) {
+		const tela = $('battito-tela');
+		const r = tela.getBoundingClientRect();
+		const cw = (r.width - BATTITO.sx) / 24, ch = (r.height - BATTITO.su) / 7;
+		const o = Math.floor((e.clientX - r.left - BATTITO.sx) / cw);
+		const g = Math.floor((e.clientY - r.top - BATTITO.su) / ch);
+		return o >= 0 && o < 24 && g >= 0 && g < 7 ? { g, o } : null;
+	}
+	if (typeof ResizeObserver === 'function') new ResizeObserver(() => battitoDati && misuraBattito()).observe($('battito-tela'));
+	if (typeof IntersectionObserver === 'function')
+		new IntersectionObserver(v => battito && battito.inVista(v.some(x => x.isIntersecting))).observe($('battito-tela'));
 
 	function tabellaHTML(id, heads, rows) {
 		const open = state.mem.tabelle.has(id);
@@ -1937,8 +2077,8 @@
 				const ultimo = j === pezzi.length - 1;
 				const hh = Math.max(0.5, h - (ultimo ? 0 : 2));
 				segmenti += ultimo
-					? `<path fill="${col}" d="${arrotondata(x, top, bw, hh)}"/>`
-					: `<rect fill="${col}" x="${x.toFixed(1)}" y="${(top + 2).toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}"/>`;
+					? `<path class="${col}" d="${arrotondata(x, top, bw, hh)}"/>`
+					: `<rect class="${col}" x="${x.toFixed(1)}" y="${(top + 2).toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}"/>`;
 				su = top;
 			});
 			const tip = `${giornoBreve(g.giorno)}: ${tot[i] ? righe : 'niente'}${id === 'scritti' && g.richieste ? `, più ${g.richieste} richieste` : ''}${id === 'letti' && g.ricerche ? strumentiTesto(g.strumenti) : ''}`;
@@ -1949,7 +2089,7 @@
 			.join('');
 		svg += `<line class="base" x1="${sx}" x2="${W}" y1="${base}" y2="${base}"/>${etichette}`;
 		const somma = serie.map(([k, l]) => `${l} ${giorni.reduce((a, g) => a + g[k], 0)}`).join(', ');
-		const legenda = `<ul class="mem-legenda">${serie.map(([, l, col]) => `<li><i style="background:${col}"></i>${esc(l)}</li>`).join('')}</ul>`;
+		const legenda = `<ul class="mem-legenda">${serie.map(([, l, col]) => `<li><i class="${col}"></i>${esc(l)}</li>`).join('')}</ul>`;
 		const tab = tabellaHTML(
 			id,
 			['Giorno', ...serie.map(([, l]) => l)],
@@ -1979,7 +2119,7 @@
 			const yy = 2 + i * riga;
 			const w = Math.max(2, ((W - sx - 44) * r.ricordi) / max);
 			const nome = r.progetto.length > 18 ? r.progetto.slice(0, 17) + '…' : r.progetto;
-			svg += `<g class="colonna" data-tip="${esc(`${r.progetto}: ${r.ricordi} ricordi`)}"><rect class="bersaglio" x="0" y="${yy}" width="${W}" height="${riga}"/><text class="nome" x="${sx - 8}" y="${yy + 15}" text-anchor="end">${esc(nome)}</text><path fill="var(--m1)" d="${arrotondataDestra(sx, yy + 5, w, riga - 10)}"/><text class="valore" x="${(sx + w + 6).toFixed(1)}" y="${yy + 15}">${r.ricordi}</text></g>`;
+			svg += `<g class="colonna" data-tip="${esc(`${r.progetto}: ${r.ricordi} ricordi`)}"><rect class="bersaglio" x="0" y="${yy}" width="${W}" height="${riga}"/><text class="nome" x="${sx - 8}" y="${yy + 15}" text-anchor="end">${esc(nome)}</text><path class="m1 barra" d="${arrotondataDestra(sx, yy + 5, w, riga - 10)}"/><text class="valore" x="${(sx + w + 6).toFixed(1)}" y="${yy + 15}">${r.ricordi}</text></g>`;
 		});
 		const tab = tabellaHTML(id, ['Progetto', 'Ricordi'], righe.map(r => [r.progetto, r.ricordi]));
 		const vuoto = righe.length ? '' : '<p class="invito">Ancora nessun ricordo in questo periodo.</p>';
@@ -1995,15 +2135,23 @@
 	$('mem-grafici').addEventListener('pointermove', e => {
 		const g = /** @type {HTMLElement} */ (e.target).closest && /** @type {any} */ (e.target).closest('[data-tip]');
 		const tip = $('mem-tip');
-		if (!g) return void (tip.hidden = true);
-		tip.textContent = g.getAttribute('data-tip');
+		const dentro = $('battito-tela').contains(/** @type {Node} */ (e.target));
+		const cella = dentro && battitoDati ? cellaBattito(e) : null;
+		if (battito) battito.sopra(cella ? cella.g * 24 + cella.o : -1);
+		if (!g && !cella) return void (tip.hidden = true);
+		tip.textContent = cella
+			? `${cap(GIORNI_SETTIMANA[cella.g])}, dalle ${cella.o} alle ${cella.o + 1}: ${battitoDati.ore[cella.g][cella.o] || 'nessun'} ${battitoDati.ore[cella.g][cella.o] === 1 ? 'ricordo' : 'ricordi'}`
+			: g.getAttribute('data-tip');
 		tip.hidden = false;
 		const box = $('mem-grafici').getBoundingClientRect();
 		const x = Math.min(e.clientX - box.left + 14, box.width - tip.offsetWidth - 4);
 		tip.style.left = `${Math.max(0, x)}px`;
 		tip.style.top = `${e.clientY - box.top - tip.offsetHeight - 12}px`;
 	});
-	$('mem-grafici').addEventListener('pointerleave', () => ($('mem-tip').hidden = true));
+	$('mem-grafici').addEventListener('pointerleave', () => {
+		$('mem-tip').hidden = true;
+		if (battito) battito.sopra(-1);
+	});
 
 	// ---------- Melissa ----------
 
@@ -2468,6 +2616,7 @@
 		if (view === 'melissa') orb.wake();
 		else orb.sleep();
 		for (const [id] of ROOMS) room(id, view === id ? 'show' : 'hide');
+		if (battito) battito.attiva(view === 'memoria' && state.mem.mode === 'ricordi');
 		if (view === 'memoria') {
 			if (!state.mem.sent && state.mem.mode === 'ricordi') runSearch();
 			else rinfrescaMemoria(true);

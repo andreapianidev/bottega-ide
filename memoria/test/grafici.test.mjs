@@ -54,5 +54,10 @@ test('scritti e letti per giorno, progetti, totali', () => {
 	assert.equal(g.totali.lettiSettimana, 2 + 3);
 	assert.equal(g.totali.ultimo, ORA - 500);
 	assert.equal(grafici({ giorni: 400, ora: ORA, store }).giorni, 90, 'al massimo 90 giorni');
+	// 3 ottobre 2026 e' un sabato (riga 5); le ore sono quelle del Mac; le richieste non contano
+	assert.deepEqual(g.adesso, { giorno: 5, ora: 10 });
+	assert.equal(g.ore.length, 7);
+	assert.equal(g.ore[5][9], 3, 'fatto, nota e decisione di stamattina, senza la richiesta');
+	assert.equal(g.ore.flat().reduce((a, b) => a + b, 0), 5);
 	fs.rmSync(TMP, { recursive: true, force: true });
 });

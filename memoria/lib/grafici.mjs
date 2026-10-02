@@ -5,6 +5,7 @@
 //   letti       quante volte Claude la legge: il contesto che ogni sessione riceve quando parte (una per sessione
 //               avviata) e le ricerche che fa da sola con gli strumenti memoria_* (registrate dagli hook)
 //   progetti    di quali progetti ricorda di piu' nel periodo
+//   ore         quando nascono i ricordi: 7 righe (lunedi' per primo) per 24 ore, nel periodo; e `adesso`
 //   totali      ricordi, sessioni, riassunte, in coda, letture degli ultimi 7 giorni
 //
 // Solo letture dal database, niente rete. I giorni sono quelli dell'orologio del Mac.
@@ -40,10 +41,17 @@ export function grafici({ giorni: n = 30, ora = Date.now(), store = openStore() 
 	// scritti
 	const scritti = vuoto();
 	for (const k of Object.keys(scritti)) scritti[k] = { fatti: 0, decisioni: 0, riassunti: 0, schermate: 0, richieste: 0 };
+	const ore = Array.from({ length: 7 }, () => Array(24).fill(0));
 	for (const r of store.all('SELECT kind, createdAt FROM memories WHERE createdAt >= ?', da)) {
 		const g = scritti[chiave(r.createdAt)];
 		if (g && GRUPPI[r.kind]) g[GRUPPI[r.kind]]++;
+		// le richieste no: dicono quando scrivi, non quando la memoria impara
+		if (GRUPPI[r.kind] && r.kind !== 'prompt') {
+			const d = new Date(r.createdAt);
+			ore[(d.getDay() + 6) % 7][d.getHours()]++;
+		}
 	}
+	const qui = new Date(ora);
 
 	// letti: contesto all'avvio (sessioni avviate) e ricerche con gli strumenti della memoria
 	const letti = vuoto();
@@ -87,6 +95,8 @@ export function grafici({ giorni: n = 30, ora = Date.now(), store = openStore() 
 		scritti: Object.entries(scritti).map(([giorno, v]) => ({ giorno, ...v })),
 		letti: Object.entries(letti).map(([giorno, v]) => ({ giorno, ...v })),
 		progetti,
+		ore,
+		adesso: { giorno: (qui.getDay() + 6) % 7, ora: qui.getHours() },
 		totali,
 	};
 }

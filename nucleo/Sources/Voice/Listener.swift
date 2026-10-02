@@ -146,6 +146,10 @@ final class Listener {
     private var sttCloseWork: DispatchWorkItem?
     private var mic: MicEngine?
     private var usingDuplex = false
+    /// Conversation, Apple engine: the microphone engine is OFF while Melissa thinks and speaks
+    /// (Avo Agency AI, teardownAudio), so macOS does not show the microphone in use.
+    private var micPaused = false
+    private var reopenWork: DispatchWorkItem?
     private let tap = MicTap()
     private var locale = "it-IT"
 
@@ -472,6 +476,8 @@ final class Listener {
 
     private func closeWindowAudio() async {
         limitWork?.cancel(); limitWork = nil
+        reopenWork?.cancel(); reopenWork = nil
+        micPaused = false
         tap.setSTT(nil)
         tap.armVAD(false)
         mic?.stop()
@@ -651,6 +657,7 @@ final class Listener {
             }
             Out.event("voice.final", ["text": text, "mode": m.rawValue])
             VoiceHub.shared.userTurnEnded()
+            pauseMicForReply()
         }
     }
 
@@ -678,8 +685,8 @@ final class Listener {
             return
         }
         guard conversing else { return }
-        // Avo Agency AI: while Melissa speaks the microphone is not heard (no echo, no self-talk).
-        if !Self.usaElevenLabs { stt?.setMuted(true); return }
+        // Avo Agency AI: while Melissa speaks the microphone is closed (no echo, no self-talk).
+        if !Self.usaElevenLabs { pauseMicForReply(); return }
         tap.armVAD(echoCancellation == "hardware")
     }
 
@@ -687,8 +694,62 @@ final class Listener {
         speechEndedAt = Date()
         lastSpoken = spoken
         tap.armVAD(false)
-        if conversing, !Self.usaElevenLabs { stt?.setMuted(false) }
+        if conversing, !Self.usaElevenLabs {
+            if micPaused { replyOver() } else { stt?.setMuted(false) }
+        }
         if !conversing { Task { await resumeWakeIfNeeded() } }
+    }
+
+    // MARK: - Microphone off during the reply (Avo Agency AI)
+
+    /// The user's turn is closed, or Melissa started speaking: the microphone engine stops,
+    /// not just the transcription. Before 3/10/2026 only the transcription was muted and
+    /// macOS kept the orange microphone on for the whole reply.
+    private func pauseMicForReply() {
+        stt?.setMuted(true)
+        guard conversing, !Self.usaElevenLabs, !usingDuplex else { return }
+        reopenWork?.cancel(); reopenWork = nil
+        guard let m = mic else { return }
+        m.stop()
+        mic = nil
+        micPaused = true
+        AudioLevels.shared.reset(.mic)
+        Log.info("microfono chiuso: Melissa pensa e risponde")
+    }
+
+    /// The reply is over (voice ended, or the extension says the turn closed without voice):
+    /// the microphone reopens 250 ms later, Avo's re-arm delay.
+    func replyOver() {
+        guard micPaused, conversing, !Speaker.shared.isSpeaking else { return }
+        stt?.setMuted(false)
+        reopenWork?.cancel()
+        let work = DispatchWorkItem {
+            Task { @MainActor in await Listener.shared.reopenMic() }
+        }
+        reopenWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + AppleSTT.rearmDelay, execute: work)
+    }
+
+    private func reopenMic() async {
+        reopenWork = nil
+        guard micPaused, conversing, mic == nil, !Speaker.shared.isSpeaking else { return }
+        micPaused = false
+        tap.resetHealth()
+        do {
+            let m = try await MicEngine.start(tap)
+            // She started speaking again (or the conversation closed) while the engine was starting.
+            if !conversing || Speaker.shared.isSpeaking {
+                m.stop()
+                micPaused = conversing
+                return
+            }
+            mic = m
+            Log.info("microfono riaperto dopo la risposta")
+        } catch {
+            Log.error("Il microfono non si riapre dopo la risposta: \(error.localizedDescription)")
+            VoiceHub.shared.error("Il microfono non si riapre: \(error.localizedDescription)")
+            await converseStop()
+        }
     }
 
     /// The user talked over Melissa: silence her at once and keep listening.
