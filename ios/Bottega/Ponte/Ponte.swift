@@ -9,43 +9,7 @@
 
 import Foundation
 import Observation
-
-struct StatoMac: Decodable, Equatable {
-    struct Riga: Decodable, Equatable, Identifiable {
-        let chi: String
-        let testo: String
-        let alle: Double
-        var id: String { "\(alle)-\(chi)-\(testo.prefix(24))" }
-    }
-    struct Melissa: Decodable, Equatable {
-        let stato: String
-        let cervello: String
-        let parziale: String?
-        let registro: [Riga]
-    }
-    struct Lavoro: Decodable, Equatable, Identifiable {
-        let chiave: String
-        let origine: String
-        let stato: String
-        let progetto: String
-        let titolo: String
-        let da: Double
-        let jobId: String?
-        var id: String { chiave }
-    }
-    struct Conti: Decodable, Equatable {
-        let inCorso: Int
-        let tiAspetta: Int
-        let inCoda: Int
-        let vive: Int
-    }
-    let versione: String
-    let mac: String
-    let ora: Double
-    let melissa: Melissa
-    let lavori: [Lavoro]
-    let conti: Conti
-}
+import WidgetKit
 
 struct ErrorePonte: LocalizedError {
     let messaggio: String
@@ -55,6 +19,8 @@ struct ErrorePonte: LocalizedError {
 @MainActor
 @Observable
 final class Ponte {
+    /// Uno solo per tutta l'app: la usano le viste, le notifiche e Siri.
+    static let shared = Ponte()
     enum Linea: Equatable {
         case scollegato
         case provo
@@ -145,7 +111,10 @@ final class Ponte {
     }
 
     private func aggiorna(_ s: StatoMac) {
+        let prima = stato
         stato = s
+        s.salvaComeUltimo()
+        if prima?.conti != s.conti || prima?.lavori.map(\.chiave) != s.lavori.map(\.chiave) { WidgetCenter.shared.reloadAllTimelines() }
         MetalEngine.shared.setLoad(s.conti.inCorso)
     }
 
@@ -211,6 +180,12 @@ final class Ponte {
             default: break
             }
         }
+    }
+
+    /// I token per le push del Mac (docs/CONTRATTI.md, 9.4): notifiche, Live Activity, widget.
+    func registraDispositivo(_ campi: [String: String]) async throws {
+        struct R: Decodable { let ok: Bool }
+        let _: R = try await manda("/v1/dispositivo", campi)
     }
 
     func scriviLavoro(_ id: String, _ testo: String) async throws {

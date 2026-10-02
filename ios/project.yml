@@ -4,7 +4,7 @@ name: Bottega
 options:
   bundleIdPrefix: com.andreapiani
   deploymentTarget:
-    iOS: "18.0"
+    iOS: "27.0"
   createIntermediateGroups: true
 configFiles:
   Debug: Version.xcconfig
@@ -22,17 +22,36 @@ targets:
     platform: iOS
     sources:
       - path: Bottega
+      - path: Condiviso
       - path: ../nucleo/Sources/Orb/OrbRenderer.swift
         group: Bottega/Sfera/Nucleo
       - path: ../nucleo/Sources/Orb/OrbShaders.metal
         group: Bottega/Sfera/Nucleo
       - path: ../nucleo/Sources/Voice/AudioLevels.swift
         group: Bottega/Sfera/Nucleo
+    dependencies:
+      - target: BottegaWidget
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.andreapiani.bottega.ios
         PRODUCT_NAME: Bottega
         INFOPLIST_FILE: Bottega/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Bottega/Bottega.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         MTL_FAST_MATH: YES
+  # Widget, Live Activity e controllo del Centro di Controllo (docs/CONTRATTI.md, 9.4), incorporati nell'app.
+  BottegaWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: BottegaWidget
+      - path: Condiviso
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.andreapiani.bottega.ios.widget
+        PRODUCT_NAME: BottegaWidget
+        INFOPLIST_FILE: BottegaWidget/Info.plist
+        CODE_SIGN_ENTITLEMENTS: BottegaWidget/BottegaWidget.entitlements
+        SKIP_INSTALL: YES

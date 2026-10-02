@@ -11,8 +11,9 @@ const esbuild = require('esbuild');
 
 const SRC = path.join(__dirname, '..', 'src');
 const OUT = path.join(__dirname, 'test-out', 'ponte');
-esbuild.buildSync({ entryPoints: [path.join(SRC, 'ponte.ts')], outdir: OUT, format: 'cjs', platform: 'node', bundle: false, target: 'node20', logLevel: 'silent' });
+esbuild.buildSync({ entryPoints: ['ponte.ts', 'dispositivo.ts'].map(f => path.join(SRC, f)), outdir: OUT, format: 'cjs', platform: 'node', bundle: false, target: 'node20', logLevel: 'silent' });
 const { Ponte, inTailnet, leggiGettone } = require(path.join(OUT, 'ponte.js'));
+const { fondiDispositivo, leggiDispositivo } = require(path.join(OUT, 'dispositivo.js'));
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bottega-ponte-'));
 let passed = 0;
@@ -80,6 +81,7 @@ function call(port, method, url, { token, body, raw } = {}) {
 		},
 		voce: async t => Buffer.from('RIFF' + t),
 		scriviLavoro: (id, t) => (id === 'j1' ? (written.push(t), true) : false),
+		registraDispositivo: d => fondiDispositivo(dir, d),
 		log: () => undefined,
 	});
 	await ponte.start();
@@ -170,6 +172,28 @@ function call(port, method, url, { token, body, raw } = {}) {
 	});
 	assert.strictEqual(righe[0].versione, '9.9.9');
 	ok('eventi in diretta');
+
+	// i token APNs dell'iPhone (9.4)
+	const tokA = 'ab'.repeat(32);
+	const tokB = 'cd'.repeat(80);
+	let r = await call(port, 'POST', '/v1/dispositivo', { token: t1, body: { ambiente: 'sviluppo', token: tokA.toUpperCase(), avvio: tokB } });
+	assert.deepStrictEqual([r.status, r.body], [200, { ok: true }]);
+	r = await call(port, 'POST', '/v1/dispositivo', { token: t1, body: { ambiente: 'sviluppo', attivita: tokB, widget: tokA } });
+	assert.strictEqual(r.status, 200);
+	let dsp = leggiDispositivo(dir);
+	assert.deepStrictEqual([dsp.ambiente, dsp.token, dsp.avvio, dsp.attivita, dsp.widget], ['sviluppo', tokA, tokB, tokB, tokA], 'i campi si fondono');
+	assert.strictEqual(fs.statSync(path.join(dir, 'iphone.json')).mode & 0o777, 0o600);
+	assert.strictEqual((await call(port, 'POST', '/v1/dispositivo', { token: t1, body: { ambiente: 'sviluppo', attivita: '' } })).status, 200);
+	assert.strictEqual(leggiDispositivo(dir).attivita, undefined, "attivita '' la toglie");
+	assert.strictEqual(leggiDispositivo(dir).token, tokA);
+	r = await call(port, 'POST', '/v1/dispositivo', { token: t1, body: { ambiente: 'staging', token: tokA } });
+	assert.strictEqual(r.status, 400);
+	assert.ok(r.body.errore);
+	assert.strictEqual((await call(port, 'POST', '/v1/dispositivo', { token: t1, body: { ambiente: 'produzione', token: 'non-esadecimale' } })).status, 400);
+	assert.strictEqual((await call(port, 'POST', '/v1/dispositivo', { token: t1, body: { ambiente: 'produzione', widget: 42 } })).status, 400);
+	assert.strictEqual((await call(port, 'POST', '/v1/dispositivo', { body: { ambiente: 'sviluppo', token: tokA } })).status, 401);
+	assert.strictEqual(leggiDispositivo(dir).ambiente, 'sviluppo', 'le richieste rifiutate non toccano il registro');
+	ok('dispositivo: token esadecimali, campi fusi, attivita vuota tolta, errori');
 
 	// troppi gettoni sbagliati: fuori
 	for (let i = 0; i < 20; i++) await call(port, 'GET', '/v1/stato', { token: 'sbagliato' });

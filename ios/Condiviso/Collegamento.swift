@@ -4,7 +4,8 @@
 //
 //  Dove sta il Mac e il gettone per parlargli. Arriva dal QR del comando "Collega l'iPhone" della Bottega:
 //  bottega://collega?host=<nome MagicDNS>&ip=<100.x>&porta=7790&token=<gettone>
-//  Nome, indirizzo e porta stanno nelle preferenze; il gettone nel portachiavi, solo su questo iPhone.
+//  Nome, indirizzo e porta stanno nelle preferenze del gruppo; il gettone nel portachiavi condiviso, solo su
+//  questo iPhone: li leggono sia l'app sia i widget (Condiviso.swift).
 //
 
 import Foundation
@@ -49,28 +50,47 @@ struct Collegamento: Equatable {
     private static let servizio = "com.andreapiani.bottega.ios.ponte"
 
     static func carica() -> Collegamento? {
-        guard let d = UserDefaults.standard.dictionary(forKey: chiave),
+        migra()
+        guard let d = Condiviso.preferenze.dictionary(forKey: chiave),
               let host = d["host"] as? String, let porta = d["porta"] as? Int,
-              let token = leggiToken() else { return nil }
+              let token = leggiToken(gruppo: true) else { return nil }
         return Collegamento(host: host, ip: d["ip"] as? String ?? "", porta: porta, token: token)
     }
 
     func salva() {
-        UserDefaults.standard.set(["host": host, "ip": ip, "porta": porta], forKey: Self.chiave)
+        Condiviso.preferenze.set(["host": host, "ip": ip, "porta": porta], forKey: Self.chiave)
         Self.scriviToken(token)
     }
 
     static func dimentica() {
+        Condiviso.preferenze.removeObject(forKey: chiave)
         UserDefaults.standard.removeObject(forKey: chiave)
-        SecItemDelete(query() as CFDictionary)
+        SecItemDelete(query(gruppo: true) as CFDictionary)
+        SecItemDelete(query(gruppo: false) as CFDictionary)
     }
 
-    private static func query() -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: servizio, kSecAttrAccount as String: "gettone"]
+    /// Fino alla build 30 il collegamento stava solo nell'app: si sposta nel gruppo, senza ricollegare l'iPhone.
+    private static func migra() {
+        guard Condiviso.preferenze.dictionary(forKey: chiave) == nil,
+              let vecchio = UserDefaults.standard.dictionary(forKey: chiave),
+              let token = leggiToken(gruppo: false) else { return }
+        Condiviso.preferenze.set(vecchio, forKey: chiave)
+        scriviToken(token)
+        if leggiToken(gruppo: true) == token {
+            UserDefaults.standard.removeObject(forKey: chiave)
+            SecItemDelete(query(gruppo: false) as CFDictionary)
+        }
     }
 
-    private static func leggiToken() -> String? {
-        var q = query()
+    private static func query(gruppo: Bool) -> [String: Any] {
+        var q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: servizio,
+                                kSecAttrAccount as String: "gettone"]
+        if gruppo { q[kSecAttrAccessGroup as String] = Condiviso.portachiavi }
+        return q
+    }
+
+    private static func leggiToken(gruppo: Bool) -> String? {
+        var q = query(gruppo: gruppo)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: AnyObject?
@@ -79,8 +99,8 @@ struct Collegamento: Equatable {
     }
 
     private static func scriviToken(_ token: String) {
-        SecItemDelete(query() as CFDictionary)
-        var q = query()
+        SecItemDelete(query(gruppo: true) as CFDictionary)
+        var q = query(gruppo: true)
         q[kSecValueData as String] = Data(token.utf8)
         q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         SecItemAdd(q as CFDictionary, nil)

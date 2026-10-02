@@ -177,6 +177,7 @@ Estensione -> plancia:
   Si manda solo con la Home visibile: un'istantanea arrivata con la Home nascosta si manda quando torna
   davanti (`retainContextWhenHidden` la tiene viva, ma ridisegnarla di nascosto e' lavoro sprecato).
   Anche il cruscotto (`stats`) si ricalcola solo con la Home visibile.
+- `{type: "fuoco", focused}`: la finestra della Bottega davanti o dietro, a `ready` e a ogni cambio (la sfera riposa)
 - `{type: "focus", path}`
 - `{type: "memoria", query, results: MemoryItem[]}` risposta a una ricerca
 - `{type: "assistant", state: AssistantState}` aggiornamento leggero mentre Melissa parla
@@ -552,7 +553,11 @@ grande in conversazione, piccola agganciata con `bottega.voice.orbAlwaysVisible`
 
 La sfera delle viste (barra e pagina di Melissa) usa il componente unico in WebGPU se c'e'
 (`media/motore/sfera-gpu.js`): `window.BottegaSferaGPU.mount(canvas, {reduced, onFail}) -> {set(stato, spenta,
-livello), wake(), sleep(), redraw()}`. L'adattatore arriva dopo: se WebGPU manca, `onFail(motivo)` e si passa al Canvas
+livello), wake(), sleep(), riposa(si), redraw()}`. Riposo (build 31): con `riposa(true)` la sfera in `idle`, finiti i
+movimenti (1,5 s dall'ultimo cambio, voce muta), si ferma su un fotogramma e riparte al primo `set` che cambia stato.
+Barra e Home chiamano `riposa(false)` solo se la finestra della Bottega e' davanti (`fuoco`) e almeno una sessione e'
+`in corso`; dietro, o senza lavori, la sfera si ferma. Con la finestra dietro il `body` prende la classe `sfondo` e le
+animazioni dei CSS si mettono in pausa. L'adattatore arriva dopo: se WebGPU manca, `onFail(motivo)` e si passa al Canvas
 2D su un canvas nuovo, con il motivo nel log (idem se `mount` lancia o il file non c'e'). La Home carica i file di
 `media/motore/` presenti prima delle stanze.
 
@@ -743,8 +748,9 @@ All'avvio l'estensione apre il contenitore una volta (`workbench.view.extension.
 - `board: Record<sessionId, {at, kind, summary, file?}[]>`: le ultime voci della bacheca della Memoria per ogni sessione
   viva (al massimo 4 per sessione, ultime 3 ore)
 - `brain: BrainState`
-- separati: `{type:'bacheca.sessione', sessionId, items}` (risposta a «Le ultime tre ore»), `{type:'visibile', visible}`;
-  un campo assente in `stato` vuol dire invariato
+- separati: `{type:'bacheca.sessione', sessionId, items}` (risposta a «Le ultime tre ore»), `{type:'visibile', visible}`,
+  `{type:'fuoco', focused}` (la finestra della Bottega davanti o dietro: a `ready` e a ogni cambio); un campo assente in
+  `stato` vuol dire invariato
 
 ```ts
 type Provider = 'agnes' | 'openrouter' | 'apple' | 'deepseek';
@@ -937,10 +943,13 @@ userAgent}` (con quale motore gira e perche', scritto nel registro).
 
 `media/motore/gpu.js` (`window.BottegaGPU`: un dispositivo per webview, ogni shader compilato in uno scope di errori,
 giro dei fotogrammi a 30 fps se succede qualcosa, 20 a riposo, 15 se un fotogramma costa piu' di 8 ms, fermo a vista
-nascosta, documento nascosto o tela fuori schermo, un fotogramma solo con Riduci movimento), `cielo-gpu.js`
+nascosta, documento nascosto o tela fuori schermo, un fotogramma solo con Riduci movimento; fra due fotogrammi aspetta con
+un timer che scade 17 ms prima e poi chiede `requestAnimationFrame`, cosi' la webview si sveglia solo per i fotogrammi
+che disegna e non 60 volte al secondo), `cielo-gpu.js`
 (`window.BottegaCieloGPU.mount(canvas, {reduced, rilascio, onStato, onFail})`) e `sfera-gpu.js`
 (`window.BottegaSferaGPU.mount(canvas, {reduced, zoom?, post?, onFail?})` -> `{set(stato, spenta, livello), wake(),
-sleep(), redraw(), smonta(), motore, stato, costo, costoGpu, frames}`). `mount` lancia se WebGPU manca; se cade dopo
+sleep(), riposa(si), redraw(), smonta(), motore, stato, costo, costoGpu, frames}`). Il tempo della sfera avanza solo
+mentre si muove: ripartendo dal riposo riprende dallo stesso fotogramma, senza salti. `mount` lancia se WebGPU manca; se cade dopo
 chiama `onFail(motivo)` e la vista passa al Canvas 2D. Caricati da `panel.ts` (tutti e tre, `gpu.js` per primo) e da
 `barra.ts` (`gpu.js`, `sfera-gpu.js`). `gpu.js` chiede `timestamp-query` quando l'adattatore lo offre (serve solo a
 `costoGpu`, ms di GPU per fotogramma; senza, il tempo dall'invio alla fine); `costo` resta il tempo di CPU.
@@ -1103,3 +1112,71 @@ nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard,
   nome e porta nelle preferenze.
 - Rete: prima il nome MagicDNS (eccezione ATS per `ts.net`, HTTP dentro Tailscale), se non si risolve l'indirizzo
   100.x. Eventi ripresi da soli con attesa crescente fino a 30 s, fermi con l'app dietro.
+
+### 9.4 Notifiche, Live Activity, widget, Siri
+
+Le manda il Mac, direttamente ad APNs (HTTP/2), senza server di terzi: `extensions/bottega-home/src/apns.ts`
+(client) e `src/avvisi.ts` (quando e cosa mandare). Mac spento o Bottega chiusa: non arriva niente.
+
+**Chiave.** La chiave APNs del team, gia' nel vault: `~/.secrets/apns-AuthKey_RF29RR7SKM.p8`, Key ID `RF29RR7SKM`,
+team `ERAK83QBBM`, sviluppo e produzione. Si legge da `~/.secrets/bottega.env` (`APNS_KEY_PATH`, `APNS_KEY_ID`,
+`APNS_TEAM_ID`), mai dal repository. JWT ES256 (`crypto.sign` con `dsaEncoding: 'ieee-p1363'`), rifatto ogni 50
+minuti. Host: `api.sandbox.push.apple.com` per `ambiente: 'sviluppo'` (build Debug), `api.push.apple.com` per
+`produzione`. Topic: `com.andreapiani.bottega.ios` (alert), `com.andreapiani.bottega.ios.push-type.liveactivity`,
+`com.andreapiani.bottega.ios.push-type.widgets`. Un token che APNs dice morto (410, `BadDeviceToken`,
+`Unregistered`) si toglie dal registro.
+
+**Registro.** `POST /v1/dispositivo {token?, ambiente, avvio?, attivita?, widget?}` -> `{ok: true}`: token in esadecimale.
+`token` = notifiche (`didRegisterForRemoteNotifications`), `avvio` = push-to-start della Live Activity
+(`Activity<BottegaAttivita>.pushToStartTokenUpdates`), `attivita` = la Live Activity aperta adesso
+(`activity.pushTokenUpdates`; `attivita: ''` quando finisce), `widget` = `WidgetPushHandler`. Un solo iPhone per
+ora: i campi si fondono. File `~/.bottega/iphone.json` (600).
+
+**Notifiche** (`apns-push-type: alert`). Solo quando Andrea e' lontano dal Mac: nessun input da tastiera o mouse da
+2 minuti (`HIDIdleTime`), impostazione `bottega.iphone.avvisi` (`lontano` | `sempre` | `mai`, default `lontano`).
+Il testo passa dai server di Apple: solo nome del progetto e una frase breve, mai codice o contenuto delle sessioni.
+- `ATTESA`: una sessione passa a «ti aspetta». `{aps: {alert: {title: <progetto>, body: "Ti aspetta: <titolo>"},
+  sound: "default", category: "ATTESA", "thread-id": <progetto>, "interruption-level": "time-sensitive"},
+  chiave: <work key>, jobId?: <id>}`. Azione «Rispondi» (testo) solo se c'e' `jobId`: l'app manda il testo con
+  `POST /v1/lavoro`. Una volta per passaggio a «ti aspetta», non piu' di una ogni 10 minuti per la stessa sessione.
+- `FINITO`: un lavoro della Bottega esce dalla lista mentre era «in corso» (o un lavoro della notte finisce).
+  `{aps: {alert: {title, body: "Ha finito: <titolo>"}, category: "FINITO", "thread-id"}}`.
+- `CONFERMA`: Melissa aspetta un si' o un no su un'azione a rischio (push, stop). `{aps: {alert: {title: "Melissa",
+  body: "Posso <azione>?"}, sound: "default", category: "CONFERMA", "interruption-level": "time-sensitive"}}`. Azioni «Si'» e «No»: l'app manda
+  «si'» o «no» con `POST /v1/chiedi`.
+- `REGOLA`: un progetto passa a rosso nel semaforo. `{aps: {alert: {title, body: <frase>}, category: "REGOLA"}}`.
+Toccare una notifica apre l'app (ATTESA, FINITO: stanza Lavori; CONFERMA: Melissa).
+Con Andrea al Mac: ATTESA e CONFERMA restano in sospeso e partono quando si allontana, se la sessione aspetta
+ancora o la domanda e' ancora aperta; FINITO e REGOLA si scartano (le ha viste sul Mac). All'avvio della Bottega i
+primi 60 secondi fanno da linea di partenza: quello che c'e' gia' non suona. `mai` spegne solo le notifiche: Live
+Activity e widget restano.
+
+**Live Activity** (`apns-push-type: liveactivity`, attributi `BottegaAttivita` in `ios/Condiviso/BottegaAttivita.swift`).
+`content-state` = `{inCorso, tiAspetta, vive, righe: [{progetto, stato, da}], aggiornato}` (al massimo tre righe,
+prima chi ti aspetta; `da` e `aggiornato` in ms dal 1970).
+- Avvio con il token `avvio` quando ci sono sessioni al lavoro o che aspettano e non c'e' un'attivita' aperta:
+  `{aps: {timestamp, event: "start", "content-state", "attributes-type": "BottegaAttivita", attributes: {mac},
+  alert: {title: "Bottega", body: "<n> sessioni Claude al lavoro"}}}`, priorita' 10. Vale anche con Andrea al Mac.
+- Aggiornamento con il token `attivita` a ogni cambio, al massimo ogni 15 s (priorita' 5; 10 se cambia `tiAspetta`):
+  `{aps: {timestamp, event: "update", "content-state", "stale-date": ora + 15 min}}`.
+- Se non cambia niente, un aggiornamento ogni 10 minuti comunque, cosi' l'attivita' non diventa vecchia.
+- Chiusa a mano sull'iPhone mentre ci sono sessioni: non riparte finche' non passano 2 minuti senza sessioni. Un
+  avvio rifiutato da APNs si riprova dopo 2 minuti. Dopo `end` il Mac toglie il token `attivita` dal registro.
+- Fine dopo 2 minuti senza sessioni: `{aps: {timestamp, event: "end", "content-state", "dismissal-date": ora + 5 min}}`.
+
+**Widget** (`apns-push-type: widgets`, `{aps: {"content-changed": true}}`, priorita' 5) a ogni cambio di `tiAspetta`
+o `inCorso`, al massimo uno ogni 5 minuti (salvo `tiAspetta` che sale). Il widget rilegge `GET /v1/stato` dal ponte
+con il collegamento condiviso; se il Mac non risponde mostra l'ultimo stato salvato dall'app (`StatoMac.ultimo()`)
+con la sua eta'.
+
+**Condiviso tra app e widget** (`ios/Condiviso/`): gruppo `group.com.andreapiani.bottega.ios`, portachiavi
+`$(AppIdentifierPrefix)com.andreapiani.bottega.condiviso` (il gettone), `StatoMac`, `BottegaAttivita`, `Tinte`.
+
+**Estensione dei widget** (`ios/BottegaWidget/`, bundle `com.andreapiani.bottega.ios.widget`, con app group,
+portachiavi condiviso e `aps-environment` per le push dei widget; il token lo scrive in `Condiviso.chiaveTokenWidget`
+e l'app lo manda al Mac): widget «Sessioni»
+(piccolo, medio, schermata di blocco), la Live Activity (Dynamic Island e schermata di blocco), il controllo
+«Parla con Melissa» del Centro di Controllo (apre `bottega://melissa?ascolta=1`).
+
+**Siri** (App Intents nell'app): «Chiedi a Melissa» (`POST /v1/chiedi`, Siri legge la risposta) e «Chi mi aspetta»
+(dallo stato), con le frasi per Comandi rapidi e Siri.

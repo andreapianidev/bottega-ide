@@ -13,8 +13,8 @@ struct PlanciaView: View {
     @Bindable var melissa: Melissa
     let davanti: Bool
 
-    enum Stanza: String, CaseIterable { case melissa = "Melissa", lavori = "Lavori" }
-    @State private var stanza: Stanza = .melissa
+    typealias Stanza = Navigazione.Stanza
+    @Bindable private var nav = Navigazione.shared
     @State private var testo = ""
     @State private var impostazioni = false
     @FocusState private var scrivendo: Bool
@@ -25,7 +25,7 @@ struct PlanciaView: View {
             VStack(spacing: 0) {
                 testata
                 sfera
-                Picker("Stanza", selection: $stanza) {
+                Picker("Stanza", selection: $nav.stanza) {
                     ForEach(Stanza.allCases, id: \.self) { s in
                         Text(etichetta(s)).tag(s)
                     }
@@ -33,12 +33,18 @@ struct PlanciaView: View {
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 8)
-                switch stanza {
+                switch nav.stanza {
                 case .melissa: ConversazioneView(stato: ponte.stato, melissa: melissa)
                 case .lavori: LavoriView(ponte: ponte)
                 }
-                if stanza == .melissa { scrivi }
+                if nav.stanza == .melissa { scrivi }
             }
+        }
+        .onChange(of: nav.ascoltaSubito, initial: true) { _, si in
+            // dal Centro di Controllo: la sfera comincia ad ascoltare
+            guard si else { return }
+            nav.ascoltaSubito = false
+            if melissa.sfera == .riposo || melissa.sfera == .errore { melissa.tocca() }
         }
         .sheet(isPresented: $impostazioni) {
             ImpostazioniView(ponte: ponte, melissa: melissa)
@@ -84,6 +90,12 @@ struct PlanciaView: View {
         VStack(spacing: 6) {
             SferaView(stato: melissa.sfera, attiva: davanti)
                 .frame(width: 250, height: 250)
+                // la maschera radiale della barra sul Mac (sfera-gpu.js, VoiceOrbIndicator di Avo): piena fino al
+                // 62% del raggio, zero sul bordo, cosi' particelle e bagliore non disegnano mai un quadrato
+                .mask {
+                    RadialGradient(stops: [.init(color: .black, location: 0.62), .init(color: .clear, location: 1)],
+                                   center: .center, startRadius: 0, endRadius: 125)
+                }
                 .contentShape(Circle())
                 .onTapGesture { melissa.tocca() }
                 .accessibilityLabel("Sfera di Melissa")

@@ -2,14 +2,18 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { Apns } from './apns';
 import type { Assistant } from './assistant';
+import { Avvisi, inattivitaHID, ModoAvvisi, RegolaProgetto } from './avvisi';
+import { Dispositivo, fondiDispositivo, leggiDispositivo, togliToken } from './dispositivo';
 import type { WorkCounts, WorkItem } from './jobs';
 import type { Nucleo } from './nucleo';
 import * as crypto from 'crypto';
 import { Ponte, PonteStato, RigaParla } from './ponte';
 
 /* Il ponte dentro la Bottega: lo accende con Tailscale, gli passa Melissa e i lavori, e mostra il QR per
-   collegare l'iPhone (comando "Collega l'iPhone"). Il protocollo e' in src/ponte.ts e in docs/CONTRATTI.md, 9. */
+   collegare l'iPhone (comando "Collega l'iPhone"). Il protocollo e' in src/ponte.ts e in docs/CONTRATTI.md, 9.
+   Qui vivono anche gli avvisi verso l'iPhone (9.4): notifiche, Live Activity e widget, via APNs (src/avvisi.ts). */
 
 export interface PonteHostDeps {
 	assistant(): Assistant | undefined;
@@ -17,12 +21,54 @@ export interface PonteHostDeps {
 	work(): WorkItem[];
 	counts(): WorkCounts;
 	writeJob(id: string, text: string): boolean;
+	/** Il semaforo per progetto; null finche' non ha fatto il primo controllo. */
+	regole?(): RegolaProgetto[] | null;
 }
 
 export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps): { notify(): void } {
 	const out = vscode.window.createOutputChannel('Bottega per iPhone', { log: true });
+	const dir = path.join(os.homedir(), '.bottega');
+	const acceso = () => vscode.workspace.getConfiguration('bottega').get<boolean>('ponte.attivo', true);
+
+	// gli avvisi: il registro dell'iPhone sta in memoria e su disco, gli invii passano da APNs
+	let disp: Dispositivo | null = leggiDispositivo(dir);
+	const apns = new Apns({ log: line => out.info(line) });
+	const avvisi = new Avvisi({
+		istantanea: () => {
+			const c = deps.counts();
+			return {
+				lavori: deps.work(),
+				conti: { inCorso: c.inCorso, tiAspetta: c.tiAspetta, vive: c.vive },
+				conferma: deps.assistant()?.pendingQuestion(),
+				regole: deps.regole?.() ?? null,
+			};
+		},
+		invio: apns,
+		dispositivo: () => disp,
+		togliToken: (campo, token) => {
+			if (togliToken(dir, campo, token)) disp = leggiDispositivo(dir);
+		},
+		modo: () => {
+			const m = vscode.workspace.getConfiguration('bottega').get<string>('iphone.avvisi', 'lontano');
+			return (m === 'sempre' || m === 'mai' ? m : 'lontano') as ModoAvvisi;
+		},
+		inattivoMs: inattivitaHID(),
+		mac: os.hostname().replace(/\.local$/, ''),
+		log: line => out.info(line),
+	});
+	let prossimo: NodeJS.Timeout | undefined;
+	const avvisa = () => {
+		if (prossimo || !acceso()) return;
+		prossimo = setTimeout(() => {
+			prossimo = undefined;
+			void avvisi.aggiorna();
+		}, 1000);
+	};
+	// i tempi della Live Activity (15 s, 2 minuti) e dei widget passano anche senza cambi
+	const giri = setInterval(() => disp && avvisa(), 5000);
+
 	const ponte = new Ponte({
-		dir: path.join(os.homedir(), '.bottega'),
+		dir,
 		versione: String(ctx.extension.packageJSON.version ?? ''),
 		stato: () => stato(deps),
 		occupata: () => deps.assistant()?.busy() ?? true,
@@ -43,14 +89,25 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 			}
 		},
 		scriviLavoro: deps.writeJob,
+		registraDispositivo: d => {
+			disp = fondiDispositivo(dir, d);
+			avvisa();
+		},
 		log: line => out.info(line),
 	});
 
-	const acceso = () => vscode.workspace.getConfiguration('bottega').get<boolean>('ponte.attivo', true);
 	if (acceso()) void ponte.start();
+	avvisa(); // la linea di partenza: quello che c'e' gia' non suona
 	ctx.subscriptions.push(
 		out,
 		{ dispose: () => ponte.stop() },
+		{
+			dispose: () => {
+				clearInterval(giri);
+				clearTimeout(prossimo);
+				apns.chiudi();
+			},
+		},
 		vscode.workspace.onDidChangeConfiguration(e => {
 			if (!e.affectsConfiguration('bottega.ponte.attivo')) return;
 			if (acceso()) void ponte.start();
@@ -58,7 +115,12 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 		}),
 		vscode.commands.registerCommand('bottega.ponte.collega', () => mostraCollegamento(ponte, deps, acceso())),
 	);
-	return { notify: () => ponte.notify() };
+	return {
+		notify: () => {
+			ponte.notify();
+			avvisa();
+		},
+	};
 }
 
 /** La domanda a voce dall'iPhone: Melissa risponde come a voce sul Mac e ogni frase, appena pronta, va al socket

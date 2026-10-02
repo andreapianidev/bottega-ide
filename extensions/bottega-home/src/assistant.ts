@@ -608,6 +608,10 @@ export class Assistant {
 	setPending(p: Pending): void {
 		this.pending = p;
 	}
+	/** La domanda di un'azione a rischio in attesa del si' o del no (per la notifica CONFERMA sull'iPhone). */
+	pendingQuestion(): string | undefined {
+		return this.pending ? `Posso ${this.pending.describe}?` : undefined;
+	}
 
 	private model(): string {
 		return vscode.workspace.getConfiguration('bottega').get('voice.model', 'eleven_v4_turbo');

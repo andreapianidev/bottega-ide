@@ -226,6 +226,13 @@ piccolo ponte sull'indirizzo Tailscale del Mac, invisibile dal Wi-Fi e da intern
 gettone. Il Mac deve essere acceso, con la Bottega aperta. Per collegare l'iPhone: comando «Collega l'iPhone» nella
 Bottega, poi inquadri il codice con la Fotocamera. Il protocollo è in `docs/CONTRATTI.md`, sezione 9.
 
+Quando sei lontano dal Mac, la Bottega ti avvisa sull'iPhone: una sessione Claude che ti aspetta (e le rispondi
+dalla notifica), un lavoro finito, Melissa che chiede un sì o un no, un progetto che passa a rosso. Mentre le
+sessioni lavorano, nella Dynamic Island e sulla schermata di blocco c'è una Live Activity che diventa ambra quando
+una ti aspetta. Ci sono i widget per la Home e la schermata di blocco, il pulsante «Parla con Melissa» nel Centro di
+Controllo e Siri («Chiedi a Melissa su Bottega», «Chi mi aspetta su Bottega»). Le notifiche le manda il Mac
+direttamente ai server di Apple, con la tua chiave APNs: dentro c'è solo il nome del progetto e una frase breve.
+
 ## Requisiti
 
 - Mac con Apple Silicon e macOS 27 o successivo
@@ -325,6 +332,8 @@ cd ios && xcodegen && open Bottega.xcodeproj
 ```
 
 e la installi da Xcode sul tuo iPhone. Tailscale acceso sull'iPhone e sul Mac, con lo stesso account.
+Per le notifiche serve una chiave APNs del tuo account (Certificates, Identifiers & Profiles, Keys), scritta in
+`~/.secrets/bottega.env` come `APNS_KEY_PATH`, `APNS_KEY_ID` e `APNS_TEAM_ID`.
 
 ## Cosa esce dal tuo Mac
 

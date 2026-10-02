@@ -1,0 +1,60 @@
+//
+//  StatoMac.swift
+//  Bottega per iPhone (app e widget)
+//
+//  Lo stato del Mac come lo manda il ponte (GET /v1/stato, docs/CONTRATTI.md, 9.1). L'app lo salva anche nel
+//  gruppo condiviso, cosi' i widget hanno sempre l'ultimo stato visto anche quando il Mac non risponde.
+//
+
+import Foundation
+
+struct StatoMac: Codable, Equatable {
+    struct Riga: Codable, Equatable, Identifiable {
+        let chi: String
+        let testo: String
+        let alle: Double
+        var id: String { "\(alle)-\(chi)-\(testo.prefix(24))" }
+    }
+    struct Melissa: Codable, Equatable {
+        let stato: String
+        let cervello: String
+        let parziale: String?
+        let registro: [Riga]
+    }
+    struct Lavoro: Codable, Equatable, Identifiable {
+        let chiave: String
+        let origine: String
+        let stato: String
+        let progetto: String
+        let titolo: String
+        let da: Double
+        let jobId: String?
+        var id: String { chiave }
+    }
+    struct Conti: Codable, Equatable {
+        let inCorso: Int
+        let tiAspetta: Int
+        let inCoda: Int
+        let vive: Int
+    }
+    let versione: String
+    let mac: String
+    let ora: Double
+    let melissa: Melissa
+    let lavori: [Lavoro]
+    let conti: Conti
+}
+
+extension StatoMac {
+    private static let chiave = "ultimoStato"
+
+    /// L'ultimo stato visto, dal gruppo condiviso tra app e widget.
+    static func ultimo() -> StatoMac? {
+        guard let d = Condiviso.preferenze.data(forKey: chiave) else { return nil }
+        return try? JSONDecoder().decode(StatoMac.self, from: d)
+    }
+
+    func salvaComeUltimo() {
+        if let d = try? JSONEncoder().encode(self) { Condiviso.preferenze.set(d, forKey: Self.chiave) }
+    }
+}

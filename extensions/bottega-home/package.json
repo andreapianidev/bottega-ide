@@ -321,6 +321,21 @@
           "default": true,
           "description": "Accende il ponte verso la Bottega per iPhone: ascolta solo sull'indirizzo Tailscale del Mac, con un gettone."
         },
+        "bottega.iphone.avvisi": {
+          "type": "string",
+          "enum": [
+            "lontano",
+            "sempre",
+            "mai"
+          ],
+          "enumDescriptions": [
+            "Solo quando non tocchi tastiera e mouse da 2 minuti.",
+            "Sempre, anche quando sei al Mac.",
+            "Mai: restano la Live Activity e i widget."
+          ],
+          "default": "lontano",
+          "description": "Quando la Bottega manda le notifiche all'iPhone (una sessione ti aspetta, un lavoro ha finito, Melissa chiede conferma, un progetto passa a rosso)."
+        },
         "bottega.voice.enabled": {
           "type": "boolean",
           "default": true,
@@ -456,7 +471,7 @@
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=out/extension.js",
     "typecheck": "tsc --noEmit",
-    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs"
+    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs && node test/avvisi.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

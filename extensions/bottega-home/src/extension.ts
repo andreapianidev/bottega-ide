@@ -609,6 +609,16 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		work: () => snapshot.work,
 		counts: () => snapshot.workCounts,
 		writeJob: (id, text) => !!jobManager?.write(id, text),
+		regole: () => {
+			const r = idee?.rules.state();
+			if (!r?.checkedAt) return null;
+			return Object.values(r.projects).map(p => ({
+				path: p.path,
+				progetto: snapshot.projects.find(x => x.path === p.path)?.name ?? path.basename(p.path),
+				livello: p.livello,
+				frase: p.hits.find(h => h.livello === 'rosso')?.frase,
+			}));
+		},
 	});
 	ctx.subscriptions.push(changed.event(() => ponte?.notify()));
 

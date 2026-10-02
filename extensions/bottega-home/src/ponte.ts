@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
+import { CAMPI_TOKEN, DispositivoParziale, TOKEN_HEX } from './dispositivo';
 
 /* Il ponte verso l'iPhone (docs/CONTRATTI.md, sezione 9). Un server HTTP che ascolta SOLO sull'indirizzo
    Tailscale del Mac: dal Wi-Fi di casa o da internet non si vede, dall'iPhone nella stessa rete Tailscale si'.
@@ -15,7 +16,8 @@ import * as path from 'path';
      POST /v1/chiedi {testo}      -> {risposta, stato}      stesso cervello e stessa conversazione del Mac
      POST /v1/parla {testo}       -> application/x-ndjson   la domanda a voce: frasi e audio mentre Melissa risponde
      POST /v1/voce {testo}        -> audio/wav              la voce di Melissa, sintetizzata sul Mac
-     POST /v1/lavoro {id, testo}  -> {ok}                   scrive in un lavoro della Bottega */
+     POST /v1/lavoro {id, testo}  -> {ok}                   scrive in un lavoro della Bottega
+     POST /v1/dispositivo {...}   -> {ok}                   i token APNs dell'iPhone (9.4): notifiche, Live Activity, widget */
 
 export interface PonteMelissa {
 	stato: string;
@@ -56,6 +58,8 @@ export interface PonteDeps {
 	parla(testo: string, emetti: (riga: RigaParla) => void, segnale: AbortSignal): Promise<string>;
 	voce(testo: string): Promise<Buffer>;
 	scriviLavoro(id: string, testo: string): boolean;
+	/** I token APNs dell'iPhone: si fondono con quelli gia' noti ('' toglie un campo). */
+	registraDispositivo(d: DispositivoParziale): void;
 	log(riga: string): void;
 	/** Solo per i test: dove ascoltare al posto dell'indirizzo Tailscale. */
 	indirizzo?: () => Promise<Rete | null>;
@@ -315,6 +319,19 @@ export class Ponte {
 				return this.deps.scriviLavoro(id, testo)
 					? json(200, { ok: true })
 					: json(404, { errore: 'Quel lavoro non ha piu\' un terminale aperto.' });
+			}
+			if (url === '/v1/dispositivo') {
+				if (corpo.ambiente !== 'sviluppo' && corpo.ambiente !== 'produzione') return json(400, { errore: 'Ambiente sconosciuto: sviluppo o produzione.' });
+				const d: DispositivoParziale = { ambiente: corpo.ambiente };
+				for (const c of CAMPI_TOKEN) {
+					const v = corpo[c];
+					if (v === undefined || v === null) continue;
+					if (typeof v !== 'string' || (v !== '' && !TOKEN_HEX.test(v))) return json(400, { errore: `Il campo ${c} non e' un token valido.` });
+					d[c] = v;
+				}
+				this.deps.registraDispositivo(d);
+				this.deps.log(`ponte: iPhone registrato (${d.ambiente}: ${CAMPI_TOKEN.filter(c => d[c] !== undefined).map(c => (d[c] ? c : `${c} tolto`)).join(', ') || 'nessun token'})`);
+				return json(200, { ok: true });
 			}
 			return json(404, { errore: 'Non c\'e\' niente qui.' });
 		} catch (e: any) {
