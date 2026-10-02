@@ -64,7 +64,22 @@
         "**/out/**": true,
         "**/.build/**": true,
         "**/DerivedData/**": true,
-        "**/.next/**": true
+        "**/.next/**": true,
+        "**/node_modules/**": true,
+        "**/vendor/**": true,
+        "**/Pods/**": true,
+        "**/.gradle/**": true
+      },
+      "search.exclude": {
+        "**/node_modules": true,
+        "**/bower_components": true,
+        "**/*.code-search": true,
+        "**/vendor": true,
+        "**/Pods": true,
+        "**/.build": true,
+        "**/DerivedData": true,
+        "**/.gradle": true,
+        "**/.next": true
       }
     }
   }

@@ -553,7 +553,7 @@ grande in conversazione, piccola agganciata con `bottega.voice.orbAlwaysVisible`
 
 La sfera delle viste (barra e pagina di Melissa) usa il componente unico in WebGPU se c'e'
 (`media/motore/sfera-gpu.js`): `window.BottegaSferaGPU.mount(canvas, {reduced, onFail}) -> {set(stato, spenta,
-livello), wake(), sleep(), riposa(si), redraw()}`. Riposo (build 31): con `riposa(true)` la sfera in `idle`, finiti i
+livello), wake(), sleep(), riposa(si), redraw()}`. Riposo (build 32): con `riposa(true)` la sfera in `idle`, finiti i
 movimenti (1,5 s dall'ultimo cambio, voce muta), si ferma su un fotogramma e riparte al primo `set` che cambia stato.
 Barra e Home chiamano `riposa(false)` solo se la finestra della Bottega e' davanti (`fuoco`) e almeno una sessione e'
 `in corso`; dietro, o senza lavori, la sfera si ferma. Con la finestra dietro il `body` prende la classe `sfondo` e le

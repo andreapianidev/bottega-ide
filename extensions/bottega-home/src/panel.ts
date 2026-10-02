@@ -133,6 +133,7 @@ ${rooms.map(r => `<script nonce="${nonce}" src="${panel.webview.asWebviewUri(vsc
 </html>`;
 		panel.webview.onDidReceiveMessage((m: PlanciaMessage) => {
 			if (m.type === 'ready') {
+				this.send({ type: 'fuoco', focused: vscode.window.state.focused });
 				this.send({ type: 'snapshot', snapshot: this.current() });
 				return;
 			}
@@ -143,7 +144,10 @@ ${rooms.map(r => `<script nonce="${nonce}" src="${panel.webview.asWebviewUri(vsc
 			if (visible && this.stale) this.pushSnapshot(this.current());
 			this.onDidChangeVisibility.fire(visible);
 		});
+		// la finestra davanti o dietro: dietro la sfera si ferma, se Melissa tace (media/plancia.js, aggiornaRiposo)
+		const fuoco = vscode.window.onDidChangeWindowState(st => void panel.webview.postMessage({ type: 'fuoco', focused: st.focused }));
 		panel.onDidDispose(() => {
+			fuoco.dispose();
 			this.panel = undefined;
 			this.onDidChangeVisibility.fire(false);
 		});

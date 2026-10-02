@@ -1974,6 +1974,9 @@
 	})();
 	let orbImpl = null;
 	let orbLast = /** @type {any[] | null} */ (null);
+	let orbRiposa = true;
+	/** La finestra della Bottega e' quella davanti (lo dice l'estensione, la webview da sola non lo sa). */
+	let fuoco = true;
 	const toCanvas2D = why => {
 		if (why) console.warn('[plancia] sfera WebGPU non disponibile, uso il Canvas 2D: ' + why);
 		try {
@@ -1985,6 +1988,7 @@
 		old.replaceWith(old.cloneNode(false));
 		orbImpl = makeOrb2D();
 		if (orbLast) orbImpl.set(orbLast[0], orbLast[1], orbLast[2]);
+		if (orbImpl.riposa) orbImpl.riposa(orbRiposa);
 		if (state.view === 'melissa') orbImpl.wake();
 	};
 	const sferaGpu = /** @type {any} */ (window).BottegaSferaGPU;
@@ -2010,10 +2014,22 @@
 		sleep() {
 			orbImpl.sleep();
 		},
+		/** Si ferma quando Melissa tace, se nessuna sessione lavora o la finestra e' dietro (solo la sfera
+		 *  WebGPU: quella di ripiego in Canvas 2D gira come prima). */
+		riposa(on) {
+			orbRiposa = !!on;
+			if (orbImpl.riposa) orbImpl.riposa(orbRiposa);
+		},
 		redraw() {
 			orbImpl.redraw();
 		},
 	};
+
+	/** Come nella barra: la sfera respira mentre una sessione Claude lavora, ma solo a finestra davanti. */
+	function aggiornaRiposo() {
+		orb.riposa(!(fuoco && workList().some(w => w.status === 'in corso')));
+		document.body.classList.toggle('sfondo', !fuoco);
+	}
 
 	// ---------- Continua da dove eri ----------
 	/* Un dialogo modale fatto a mano (role=dialog, aria-modal): il fuoco entra nel testo, Tab gira
@@ -2560,7 +2576,11 @@
 					state.voiceOptimistic = null;
 				}
 				if (state.armed && !jobs().some(j => j.id === state.armed && (j.status === 'in corso' || j.status === 'ti aspetta'))) state.armed = '';
+				aggiornaRiposo();
 				return render();
+			case 'fuoco':
+				fuoco = m.focused !== false;
+				return aggiornaRiposo();
 			case 'focus':
 				return focusRow(m.path);
 			case 'view':

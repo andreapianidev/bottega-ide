@@ -1632,3 +1632,8 @@ body.con-dialogo { overflow: hidden; }
 	.notte { grid-template-columns: 110px minmax(0, 1fr); }
 	#sfera { width: 110px; height: 110px; }
 }
+
+/* Con la finestra della Bottega dietro nessuna animazione dei CSS gira: le lampade restano accese, ferme. */
+body.sfondo *,
+body.sfondo *::before,
+body.sfondo *::after { animation-play-state: paused !important; }

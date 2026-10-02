@@ -1278,6 +1278,56 @@ const finale = (t, k) => t.$(`.cifra[data-k="${k}"] dd > .sr`).textContent;
 		s.smonta();
 	});
 
+	await test('sfera: a riposo si ferma su un fotogramma, riparte al cambio di stato o con riposa(false)', async () => {
+		const t = ambienteSfera({ gpu: {} });
+		const s = t.monta();
+		s.set('idle', false, 0);
+		s.wake();
+		// la comparsa dura 0,8 s, poi 1,5 s dall'ultimo cambio: ferma entro 2,5 s
+		await pausa(2600);
+		assert.strictEqual(s.inCorsa, false, 'a riposo il giro e fermo');
+		let n = t.raf.n, f = t.conto.submit;
+		await pausa(250);
+		assert.strictEqual(t.raf.n, n, 'a riposo: nessun requestAnimationFrame');
+		assert.strictEqual(t.conto.submit, f, 'a riposo: nessun fotogramma');
+		// Melissa parla: riparte
+		s.set('speaking', false, 0.5);
+		await pausa(200);
+		assert.ok(t.conto.submit > f, 'parlando si anima');
+		s.set('idle', false, 0);
+		// una sessione lavora a finestra davanti: continua a respirare
+		s.riposa(false);
+		await pausa(2600);
+		f = t.conto.submit;
+		await pausa(250);
+		assert.ok(t.conto.submit > f, 'con riposa(false) respira anche in idle');
+		// di nuovo a riposo: si ferma appena e quieta
+		s.riposa(true);
+		await pausa(150);
+		n = t.raf.n;
+		f = t.conto.submit;
+		await pausa(250);
+		assert.strictEqual(t.conto.submit, f, 'riposa(true) la ferma');
+		assert.strictEqual(t.raf.n, n);
+		s.smonta();
+	});
+
+	await test('sfera: a 20 fotogrammi al secondo la webview non chiede requestAnimationFrame a vuoto', async () => {
+		const t = ambienteSfera({ gpu: {} });
+		const s = t.monta();
+		s.set('idle', false, 0);
+		s.riposa(false);
+		s.wake();
+		await pausa(1200);
+		const n = t.raf.n, f = t.conto.submit;
+		await pausa(1000);
+		const chiesti = t.raf.n - n, fatti = t.conto.submit - f;
+		assert.ok(fatti >= 10, `fotogrammi in un secondo: ${fatti}`);
+		// prima erano tre per fotogramma (uno ogni aggiornamento dello schermo); col timer circa uno
+		assert.ok(chiesti <= fatti * 1.5 + 2, `requestAnimationFrame ${chiesti} per ${fatti} fotogrammi`);
+		s.smonta();
+	});
+
 	await test('sfera: adattatore negato o shader rotto, onFail col motivo e diagnosi', async () => {
 		for (const [gpu, re] of [[{ senzaAdattatore: true }, /nessun adattatore/], [{ wgslRotto: 'sfera' }, /WGSL/]]) {
 			const t = ambienteSfera({ gpu });

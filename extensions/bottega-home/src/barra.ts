@@ -87,7 +87,10 @@ export class BarraView implements vscode.WebviewViewProvider {
 			if (view.visible) this.wake();
 			else this.sleep();
 		});
+		// la finestra davanti o dietro: dietro la sfera si ferma, se Melissa tace (media/barra.js, aggiornaRiposo)
+		const fuoco = vscode.window.onDidChangeWindowState(st => void view.webview.postMessage({ type: 'fuoco', focused: st.focused }));
 		view.onDidDispose(() => {
+			fuoco.dispose();
 			this.sleep();
 			this.view = undefined;
 		});
@@ -99,6 +102,7 @@ export class BarraView implements vscode.WebviewViewProvider {
 		switch (m?.type) {
 			case 'ready':
 				this.lastSent = '';
+				void this.view?.webview.postMessage({ type: 'fuoco', focused: vscode.window.state.focused });
 				await this.refreshBrain();
 				return this.push(true);
 			case 'converse':

@@ -29,12 +29,14 @@
    window.BottegaSferaGPU.mount(canvas, opts) -> sfera
      opts: { reduced: MediaQueryList | () => boolean, zoom?: numero (1 la sfera col suo alone, 0,6 la
              sfera che riempie la tela), post?(msg) per la diagnosi all'estensione, onFail?(motivo) }
-     sfera: { set(stato, spenta, livello), wake(), sleep(), redraw(), smonta(),
+     sfera: { set(stato, spenta, livello), wake(), sleep(), riposa(si), redraw(), smonta(),
               motore ('webgpu'), stato ('spento' | 'avvio' | 'gpu' | 'rotto'), costo (ms di CPU per
               fotogramma), costoGpu (ms di GPU per fotogramma, dai timestamp se il dispositivo li ha),
               frames }
      stato: 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'; spenta: boolean (Nucleo assente
      o voce spenta: la sfera sbiadisce verso il grigio e poi si ferma); livello: 0..1 (la voce).
+     riposa(si): con si (il predefinito) la sfera in 'idle', finiti i movimenti, si ferma su un fotogramma
+     e riparte al primo cambio di stato; con no continua a respirare.
    `mount` lancia subito se WebGPU qui non c'e' (manca motore/gpu.js o navigator.gpu): la vista usa
    la sua sfera Canvas 2D. Se WebGPU cade dopo (nessun adattatore, shader rotto, dispositivo perso)
    chiama onFail(motivo) una volta: la vista sostituisce la tela (che ha gia' un contesto webgpu) e
@@ -861,7 +863,10 @@ fn codifica(x: f32) -> f32 {
 		let spentaVuole = 0;
 		let livello = 0;
 		// la dinamica di VoiceOrbRenderer.draw: molle, impulso, attacchi, dissolvenza di 0,35 s
-		const t0 = clock();
+		// i secondi della sfera: avanzano solo mentre si muove, cosi' ripartendo da ferma riprende da dove era
+		let tAnim = 0;
+		// a riposo (Melissa tace, nessuna sessione al lavoro, finestra dietro) la sfera si ferma su un fotogramma
+		let riposo = true;
 		let tPrima = 0;
 		let dtUltimo = 1 / 30;
 		let statoOra = 0;
@@ -1146,10 +1151,11 @@ fn codifica(x: f32) -> f32 {
 		/** Un passo della dinamica; fermi (Riduci movimento) tutto va subito allo stato finale. */
 		function avanza(t, mosso) {
 			const ora = t / 1000;
-			let dt = tPrima ? (t - tPrima) / 1000 : 1 / 30;
+			const grezzo = tPrima ? (t - tPrima) / 1000 : 1 / 30;
 			tPrima = t;
-			dt = Math.min(Math.max(dt, 1 / 240), 0.05);
+			const dt = Math.min(Math.max(grezzo, 1 / 240), 0.05);
 			dtUltimo = dt;
+			tAnim += Math.min(Math.max(grezzo, 0), 0.1);
 			if (bersaglio !== statoOra) {
 				statoPrima = statoOra;
 				statoOra = bersaglio;
@@ -1180,7 +1186,7 @@ fn codifica(x: f32) -> f32 {
 			rivela = Math.min(1, rivela + dt * 1.25);
 			spenta += (spentaVuole - spenta) * (1 - Math.exp(-dt * 4));
 			// niente analisi dello spettro nella webview: bande sintetiche dal livello della voce
-			const tt = (t - t0) / 1000;
+			const tt = tAnim;
 			for (let i = 0; i < 16; i++) {
 				const v = Math.min(1, livello * (1 - i / 20) * (0.75 + 0.25 * Math.sin(tt * 5 + i * 1.7)));
 				spettro[i] += (v - spettro[i]) * (1 - Math.pow(v > spettro[i] ? 0.45 : 0.78, passi));
@@ -1206,7 +1212,7 @@ fn codifica(x: f32) -> f32 {
 			const quante = Math.max(256, Math.round(PARTI * k));
 			avanza(t, mosso);
 			const ora = t / 1000;
-			const tSec = mosso ? (t - t0) / 1000 : 12;
+			const tSec = mosso ? tAnim : 12;
 			const mix = mosso ? Math.min(1, Math.max(0, (ora - cambioDa) / 0.35)) : 1;
 			const rs = rivela * rivela * (3 - 2 * rivela);
 			const forte = Math.min(fortePos, 1.5);
@@ -1220,7 +1226,7 @@ fn codifica(x: f32) -> f32 {
 			U.set([spenta, 0, 0, 0], 40);
 			dev.queue.writeBuffer(r.ubuf, 0, U.buffer, 0, U.byteLength);
 			// le particelle: i punti di Avo sono in pixel, qui il quadrato va diviso per la tela
-			PUv.set([mosso ? dtUltimo : 0, tSec, statoOra, forte, px, quante, mosso ? battito(t / 1000, statoOra, forte) : 0.5, spenta, Math.sqrt(k), 0, 0, 0]);
+			PUv.set([mosso ? dtUltimo : 0, tSec, statoOra, forte, px, quante, mosso ? battito(tAnim, statoOra, forte) : 0.5, spenta, Math.sqrt(k), 0, 0, 0]);
 			dev.queue.writeBuffer(r.pbuf, 0, PUv.buffer, 0, PUv.byteLength);
 
 			const mis = r.mis && !r.mis.occupata ? r.mis : null;
@@ -1290,13 +1296,18 @@ fn codifica(x: f32) -> f32 {
 			);
 		}
 
+		/** Ferma e uguale a se stessa: a riposo da un po', voce muta, comparsa finita, molle scariche. */
+		const quieta = () =>
+			bersaglio === 0 && statoOra === 0 && tPrima / 1000 - cambioDa > 1.5 && rivela >= 1 && livello === 0 &&
+			fortePos < 0.01 && Math.abs(impPos) < 0.01 && Math.abs(spenta - spentaVuole) < 0.01;
+
 		const giro = G.ciclo({
 			pronto: () => !!dev && !!r,
 			mosso: () => !opt.reduced(),
 			// 30 fotogrammi mentre parla, ascolta, pensa o cambia stato; 20 a riposo
 			vivace: t => bersaglio !== 0 || t / 1000 - cambioDa < 1 || Math.abs(spenta - spentaVuole) > 0.02,
-			// spenta, si ferma appena ha finito di sbiadire
-			continua: () => !(spentaVuole === 1 && spenta > 0.98),
+			// spenta, si ferma appena ha finito di sbiadire; a riposo, appena ha finito di muoversi
+			continua: () => !(spentaVuole === 1 && spenta > 0.98) && !(riposo && quieta()),
 			disegna,
 			errore: e => rompi(String((e && /** @type {any} */ (e).message) || e)),
 		});
@@ -1354,6 +1365,12 @@ fn codifica(x: f32) -> f32 {
 					spegni();
 					cambia('spento');
 				}, G.RILASCIO_MS);
+			},
+			/** Se a riposo la sfera puo' fermarsi (true, il predefinito) o deve continuare a respirare (false: la vista
+			 *  lo chiede finche' una sessione Claude lavora e la finestra e' davanti). */
+			riposa(on) {
+				riposo = !!on;
+				if (!riposo) giro.chiedi();
 			},
 			/** Misura cambiata o un fotogramma da rifare. */
 			redraw() {

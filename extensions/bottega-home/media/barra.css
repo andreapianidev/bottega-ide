@@ -90,10 +90,13 @@ button, input { font: inherit; color: inherit; }
 	white-space: nowrap;
 }
 
-/* A vista nascosta nessuna animazione gira, nemmeno quelle dei CSS. */
+/* A vista nascosta, o con la finestra della Bottega dietro, nessuna animazione gira, nemmeno quelle dei CSS. */
 body.ferma *,
 body.ferma *::before,
-body.ferma *::after { animation-play-state: paused !important; }
+body.ferma *::after,
+body.sfondo *,
+body.sfondo *::before,
+body.sfondo *::after { animation-play-state: paused !important; }
 
 /* ---------- l'impianto: tutto in una colonna alta quanto la vista ---------- */
 

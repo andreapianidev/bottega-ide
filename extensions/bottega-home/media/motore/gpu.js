@@ -11,7 +11,8 @@
      solo chi lo compila, non tutti quelli che condividono il dispositivo.
    - ciclo({...}): il giro dei fotogrammi. 30 al secondo mentre succede qualcosa, 20 a riposo, 15 se
      un fotogramma costa troppo; fermo a vista nascosta, fuori schermo, a documento nascosto; con
-     Riduci movimento un fotogramma solo. Misura il costo medio per fotogramma.
+     Riduci movimento un fotogramma solo. Fra un fotogramma e l'altro aspetta con un timer, non con
+     requestAnimationFrame a vuoto. Misura il costo medio per fotogramma.
    - diagnosi(tipo, motore, motivo): il messaggio per l'estensione (`cielo.diag`, `sfera.diag`): quale
      motore disegna e perche'. Chi ha l'API di VS Code lo spedisce; qui non la si chiede, perche'
      acquireVsCodeApi() si puo' chiamare una volta sola per webview. */
@@ -40,6 +41,9 @@
 	const FPS_LENTO = 15;
 	const COSTO_TROPPO_MS = 8;
 	const fpsPer = (vivace, costo) => (costo > COSTO_TROPPO_MS ? FPS_LENTO : vivace ? FPS_VIVO : FPS_QUIETO);
+	/** Il timer scade poco prima del fotogramma, requestAnimationFrame lo aggancia allo schermo; un fotogramma che
+	 *  arriva entro questo anticipo vale, cosi' non serve un altro requestAnimationFrame per pochi millisecondi. */
+	const ANTICIPO_MS = 8;
 
 	/**
 	 * Compila un modulo WGSL dentro uno scope di errori. Senza scope un errore di compilazione arriva
@@ -163,6 +167,7 @@
 	 */
 	function ciclo(o) {
 		let raf = 0;
+		let attesa = 0;
 		let ultimo = 0;
 		let attivo = false;
 		let inVista = true;
@@ -170,20 +175,36 @@
 		let frames = 0;
 		const puo = () => attivo && inVista && !documentoNascosto() && o.pronto();
 		function chiedi() {
-			if (raf || !puo()) return;
+			if (raf || attesa || !puo()) return;
 			raf = requestAnimationFrame(passo);
 		}
 		function ferma() {
 			if (raf) cancelAnimationFrame(raf);
+			if (attesa) clearTimeout(attesa);
 			raf = 0;
+			attesa = 0;
+		}
+		/** Il prossimo fotogramma fra `ms`: un timer fino a poco prima, poi requestAnimationFrame per restare
+		 *  agganciati allo schermo. Con il solo requestAnimationFrame la webview si svegliava a ogni
+		 *  aggiornamento dello schermo (60 volte al secondo) anche per disegnarne 20. */
+		function dopo(ms) {
+			if (ms <= ANTICIPO_MS) {
+				raf = requestAnimationFrame(passo);
+				return;
+			}
+			attesa = setTimeout(() => {
+				attesa = 0;
+				if (puo()) raf = requestAnimationFrame(passo);
+			}, ms - ANTICIPO_MS);
 		}
 		function passo(ts) {
 			raf = 0;
 			if (!puo()) return;
 			const mosso = o.mosso();
 			const t = clock();
-			if (mosso && ultimo && ts - ultimo < 1000 / fpsPer(o.vivace ? o.vivace(t) : false, costo) - 2) {
-				raf = requestAnimationFrame(passo);
+			const passoMs = 1000 / fpsPer(o.vivace ? o.vivace(t) : false, costo);
+			if (mosso && ultimo && ts - ultimo < passoMs - ANTICIPO_MS - 2) {
+				dopo(passoMs - (ts - ultimo));
 				return;
 			}
 			ultimo = ts;
@@ -195,7 +216,7 @@
 			frames++;
 			const ms = clock() - t;
 			costo = costo ? costo * 0.9 + ms * 0.1 : ms;
-			if (mosso && (!o.continua || o.continua())) raf = requestAnimationFrame(passo);
+			if (mosso && (!o.continua || o.continua())) dopo(passoMs - ms);
 		}
 		if (typeof document !== 'undefined')
 			document.addEventListener('visibilitychange', () => {
@@ -227,7 +248,7 @@
 				return frames;
 			},
 			get inCorsa() {
-				return !!raf;
+				return !!(raf || attesa);
 			},
 		};
 	}

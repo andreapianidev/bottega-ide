@@ -45,6 +45,8 @@
 	const reduced = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
 	let hostHidden = false;
 	const visible = () => !hostHidden && document.visibilityState !== 'hidden';
+	/** La finestra della Bottega e' quella davanti (lo dice l'estensione, la webview da sola non lo sa). */
+	let fuoco = true;
 
 	// ---------- piccoli attrezzi ----------
 
@@ -370,6 +372,7 @@
 	let orbImpl = null;
 	let orbLast = /** @type {any[] | null} */ (null);
 	let orbAwake = false;
+	let orbRiposa = true;
 	const toCanvas2D = why => {
 		if (why) console.warn('[barra] sfera WebGPU non disponibile, uso il Canvas 2D: ' + why);
 		try {
@@ -382,6 +385,7 @@
 		old.replaceWith(fresh);
 		orbImpl = makeOrb2D();
 		if (orbLast) orbImpl.set(orbLast[0], orbLast[1], orbLast[2]);
+		if (orbImpl.riposa) orbImpl.riposa(orbRiposa);
 		if (orbAwake) orbImpl.wake();
 	};
 	const gpu = /** @type {any} */ (window).BottegaSferaGPU;
@@ -408,10 +412,24 @@
 			orbAwake = false;
 			orbImpl.sleep();
 		},
+		/** Si ferma quando Melissa tace, se nessuna sessione lavora o la finestra e' dietro (solo la sfera
+		 *  WebGPU: quella di ripiego in Canvas 2D gira come prima). */
+		riposa(on) {
+			orbRiposa = !!on;
+			if (orbImpl.riposa) orbImpl.riposa(orbRiposa);
+		},
 		redraw() {
 			orbImpl.redraw();
 		},
 	};
+
+	/** La sfera respira mentre una sessione Claude lavora, ma solo a finestra davanti; dietro tutto si ferma,
+	 *  tranne Melissa quando ascolta, pensa o parla. */
+	function aggiornaRiposo() {
+		const lavora = S.work.some(w => w && w.status === 'in corso');
+		orb.riposa(!(fuoco && lavora));
+		document.body.classList.toggle('sfondo', !fuoco);
+	}
 
 	// ---------- lo stato ----------
 
@@ -871,6 +889,7 @@
 		const per = {};
 		for (const g of GRUPPI) per[g.status] = [];
 		for (const w of work) (per[w.status] || per['in corso']).push(w);
+		aggiornaRiposo();
 
 		const vivi = new Set(work.map(w => w.key));
 		let fuocoPerso = false;
@@ -991,6 +1010,9 @@
 		} else if (m.type === 'visibile') {
 			hostHidden = m.visible === false;
 			cambiaVisibilita();
+		} else if (m.type === 'fuoco') {
+			fuoco = m.focused !== false;
+			aggiornaRiposo();
 		}
 	});
 
