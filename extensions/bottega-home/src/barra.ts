@@ -34,6 +34,8 @@ export interface BarraActions {
 	home(view?: string): void;
 	command(id: string): void;
 	sessionBoard(sessionId: string): Promise<BoardEntry[]>;
+	/** Una riga nel registro di Melissa (diagnosi della sfera). */
+	log(line: string): void;
 }
 
 /** La barra di Melissa nella barra laterale destra: il centro di controllo di tutte le sessioni Claude.
@@ -129,6 +131,9 @@ export class BarraView implements vscode.WebviewViewProvider {
 				return this.act.home(s(m.view) || undefined);
 			case 'comando':
 				return s(m.id) ? this.act.command(s(m.id)) : undefined;
+			case 'sfera.diag':
+				// con quale motore gira la sfera della barra, e perche' (docs/CONTRATTI.md, 7.8)
+				return this.act.log(`sfera della barra su ${s(m.motore) || '?'}${s(m.motivo) ? `, motivo: ${s(m.motivo)}` : ''}`);
 			case 'bacheca.sessione': {
 				const sid = s(m.sessionId);
 				if (!sid) return;

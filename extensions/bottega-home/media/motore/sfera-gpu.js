@@ -1,17 +1,37 @@
 // @ts-check
-/* Bottega, la sfera di Melissa su WebGPU (sul Mac passa da Metal). E' la sfera del Nucleo
-   (nucleo/Sources/Orb/OrbShaders.metal + OrbRenderer.swift) portata in WGSL: un sole di plasma in
-   raymarching con il nucleo volumetrico, la pelle granulosa, l'iridescenza sul bordo, la corona e i
-   raggi, l'onda d'urto a ogni attacco della voce. Per una webview e' piu' leggera della nativa:
-   niente particelle e niente bloom (l'alone e la corona li fa gia' lo shader), meno passi di marcia,
-   la tela al massimo di 480 px. Il volume di rumore (Perlin e Worley, 96^3) lo calcola la GPU una
-   volta sola, con uno shader di calcolo: in JS ci vorrebbe un secondo.
+/* Bottega, la sfera di Melissa su WebGPU (sul Mac passa da Metal). E' la sfera Metal di Avo Agency AI
+   (Features/Voice/VoiceOrbShaders.metal + VoiceOrbRenderer.swift, la stessa del Nucleo in
+   nucleo/Sources/Orb) portata in WGSL senza tagli: lo stesso sole di plasma in raymarching (80 passi
+   fuori, 56 dentro il nucleo volumetrico), la pelle granulosa con la convezione, l'iridescenza, la
+   corona e i raggi accesi per banda, l'onda d'urto a ogni attacco della voce, il battito e il
+   vagabondaggio a riposo, l'impulso a ogni cambio di stato, la molla della voce. In piu' come in
+   Avo: 12.288 particelle sulla GPU (uno shader di calcolo le muove: a riposo orbitano e respirano,
+   in ascolto vengono risucchiate, mentre parla vengono spinte fuori) disegnate come scie e come
+   sprite additivi, e il bloom a piramide (soglia, cinque livelli giu' e su, la striscia
+   anamorfica), poi il composito con la maschera radiale di VoiceOrbIndicator.
+   Uscita come Avo: luce lineare in Display P3 su una tela rgba16float con il tone mapping 'extended',
+   cosi' il nucleo puo' andare oltre il bianco quanto lo schermo concede (sull'Air fino a 2x), come
+   la CAMetalLayer extendedLinearDisplayP3 di Avo. Dove la tela non lo accetta resta la tela a 8 bit:
+   sopra il bianco si taglia, esattamente come Avo su uno schermo senza margine EDR.
+   Tagli rispetto ad Avo: niente sfondo d'umore (foto del posto, meteo), niente extra
+   cinematografici; la tela al massimo di 480 px; 30 fotogrammi al secondo invece di 60 (lo
+   smorzamento delle particelle e i filtri della voce sono corretti per il passo, cosi' reagiscono
+   come in Avo). Sotto i 480 px di tela le particelle sono k volte tante e grandi radice di k
+   (k = lato / 480): la sfera della barra e' quella di Avo rimpicciolita (vedi RIF_PX). Nel nucleo
+   l'uscita dalla sfera si controlla ogni due passi: stessa immagine, un millisecondo in meno.
+   In piu' rispetto ad Avo: lo stato 'error' (sodio) e la sfera spenta che sbiadisce.
+   Il volume di rumore (Perlin e Worley, 96^3) lo calcola la GPU una volta sola.
+   Verificata fotogramma per fotogramma contro il renderer Metal di Avo negli stessi istanti: sulla
+   sfera le medie combaciano entro 1-2 livelli su 255. Costo di GPU al ritmo vero (M2, 2/10/2026):
+   480 px da 3,8 a 5,2 ms (riposo 5,2, parla 4,1-5,0), la barra a 208 px da 2,3 a 3,4 ms.
 
    window.BottegaSferaGPU.mount(canvas, opts) -> sfera
      opts: { reduced: MediaQueryList | () => boolean, zoom?: numero (1 la sfera col suo alone, 0,6 la
              sfera che riempie la tela), post?(msg) per la diagnosi all'estensione, onFail?(motivo) }
      sfera: { set(stato, spenta, livello), wake(), sleep(), redraw(), smonta(),
-              motore ('webgpu'), stato ('spento' | 'avvio' | 'gpu' | 'rotto'), costo (ms), frames }
+              motore ('webgpu'), stato ('spento' | 'avvio' | 'gpu' | 'rotto'), costo (ms di CPU per
+              fotogramma), costoGpu (ms di GPU per fotogramma, dai timestamp se il dispositivo li ha),
+              frames }
      stato: 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'; spenta: boolean (Nucleo assente
      o voce spenta: la sfera sbiadisce verso il grigio e poi si ferma); livello: 0..1 (la voce).
    `mount` lancia subito se WebGPU qui non c'e' (manca motore/gpu.js o navigator.gpu): la vista usa
@@ -20,20 +40,35 @@
    passa al Canvas 2D. Il motivo va sempre in console e, con opts.post, all'estensione come
    `{type: 'sfera.diag', motore, motivo, gpu, isSecureContext, crossOriginIsolated, userAgent}`.
    `set` non sveglia la sfera: e' la vista che decide con wake/sleep. Gira solo sveglia, sulla
-   pagina, con il documento visibile; con Riduci movimento disegna un fotogramma per cambio.
-   A sfera addormentata da 15 secondi la GPU si libera. Richiede motore/gpu.js, caricato prima. */
+   pagina, con il documento visibile; con Riduci movimento disegna un fotogramma per cambio, con le
+   particelle ferme. A sfera addormentata da 15 secondi la GPU si libera. Richiede motore/gpu.js,
+   caricato prima. */
 (function () {
 	'use strict';
 	const W = /** @type {any} */ (typeof window !== 'undefined' ? window : globalThis);
+	const G0 = /** @type {any} */ (globalThis);
 
 	const STATI = { idle: 0, listening: 1, thinking: 2, speaking: 3, error: 4 };
-	/** Lato del volume di rumore, come nel Nucleo. */
+	/** Lato del volume di rumore, come in Avo. */
 	const DIM = 96;
 	/** La tela al massimo di 480 px: oltre, il costo cresce e la sfera non migliora. */
 	const MAX_PX = 480;
+	/** Le particelle di Avo (VoiceOrbRenderer.particleCount). */
+	const PARTI = 12288;
+	/** La misura a cui la sfera e' tarata su Avo. Le particelle di Avo hanno il lato in pixel veri: su
+	    una tela piu' piccola, a numero e lato pieni, coprirebbero la sfera (la barra a 208 px era un
+	    banco di neve). Sotto questa misura, con k = lato della tela / 480, se ne disegnano k volte
+	    tante, grandi radice di k: la luce media resta quella di Avo (numero per area dello sprite va
+	    con k al quadrato, come l'area della tela) e la sfera piccola e' quella grande rimpicciolita. */
+	const RIF_PX = 480;
+	/** Livelli della piramide del bloom, come in Avo. */
+	const LIVELLI = 5;
+	/** Soglia, intensita' e striscia del bloom di Avo. */
+	const BLOOM = [0.9, 1.35, 0.55, 0];
+	const BU_PASSO = 256;
 
 	/* Il volume di rumore, sulla GPU: r e a fbm di value noise (frequenze 6, 12, 24, 48), g e b Worley
-	   a 8 e 16 celle. Stesse funzioni di OrbRenderer.makeRichNoise, stesso hash. */
+	   a 8 e 16 celle. Stesse funzioni di VoiceOrbRenderer.makeRichNoiseData, stesso hash. */
 	const WGSL_RUMORE = /* wgsl */ `
 @group(0) @binding(0) var uscita: texture_storage_3d<rgba16float, write>;
 
@@ -101,7 +136,8 @@ fn worley(f: vec3f, celle: i32, seme: i32) -> f32 {
 }
 `;
 
-	/* La sfera: orb_fragment del Nucleo. Uniform come OrbUniforms, piu' p6.x = spenta (0..1). */
+	/* La sfera: orb_fragment di Avo, riga per riga. Uniform come OrbUniforms del Nucleo (p5 = zoom,
+	   respiro) piu' p6.x = spenta (0..1). Uscita lineare premoltiplicata nella scena rgba16float. */
 	const WGSL = /* wgsl */ `
 struct U {
 	p0: vec4f,
@@ -120,8 +156,8 @@ struct U {
 const BANDE: i32 = 16;
 const INV: f32 = 1.0 / 64.0;
 const PI: f32 = 3.14159265;
-const PASSI_FUORI: i32 = 56;
-const PASSI_DENTRO: i32 = 20;
+const PASSI_FUORI: i32 = 80;
+const PASSI_DENTRO: i32 = 56;
 
 fn tex(x: vec3f) -> vec4f { return textureSampleLevel(rumore, campione, x * INV, 0.0); }
 fn vn(x: vec3f) -> f32 { return tex(x).r; }
@@ -191,7 +227,7 @@ fn banda(i: i32) -> f32 {
 	return v[i & 3];
 }
 
-// la tavolozza di Melissa; l'errore e' il sodio della Bottega
+// la tavolozza di Melissa (Avo); l'errore e' il sodio della Bottega
 fn tavolozza(s: i32) -> vec3f {
 	let acqua = vec3f(0.26, 0.74, 1.0);
 	let verdeacqua = vec3f(0.16, 0.86, 0.86);
@@ -257,11 +293,6 @@ fn rilievo(p: vec3f, freq: f32) -> vec3f {
 	let dy = vn((p + vec3f(0.0, e, 0.0)) * freq) - vn((p - vec3f(0.0, e, 0.0)) * freq);
 	let dz = vn((p + vec3f(0.0, 0.0, e)) * freq) - vn((p - vec3f(0.0, 0.0, e)) * freq);
 	return vec3f(dx, dy, dz) / (2.0 * e);
-}
-
-fn aSrgb(c: f32) -> f32 {
-	let x = clamp(c, 0.0, 1.0);
-	return select(1.055 * pow(x, 1.0 / 2.4) - 0.055, 12.92 * x, x <= 0.0031308);
 }
 
 struct VF { @builtin(position) pos: vec4f };
@@ -405,8 +436,8 @@ struct VF { @builtin(position) pos: vec4f };
 			pos = ro + rd * t;
 			let dist = mappa(pos, d);
 			minimo = min(minimo, dist);
-			if (dist < 0.0012) { preso = true; break; }
-			t += dist * 0.8;
+			if (dist < 0.0009) { preso = true; break; }
+			t += dist * 0.72;
 			if (pos.z < -maxR) { break; }
 		}
 
@@ -451,7 +482,10 @@ struct VF { @builtin(position) pos: vec4f };
 			var trasp = 1.0;
 			for (var j = 0; j < PASSI_DENTRO; j++) {
 				vp += rdr * passo;
-				if (mappa(vp, d) > 0.015) { break; }
+				// l'uscita dalla sfera si guarda ogni due passi: costa meta' della marcia, e il passo
+				// in piu' oltre il bordo cade dove la trasparenza e' gia' scesa (misurato: stessa
+				// immagine di Avo, un millisecondo in meno a 480 px)
+				if ((j & 1) == 0 && mappa(vp, d) > 0.015) { break; }
 				let rr = length(vp);
 				let cuoreV = smoothstep(R, 0.0, rr);
 				var dens = densita(vp, tempo, d.verso);
@@ -530,30 +564,274 @@ struct VF { @builtin(position) pos: vec4f };
 		let eta = 1.0 - attacco;
 		let rad = R + eta * 0.95;
 		let largo = 0.020 + 0.055 * eta;
-		let anello = exp(-pow((pr - rad) / largo, 2.0));
+		let x = (pr - rad) / largo;
+		let anello = exp(-x * x);
 		let svan = attacco * attacco;
 		col += emissione(0.95, base) * anello * svan * 0.85;
 		alfa = max(alfa, anello * svan * 0.5);
 	}
 
-	// tutto a zero prima del bordo della tela: l'alone non mostra mai un quadrato
-	let margine = 1.0 - smoothstep(0.80, 0.99, max(abs(uv.x * 2.0 - 1.0), abs(uv.y * 2.0 - 1.0)));
-	col *= margine;
-	alfa *= margine;
-
-	// Reinhard esteso che conserva la luminanza. La tela e' a 8 bit, senza il margine EDR del Nucleo:
-	// un'esposizione un po' piu' bassa tiene i colori pieni invece di sbiancarli, poi si codifica sRGB
-	col *= 0.62;
+	// Reinhard esteso sulla luminanza con il bianco a 2,6, come Avo: il resto oltre 1 e' margine EDR
 	let Lc = max(dot(col, vec3f(0.2126, 0.7152, 0.0722)), 1e-4);
 	let Lw = 2.6;
 	let Lt = Lc * (1.0 + Lc / (Lw * Lw)) / (1.0 + Lc);
 	col *= Lt / Lc;
+	col = min(col, vec3f(5.0));
 	col += (hash21(uv * res + tempo) - 0.5) * (1.0 / 255.0);
 	let a = clamp(alfa, 0.0, 1.0);
-	let s = vec3f(aSrgb(col.r), aSrgb(col.g), aSrgb(col.b));
-	return vec4f(s * a, a);
+	return vec4f(max(col, vec3f(0.0)) * a, a);
 }
 `;
+
+	/* Le particelle di Avo: orb_particle_update, gli sprite e le scie. In WebGPU i punti sono di un
+	   pixel, quindi lo sprite e' un quadrato di due triangoli per istanza, grande quanto il
+	   point_size di Metal. Lo smorzamento e' riportato a 60 passi al secondo (Avo gira a 60).
+	   Uniform: q0 = (dt, tempo, stato, voce), q1 = (lato della tela, quante, battito, spenta),
+	   q2.x = scala del lato degli sprite (radice di k, vedi RIF_PX). */
+	const WGSL_PARTI = /* wgsl */ `
+struct Parte { posVita: vec4f, velSeme: vec4f };
+struct PU { q0: vec4f, q1: vec4f, q2: vec4f };
+@group(0) @binding(0) var<storage, read_write> parti: array<Parte>;
+@group(0) @binding(1) var<uniform> pu: PU;
+
+fn caso(s: f32) -> f32 { return fract(sin(s) * 43758.5453); }
+
+@compute @workgroup_size(64) fn cs_parti(@builtin(global_invocation_id) gid: vec3u) {
+	let id = gid.x;
+	if (id >= u32(pu.q1.y)) { return; }
+	var pt = parti[id];
+	let dt = pu.q0.x;
+	let tempo = pu.q0.y;
+	let st = i32(pu.q0.z + 0.5);
+	let livello = pu.q0.w;
+	var pos = pt.posVita.xyz;
+	var vita = pt.posVita.w;
+	var vel = pt.velSeme.xyz;
+	var seme = pt.velSeme.w;
+	var r = length(pos) + 1e-5;
+	let dir = pos / r;
+	let battito = pu.q1.z;
+	let passi = dt * 60.0;
+
+	if (st == 1) {
+		vel += -dir * (0.95 + 1.7 * livello) * (1.0 + 0.85 * battito) * dt;
+		vel *= pow(0.978, passi);
+		vita -= dt * (0.5 + livello);
+	} else if (st == 3) {
+		vel += dir * (0.85 + 2.0 * livello) * (1.0 + 1.05 * battito) * dt;
+		vel *= pow(0.988, passi);
+		vita -= dt * 0.6;
+	} else {
+		let giro = select(0.30, 0.12, st == 4);
+		let tang = normalize(cross(dir, vec3f(0.0, 1.0, 0.0)) + 1e-4);
+		vel = tang * giro + dir * (sin(tempo + seme * 6.2831853) * 0.05 + (battito - 0.5) * 0.20);
+		vita -= dt * 0.25;
+	}
+	pos += vel * dt;
+	r = length(pos);
+
+	if (vita <= 0.0 || r < 0.12 || r > 1.55) {
+		let a = caso(seme * 91.17 + tempo);
+		let b = caso(seme * 48.31 + tempo * 1.7);
+		let c = caso(seme * 12.79 + tempo * 0.3);
+		let theta = a * 6.2831853;
+		let phi = acos(2.0 * b - 1.0);
+		let sfe = vec3f(sin(phi) * cos(theta), cos(phi), sin(phi) * sin(theta));
+		pos = sfe * select(1.40, 0.55, st == 3);
+		vel = vec3f(0.0);
+		vita = 0.6 + 0.6 * c;
+		seme = fract(seme + 0.6180339887);
+	}
+	pt.posVita = vec4f(pos, vita);
+	pt.velSeme = vec4f(vel, seme);
+	parti[id] = pt;
+}
+
+fn colore(st: i32) -> vec3f {
+	if (st == 1) { return vec3f(0.31, 0.76, 0.97); }
+	if (st == 3) { return vec3f(0.55, 0.85, 0.60); }
+	if (st == 4) { return vec3f(0.98, 0.62, 0.22); }
+	return vec3f(0.60, 0.80, 0.95);
+}
+
+struct VS { @builtin(position) pos: vec4f, @location(0) pc: vec2f, @location(1) luce: f32 };
+
+@vertex fn vs_sprite(@builtin(vertex_index) vi: u32, @location(0) posVita: vec4f, @location(1) velSeme: vec4f) -> VS {
+	var angoli = array<vec2f, 6>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0), vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0));
+	let k = angoli[vi];
+	let wp = posVita.xyz;
+	let vita = clamp(posVita.w, 0.0, 1.0);
+	let battito = pu.q1.z;
+	let lato = mix(2.0, 6.5, vita) * (wp.z * 0.2 + 1.0) * (1.0 + 0.35 * battito) * pu.q2.x;
+	var o: VS;
+	o.pos = vec4f(wp.xy + k * lato / max(pu.q1.x, 1.0), 0.0, 1.0);
+	o.pc = k * 0.5 + 0.5;
+	o.luce = vita * vita * (1.0 + 0.40 * battito) * (1.0 - 0.7 * pu.q1.w);
+	return o;
+}
+
+@fragment fn fs_sprite(v: VS) -> @location(0) vec4f {
+	let dd = length(v.pc - 0.5);
+	let a = smoothstep(0.5, 0.0, dd) * v.luce;
+	return vec4f(colore(i32(pu.q0.z + 0.5)) * 1.7 * a, a);
+}
+
+struct VT { @builtin(position) pos: vec4f, @location(0) luce: f32 };
+
+@vertex fn vs_scia(@builtin(vertex_index) vi: u32, @location(0) posVita: vec4f, @location(1) velSeme: vec4f) -> VT {
+	let coda = vi == 1u;
+	let vita = clamp(posVita.w, 0.0, 1.0);
+	let battito = pu.q1.z;
+	let v = velSeme.xyz;
+	let sp = length(v);
+	var dietro = vec3f(0.0);
+	if (sp > 1e-4) { dietro = (v / sp) * min(sp * 0.085, 0.16); }
+	let wp = posVita.xyz - select(vec3f(0.0), dietro, coda);
+	var o: VT;
+	o.pos = vec4f(wp.xy, 0.0, 1.0);
+	o.luce = select(vita * vita * (1.0 + 0.40 * battito) * 0.85 * (1.0 - 0.7 * pu.q1.w), 0.0, coda);
+	return o;
+}
+
+@fragment fn fs_scia(v: VT) -> @location(0) vec4f {
+	let a = clamp(v.luce, 0.0, 1.0);
+	return vec4f(colore(i32(pu.q0.z + 0.5)) * 1.7 * a, a);
+}
+`;
+
+	/* Il bloom di Avo: soglia e mezza risoluzione, piramide giu' (13 campioni di Karis), su con la
+	   tenda additiva, striscia anamorfica in tre passate, composito. Il composito mette anche la
+	   maschera radiale di VoiceOrbIndicator e codifica per la tela (curva sRGB estesa, P3). */
+	const WGSL_BLOOM = /* wgsl */ `
+struct BU { b0: vec4f, b1: vec4f };
+@group(0) @binding(0) var sorgente: texture_2d<f32>;
+@group(0) @binding(1) var cs: sampler;
+@group(0) @binding(2) var<uniform> b: BU;
+
+struct FS { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+
+@vertex fn vs_fs(@builtin(vertex_index) i: u32) -> FS {
+	let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+	var o: FS;
+	o.pos = vec4f(p * 2.0 - 1.0, 0.0, 1.0);
+	o.uv = vec2f(p.x, 1.0 - p.y);
+	return o;
+}
+
+fn c(uv: vec2f) -> vec3f { return textureSampleLevel(sorgente, cs, uv, 0.0).rgb; }
+
+@fragment fn fs_soglia(v: FS) -> @location(0) vec4f {
+	let k = textureSampleLevel(sorgente, cs, v.uv, 0.0);
+	let l = max(max(k.r, k.g), k.b);
+	let f = max(l - b.b1.x, 0.0) / max(l, 1e-4);
+	return vec4f(k.rgb * f, 1.0);
+}
+
+@fragment fn fs_giu(v: FS) -> @location(0) vec4f {
+	let t = b.b0.xy;
+	let uv = v.uv;
+	let A = c(uv + vec2f(-2.0, -2.0) * t);
+	let B = c(uv + vec2f(0.0, -2.0) * t);
+	let C = c(uv + vec2f(2.0, -2.0) * t);
+	let D = c(uv + vec2f(-2.0, 0.0) * t);
+	let E = c(uv);
+	let F = c(uv + vec2f(2.0, 0.0) * t);
+	let G = c(uv + vec2f(-2.0, 2.0) * t);
+	let H = c(uv + vec2f(0.0, 2.0) * t);
+	let I = c(uv + vec2f(2.0, 2.0) * t);
+	let J = c(uv + vec2f(-1.0, -1.0) * t);
+	let K = c(uv + vec2f(1.0, -1.0) * t);
+	let L = c(uv + vec2f(-1.0, 1.0) * t);
+	let M = c(uv + vec2f(1.0, 1.0) * t);
+	var acc = (J + K + L + M) * 0.125;
+	acc += (A + B + D + E) * 0.03125;
+	acc += (B + C + E + F) * 0.03125;
+	acc += (D + E + G + H) * 0.03125;
+	acc += (E + F + H + I) * 0.03125;
+	return vec4f(acc, 1.0);
+}
+
+@fragment fn fs_su(v: FS) -> @location(0) vec4f {
+	let r = b.b0.xy * b.b1.x;
+	let uv = v.uv;
+	var acc = c(uv + vec2f(-1.0, 1.0) * r);
+	acc += c(uv + vec2f(0.0, 1.0) * r) * 2.0;
+	acc += c(uv + vec2f(1.0, 1.0) * r);
+	acc += c(uv + vec2f(-1.0, 0.0) * r) * 2.0;
+	acc += c(uv) * 4.0;
+	acc += c(uv + vec2f(1.0, 0.0) * r) * 2.0;
+	acc += c(uv + vec2f(-1.0, -1.0) * r);
+	acc += c(uv + vec2f(0.0, -1.0) * r) * 2.0;
+	acc += c(uv + vec2f(1.0, -1.0) * r);
+	return vec4f(acc * (1.0 / 16.0) * b.b1.y, 1.0);
+}
+
+@fragment fn fs_striscia(v: FS) -> @location(0) vec4f {
+	let passo = b.b0.zw * b.b0.xy * b.b1.x;
+	let att = clamp(b.b1.y, 0.0, 0.999);
+	var acc = c(v.uv);
+	var peso = 1.0;
+	var w = 1.0;
+	for (var i = 1; i <= 4; i++) {
+		w *= att;
+		acc += c(v.uv + passo * f32(i)) * w;
+		acc += c(v.uv - passo * f32(i)) * w;
+		peso += 2.0 * w;
+	}
+	return vec4f(acc / peso, 1.0);
+}
+
+@group(0) @binding(3) var bagliore: texture_2d<f32>;
+@group(0) @binding(4) var striscia: texture_2d<f32>;
+
+// la curva sRGB estesa: anche sopra 1 (margine EDR), con il segno
+fn codifica(x: f32) -> f32 {
+	let a = abs(x);
+	let y = select(1.055 * pow(a, 1.0 / 2.4) - 0.055, 12.92 * a, a <= 0.0031308);
+	return sign(x) * y;
+}
+
+@fragment fn fs_composito(v: FS) -> @location(0) vec4f {
+	let sc = textureSampleLevel(sorgente, cs, v.uv, 0.0);
+	let bl = textureSampleLevel(bagliore, cs, v.uv, 0.0).rgb;
+	let st = textureSampleLevel(striscia, cs, v.uv, 0.0).rgb;
+	let add = bl * b.b1.y + st * vec3f(0.40, 0.72, 1.30) * b.b1.z;
+	// la maschera radiale di VoiceOrbIndicator: piena fino a 0,62 del raggio, zero al bordo
+	let r = length(v.uv * 2.0 - 1.0);
+	let m = clamp(1.0 - (r - 0.62) / 0.38, 0.0, 1.0);
+	let lin = max(sc.rgb + add, vec3f(0.0)) * m;
+	return vec4f(codifica(lin.r), codifica(lin.g), codifica(lin.b), clamp(sc.a, 0.0, 1.0) * m);
+}
+`;
+
+	/** Il respiro di Avo (VoiceRhythm.envelope(...).pulse): respiro lento e battito a 70 al minuto. */
+	function battito(t, st, livello) {
+		const c01 = v => (v > 1 ? 1 : v < 0 ? 0 : v);
+		const lvl = c01(livello);
+		const respiro = 0.5 + 0.5 * Math.sin(2 * Math.PI * 0.2 * t);
+		const f = (t * 70) / 60;
+		const p = f - Math.floor(f);
+		const b = Math.min(1, Math.exp(-Math.pow(p / 0.06, 2)) + 0.65 * Math.exp(-Math.pow((p - 0.18) / 0.055, 2)));
+		if (st === 1) return c01(0.4 * respiro + 0.95 * b * (0.4 + lvl));
+		if (st === 3) return c01(0.38 * respiro + 0.95 * (0.35 + lvl) * (0.3 * respiro + 0.7 * b));
+		if (st === 2) return c01(0.22 + 0.28 * (0.5 + 0.5 * Math.sin(2 * Math.PI * 0.8 * t + Math.sin(t * 2.3))));
+		return c01(0.3 * respiro + 0.5 * b);
+	}
+
+	/** Le particelle all'avvio, come VoiceOrbRenderer.makeParticleBuffer: un guscio da 0,30 a 1,40. */
+	function partiIniziali() {
+		const a = new Float32Array(PARTI * 8);
+		const r = x => {
+			const v = Math.sin(x) * 43758.5453;
+			return v - Math.floor(v);
+		};
+		for (let i = 0; i < PARTI; i++) {
+			const ra = r(i * 12.9898), rb = r(i * 78.233), rc = r(i * 37.719), seme = r(i * 3.17 + 1);
+			const th = ra * 2 * Math.PI, ph = Math.acos(2 * rb - 1), rad = 0.3 + rc * 1.1;
+			a.set([Math.sin(ph) * Math.cos(th) * rad, Math.cos(ph) * rad, Math.sin(ph) * Math.sin(th) * rad, rc, 0, 0, 0, seme], i * 8);
+		}
+		return a;
+	}
 
 	/**
 	 * @param {HTMLCanvasElement} canvas
@@ -563,11 +841,17 @@ struct VF { @builtin(position) pos: vec4f };
 	 */
 	function creaSfera(canvas, G, officina, opt) {
 		const { modulo, USO, clock } = G;
+		const BUF = G0.GPUBufferUsage || {};
+		const COPY_SRC = BUF.COPY_SRC || 0x04;
+		const MAP_READ = BUF.MAP_READ || 0x01;
+		const QUERY_RESOLVE = BUF.QUERY_RESOLVE || 0x200;
+		const MAPPA_LETTURA = (G0.GPUMapMode && G0.GPUMapMode.READ) || 0x01;
 		let stato = 'spento';
 		let gen = 0;
 		/** @type {any} */ let dev = null;
 		/** @type {any} */ let ctx = null;
 		/** @type {any} */ let r = null;
+		/** @type {any} */ let misure = null;
 		let sveglia = false;
 		let rilascioT = 0;
 		let diagInviata = false;
@@ -575,9 +859,10 @@ struct VF { @builtin(position) pos: vec4f };
 		let bersaglio = 0;
 		let spentaVuole = 0;
 		let livello = 0;
-		// la dinamica di OrbRenderer.encodeFrame: molle, impulso, attacchi, dissolvenza di 0,35 s
+		// la dinamica di VoiceOrbRenderer.draw: molle, impulso, attacchi, dissolvenza di 0,35 s
 		const t0 = clock();
 		let tPrima = 0;
+		let dtUltimo = 1 / 30;
 		let statoOra = 0;
 		let statoPrima = 0;
 		let cambioDa = -1e9;
@@ -587,9 +872,11 @@ struct VF { @builtin(position) pos: vec4f };
 		let livelloPrima = 0;
 		let rivela = 0;
 		let spenta = 0;
+		let costoGpu = 0;
 		const spettro = new Float32Array(16);
 		// p0..p5 (24) + spettro (16) + p6 (4): 176 byte
 		const U = new Float32Array(44);
+		const PUv = new Float32Array(12);
 		const luce = (() => {
 			const l = Math.hypot(0.45, 0.65, 0.85);
 			return [0.45 / l, 0.65 / l, 0.85 / l];
@@ -607,9 +894,32 @@ struct VF { @builtin(position) pos: vec4f };
 			stato = s;
 		}
 
+		function liberaMisura() {
+			if (!r || !r.mis) return;
+			const m = r.mis;
+			r.mis = null;
+			for (const b of [m.qs, m.risolvi, m.lettura]) {
+				try {
+					b && b.destroy && b.destroy();
+				} catch {}
+			}
+		}
+
+		function liberaTele() {
+			if (!r || !r.tele) return;
+			for (const t of r.tele.tutte) {
+				try {
+					t.destroy();
+				} catch {}
+			}
+			r.tele = null;
+		}
+
 		function libera() {
 			if (!r) return;
-			for (const b of [r.ubuf, r.vol]) {
+			liberaTele();
+			liberaMisura();
+			for (const b of [r.ubuf, r.vol, r.pbuf, r.parti, r.bbuf]) {
 				try {
 					b && b.destroy && b.destroy();
 				} catch {}
@@ -644,6 +954,20 @@ struct VF { @builtin(position) pos: vec4f };
 		}
 		officina.ascolta(motivo => rompi(motivo));
 
+		/**
+		 * La tela: rgba16float in Display P3 con il tone mapping esteso, come la CAMetalLayer di Avo.
+		 * Se non la accetta, il formato preferito (8 bit): sopra il bianco si taglia.
+		 */
+		function configura(c, d, format) {
+			try {
+				c.configure({ device: d, format: 'rgba16float', colorSpace: 'display-p3', toneMapping: { mode: 'extended' }, alphaMode: 'premultiplied' });
+				return 'rgba16float';
+			} catch {
+				c.configure({ device: d, format, alphaMode: 'premultiplied' });
+				return format;
+			}
+		}
+
 		async function avvia() {
 			if (stato === 'rotto' || stato === 'avvio' || dev) return;
 			const g = ++gen;
@@ -656,10 +980,63 @@ struct VF { @builtin(position) pos: vec4f };
 					officina.lascia();
 					return;
 				}
-				const [modR, mod] = await Promise.all([modulo(d, WGSL_RUMORE, 'WGSL del rumore della sfera'), modulo(d, WGSL, 'WGSL della sfera')]);
-				const [pRumore, pSfera] = await Promise.all([
+				const c = canvas.getContext('webgpu');
+				if (!c) throw new Error('la tela non da un contesto webgpu');
+				const formato = configura(c, d, format);
+				ctx = c;
+				const [modR, mod, modP, modB] = await Promise.all([
+					modulo(d, WGSL_RUMORE, 'WGSL del rumore della sfera'),
+					modulo(d, WGSL, 'WGSL della sfera'),
+					modulo(d, WGSL_PARTI, 'WGSL delle particelle della sfera'),
+					modulo(d, WGSL_BLOOM, 'WGSL del bloom della sfera'),
+				]);
+				const premol = { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } };
+				const somma = { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } };
+				const HDR = 'rgba16float';
+				const istanze = [{ arrayStride: 32, stepMode: 'instance', attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x4' }, { shaderLocation: 1, offset: 16, format: 'float32x4' }] }];
+				// un solo layout per particelle (calcolo, sprite, scie) e uno per le passate del bloom
+				const blP = d.createBindGroupLayout({
+					entries: [
+						{ binding: 0, visibility: 4, buffer: { type: 'storage' } },
+						{ binding: 1, visibility: 1 | 2 | 4, buffer: { type: 'uniform' } },
+					],
+				});
+				const blB = d.createBindGroupLayout({
+					entries: [
+						{ binding: 0, visibility: 2, texture: { sampleType: 'float' } },
+						{ binding: 1, visibility: 2, sampler: { type: 'filtering' } },
+						{ binding: 2, visibility: 2, buffer: { type: 'uniform' } },
+					],
+				});
+				const blC = d.createBindGroupLayout({
+					entries: [
+						{ binding: 0, visibility: 2, texture: { sampleType: 'float' } },
+						{ binding: 1, visibility: 2, sampler: { type: 'filtering' } },
+						{ binding: 2, visibility: 2, buffer: { type: 'uniform' } },
+						{ binding: 3, visibility: 2, texture: { sampleType: 'float' } },
+						{ binding: 4, visibility: 2, texture: { sampleType: 'float' } },
+					],
+				});
+				// per disegnarle basta l'uniform: il buffer delle particelle entra come vertici, e
+				// legato anche come storage nella stessa passata sarebbe un conflitto di uso
+				const blPD = d.createBindGroupLayout({ entries: [{ binding: 1, visibility: 1 | 2, buffer: { type: 'uniform' } }] });
+				const layP = d.createPipelineLayout({ bindGroupLayouts: [blP] });
+				const layPD = d.createPipelineLayout({ bindGroupLayouts: [blPD] });
+				const layB = d.createPipelineLayout({ bindGroupLayouts: [blB] });
+				const layC = d.createPipelineLayout({ bindGroupLayouts: [blC] });
+				const fsp = (frag, target, blend, lay = layB) =>
+					d.createRenderPipelineAsync({ layout: lay, vertex: { module: modB, entryPoint: 'vs_fs' }, fragment: { module: modB, entryPoint: frag, targets: [blend ? { format: target, blend } : { format: target }] }, primitive: { topology: 'triangle-list' } });
+				const [pRumore, pSfera, pCalcolo, pSprite, pScia, pSoglia, pGiu, pSu, pStriscia, pComp] = await Promise.all([
 					d.createComputePipelineAsync({ layout: 'auto', compute: { module: modR, entryPoint: 'cs_rumore' } }),
-					d.createRenderPipelineAsync({ layout: 'auto', vertex: { module: mod, entryPoint: 'vs_pieno' }, fragment: { module: mod, entryPoint: 'fs_sfera', targets: [{ format }] }, primitive: { topology: 'triangle-list' } }),
+					d.createRenderPipelineAsync({ layout: 'auto', vertex: { module: mod, entryPoint: 'vs_pieno' }, fragment: { module: mod, entryPoint: 'fs_sfera', targets: [{ format: HDR, blend: premol }] }, primitive: { topology: 'triangle-list' } }),
+					d.createComputePipelineAsync({ layout: layP, compute: { module: modP, entryPoint: 'cs_parti' } }),
+					d.createRenderPipelineAsync({ layout: layPD, vertex: { module: modP, entryPoint: 'vs_sprite', buffers: istanze }, fragment: { module: modP, entryPoint: 'fs_sprite', targets: [{ format: HDR, blend: premol }] }, primitive: { topology: 'triangle-list' } }),
+					d.createRenderPipelineAsync({ layout: layPD, vertex: { module: modP, entryPoint: 'vs_scia', buffers: istanze }, fragment: { module: modP, entryPoint: 'fs_scia', targets: [{ format: HDR, blend: premol }] }, primitive: { topology: 'line-list' } }),
+					fsp('fs_soglia', HDR, null),
+					fsp('fs_giu', HDR, null),
+					fsp('fs_su', HDR, somma),
+					fsp('fs_striscia', HDR, null),
+					fsp('fs_composito', formato, null, layC),
 				]);
 				if (g !== gen) {
 					officina.lascia();
@@ -675,7 +1052,12 @@ struct VF { @builtin(position) pos: vec4f };
 				cp.end();
 				d.queue.submit([enc.finish()]);
 				const ubuf = d.createBuffer({ size: U.byteLength, usage: USO.UNIFORM | USO.COPY_DST });
+				const pbuf = d.createBuffer({ size: PUv.byteLength, usage: USO.UNIFORM | USO.COPY_DST });
+				const parti = d.createBuffer({ size: PARTI * 32, usage: USO.STORAGE | USO.VERTEX | USO.COPY_DST });
+				d.queue.writeBuffer(parti, 0, partiIniziali());
+				const bbuf = d.createBuffer({ size: BU_PASSO * 16, usage: USO.UNIFORM | USO.COPY_DST });
 				const samp = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat', addressModeW: 'repeat' });
+				const sampB = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
 				const bg = d.createBindGroup({
 					layout: pSfera.getBindGroupLayout(0),
 					entries: [
@@ -684,10 +1066,22 @@ struct VF { @builtin(position) pos: vec4f };
 						{ binding: 2, resource: samp },
 					],
 				});
-				const c = canvas.getContext('webgpu');
-				if (!c) throw new Error('la tela non da un contesto webgpu');
-				c.configure({ device: d, format, alphaMode: 'premultiplied' });
-				r = { pSfera, ubuf, vol, bg };
+				const bgP = d.createBindGroup({ layout: blP, entries: [{ binding: 0, resource: { buffer: parti } }, { binding: 1, resource: { buffer: pbuf } }] });
+				const bgPD = d.createBindGroup({ layout: blPD, entries: [{ binding: 1, resource: { buffer: pbuf } }] });
+				r = { pSfera, pCalcolo, pSprite, pScia, pSoglia, pGiu, pSu, pStriscia, pComp, blB, blC, ubuf, pbuf, parti, bbuf, vol, bg, bgP, bgPD, sampB, tele: null, mis: null };
+				if (d.features && d.features.has && d.features.has('timestamp-query')) {
+					try {
+						r.mis = {
+							qs: d.createQuerySet({ type: 'timestamp', count: 2 }),
+							risolvi: d.createBuffer({ size: 16, usage: QUERY_RESOLVE | COPY_SRC }),
+							lettura: d.createBuffer({ size: 16, usage: MAP_READ | USO.COPY_DST }),
+							occupata: false,
+						};
+					} catch {
+						r.mis = null;
+					}
+				}
+				misure = null;
 				dev = d;
 				ctx = c;
 				rivela = opt.reduced() ? 1 : 0;
@@ -701,12 +1095,60 @@ struct VF { @builtin(position) pos: vec4f };
 			}
 		}
 
+		/** Le tele della scena e della piramide del bloom, rifatte quando cambia la misura. */
+		function tele(px) {
+			if (r.tele && r.tele.px === px) return r.tele;
+			liberaTele();
+			const d = dev;
+			const T = (w, h) => d.createTexture({ size: [Math.max(1, w), Math.max(1, h)], format: 'rgba16float', usage: USO.RENDER | USO.TEXTURE });
+			const scena = T(px, px);
+			const catena = [];
+			for (let l = px >> 1; catena.length < LIVELLI && l >= 8; l >>= 1) catena.push(T(l, l));
+			if (catena.length < 2) catena.push(T(8, 8), T(8, 8));
+			const sA = T(catena[1].width, catena[1].height);
+			const sB = T(catena[1].width, catena[1].height);
+			const texel = t => [1 / t.width, 1 / t.height];
+			// un posto da 256 byte per passata nel buffer degli uniform
+			const val = new Float32Array((BU_PASSO / 4) * 16);
+			let slot = 0;
+			const posto = (b0, b1) => {
+				val.set(b0, (slot * BU_PASSO) / 4);
+				val.set(b1, (slot * BU_PASSO) / 4 + 4);
+				return slot++;
+			};
+			const gruppo = (src, s) => d.createBindGroup({ layout: r.blB, entries: [{ binding: 0, resource: src.createView() }, { binding: 1, resource: r.sampB }, { binding: 2, resource: { buffer: r.bbuf, offset: s * BU_PASSO, size: 32 } }] });
+			const passate = [];
+			passate.push({ p: r.pSoglia, dst: catena[0], bg: gruppo(scena, posto([0, 0, 0, 0], BLOOM)), pulisci: true });
+			for (let i = 0; i < catena.length - 1; i++) passate.push({ p: r.pGiu, dst: catena[i + 1], bg: gruppo(catena[i], posto([...texel(catena[i]), 0, 0], BLOOM)), pulisci: true });
+			for (let i = catena.length - 2; i >= 0; i--) passate.push({ p: r.pSu, dst: catena[i], bg: gruppo(catena[i + 1], posto([...texel(catena[i + 1]), 0, 0], [1, 0.85, 0, 0])), pulisci: false });
+			const dirH = [...texel(sA), 1, 0];
+			passate.push({ p: r.pStriscia, dst: sA, bg: gruppo(catena[1], posto(dirH, [4, 0.86, 0, 0])), pulisci: true });
+			passate.push({ p: r.pStriscia, dst: sB, bg: gruppo(sA, posto(dirH, [36, 0.82, 0, 0])), pulisci: true });
+			passate.push({ p: r.pStriscia, dst: sA, bg: gruppo(sB, posto(dirH, [324, 0.76, 0, 0])), pulisci: true });
+			const sc = posto([0, 0, 0, 0], BLOOM);
+			const bgC = d.createBindGroup({
+				layout: r.blC,
+				entries: [
+					{ binding: 0, resource: scena.createView() },
+					{ binding: 1, resource: r.sampB },
+					{ binding: 2, resource: { buffer: r.bbuf, offset: sc * BU_PASSO, size: 32 } },
+					{ binding: 3, resource: catena[0].createView() },
+					{ binding: 4, resource: sA.createView() },
+				],
+			});
+			d.queue.writeBuffer(r.bbuf, 0, val.buffer, 0, slot * BU_PASSO);
+			for (const p of passate) p.vista = p.dst.createView();
+			r.tele = { px, scena, vistaScena: scena.createView(), catena, sA, sB, passate, bgC, tutte: [scena, ...catena, sA, sB] };
+			return r.tele;
+		}
+
 		/** Un passo della dinamica; fermi (Riduci movimento) tutto va subito allo stato finale. */
 		function avanza(t, mosso) {
 			const ora = t / 1000;
 			let dt = tPrima ? (t - tPrima) / 1000 : 1 / 30;
 			tPrima = t;
 			dt = Math.min(Math.max(dt, 1 / 240), 0.05);
+			dtUltimo = dt;
 			if (bersaglio !== statoOra) {
 				statoPrima = statoOra;
 				statoOra = bersaglio;
@@ -724,8 +1166,11 @@ struct VF { @builtin(position) pos: vec4f };
 				for (let i = 0; i < 16; i++) spettro[i] = livello * (1 - i / 20);
 				return;
 			}
-			const sale = Math.max(0, livello - livelloPrima);
-			livelloPrima += (livello - livelloPrima) * 0.5;
+			// i filtri di Avo sono per fotogramma a 60 Hz: qui valgono per passi da 1/60 di secondo,
+			// cosi' a 30 o 20 fotogrammi la sfera reagisce alla voce come in Avo
+			const passi = dt * 60;
+			const sale = Math.max(0, livello - livelloPrima) / Math.max(1, passi);
+			livelloPrima += (livello - livelloPrima) * (1 - Math.pow(0.5, passi));
 			forteVel += (130 * (livello - fortePos) - 17 * forteVel) * dt;
 			fortePos = Math.max(0, fortePos + forteVel * dt);
 			impVel += (95 * (0 - impPos) - 8 * impVel) * dt;
@@ -737,8 +1182,14 @@ struct VF { @builtin(position) pos: vec4f };
 			const tt = (t - t0) / 1000;
 			for (let i = 0; i < 16; i++) {
 				const v = Math.min(1, livello * (1 - i / 20) * (0.75 + 0.25 * Math.sin(tt * 5 + i * 1.7)));
-				spettro[i] += (v - spettro[i]) * (v > spettro[i] ? 0.55 : 0.22);
+				spettro[i] += (v - spettro[i]) * (1 - Math.pow(v > spettro[i] ? 0.45 : 0.78, passi));
 			}
+		}
+
+		function pass(enc, vista, pulisci, ts) {
+			/** @type {any} */ const desc = { colorAttachments: [{ view: vista, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: pulisci ? 'clear' : 'load', storeOp: 'store' }] };
+			if (ts) desc.timestampWrites = ts;
+			return enc.beginRenderPass(desc);
 		}
 
 		function disegna(t, mosso) {
@@ -749,27 +1200,93 @@ struct VF { @builtin(position) pos: vec4f };
 				canvas.width = px;
 				canvas.height = px;
 			}
+			const T = tele(px);
+			const k = Math.min(1, px / RIF_PX);
+			const quante = Math.max(256, Math.round(PARTI * k));
 			avanza(t, mosso);
 			const ora = t / 1000;
 			const tSec = mosso ? (t - t0) / 1000 : 12;
 			const mix = mosso ? Math.min(1, Math.max(0, (ora - cambioDa) / 0.35)) : 1;
 			const rs = rivela * rivela * (3 - 2 * rivela);
+			const forte = Math.min(fortePos, 1.5);
 			U.set([px, px, tSec, livello], 0);
-			U.set([statoOra, statoPrima, mix, Math.min(fortePos, 1.5)], 4);
+			U.set([statoOra, statoPrima, mix, forte], 4);
 			U.set([attacco, 0, impPos, rs], 8);
 			U.set([luce[0], luce[1], luce[2], 0.35], 12);
-			U.set([0.1, 0.16, 0.26, 0.5], 16);
+			U.set([0.1, 0.16, 0.26, 0.6], 16);
 			U.set([opt.zoom, 0, tSec * 1.1, 1], 20);
 			U.set(spettro, 24);
 			U.set([spenta, 0, 0, 0], 40);
 			dev.queue.writeBuffer(r.ubuf, 0, U.buffer, 0, U.byteLength);
+			// le particelle: i punti di Avo sono in pixel, qui il quadrato va diviso per la tela
+			PUv.set([mosso ? dtUltimo : 0, tSec, statoOra, forte, px, quante, mosso ? battito(t / 1000, statoOra, forte) : 0.5, spenta, Math.sqrt(k), 0, 0, 0]);
+			dev.queue.writeBuffer(r.pbuf, 0, PUv.buffer, 0, PUv.byteLength);
+
+			const mis = r.mis && !r.mis.occupata ? r.mis : null;
 			const enc = dev.createCommandEncoder();
-			const p = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }] });
-			p.setPipeline(r.pSfera);
-			p.setBindGroup(0, r.bg);
-			p.draw(3);
-			p.end();
+			if (mosso) {
+				const cp = enc.beginComputePass();
+				cp.setPipeline(r.pCalcolo);
+				cp.setBindGroup(0, r.bgP);
+				cp.dispatchWorkgroups(Math.ceil(quante / 64));
+				cp.end();
+			}
+			// la scena HDR: la sfera, poi le scie, poi gli sprite sopra le loro scie
+			const s = pass(enc, T.vistaScena, true, mis ? { querySet: mis.qs, beginningOfPassWriteIndex: 0 } : null);
+			s.setPipeline(r.pSfera);
+			s.setBindGroup(0, r.bg);
+			s.draw(3);
+			s.setBindGroup(0, r.bgPD);
+			s.setVertexBuffer(0, r.parti);
+			s.setPipeline(r.pScia);
+			s.draw(2, quante);
+			s.setPipeline(r.pSprite);
+			s.draw(6, quante);
+			s.end();
+			// il bloom
+			for (const p of T.passate) {
+				const e = pass(enc, p.vista, p.pulisci, null);
+				e.setPipeline(p.p);
+				e.setBindGroup(0, p.bg);
+				e.draw(3);
+				e.end();
+			}
+			const c = pass(enc, ctx.getCurrentTexture().createView(), true, mis ? { querySet: mis.qs, endOfPassWriteIndex: 1 } : null);
+			c.setPipeline(r.pComp);
+			c.setBindGroup(0, T.bgC);
+			c.draw(3);
+			c.end();
+			if (mis) {
+				enc.resolveQuerySet(mis.qs, 0, 2, mis.risolvi, 0);
+				enc.copyBufferToBuffer(mis.risolvi, 0, mis.lettura, 0, 16);
+			}
 			dev.queue.submit([enc.finish()]);
+			if (mis) leggiTempi(mis);
+			else if (!r.mis && !misure) {
+				// senza timestamp: dal momento dell'invio a quando la GPU ha finito
+				const t1 = clock();
+				misure = dev.queue.onSubmittedWorkDone().then(() => {
+					const ms = clock() - t1;
+					costoGpu = costoGpu ? costoGpu * 0.9 + ms * 0.1 : ms;
+					misure = null;
+				}, () => (misure = null));
+			}
+		}
+
+		function leggiTempi(mis) {
+			mis.occupata = true;
+			mis.lettura.mapAsync(MAPPA_LETTURA).then(
+				() => {
+					try {
+						const v = new BigUint64Array(mis.lettura.getMappedRange());
+						const ms = Number(v[1] - v[0]) / 1e6;
+						if (ms > 0 && ms < 1000) costoGpu = costoGpu ? costoGpu * 0.9 + ms * 0.1 : ms;
+						mis.lettura.unmap();
+					} catch {}
+					mis.occupata = false;
+				},
+				() => (mis.occupata = false)
+			);
 		}
 
 		const giro = G.ciclo({
@@ -800,6 +1317,9 @@ struct VF { @builtin(position) pos: vec4f };
 			},
 			get costo() {
 				return giro.costo;
+			},
+			get costoGpu() {
+				return costoGpu;
 			},
 			get frames() {
 				return giro.frames;

@@ -387,7 +387,7 @@
 	const gpu = /** @type {any} */ (window).BottegaSferaGPU;
 	if (gpu && typeof gpu.mount === 'function') {
 		try {
-			orbImpl = gpu.mount($('sfera'), { reduced, onFail: why => toCanvas2D(String(why || 'motivo sconosciuto')) });
+			orbImpl = gpu.mount($('sfera'), { reduced, post: m => post(m), onFail: why => toCanvas2D(String(why || 'motivo sconosciuto')) });
 		} catch (e) {
 			orbImpl = null;
 			console.warn('[barra] sfera WebGPU: mount ha lanciato, uso il Canvas 2D: ' + (e && e.message ? e.message : e));

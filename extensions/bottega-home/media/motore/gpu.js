@@ -101,7 +101,9 @@
 		async function apri() {
 			const adapter = await gpu.requestAdapter({ powerPreference: 'low-power' });
 			if (!adapter) throw new Error('nessun adattatore WebGPU');
-			const d = await adapter.requestDevice();
+			// i timestamp, se l'adattatore li ha: la sfera ci misura il proprio costo di GPU (costoGpu)
+			const tempi = adapter.features && adapter.features.has && adapter.features.has('timestamp-query');
+			const d = await adapter.requestDevice(tempi ? { requiredFeatures: ['timestamp-query'] } : undefined);
 			d.lost.then(info => {
 				if (dev === d) rompi(`dispositivo perso${info && info.message ? ': ' + info.message : ''}`);
 			});

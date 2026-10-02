@@ -594,6 +594,10 @@ export class Assistant {
 		if (this.state.log.length > 30) this.state.log = this.state.log.slice(-30);
 		this.emit();
 	}
+	/** Una riga di diagnosi nel registro di Melissa. */
+	note(line: string): void {
+		this.out.info(line);
+	}
 	azione(text: string): void {
 		this.pushLog('azione', text);
 	}

@@ -928,15 +928,36 @@ giro dei fotogrammi a 30 fps se succede qualcosa, 20 a riposo, 15 se un fotogram
 nascosta, documento nascosto o tela fuori schermo, un fotogramma solo con Riduci movimento), `cielo-gpu.js`
 (`window.BottegaCieloGPU.mount(canvas, {reduced, rilascio, onStato, onFail})`) e `sfera-gpu.js`
 (`window.BottegaSferaGPU.mount(canvas, {reduced, zoom?, post?, onFail?})` -> `{set(stato, spenta, livello), wake(),
-sleep(), redraw(), smonta(), motore, costo}`: la sfera del Nucleo portata in WGSL, stessi stati e tavolozza, senza
-particelle ne' bloom). `mount` lancia se WebGPU manca; se cade dopo chiama `onFail(motivo)` e la vista passa al
-Canvas 2D. Caricati da `panel.ts` (tutti e tre, `gpu.js` per primo) e da `barra.ts` (`gpu.js`, `sfera-gpu.js`).
+sleep(), redraw(), smonta(), motore, stato, costo, costoGpu, frames}`). `mount` lancia se WebGPU manca; se cade dopo
+chiama `onFail(motivo)` e la vista passa al Canvas 2D. Caricati da `panel.ts` (tutti e tre, `gpu.js` per primo) e da
+`barra.ts` (`gpu.js`, `sfera-gpu.js`). `gpu.js` chiede `timestamp-query` quando l'adattatore lo offre (serve solo a
+`costoGpu`, ms di GPU per fotogramma; senza, il tempo dall'invio alla fine); `costo` resta il tempo di CPU.
+
+La sfera (2/10/2026) e' la sfera Metal di Avo Agency AI (`VoiceOrbShaders.metal` + `VoiceOrbRenderer.swift`) portata
+in WGSL senza tagli: raymarching 80 passi fuori e 56 nel nucleo volumetrico, convezione, granuli, iridescenza, corona,
+raggi per banda, onda d'urto, battito, vagabondaggio, impulso, molla della voce; 12.288 particelle sulla GPU (calcolo +
+scie + sprite additivi, smorzamento riportato a 60 Hz), bloom a piramide di 5 livelli con striscia anamorfica, maschera
+radiale di `VoiceOrbIndicator`. Uscita come Avo: luce lineare Display P3 su tela `rgba16float` con `toneMapping:
+{mode: 'extended'}` (il nucleo va oltre il bianco quanto concede lo schermo, sull'Air fino a 2x); se la tela non la
+accetta, il formato a 8 bit e sopra il bianco si taglia. Prima era una palla liscia perche' mancavano particelle e
+bloom, il nucleo aveva 20 passi invece di 56, l'esposizione era abbassata a 0,62 e la tela era sRGB con l'alone
+premoltiplicato dopo la codifica (troppo scuro). Differenze volute da Avo: niente sfondo d'umore (foto, meteo) ne'
+extra cinematografici; 30/20 fps invece di 60 (i filtri della voce sono corretti per il passo); sotto i 480 px di
+tela le particelle sono k volte tante e grandi radice di k (k = lato/480), cosi' la sfera della barra e' quella di Avo
+rimpicciolita e non un banco di neve; in piu' lo stato `error` (sodio) e `spenta`. Il controllo d'uscita dal nucleo e'
+ogni due passi: stessa immagine, un millisecondo in meno. Verifica: fotogrammi del renderer Metal di Avo (programma
+Swift fuori schermo) e della webview (Chrome, valori grezzi della tela) negli stessi istanti, medie per zona entro 1-2
+livelli su 255 sulla sfera.
 Il cielo del cruscotto: WebGPU, poi Canvas 2D animato, poi SVG fermo; l'indicatore in alto a destra dice quale.
 Perche' fino alla build 17 il cielo era in SVG (2/10/2026): non VS Code (WebGPU nelle webview funziona, la cache Dawn in
 `~/Library/Application Support/Bottega/DawnWebGPUCache` lo prova) ma lo shader della corrente, che usava `meta`,
 parola riservata del WGSL: l'errore arrivava al dispositivo condiviso e spegneva anche il cielo. Corretto, e uno
 shader rotto ora ferma solo il suo motore. Costo misurato con Dawn su Metal (M2): cielo 1120x1120 0,5 ms per
-fotogramma, sfera 480x480 da 2,3 ms (riposo) a 4,4 ms (parla); ripiego Canvas 2D del cielo 1,5 ms.
+fotogramma; ripiego Canvas 2D del cielo 1,5 ms. Sfera, `costoGpu` dai timestamp al ritmo vero (la GPU a 20-30 fps
+abbassa le frequenze, il fotogramma dura di piu' che a pieno regime): 480x480 riposo 5,2 ms, ascolta 3,9-4,9,
+pensa 4,1, parla 4,1-5,0, errore 3,8; 208x208 (la barra) da 2,3 a 3,4 ms; CPU 0,3-0,4 ms. A pieno regime 480x480
+2,0-2,9 ms, come il Metal nativo di Avo alla stessa misura (2,2-3,0). La versione senza particelle ne' bloom
+costava circa la meta'.
 
 Lo `Stats` del messaggio `stats` (sezione 3) porta in piu', facoltativi: `categorie: {'7'|'30'|'90': {categoria:
 minuti}}` e `categorieFrase` (7.3); il cruscotto mostra «Che lavoro e' stato» solo se ci sono.

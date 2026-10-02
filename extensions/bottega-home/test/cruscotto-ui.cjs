@@ -201,8 +201,11 @@ function fintaGpu(w, opts = {}) {
 				const fiume = code.includes('@fragment fn fs_fiume') && code.includes('@vertex fn vs_goccia');
 				const sfera = code.includes('@fragment fn fs_sfera');
 				const rumore = code.includes('@compute @workgroup_size(4, 4, 4) fn cs_rumore');
-				assert.ok(cielo || fiume || sfera || rumore, 'il modulo WGSL contiene i punti di ingresso');
-				const chi = cielo ? 'cielo' : fiume ? 'corrente' : sfera ? 'sfera' : 'rumore';
+				// le particelle e il bloom della sfera (come in Avo)
+				const particelle = code.includes('@compute @workgroup_size(64) fn cs_parti') && code.includes('@vertex fn vs_sprite') && code.includes('@vertex fn vs_scia');
+				const bloom = code.includes('@fragment fn fs_soglia') && code.includes('@fragment fn fs_composito');
+				assert.ok(cielo || fiume || sfera || rumore || particelle || bloom, 'il modulo WGSL contiene i punti di ingresso');
+				const chi = cielo ? 'cielo' : fiume ? 'corrente' : sfera ? 'sfera' : rumore ? 'rumore' : particelle ? 'particelle' : 'bloom';
 				conto.moduli.push(chi);
 				const rotto = opts.wgslRotto === true || opts.wgslRotto === chi;
 				// come Dawn: lo shader rotto e' un errore di convalida (nello scope, se c'e') e un messaggio
@@ -211,16 +214,19 @@ function fintaGpu(w, opts = {}) {
 				} else if (rotto) d.errore(`finto errore in ${chi}`);
 				return { getCompilationInfo: async () => ({ messages: rotto && !opts.soloNonCatturato ? [{ type: 'error', lineNum: 12, message: 'finto errore' }] : [] }) };
 			},
+			// layout 'auto' o uno esplicito fatto da createPipelineLayout
 			createRenderPipelineAsync: async desc => {
-				assert.strictEqual(desc.layout, 'auto');
+				assert.ok(desc.layout === 'auto' || (desc.layout && desc.layout.finto), 'layout');
 				return { getBindGroupLayout: () => ({}) };
 			},
 			createComputePipelineAsync: async desc => {
-				assert.strictEqual(desc.layout, 'auto');
+				assert.ok(desc.layout === 'auto' || (desc.layout && desc.layout.finto), 'layout');
 				return { getBindGroupLayout: () => ({}) };
 			},
+			createBindGroupLayout: () => ({}),
+			createPipelineLayout: () => ({ finto: true }),
 			createBuffer: desc => ({ size: desc.size, destroy() {} }),
-			createTexture: () => ({ createView: () => ({}), destroy() {} }),
+			createTexture: desc => ({ width: (desc && desc.size && desc.size[0]) || 1, height: (desc && desc.size && desc.size[1]) || 1, createView: () => ({}), destroy() {} }),
 			createSampler: () => ({}),
 			createBindGroup: () => ({}),
 			createCommandEncoder: () => ({
@@ -228,8 +234,10 @@ function fintaGpu(w, opts = {}) {
 				beginComputePass: () => ({
 					setPipeline() {},
 					setBindGroup() {},
-					dispatchWorkgroups() {
+					dispatchWorkgroups(x, y, z) {
 						conto.calcoli = (conto.calcoli || 0) + 1;
+						// il volume di rumore e' l'unico calcolo in 3D
+						if ((y || 1) > 1 && (z || 1) > 1) conto.volumi = (conto.volumi || 0) + 1;
 					},
 					end() {},
 				}),
@@ -241,6 +249,7 @@ function fintaGpu(w, opts = {}) {
 				submit() {
 					conto.submit++;
 				},
+				onSubmittedWorkDone: async () => {},
 			},
 			destroy() {
 				conto.destroyed++;
@@ -1212,8 +1221,9 @@ const finale = (t, k) => t.$(`.cifra[data-k="${k}"] dd > .sr`).textContent;
 		s.wake();
 		await pausa(150);
 		assert.strictEqual(s.stato, 'gpu', JSON.stringify(t.falliti));
-		assert.deepStrictEqual(t.conto.moduli.slice().sort(), ['rumore', 'sfera'], 'rumore e sfera');
-		assert.strictEqual(t.conto.calcoli, 1, 'il volume di rumore si calcola una volta');
+		assert.deepStrictEqual(t.conto.moduli.slice().sort(), ['bloom', 'particelle', 'rumore', 'sfera'], 'rumore, sfera, particelle e bloom');
+		assert.strictEqual(t.conto.volumi, 1, 'il volume di rumore si calcola una volta');
+		assert.ok(t.conto.calcoli > t.conto.volumi, 'le particelle si muovono a ogni fotogramma');
 		assert.ok(t.conto.submit >= 3, `fotogrammi: ${t.conto.submit}`);
 		assert.deepStrictEqual(t.posts.map(m => [m.type, m.motore]), [['sfera.diag', 'webgpu']]);
 		s.set('speaking', false, 0.6);

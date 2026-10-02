@@ -760,6 +760,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 				};
 				void map[id]?.();
 			},
+			log: line => assistant?.note(line),
 			sessionBoard: async sid => (memoria ? (await memoria.bacheca(undefined, 180)).filter(r => r.sessionId === sid).slice(0, 12) : []),
 		},
 	);
