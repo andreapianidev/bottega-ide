@@ -144,6 +144,11 @@ export class Memoria {
 		return Memoria.items(await this.runJson<any>(args, []));
 	}
 
+	/** I numeri della stanza Memoria: scritti e letti per giorno, progetti, totali (memoria/lib/grafici.mjs). */
+	async grafici(giorni = 30): Promise<any | null> {
+		return this.runJson<any>(['grafici', '--giorni', String(giorni)], null);
+	}
+
 	/** Dettaglio di una sessione (ricordi e ultime osservazioni), o undefined se la Memoria non la conosce. */
 	async session(id: string): Promise<{ session: any; memories: MemoryItem[] } | undefined> {
 		const raw = await this.runJson<any>(['sessione', id], null);

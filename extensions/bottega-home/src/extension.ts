@@ -498,11 +498,18 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 		case 'memoria.search': {
 			// `project` qui e' il NOME del progetto. Query vuota = memorie recenti.
 			const query = m.query ?? '';
-			const results = memoria ? (query.trim() ? await memoria.search(query, m.project) : await memoria.recent(m.project)) : [];
+			// senza testo: gli ultimi ricordi, quanti ne chiede la plancia («Mostra altri ricordi»)
+			const limit = Math.max(10, Math.min(200, Number(m.limite) || 10));
+			const results = memoria ? (query.trim() ? await memoria.search(query, m.project) : await memoria.recent(m.project, { limit })) : [];
 			const board = memoria ? await memoria.bacheca(m.project, 30) : [];
 			const bacheca = board.map(r => ({ at: r.at, project: r.project, sessionId: r.sessionId, kind: r.kind, summary: r.summary }));
 			// La risposta riporta sempre `query`: le risposte vecchie vengono scartate dalla plancia.
 			panelHost?.send({ type: 'memoria', query, results, bacheca });
+			return;
+		}
+		case 'memoria.grafici': {
+			const dati = memoria ? await memoria.grafici(30) : null;
+			panelHost?.send({ type: 'memoria.grafici', dati });
 			return;
 		}
 		case 'memoria.remember':

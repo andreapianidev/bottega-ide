@@ -47,6 +47,12 @@
 			waiting: false,
 			open: new Set(),
 			mode: saved.mem && saved.mem.mode === 'ricerca' ? 'ricerca' : 'ricordi',
+			/** Quanti ricordi chiede la linea del tempo senza ricerca: 10, poi 20 in piu' a ogni «Mostra altri ricordi». */
+			limite: 10,
+			/** I numeri di «Come lavora la memoria» (memoria/lib/grafici.mjs) e quando sono arrivati. */
+			/** @type {any} */ grafici: null,
+			graficiChiesti: 0,
+			tabelle: new Set(),
 		},
 		/** «Dove l'ho gia' risolto?»: ricerca nei ricordi e nel codice. */
 		ric: {
@@ -431,6 +437,11 @@
 
 	<section class="vista" id="vista-memoria" role="tabpanel" aria-labelledby="tab-memoria" hidden>
 		<h1 class="sentence media" id="frase-memoria"></h1>
+		<section class="mem-grafici" id="mem-grafici" aria-labelledby="mem-grafici-titolo" hidden>
+			<h2 class="mem-grafici-titolo" id="mem-grafici-titolo">Come lavora la memoria</h2>
+			<div id="mem-grafici-corpo"></div>
+			<div class="mem-tip" id="mem-tip" role="tooltip" hidden></div>
+		</section>
 		<div class="memoria">
 			<div class="mem-main">
 				<div class="modi" id="mem-modi" role="group" aria-label="Come cercare">
@@ -442,6 +453,7 @@
 					<select id="mem-progetto" aria-label="In quale progetto cercare"></select>
 				</form>
 				<div id="mem-risultati" class="mem-risultati"></div>
+				<p class="mem-altri" id="mem-altri" hidden><button type="button" class="act" id="mem-piu" data-fk="mem:piu">Mostra altri ricordi</button></p>
 				<form class="mem-bar" id="ric-cerca" role="search" autocomplete="off" hidden>
 					<input class="search" id="cerca-risolto" type="search" placeholder="Per esempio: refresh token scaduto" aria-label="Cerca nei ricordi e nel codice di tutti i progetti" spellcheck="false">
 					<button type="submit" class="act main">Cerca</button>
@@ -1564,16 +1576,35 @@
 		if (el.value !== value) el.value = '';
 	}
 
-	function runSearch() {
+	/** `zitta`: un rinfresco della linea del tempo, senza «Sto cercando» sopra i ricordi gia' a schermo. */
+	function runSearch(zitta) {
 		clearTimeout(searchTimer);
 		const q = state.mem.query.trim();
+		// cambiano ricerca o progetto: si riparte dai primi dieci
+		if (!state.mem.sent || state.mem.sent.query !== q || state.mem.sent.project !== state.mem.project) state.mem.limite = 10;
 		/** @type {any} */ const msg = { type: 'memoria.search', query: q };
 		if (state.mem.project) msg.project = state.mem.project;
+		if (!q) msg.limite = state.mem.limite;
 		state.mem.sent = { query: q, project: state.mem.project };
-		state.mem.waiting = true;
+		if (!zitta || state.mem.results === null) state.mem.waiting = true;
 		vscode.postMessage(msg);
 		renderMemoria();
 	}
+
+	/** La linea del tempo e i grafici si rinnovano da soli finche' la stanza Memoria e' davanti: entrandoci, e poi
+	 *  ogni minuto (i grafici ogni cinque). Una ricerca scritta resta com'e'. */
+	function rinfrescaMemoria(entrando) {
+		if (state.view !== 'memoria' || document.hidden || state.mem.mode !== 'ricordi') return;
+		if (!state.mem.query.trim() && (entrando || !state.mem.waiting)) runSearch(true);
+		chiediGrafici(entrando);
+	}
+
+	function chiediGrafici(entrando) {
+		if (Date.now() - state.mem.graficiChiesti < (entrando ? 60_000 : 5 * 60_000)) return;
+		state.mem.graficiChiesti = Date.now();
+		vscode.postMessage({ type: 'memoria.grafici' });
+	}
+	setInterval(() => rinfrescaMemoria(false), 60_000);
 
 	function dayLabel(ms) {
 		const d = new Date(ms);
@@ -1769,6 +1800,7 @@
 			fillSelect($('ricorda-progetto'), projectOptions('Nessun progetto in particolare'), $('ricorda-progetto').value || state.mem.project);
 			renderRicerca();
 		} else renderTimeline();
+		renderGrafici();
 		const b = state.mem.bacheca || (state.snapshot && state.snapshot.bacheca) || null;
 		$('bacheca').hidden = !(b && b.length);
 		if (b && b.length) setHTML($('bacheca-lista'), bachecaHTML(b));
@@ -1810,7 +1842,168 @@
 		} else {
 			setHTML(box, timelineHTML(m.results, q));
 		}
+		// ce ne sono altri solo se ne sono arrivati quanti ne avevamo chiesti
+		$('mem-altri').hidden = !!q || !m.results || m.results.length < m.limite;
 	}
+
+	// ---------- Come lavora la memoria: quattro numeri e tre grafici ----------
+	/* Colori: la tavolozza di riferimento a quattro (blu, arancio, acqua, giallo), controllata contro il fondo
+	   scuro e chiaro (--m1..--m4 in plancia.css). Ogni grafico ha la sua tabella, «Mostra i numeri». */
+	const SERIE_SCRITTI = [
+		['fatti', 'Fatti e note', 'var(--m1)'],
+		['decisioni', 'Decisioni', 'var(--m2)'],
+		['riassunti', 'Riassunti', 'var(--m3)'],
+		['schermate', 'Schermate', 'var(--m4)'],
+	];
+	const SERIE_LETTI = [
+		['avvio', 'Contesto a ogni sessione', 'var(--m1)'],
+		['ricerche', 'Ricerche di Claude', 'var(--m2)'],
+	];
+	const mese = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
+	const giornoBreve = g => {
+		const [, mm, dd] = g.split('-').map(Number);
+		return `${dd} ${mese[mm - 1]}`;
+	};
+	const migliaia = v => String(v).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+	function renderGrafici() {
+		const sez = $('mem-grafici');
+		const d = state.mem.grafici;
+		sez.hidden = !d || state.mem.mode !== 'ricordi';
+		if (sez.hidden) return;
+		const t = d.totali;
+		const ultimo = t.ultimo ? new Date(t.ultimo) : null;
+		const ora = ultimo ? `${String(ultimo.getHours()).padStart(2, '0')}:${String(ultimo.getMinutes()).padStart(2, '0')}` : '';
+		const richieste = d.scritti.reduce((a, g) => a + g.richieste, 0);
+		const tessere = [
+			[migliaia(t.ricordi), 'ricordi in tutto', ultimo ? `l'ultimo alle ${ora}` : ''],
+			[`${t.riassunte} su ${t.sessioni}`, 'sessioni riassunte', t.coda ? `${t.coda} in coda` : 'nessuna in coda'],
+			[migliaia(t.lettiSettimana), 'letture in 7 giorni', 'contesto e ricerche di Claude'],
+		];
+		const tess = `<ul class="mem-tessere">${tessere
+			.map(([v, l, s]) => `<li><span class="mem-cifra">${esc(v)}</span><span class="mem-etichetta">${esc(l)}</span><span class="mem-sotto">${esc(s)}</span></li>`)
+			.join('')}</ul>`;
+		const a = colonne(
+			'scritti',
+			'Cosa entra in memoria',
+			`Ogni giorno degli ultimi ${d.giorni}. In più ${migliaia(richieste)} tue richieste registrate, fuori dal grafico perché coprirebbero il resto.`,
+			d.scritti,
+			SERIE_SCRITTI,
+		);
+		const b = colonne(
+			'letti',
+			'Quante volte Claude la legge',
+			'Il contesto che ogni sessione riceve quando parte, e le ricerche che Claude fa da sola mentre lavora.',
+			d.letti,
+			SERIE_LETTI,
+		);
+		const c = barre('progetti', 'Di quali progetti ricorda', `I progetti con più ricordi negli ultimi ${d.giorni} giorni.`, d.progetti);
+		setHTML($('mem-grafici-corpo'), `${tess}<div class="mem-griglia">${a}${b}${c}</div>`);
+	}
+
+	function tabellaHTML(id, heads, rows) {
+		const open = state.mem.tabelle.has(id);
+		const btn = `<button type="button" class="link mostra-tabella" data-memtab="${id}" data-fk="memtab:${id}" aria-expanded="${open}">${open ? 'Nascondi i numeri' : 'Mostra i numeri'}</button>`;
+		if (!open) return btn;
+		return `${btn}<div class="mem-tabella"><table><thead><tr>${heads.map((h, i) => `<th scope="col"${i ? ' class="num"' : ''}>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows
+			.map(r => `<tr>${r.map((v, i) => (i ? `<td class="num">${esc(String(v))}</td>` : `<th scope="row">${esc(String(v))}</th>`)).join('')}</tr>`)
+			.join('')}</tbody></table></div>`;
+	}
+
+	/** Colonne impilate per giorno: segmenti separati da 2 px di fondo, la cima arrotondata, una griglia leggera. */
+	function colonne(id, titolo, nota, giorni, serie) {
+		const W = 360, H = 150, sx = 26, sy = 8, base = H - 20;
+		const tot = giorni.map(g => serie.reduce((a, [k]) => a + g[k], 0));
+		const max = Math.max(1, ...tot);
+		// un passo tondo della griglia (1, 2, 5, 10, 20, 50...) con al massimo quattro linee
+		const passo = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000].find(p => max / p <= 4) || 10000;
+		const alto = Math.ceil(max / passo) * passo;
+		const y = v => base - ((base - sy) * v) / alto;
+		const larga = (W - sx) / giorni.length;
+		const bw = Math.max(3, larga - 3);
+		let svg = '';
+		for (let v = 0; v <= alto; v += passo) {
+			svg += `<line class="griglia" x1="${sx}" x2="${W}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/><text class="asse" x="${sx - 5}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end">${v}</text>`;
+		}
+		giorni.forEach((g, i) => {
+			const x = sx + i * larga + (larga - bw) / 2;
+			let su = base;
+			const pezzi = serie.filter(([k]) => g[k] > 0);
+			const righe = serie.map(([k, l]) => `${l}: ${g[k]}`).join(', ');
+			let segmenti = '';
+			pezzi.forEach(([k, , col], j) => {
+				const h = base - y(g[k]);
+				const top = su - h;
+				const ultimo = j === pezzi.length - 1;
+				const hh = Math.max(0.5, h - (ultimo ? 0 : 2));
+				segmenti += ultimo
+					? `<path fill="${col}" d="${arrotondata(x, top, bw, hh)}"/>`
+					: `<rect fill="${col}" x="${x.toFixed(1)}" y="${(top + 2).toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}"/>`;
+				su = top;
+			});
+			const tip = `${giornoBreve(g.giorno)}: ${tot[i] ? righe : 'niente'}${id === 'scritti' && g.richieste ? `, più ${g.richieste} richieste` : ''}${id === 'letti' && g.ricerche ? strumentiTesto(g.strumenti) : ''}`;
+			svg += `<g class="colonna" data-tip="${esc(tip)}"><rect class="bersaglio" x="${(sx + i * larga).toFixed(1)}" y="${sy}" width="${larga.toFixed(1)}" height="${base - sy}"/>${segmenti}</g>`;
+		});
+		const etichette = [0, Math.floor(giorni.length / 2), giorni.length - 1]
+			.map(i => `<text class="asse" x="${(sx + i * larga + larga / 2).toFixed(1)}" y="${H - 5}" text-anchor="${i === 0 ? 'start' : i === giorni.length - 1 ? 'end' : 'middle'}">${giornoBreve(giorni[i].giorno)}</text>`)
+			.join('');
+		svg += `<line class="base" x1="${sx}" x2="${W}" y1="${base}" y2="${base}"/>${etichette}`;
+		const somma = serie.map(([k, l]) => `${l} ${giorni.reduce((a, g) => a + g[k], 0)}`).join(', ');
+		const legenda = `<ul class="mem-legenda">${serie.map(([, l, col]) => `<li><i style="background:${col}"></i>${esc(l)}</li>`).join('')}</ul>`;
+		const tab = tabellaHTML(
+			id,
+			['Giorno', ...serie.map(([, l]) => l)],
+			giorni.filter((g, i) => tot[i] || (id === 'scritti' && g.richieste)).reverse().map(g => [giornoBreve(g.giorno), ...serie.map(([k]) => g[k])]),
+		);
+		return `<figure class="mem-grafico"><figcaption><span class="mem-gtitolo">${esc(titolo)}</span><span class="mem-gnota">${esc(nota)}</span></figcaption>${legenda}<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`${titolo}, ultimi ${giorni.length} giorni: ${somma}`)}">${svg}</svg>${tab}</figure>`;
+	}
+
+	function strumentiTesto(s) {
+		const nomi = { cerca: 'cerca', bacheca: 'bacheca', ricorda: 'ricorda', recenti: 'recenti', sessione: 'sessione' };
+		const parti = Object.entries(s || {}).map(([k, v]) => `${nomi[k] || k} ${v}`);
+		return parti.length ? ` (${parti.join(', ')})` : '';
+	}
+
+	/** Un rettangolo con gli angoli in alto arrotondati di 4 px (meno se la colonna e' bassa). */
+	function arrotondata(x, y, w, h) {
+		const r = Math.min(4, w / 2, h);
+		return `M${x.toFixed(1)},${(y + h).toFixed(1)}V${(y + r).toFixed(1)}Q${x.toFixed(1)},${y.toFixed(1)} ${(x + r).toFixed(1)},${y.toFixed(1)}H${(x + w - r).toFixed(1)}Q${(x + w).toFixed(1)},${y.toFixed(1)} ${(x + w).toFixed(1)},${(y + r).toFixed(1)}V${(y + h).toFixed(1)}Z`;
+	}
+
+	/** Barre orizzontali per progetto, una sola serie: nome a sinistra, valore in fondo alla barra. */
+	function barre(id, titolo, nota, righe) {
+		const W = 360, riga = 22, sx = 118, H = Math.max(1, righe.length) * riga + 4;
+		const max = Math.max(1, ...righe.map(r => r.ricordi));
+		let svg = '';
+		righe.forEach((r, i) => {
+			const yy = 2 + i * riga;
+			const w = Math.max(2, ((W - sx - 44) * r.ricordi) / max);
+			const nome = r.progetto.length > 18 ? r.progetto.slice(0, 17) + '…' : r.progetto;
+			svg += `<g class="colonna" data-tip="${esc(`${r.progetto}: ${r.ricordi} ricordi`)}"><rect class="bersaglio" x="0" y="${yy}" width="${W}" height="${riga}"/><text class="nome" x="${sx - 8}" y="${yy + 15}" text-anchor="end">${esc(nome)}</text><path fill="var(--m1)" d="${arrotondataDestra(sx, yy + 5, w, riga - 10)}"/><text class="valore" x="${(sx + w + 6).toFixed(1)}" y="${yy + 15}">${r.ricordi}</text></g>`;
+		});
+		const tab = tabellaHTML(id, ['Progetto', 'Ricordi'], righe.map(r => [r.progetto, r.ricordi]));
+		const vuoto = righe.length ? '' : '<p class="invito">Ancora nessun ricordo in questo periodo.</p>';
+		return `<figure class="mem-grafico"><figcaption><span class="mem-gtitolo">${esc(titolo)}</span><span class="mem-gnota">${esc(nota)}</span></figcaption>${vuoto}${righe.length ? `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`${titolo}: ${righe.map(r => `${r.progetto} ${r.ricordi}`).join(', ')}`)}">${svg}</svg>` : ''}${tab}</figure>`;
+	}
+
+	function arrotondataDestra(x, y, w, h) {
+		const r = Math.min(4, h / 2, w);
+		return `M${x},${y}H${(x + w - r).toFixed(1)}Q${(x + w).toFixed(1)},${y} ${(x + w).toFixed(1)},${(y + r).toFixed(1)}V${(y + h - r).toFixed(1)}Q${(x + w).toFixed(1)},${y + h} ${(x + w - r).toFixed(1)},${y + h}H${x}Z`;
+	}
+
+	// il suggerimento sopra colonne e barre
+	$('mem-grafici').addEventListener('pointermove', e => {
+		const g = /** @type {HTMLElement} */ (e.target).closest && /** @type {any} */ (e.target).closest('[data-tip]');
+		const tip = $('mem-tip');
+		if (!g) return void (tip.hidden = true);
+		tip.textContent = g.getAttribute('data-tip');
+		tip.hidden = false;
+		const box = $('mem-grafici').getBoundingClientRect();
+		const x = Math.min(e.clientX - box.left + 14, box.width - tip.offsetWidth - 4);
+		tip.style.left = `${Math.max(0, x)}px`;
+		tip.style.top = `${e.clientY - box.top - tip.offsetHeight - 12}px`;
+	});
+	$('mem-grafici').addEventListener('pointerleave', () => ($('mem-tip').hidden = true));
 
 	// ---------- Melissa ----------
 
@@ -2275,7 +2468,11 @@
 		if (view === 'melissa') orb.wake();
 		else orb.sleep();
 		for (const [id] of ROOMS) room(id, view === id ? 'show' : 'hide');
-		if (view === 'memoria' && !state.mem.sent && state.mem.mode === 'ricordi') runSearch();
+		if (view === 'memoria') {
+			if (!state.mem.sent && state.mem.mode === 'ricordi') runSearch();
+			else rinfrescaMemoria(true);
+			chiediGrafici(true);
+		}
 	}
 
 	function render() {
@@ -2291,6 +2488,17 @@
 		const tab = t.closest('[data-view]');
 		// una scheda si apre dov'e'; una cifra della Home porta il fuoco sulla scheda della stanza
 		if (tab) return show(tab.getAttribute('data-view') || 'plancia', tab.getAttribute('role') !== 'tab');
+		if (t.closest('#mem-piu')) {
+			state.mem.limite += 20;
+			return runSearch(true);
+		}
+		const mt = t.closest('[data-memtab]');
+		if (mt) {
+			const id = mt.getAttribute('data-memtab');
+			if (state.mem.tabelle.has(id)) state.mem.tabelle.delete(id);
+			else state.mem.tabelle.add(id);
+			return renderGrafici();
+		}
 		const mm = t.closest('[data-memmode]');
 		if (mm) {
 			state.mem.mode = mm.getAttribute('data-memmode') === 'ricerca' ? 'ricerca' : 'ricordi';
@@ -2795,6 +3003,10 @@
 			case 'connettori':
 			case 'posta':
 				return room('connettori', 'message', m);
+			case 'memoria.grafici':
+				state.mem.grafici = m.dati || null;
+				if (state.view === 'memoria') renderGrafici();
+				return;
 			case 'memoria': {
 				const sent = state.mem.sent;
 				// una risposta arrivata dopo che la ricerca e' cambiata non deve coprire quella nuova

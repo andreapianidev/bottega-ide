@@ -26,6 +26,7 @@ const HELP = `Memoria della Bottega
   ingest                              porta nel database quello che hanno scritto gli hook
   search <testo> [--progetto P] [--limite N] [--json]
   recent [--progetto P] [--limite N] [--tipo riassunto,fatto,...] [--json]
+  grafici [--giorni N] [--json]       come lavora la memoria: scritti e letti per giorno, progetti, totali
   remember <testo> [--progetto P]     aggiunge una nota
   summarize <sessionId> [--json]      riassume subito una sessione
   backfill [--giorni N] [--max N] [--prova]
@@ -76,7 +77,13 @@ async function main() {
 			if (!q) throw new Error('scrivi cosa cercare');
 			return print(search(q, { progetto, limite: num(flags.limite, 10) }), listText);
 		}
-		case 'recent':
+		case 'grafici': {
+			const { grafici } = await import('./lib/grafici.mjs');
+			const { ingest } = await import('./lib/core.mjs');
+			ingest();
+			return print(grafici({ giorni: num(flags.giorni, 30) }), g => JSON.stringify(g, null, 2));
+		}
+				case 'recent':
 		case 'recenti': {
 			const { openStore } = await import('./lib/store.mjs');
 			const { ingest } = await import('./lib/core.mjs');

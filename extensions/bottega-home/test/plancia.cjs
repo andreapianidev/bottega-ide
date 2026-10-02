@@ -688,6 +688,59 @@ test('«Dove l\'ho già risolto?»: due blocchi, risposte vecchie scartate, evid
 	assert.deepStrictEqual(t.errors, []);
 });
 
+test('Memoria: si rinnova entrando, «Mostra altri ricordi», quattro numeri e tre grafici con le tabelle', () => {
+	const t = boot();
+	t.send({ type: 'snapshot', snapshot: snapshot() });
+	t.click(t.$('#tab-memoria'));
+	assert.deepStrictEqual(t.posted.filter(m => m.type === 'memoria.search').at(-1), { type: 'memoria.search', query: '', limite: 10 });
+	assert.ok(t.posted.some(m => m.type === 'memoria.grafici'), 'entrando chiede i grafici');
+	const dieci = Array.from({ length: 10 }, (_, i) => ({ id: i + 1, kind: 'fatto', title: `Fatto ${i}`, text: 'testo', project: 'Faro', createdAt: Date.now() - i * 60_000 }));
+	t.send({ type: 'memoria', query: '', results: dieci, bacheca: [] });
+	assert.strictEqual(t.$('#mem-altri').hidden, false, 'ne sono arrivati quanti ne avevo chiesti: forse ce ne sono altri');
+	t.click(t.$('#mem-piu'));
+	assert.deepStrictEqual(t.posted.at(-1), { type: 'memoria.search', query: '', limite: 30 });
+	t.send({ type: 'memoria', query: '', results: dieci.slice(0, 7), bacheca: [] });
+	assert.strictEqual(t.$('#mem-altri').hidden, true, 'meno di quanti chiesti: finiti');
+	// uscendo e rientrando la linea del tempo si rinnova, con lo stesso numero di ricordi
+	const prima = t.posted.length;
+	t.click(t.$('#tab-plancia'));
+	t.click(t.$('#tab-memoria'));
+	assert.deepStrictEqual(t.posted.slice(prima).find(m => m.type === 'memoria.search'), { type: 'memoria.search', query: '', limite: 30 });
+
+	const giorni = n => Array.from({ length: n }, (_, i) => `2026-09-${String(4 + i).padStart(2, '0')}`);
+	const dati = {
+		giorni: 30,
+		ora: Date.now(),
+		scritti: giorni(30).map((giorno, i) => ({ giorno, fatti: i % 3, decisioni: i % 2, riassunti: 1, schermate: i === 29 ? 4 : 0, richieste: 5 })),
+		letti: giorni(30).map((giorno, i) => ({ giorno, avvio: 2, ricerche: i === 29 ? 3 : 0, strumenti: i === 29 ? { cerca: 2, bacheca: 1 } : {} })),
+		progetti: [{ progetto: 'Faro', ricordi: 40 }, { progetto: 'Fuori dai progetti', ricordi: 12 }],
+		totali: { ricordi: 1755, sessioni: 127, riassunte: 124, coda: 0, lettiSettimana: 92, ultimo: Date.now() },
+	};
+	t.send({ type: 'memoria.grafici', dati });
+	assert.strictEqual(t.$('#mem-grafici').hidden, false);
+	const tessere = t.$$('.mem-tessere li').map(li => li.textContent);
+	assert.strictEqual(tessere.length, 3);
+	assert.match(tessere[0], /1\.755ricordi in tutto/);
+	assert.match(tessere[1], /124 su 127sessioni riassunte/);
+	const figure = t.$$('.mem-grafico');
+	assert.strictEqual(figure.length, 3);
+	assert.strictEqual(figure[0].querySelectorAll('.colonna').length, 30, 'una colonna per giorno');
+	assert.match(figure[0].querySelector('figcaption').textContent, /150 tue richieste registrate/);
+	assert.match(figure[1].querySelector('.colonna:last-of-type').getAttribute('data-tip'), /Ricerche di Claude: 3 \(cerca 2, bacheca 1\)/);
+	assert.match(figure[2].querySelector('svg').getAttribute('aria-label'), /Faro 40/);
+	assert.strictEqual(figure[0].querySelectorAll('.mem-legenda li').length, 4, 'la legenda c\'e\' sempre con piu\' serie');
+	// «Mostra i numeri»
+	t.click(figure[0].querySelector('[data-memtab]'));
+	const righe = t.$$('.mem-grafico')[0].querySelectorAll('tbody tr');
+	assert.strictEqual(righe.length, 30);
+	assert.match(t.$$('.mem-grafico')[0].querySelector('[data-memtab]').textContent, /Nascondi i numeri/);
+	// in «Dove l'ho gia' risolto?» i grafici non ci sono
+	t.click(t.$('[data-memmode="ricerca"]'));
+	assert.strictEqual(t.$('#mem-grafici').hidden, true);
+	noDashes(t.d);
+	assert.deepStrictEqual(t.errors, []);
+});
+
 test('memoria.cerca e ricerca.avvia (link bottega:// e Spotlight)', () => {
 	const t = boot();
 	t.send({ type: 'snapshot', snapshot: snapshot() });

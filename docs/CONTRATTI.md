@@ -149,6 +149,11 @@ CLI: `node memoria/cli.mjs <comando>`; comandi minimi: `ingest`, `search <testo>
 `recent [--progetto P] [--json]`, `remember <testo> [--progetto P]`, `summarize <sessionId>`,
 `backfill [--giorni N]`, `context <cwd>`, `bacheca [--progetto P] [--minuti N] --json`, `install`, `uninstall`, `status --json`.
 Comandi aggiunti dall'implementazione: `sessione <id>`, `worker` (interno, riassunti in background),
+`grafici [--giorni N=30] --json` (la stanza Memoria, `lib/grafici.mjs`: `{giorni, ora, scritti: [{giorno: 'AAAA-MM-GG',
+fatti, decisioni, riassunti, schermate, richieste}], letti: [{giorno, avvio, ricerche, strumenti: {cerca, ...}}],
+progetti: [{progetto, ricordi}] (al massimo 8), totali: {ricordi, sessioni, riassunte, coda, lettiSettimana, ultimo}}`;
+le note vanno con i fatti; `avvio` = sessioni avviate quel giorno, cioe' contesti dati da SessionStart; `ricerche` =
+osservazioni con uno strumento `mcp__bottega-memoria__*`; solo letture, giorni dell'orologio del Mac, da 7 a 90),
 `bacheca` restituisce `[{at, sessionId, project, kind, summary, file?}]`. Radici dei progetti
 configurabili in `~/.bottega/memoria/config.json`.
 L'estensione la usa con `--json`.
@@ -190,7 +195,10 @@ Estensione -> plancia:
 Plancia -> estensione (`type` + campi):
 `ready`, `refresh`, `open`, `here`, `claude {path, id?}`, `finder`, `xcode`, `push`,
 `job.new {path, task}`, `job.focus {id}`, `job.stop {id}`, `job.remove {id}`,
-`memoria.search {query, project?}`, `memoria.remember {text, project?}`,
+`memoria.search {query, project?, limite?}` (senza testo gli ultimi `limite` ricordi, da 10 a 200: «Mostra altri
+ricordi» ne chiede 20 in piu'; la stanza la richiede entrando e ogni minuto finche' e' davanti senza ricerca scritta),
+`memoria.grafici` (-> `{type: 'memoria.grafici', dati}` con l'uscita di `grafici`, entrando e ogni 5 minuti),
+`memoria.remember {text, project?}`,
 `voice.toggle`, `assistant.ask {text}` (domanda scritta a Melissa),
 `stats.request {period?}` (il cruscotto chiede i numeri; `period` 7, 30 o 90 e' solo informativo:
 la risposta contiene sempre tutti e tre i periodi, cosi' cambiare periodo non costa un giro)

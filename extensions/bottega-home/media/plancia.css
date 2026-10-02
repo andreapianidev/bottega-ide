@@ -30,12 +30,21 @@
 	--notte-testo: #e8e2d0;
 	--notte-tinta: #8f98ad;
 
+	/* serie dei grafici della Memoria (blu, arancio, acqua, giallo), controllate contro il fondo scuro */
+	--m1: #3987e5;
+	--m2: #d95926;
+	--m3: #199e70;
+	--m4: #c98500;
 	--serif: ui-serif, 'New York', 'Iowan Old Style', Georgia, serif;
 	--sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
 	--mono: ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
 body.vscode-light {
+	--m1: #2a78d6;
+	--m2: #eb6834;
+	--m3: #1baf7a;
+	--m4: #eda100;
 	--cielo: #eef1f6;
 	--basalto: #e2e7f0;
 	--linea: #cbd3e1;
@@ -787,6 +796,84 @@ kbd {
 .mem-bar select { width: auto; max-width: 220px; flex: 0 1 auto; background: var(--basalto); }
 
 .mem-risultati { transition: opacity 0.2s; }
+
+/* ---------- Memoria: come lavora (quattro numeri e tre grafici) e «Mostra altri ricordi» ---------- */
+
+.mem-altri { margin: 18px 0 0; text-align: center; }
+
+.mem-grafici { position: relative; margin: 0 0 34px; }
+.mem-grafici-titolo { font: 500 13px/1.2 var(--sans); letter-spacing: 0.02em; color: var(--tinta); margin: 0 0 14px; }
+
+.mem-tessere {
+	list-style: none;
+	margin: 0 0 22px;
+	padding: 0;
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+	gap: 12px;
+}
+.mem-tessere li {
+	display: grid;
+	gap: 2px;
+	padding: 14px 16px;
+	border: 1px solid var(--linea);
+	border-radius: 12px;
+	background: color-mix(in srgb, var(--basalto) 55%, transparent);
+}
+.mem-cifra { font: 500 26px/1.1 var(--serif); color: var(--calima); font-variant-numeric: tabular-nums; }
+.mem-etichetta { font-size: 13px; color: var(--calima); }
+.mem-sotto { font-size: 12px; color: var(--tinta); }
+
+.mem-griglia {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+	gap: 18px 26px;
+}
+.mem-grafico { margin: 0; min-width: 0; }
+.mem-grafico figcaption { display: grid; gap: 3px; margin-bottom: 8px; }
+.mem-gtitolo { font: 500 16px/1.25 var(--serif); color: var(--calima); }
+.mem-gnota { font-size: 12px; line-height: 1.45; color: var(--tinta); }
+.mem-grafico svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+.mem-legenda { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 6px; padding: 0; font-size: 12px; color: var(--tinta); }
+.mem-legenda li { display: inline-flex; align-items: center; gap: 6px; }
+.mem-legenda i { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+
+.mem-grafico .griglia { stroke: var(--linea); stroke-width: 1; opacity: 0.55; }
+.mem-grafico .base { stroke: var(--linea); stroke-width: 1; }
+.mem-grafico .asse { font: 10px var(--sans); fill: var(--tinta); font-variant-numeric: tabular-nums; }
+.mem-grafico .nome { font: 12px var(--sans); fill: var(--calima); }
+.mem-grafico .valore { font: 11px var(--sans); fill: var(--tinta); font-variant-numeric: tabular-nums; }
+.mem-grafico .bersaglio { fill: transparent; }
+.mem-grafico .colonna { transition: opacity 0.12s; }
+.mem-grafico svg:hover .colonna { opacity: 0.55; }
+.mem-grafico svg:hover .colonna:hover { opacity: 1; }
+.mem-grafico .colonna:hover .bersaglio { fill: color-mix(in srgb, var(--linea) 35%, transparent); }
+
+.mem-tip {
+	position: absolute;
+	z-index: 20;
+	max-width: 280px;
+	padding: 7px 10px;
+	border: 1px solid var(--linea);
+	border-radius: 9px;
+	background: color-mix(in srgb, var(--basalto) 94%, transparent);
+	backdrop-filter: blur(12px);
+	-webkit-backdrop-filter: blur(12px);
+	box-shadow: 0 10px 24px -10px rgba(0, 0, 0, 0.5);
+	font-size: 12px;
+	line-height: 1.4;
+	color: var(--calima);
+	pointer-events: none;
+}
+
+.mem-tabella { margin-top: 8px; max-height: 240px; overflow: auto; border: 1px solid var(--linea); border-radius: 9px; }
+.mem-tabella table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.mem-tabella th, .mem-tabella td { padding: 5px 10px; text-align: left; border-bottom: 1px solid var(--linea); color: var(--calima); font-weight: 400; }
+.mem-tabella thead th { position: sticky; top: 0; background: var(--basalto); color: var(--tinta); }
+.mem-tabella .num { text-align: right; font-variant-numeric: tabular-nums; }
+.mem-grafico .mostra-tabella { margin-top: 6px; font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { .mem-grafico .colonna { transition: none; } }
 .mem-risultati.in-attesa { opacity: 0.55; }
 
 .giorno + .giorno { margin-top: 36px; }
