@@ -1309,6 +1309,13 @@ const finale = (t, k) => t.$(`.cifra[data-k="${k}"] dd > .sr`).textContent;
 		await pausa(250);
 		assert.strictEqual(t.conto.submit, f, 'riposa(true) la ferma');
 		assert.strictEqual(t.raf.n, n);
+		// spenta a finestra davanti: sbiadisce e continua a girare
+		s.set('idle', true, 0);
+		s.riposa(false);
+		await pausa(1800);
+		f = t.conto.submit;
+		await pausa(250);
+		assert.ok(t.conto.submit > f, 'spenta con riposa(false) gira ancora');
 		s.smonta();
 	});
 

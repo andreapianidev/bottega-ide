@@ -553,10 +553,11 @@ grande in conversazione, piccola agganciata con `bottega.voice.orbAlwaysVisible`
 
 La sfera delle viste (barra e pagina di Melissa) usa il componente unico in WebGPU se c'e'
 (`media/motore/sfera-gpu.js`): `window.BottegaSferaGPU.mount(canvas, {reduced, onFail}) -> {set(stato, spenta,
-livello), wake(), sleep(), riposa(si), redraw()}`. Riposo (build 32): con `riposa(true)` la sfera in `idle`, finiti i
-movimenti (1,5 s dall'ultimo cambio, voce muta), si ferma su un fotogramma e riparte al primo `set` che cambia stato.
-Barra e Home chiamano `riposa(false)` solo se la finestra della Bottega e' davanti (`fuoco`) e almeno una sessione e'
-`in corso`; dietro, o senza lavori, la sfera si ferma. Con la finestra dietro il `body` prende la classe `sfondo` e le
+livello), wake(), sleep(), riposa(si), redraw()}`. Riposo (build 32, rivisto nella 34): con `riposa(true)` la sfera
+in `idle` o spenta, finiti i movimenti (1,5 s dall'ultimo cambio, voce muta), si ferma su un fotogramma e riparte al
+primo `set` che cambia stato. Barra e Home chiamano `riposa(false)` finche' la finestra della Bottega e' davanti
+(`fuoco`): li' la sfera gira sempre, anche con Melissa spenta (ferma sembrava un'immagine). Dietro si ferma, tranne
+quando Melissa ascolta, pensa o parla. Con la finestra dietro il `body` prende la classe `sfondo` e le
 animazioni dei CSS si mettono in pausa. L'adattatore arriva dopo: se WebGPU manca, `onFail(motivo)` e si passa al Canvas
 2D su un canvas nuovo, con il motivo nel log (idem se `mount` lancia o il file non c'e'). La Home carica i file di
 `media/motore/` presenti prima delle stanze.

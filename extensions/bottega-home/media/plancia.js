@@ -2014,8 +2014,8 @@
 		sleep() {
 			orbImpl.sleep();
 		},
-		/** Si ferma quando Melissa tace, se nessuna sessione lavora o la finestra e' dietro (solo la sfera
-		 *  WebGPU: quella di ripiego in Canvas 2D gira come prima). */
+		/** Si ferma quando la finestra e' dietro e Melissa tace (solo la sfera WebGPU: quella di ripiego in
+		 *  Canvas 2D gira come prima). */
 		riposa(on) {
 			orbRiposa = !!on;
 			if (orbImpl.riposa) orbImpl.riposa(orbRiposa);
@@ -2025,11 +2025,12 @@
 		},
 	};
 
-	/** Come nella barra: la sfera respira mentre una sessione Claude lavora, ma solo a finestra davanti. */
+	/** Come nella barra: a finestra davanti la sfera gira sempre, anche con Melissa spenta. */
 	function aggiornaRiposo() {
-		orb.riposa(!(fuoco && workList().some(w => w.status === 'in corso')));
+		orb.riposa(!fuoco);
 		document.body.classList.toggle('sfondo', !fuoco);
 	}
+	aggiornaRiposo();
 
 	// ---------- Continua da dove eri ----------
 	/* Un dialogo modale fatto a mano (role=dialog, aria-modal): il fuoco entra nel testo, Tab gira
@@ -2576,7 +2577,6 @@
 					state.voiceOptimistic = null;
 				}
 				if (state.armed && !jobs().some(j => j.id === state.armed && (j.status === 'in corso' || j.status === 'ti aspetta'))) state.armed = '';
-				aggiornaRiposo();
 				return render();
 			case 'fuoco':
 				fuoco = m.focused !== false;

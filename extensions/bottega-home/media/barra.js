@@ -412,8 +412,8 @@
 			orbAwake = false;
 			orbImpl.sleep();
 		},
-		/** Si ferma quando Melissa tace, se nessuna sessione lavora o la finestra e' dietro (solo la sfera
-		 *  WebGPU: quella di ripiego in Canvas 2D gira come prima). */
+		/** Si ferma quando la finestra e' dietro e Melissa tace (solo la sfera WebGPU: quella di ripiego in
+		 *  Canvas 2D gira come prima). */
 		riposa(on) {
 			orbRiposa = !!on;
 			if (orbImpl.riposa) orbImpl.riposa(orbRiposa);
@@ -423,13 +423,13 @@
 		},
 	};
 
-	/** La sfera respira mentre una sessione Claude lavora, ma solo a finestra davanti; dietro tutto si ferma,
-	 *  tranne Melissa quando ascolta, pensa o parla. */
+	/** A finestra davanti la sfera gira sempre, anche con Melissa spenta; dietro tutto si ferma, tranne Melissa
+	 *  quando ascolta, pensa o parla. */
 	function aggiornaRiposo() {
-		const lavora = S.work.some(w => w && w.status === 'in corso');
-		orb.riposa(!(fuoco && lavora));
+		orb.riposa(!fuoco);
 		document.body.classList.toggle('sfondo', !fuoco);
 	}
+	aggiornaRiposo();
 
 	// ---------- lo stato ----------
 
@@ -889,7 +889,6 @@
 		const per = {};
 		for (const g of GRUPPI) per[g.status] = [];
 		for (const w of work) (per[w.status] || per['in corso']).push(w);
-		aggiornaRiposo();
 
 		const vivi = new Set(work.map(w => w.key));
 		let fuocoPerso = false;

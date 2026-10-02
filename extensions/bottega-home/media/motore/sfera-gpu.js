@@ -35,8 +35,8 @@
               frames }
      stato: 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'; spenta: boolean (Nucleo assente
      o voce spenta: la sfera sbiadisce verso il grigio e poi si ferma); livello: 0..1 (la voce).
-     riposa(si): con si (il predefinito) la sfera in 'idle', finiti i movimenti, si ferma su un fotogramma
-     e riparte al primo cambio di stato; con no continua a respirare.
+     riposa(si): con si (il predefinito) la sfera in 'idle' o spenta, finiti i movimenti, si ferma su un
+     fotogramma e riparte al primo cambio di stato; con no gira sempre, anche spenta.
    `mount` lancia subito se WebGPU qui non c'e' (manca motore/gpu.js o navigator.gpu): la vista usa
    la sua sfera Canvas 2D. Se WebGPU cade dopo (nessun adattatore, shader rotto, dispositivo perso)
    chiama onFail(motivo) una volta: la vista sostituisce la tela (che ha gia' un contesto webgpu) e
@@ -865,7 +865,7 @@ fn codifica(x: f32) -> f32 {
 		// la dinamica di VoiceOrbRenderer.draw: molle, impulso, attacchi, dissolvenza di 0,35 s
 		// i secondi della sfera: avanzano solo mentre si muove, cosi' ripartendo da ferma riprende da dove era
 		let tAnim = 0;
-		// a riposo (Melissa tace, nessuna sessione al lavoro, finestra dietro) la sfera si ferma su un fotogramma
+		// a riposo (finestra della Bottega dietro) la sfera, finito di muoversi, si ferma su un fotogramma
 		let riposo = true;
 		let tPrima = 0;
 		let dtUltimo = 1 / 30;
@@ -1306,8 +1306,9 @@ fn codifica(x: f32) -> f32 {
 			mosso: () => !opt.reduced(),
 			// 30 fotogrammi mentre parla, ascolta, pensa o cambia stato; 20 a riposo
 			vivace: t => bersaglio !== 0 || t / 1000 - cambioDa < 1 || Math.abs(spenta - spentaVuole) > 0.02,
-			// spenta, si ferma appena ha finito di sbiadire; a riposo, appena ha finito di muoversi
-			continua: () => !(spentaVuole === 1 && spenta > 0.98) && !(riposo && quieta()),
+			// a riposo si ferma appena ha finito di muoversi (spenta: appena ha finito di sbiadire); senza riposo,
+			// cioe' a finestra davanti, gira sempre, anche spenta: ferma sembra un'immagine
+			continua: () => !riposo || !((spentaVuole === 1 && spenta > 0.98) || quieta()),
 			disegna,
 			errore: e => rompi(String((e && /** @type {any} */ (e).message) || e)),
 		});
@@ -1366,8 +1367,8 @@ fn codifica(x: f32) -> f32 {
 					cambia('spento');
 				}, G.RILASCIO_MS);
 			},
-			/** Se a riposo la sfera puo' fermarsi (true, il predefinito) o deve continuare a respirare (false: la vista
-			 *  lo chiede finche' una sessione Claude lavora e la finestra e' davanti). */
+			/** Se a riposo la sfera puo' fermarsi (true, il predefinito) o deve continuare a muoversi, anche spenta
+			 *  (false: la vista lo chiede finche' la finestra della Bottega e' davanti). */
 			riposa(on) {
 				riposo = !!on;
 				if (!riposo) giro.chiedi();
