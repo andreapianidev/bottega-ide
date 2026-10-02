@@ -199,7 +199,9 @@ async function generate(store, text, opts = {}) {
 	throw new Error('chiave Agnes assente e Apple Intelligence non disponibile');
 }
 
-function observationsText(store, sid) {
+/** Il testo che il riassunto manda al modello (Agnes, o Apple come riserva): solo le osservazioni degli hook,
+ *  mai i ricordi. In particolare mai il testo delle schermate (`immagine`, docs/CONTRATTI.md 8.2). */
+export function observationsText(store, sid) {
 	const rows = store.all('SELECT kind, tool, files, input FROM observations WHERE sessionId = ? ORDER BY at, id', sid);
 	const lines = [];
 	for (const r of rows) {

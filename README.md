@@ -93,6 +93,10 @@ manutenzione o documentazione, e il cruscotto ne ricava frasi come «questa sett
 Metal disegna la sfera di Melissa, che respira più in fretta quando più sessioni Claude lavorano, e il cielo
 dell'Osservatorio, sempre e solo quando è visibile.
 
+Vision legge il testo sul Mac: le schermate incollate nelle sessioni Claude diventano cercabili nella memoria (ripulite
+dalle chiavi, le immagini non si salvano), e a richiesta («Melissa, guarda») Melissa legge lo schermo: le arriva solo il
+testo.
+
 ### L'Osservatorio
 
 Una finestra nativa, SwiftUI e Metal con il vetro di macOS 27: il cielo dei progetti, una stella per progetto che

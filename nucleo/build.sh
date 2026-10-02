@@ -61,7 +61,7 @@ xcrun -sdk macosx swiftc \
   -framework FoundationModels -framework NaturalLanguage \
   -framework Accelerate -framework UserNotifications -framework Carbon \
   -framework IOKit -framework CoreSpotlight -framework UniformTypeIdentifiers -framework AppIntents \
-  -framework WidgetKit -framework SwiftUI -framework Charts \
+  -framework WidgetKit -framework SwiftUI -framework Charts -framework Vision -framework ScreenCaptureKit \
   -Xlinker -dependency_info -Xlinker "$TMP/BottegaNucleo_dependency_info.dat" \
   -o "$EXE" \
   "${SOURCES[@]}"

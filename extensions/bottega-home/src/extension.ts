@@ -619,15 +619,18 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	idee.start(ctx);
 	registerConnettori(ctx, { projects: () => snapshot.projects, send: msg => panelHost?.send(msg), showHome: view => showHome(view, undefined, true), log: s => console.warn(s) });
 
-	// La parte nativa (docs/CONTRATTI.md, 7): Osservatorio, bacheca viva scritta sul Mac, categorie del lavoro.
+	// La parte nativa (docs/CONTRATTI.md, 7 e 8): Osservatorio, bacheca viva, categorie del lavoro (Apple
+	// Intelligence), schermate delle trascrizioni lette con Vision e rese cercabili nella Memoria.
 	osservatorio = new Osservatorio(nucleo!, datiOsservatorio, s => console.warn(s));
-	const nativo = () => {
-		if (nucleo?.capabilities?.foundationModels === false) return;
-		nucleo?.fireAndForget('bacheca.live', { on: true });
-		memoria?.classificaInFondo();
+	const inFondo = () => {
+		if (nucleo?.capabilities?.foundationModels !== false) memoria?.classificaInFondo();
+		memoria?.immaginiInFondo();
 	};
-	nucleo!.on('capabilities', nativo);
-	const classifica = setInterval(() => memoria?.classificaInFondo(), 30 * 60_000);
+	nucleo!.on('capabilities', () => {
+		nucleo?.fireAndForget('bacheca.live', { on: true });
+		inFondo();
+	});
+	const classifica = setInterval(inFondo, 30 * 60_000);
 	ctx.subscriptions.push({ dispose: () => clearInterval(classifica) });
 
 	const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 1000);

@@ -176,6 +176,11 @@ export class Memoria {
 		this.run(['classifica', '--json', '--limite', '8'], 300_000).catch(() => undefined);
 	}
 
+	/** Legge in fondo (Vision sul Mac) le schermate delle trascrizioni non ancora lette: memoria/lib/immagini.mjs. */
+	immaginiInFondo(): void {
+		this.run(['immagini', '--json', '--limite', '40'], 600_000).catch(() => undefined);
+	}
+
 	async remember(text: string, project?: string): Promise<boolean> {
 		if (!this.available) return false;
 		const args = ['remember', text];

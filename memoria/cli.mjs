@@ -37,6 +37,8 @@ const HELP = `Memoria della Bottega
   classifica [--tutte] [--limite N] [--json]
                                       categoria delle sessioni riassunte (Apple Intelligence, in fondo)
   categorie [--giorni N] [--json]     sessione -> categoria
+  immagini [--limite N] [--giorni N] [--riprova] [--json]
+                                      le schermate delle sessioni diventano cercabili (OCR del Nucleo, in fondo)
   install [--app-dir D] [--no-mcp] [--prova]
   uninstall [--no-mcp] [--prova]
   status [--json]`;
@@ -163,7 +165,7 @@ async function main() {
 		default: {
 			const { NATIVO_COMANDI, nativoComando } = await import('./lib/nativo-cli.mjs');
 			if (NATIVO_COMANDI.includes(cmd)) {
-				process.exitCode = nativoComando(cmd, argv.slice(1), print) ?? 0;
+				process.exitCode = (await nativoComando(cmd, argv.slice(1), print)) ?? 0;
 				return;
 			}
 			throw new Error(`comando sconosciuto: ${cmd}\n\n${HELP}`);
@@ -226,7 +228,7 @@ async function status() {
 }
 
 main().then(
-	() => process.exit(0),
+	() => process.exit(process.exitCode ?? 0),
 	e => {
 		if (cmd === 'worker') {
 			// il processo staccato non ha un terminale: si annota e basta

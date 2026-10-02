@@ -32,7 +32,7 @@ export interface NucleoBridge {
 export const APPLE_TOOLS = [
 	'progetti_cerca', 'progetto_stato', 'lavori_elenco', 'sessioni_attive', 'progetto_apri',
 	'lavoro_nuovo', 'memoria_cerca', 'regole_controlla', 'briefing', 'plancia_mostra',
-	'sistema_stato', 'git_spingi', 'lavoro_ferma', 'memoria_ricorda',
+	'sistema_stato', 'git_spingi', 'lavoro_ferma', 'memoria_ricorda', 'guarda_schermo',
 ];
 
 export function appleToolSpecs(all: ToolSpecLike[]): ToolSpecLike[] {

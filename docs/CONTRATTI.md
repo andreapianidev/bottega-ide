@@ -934,3 +934,56 @@ fotogramma, sfera 480x480 da 2,3 ms (riposo) a 4,4 ms (parla); ripiego Canvas 2D
 Lo `Stats` del messaggio `stats` (sezione 3) porta in piu', facoltativi: `categorie: {'7'|'30'|'90': {categoria:
 minuti}}` e `categorieFrase` (7.3); il cruscotto mostra «Che lavoro e' stato» solo se ci sono.
 
+## 8. Vision sul Mac, e cosa di Apple Intelligence non e' entrato
+
+Tutto sul Mac, l'immagine non lascia il Nucleo. Codice: `nucleo/Sources/Vista/` (Swift Vision `RecognizeTextRequest`,
+livello accurato, correzione linguistica, italiano e inglese; ScreenCaptureKit). Comandi:
+
+| cmd | argomenti | risposta |
+|---|---|---|
+| `vision.ocr` | `path?` oppure `base64?` (anche `data:`), `lingue?` | `testo`, `righe [{testo, conf}]`, `ms` |
+| `vision.guarda` | `lingue?` | `testo`, `righe` (numero), `app` (in primo piano), `finestra?`, `ms`; senza permesso `ok: false`, `permesso: false` e l'errore in italiano |
+
+CLI: `ocr` (processo lungo: righe JSON `{id, base64, mime?}` dentro, una riga `{id, testo, ms}` o `{id, error}` per
+riga, subito), `ocr-file <percorso>`, `guarda` (solo a mano). Misure (M2): 0,1-0,3 s a immagine a caldo; la prima dopo un
+riavvio fino a 43 s (carica i modelli).
+
+### 8.1 «Melissa, guarda»
+
+Strumento di Melissa `guarda_schermo` (anche per Apple Intelligence): cattura dello schermo principale SOLO quando
+Andrea lo chiede, senza le finestre del Nucleo, letta con Vision; a Melissa arriva solo il testo (al massimo 3500
+caratteri) con app e finestra in primo piano. Verso Agnes va solo questo testo, e solo per «guarda». Il permesso di
+registrazione dello schermo lo chiede macOS la prima volta (probabilmente intestato a Bottega, che lancia il Nucleo).
+
+### 8.2 Schermate cercabili nella Memoria
+
+`memoria/lib/immagini.mjs`: le immagini base64 delle trascrizioni (riga `user` in `message.content`, dentro
+`tool_result`, riga `attachment` in `attachment.prompt`; non `toolUseResult`, che le ripete) passano dall'OCR del
+Nucleo `--cli ocr`, una alla volta sotto `taskpolicy -b` e `nice -n 19` (120 s per la prima del giro, poi 30 s; un
+tempo scaduto ferma il giro; exit 64 = Nucleo senza `ocr`, il giro si ferma pulito). Tabelle `immagini(hash PK sha1 del
+base64, sessionId, file, riga, pos, at, fonte incollata|strumento, mime, memoryId, stato
+da_leggere|letta|vuota|errore|sparita, ms, caratteri, errore)` e `immagini_file(file PK, size, offset, righe, at)`:
+scansione incrementale dei file toccati negli ultimi N giorni, il base64 non si salva mai. Testo con almeno 20
+caratteri utili -> `redact` -> ricordo `kind: 'immagine'`, `origin: 'auto'` (segue la sessione se cambia progetto),
+titolo «Schermata: <parole>», testo fino a 4000 caratteri piu' la riga «Da una schermata incollata|vista da Claude
+nella sessione <id8> (riga N), <data>.»; entra nella ricerca esistente. `node memoria/cli.mjs immagini [--limite
+N=40] [--giorni N=90] [--riprova] [--json]` -> `{lette, nuove, saltate, errori, restano, ms, trovate, nucleo:
+ok|senza-ocr|assente|occupato}`. L'estensione lancia un giro all'avvio e ogni 30 minuti. Prove: `node --test
+memoria/test/*.test.mjs` (Nucleo finto, mai il database vero). Misure del 2/10/2026: 637 immagini distinte negli
+ultimi 90 giorni (63 incollate, 574 da strumenti), scansione iniziale 1,6 s su 962 MB; su un database di prova 40
+schermate vere in 44 s (1,1 s l'una in fondo), 38 con testo, nessuna chiave rimasta, trovate dalla ricerca.
+
+### 8.3 Misurati e lasciati fuori
+
+Su dati veri, il 2/10/2026, soglia 8 su 10 (o 4 su 5) giusti e nessun fatto inventato:
+- riga di stato delle sessioni (`ai.stato`, dall'ultimo messaggio di Claude e dall'ultima richiesta): da 3 a 6 su 10
+  in sei varianti di istruzioni, con righe sbagliate e un rifiuto per le regole di sicurezza;
+- riassunto della posta e «cosa ti chiede» (`ai.posta`, posta locale letta in sola lettura): 3 su 5, legge male le
+  risposte che citano il messaggio di Andrea;
+- «cosa e' cambiato» dai commit (`ai.cambiato`): da 2 a 3 su 5, instabile sui commit in spagnolo;
+- commento ai grafici con segnaposto (`ai.commento`): la regola sulle cifre regge (35 frasi, nessuna cifra del
+  modello passata), il senso no (circa 1 su 5, confronti falsi con segnaposto validi);
+- documenti (PDF e scansioni: testo, tabelle e importi riconosciuti bene, 96-98% delle parole) restano fuori perche'
+  il riassunto breve sul Mac non e' stato giudicato e il testo dei documenti non deve andare ad Agnes.
+Il lavoro sta nel ramo locale `fase3-completa`.
+

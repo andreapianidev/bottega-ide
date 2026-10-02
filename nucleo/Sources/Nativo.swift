@@ -18,6 +18,7 @@ enum Nativo {
         wire()
         if try await CervelloComandi.handle(r) { return true }
         if try await OsservatorioComandi.handle(r) { return true }
+        if try await VistaComandi.handle(r) { return true }
         return false
     }
 
@@ -35,6 +36,7 @@ enum NativoCLI {
     static func run(_ argv: [String]) -> Int32? {
         if let code = CervelloCLI.run(argv) { return code }
         if let code = OsservatorioCLI.run(argv) { return code }
+        if let code = VistaCLI.run(argv) { return code }
         return nil
     }
 }

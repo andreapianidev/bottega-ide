@@ -379,6 +379,22 @@ export const TOOLS: Record<string, ToolDef> = {
 			return `Carico ${s.load.map(n => n.toFixed(2)).join(' ')}, memoria ${s.memoryUsedGB?.toFixed(1)} su ${s.memoryTotalGB?.toFixed(1)} GB (pressione ${s.memoryPressure}), temperatura ${s.thermal}, ${s.cores} core.`;
 		},
 	},
+	guarda_schermo: {
+		spec: { type: 'function', function: { name: 'guarda_schermo', description: 'Guarda lo schermo di Andrea adesso e leggi il testo che c\'e\' (solo quando te lo chiede lui: "guarda", "cosa vedi", "leggi lo schermo"). Torna l\'app in primo piano e il testo riconosciuto sul Mac.', parameters: obj({}) } },
+		async run(_a, ctx) {
+			// Vision sul Mac (docs/CONTRATTI.md, 8): l'immagine non lascia il Nucleo, a Melissa arriva solo il testo.
+			if (!ctx.deps.nucleo.available) return 'Il Nucleo non c\'e\': non posso guardare lo schermo.';
+			try {
+				const r = await ctx.deps.nucleo.request<{ testo: string; app?: string; finestra?: string }>('vision.guarda', {}, 20_000);
+				const testo = String(r?.testo ?? '').trim();
+				const dove = [r?.app, r?.finestra].filter(Boolean).join(', ');
+				if (!testo) return `Sullo schermo${dove ? ` (${dove})` : ''} non c'e' testo leggibile.`;
+				return `In primo piano: ${dove || 'sconosciuto'}. Testo sullo schermo:\n${testo.slice(0, 3500)}`;
+			} catch (e: any) {
+				return `Non riesco a guardare lo schermo: ${e?.message ?? e}`;
+			}
+		},
+	},
 	file_apri: {
 		spec: { type: 'function', function: { name: 'file_apri', description: 'Apri un file nell\'editor (dentro un progetto conosciuto).', parameters: obj({ percorso: { type: 'string' } }, ['percorso']) } },
 		run(a, ctx) {

@@ -487,6 +487,22 @@ function makeAssistant(over = {}) {
 		assert.ok(a.router.breakerOpen, 'interruttore aperto: i prossimi turni vanno subito al Mac');
 	});
 
+
+	await test('guarda_schermo: chiede al Nucleo, a Melissa arriva solo il testo; senza permesso lo dice', async () => {
+		const { a, nucleo } = makeAssistant({});
+		nucleo.request = (cmd, args) => {
+			nucleo.reqs.push({ cmd, args });
+			if (cmd === 'vision.guarda') return Promise.resolve({ testo: 'Errore 42 nel build', app: 'Xcode', finestra: 'Peak' });
+			return Promise.resolve({});
+		};
+		const out = await asst.TOOLS.guarda_schermo.run({}, a);
+		assert.ok(nucleo.reqs.some(r => r.cmd === 'vision.guarda'));
+		assert.match(out, /In primo piano: Xcode, Peak\./);
+		assert.match(out, /Errore 42 nel build/);
+		nucleo.request = () => Promise.reject(new Error('Serve il permesso di registrazione dello schermo'));
+		assert.match(await asst.TOOLS.guarda_schermo.run({}, a), /Non riesco a guardare lo schermo: Serve il permesso/);
+	});
+
 	// ---- collaudo reale contro Agnes: consuma la quota condivisa, quindi solo su richiesta ----
 	// ---- il loop di Melissa: risposta detta due volte, strumenti richiamati in tondo, eco della sua voce ----
 	await test('una frase gia\' detta in un passo con strumenti non si ridice al passo dopo', async () => {
