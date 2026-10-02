@@ -168,6 +168,14 @@ La stanza Clienti raggruppa le ore del cruscotto per cliente (l'associazione pro
 `~/.bottega/clienti.json`, solo sul tuo Mac), arrotonda ogni giorno al quarto d'ora ed esporta il mese in CSV e in
 Markdown. «Dove l'ho già risolto?» cerca per significato in tutta la memoria e per testo nel codice di tutti i progetti.
 
+### Cline, la riserva
+
+Quando finisce il credito di Claude Code si continua con [Cline](https://github.com/cline/cline) sul fornitore che
+preferisci (DeepSeek, per esempio), nella barra di destra accanto a Melissa e Claude Code. La Bottega lo installa da
+Open VSX e gli passa quello che sa gia' Claude Code: i server MCP locali (ogni chiamata chiede conferma), le regole di
+`~/.claude/CLAUDE.md` e la memoria, da cercare e da arricchire. La chiave del fornitore si mette nelle impostazioni di
+Cline. Si spegne con `bottega.cline.attivo`.
+
 ### Connettori e posta per progetto
 
 La Bottega non ha chiavi di Gmail, Vercel o altri servizi: usa i connettori che hai già in Claude Code, quindi
@@ -377,6 +385,8 @@ Per le notifiche serve una chiave APNs del tuo account (Certificates, Identifier
 - verso ElevenLabs: il testo che Melissa deve pronunciare (e l'audio dell'ascolto solo con
   `BOTTEGA_STT=elevenlabs`);
 - verso Open VSX: le ricerche e i download delle estensioni, e una volta all'ora la versione dell'ultima Claude Code;
+- verso il fornitore scelto in Cline (DeepSeek, per esempio), solo se usi Cline: quello che gli chiedi, i file che legge
+  e i risultati degli strumenti che usa, come con qualsiasi agente;
 - verso GitHub: l'ultima versione pubblicata di VS Code, al massimo una volta al giorno e solo quando Claude Code ne
   chiede una piu' nuova;
 - verso il tuo iPhone, solo dentro la tua rete Tailscale e solo se usi la Bottega per iPhone: lo stato di Melissa e

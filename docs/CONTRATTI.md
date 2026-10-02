@@ -1506,3 +1506,36 @@ per le uscite mensili di Microsoft; Claude Code invece sempre. `src/aggiorna.ts`
   compilazione. Un `in corso` piu' vecchio di tre ore vale come morto.
 - **Dove sono i sorgenti**: `bottegaSorgenti` in `product.json` (lo scrive `package.sh`), poi
   `bottega.aggiornamenti.sorgenti`, poi `~/Prototipi/Bottega`.
+
+## 11. Cline, la riserva di Claude Code
+
+Quando il credito di Claude Code finisce si continua a lavorare con Cline (`saoudrizwan.claude-dev`, Open VSX) sul
+fornitore scelto in Cline (per Andrea DeepSeek, `deepseek-v4-pro`). Codice: `src/cline.ts` (logica pura, provata da
+`test/cline.cjs`) e `src/cline-host.ts`. Si spegne tutto con `bottega.cline.attivo: false`.
+
+- **Installazione**: se manca, da Open VSX, al massimo tre tentativi al giorno. Gli aggiornamenti li fa VS Code
+  (aggiornamento automatico delle estensioni).
+- **Terza voce della barra di destra**, dopo Melissa e Claude Code, senza patch a VS Code. VS Code tiene la posizione
+  dei contenitori in `views.customizations` (`viewContainerLocations[id] = 2`, la barra secondaria) e l'ordine delle
+  voci in `workbench.auxiliarybar.pinnedPanels`, nel database `User/globalStorage/state.vscdb` del profilo
+  predefinito. Le due chiavi si possono scrivere solo a Bottega chiusa (aperta le tiene in memoria e le riscrive alla
+  chiusura). La Bottega lancia quindi un processo staccato (il Node di Electron, `ELECTRON_RUN_AS_NODE=1`) che aspetta
+  la fine del processo principale (`process.ppid` dell'host delle estensioni), aggiunge
+  `workbench.view.extension.claude-dev-ActivityBar` in fondo alle voci con `/usr/bin/sqlite3` e scrive
+  `~/.bottega/cline-in-barra`. Una volta sola: se poi Cline viene spostato a mano, resta dove l'ha messo Andrea.
+  Registro in `~/.bottega/cline.log`.
+- **Server MCP**: quelli utente di `~/.claude.json` (`mcpServers`) vanno in
+  `~/.cline/data/settings/cline_mcp_settings.json` (mode 600; `CLINE_DATA_DIR` se impostata), stdio come sono, `http`
+  come `streamableHttp`, `sse` come `sse`. La Bottega tocca solo i server che ha messo lei (elenco `gestiti` in
+  `~/.bottega/cline.json`): quelli aggiunti a mano in Cline restano, e di un server gia' presente restano `disabled`,
+  `autoApprove` e `timeout` scelti in Cline. I nuovi entrano con `autoApprove: []`: Cline chiede conferma a ogni
+  chiamata. I server di progetto e i connettori di claude.ai non passano (questi ultimi sono legati all'account
+  claude.ai). Si riallinea all'avvio e quando cambia `~/.claude.json`.
+- **Contesto e memoria**: la regola globale `~/Documents/Cline/Rules/bottega.md`, riscritta quando cambia
+  `~/.claude/CLAUDE.md`, contiene: leggere il `CLAUDE.md` del progetto, `memoria_cerca` e `memoria_bacheca` prima di
+  ogni compito, `memoria_ricorda` per le decisioni (sempre con `progetto`, perche' il server MCP lanciato da Cline non
+  ha la cartella del progetto come cartella di lavoro), messaggi e pubblicazioni solo su richiesta esplicita, e una
+  copia di `~/.claude/CLAUDE.md`. Le sessioni di Cline non entrano ancora nella memoria da sole: Claude Code ha gli
+  hook, Cline per ora no.
+- **Chiave**: la Bottega non la tocca. Cline la tiene in `~/.cline/data/secrets.json`, si imposta dalle sue
+  impostazioni.

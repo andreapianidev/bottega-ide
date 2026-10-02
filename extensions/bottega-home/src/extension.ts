@@ -20,6 +20,7 @@ import { digest, digestText } from './mani';
 import { CategorieMinuti, Osservatorio, categorieMinuti, fraseCategorie } from './osservatorio';
 import { registerPonte } from './ponte-host';
 import { registerAggiornamenti } from './aggiorna-host';
+import { registerCline } from './cline-host';
 import { Aggiornamenti } from './aggiorna';
 import { TOOLS } from './assistant';
 import { registraStrumentiConnettori, STRUMENTI_CONNETTORI } from './strumenti-connettori';
@@ -861,6 +862,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup').then(undefined, () => undefined);
 	}
 	ensureClaudeExtension(ctx);
+	registerCline(ctx);
 	ensureItalian(ctx);
 }
 
