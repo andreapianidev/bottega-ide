@@ -73,7 +73,7 @@ process.stdin.on('data', c => {
 			{ name: 'list_apps', description: 'Le app del conto. Seconda frase che non serve.', inputSchema: { type: 'object', properties: { limit: { type: 'number' }, periodo: { type: 'string', enum: ['ieri', 'settimana'] } }, required: ['periodo'] } },
 			{ name: 'search_reviews', description: 'Cerca nelle recensioni.', inputSchema: { type: 'object', properties: { q: { type: 'string' } } } },
 			{ name: 'send_message', description: 'Invia un messaggio.' },
-			{ name: 'revenue_trend', description: 'Andamento.' },
+			{ name: 'create_report', description: 'Crea un report.' },
 		] } });
 		else if (m.method === 'tools/call') {
 			const a = m.params.arguments || {};
@@ -200,7 +200,7 @@ const log = [];
 		const f = fonteFinta();
 		S.registraStrumentiConnettori(f, { claudeJson, dir: f.dir, log: s => log.push(s) });
 		const prima = quantiAvvii();
-		for (const nome of ['send_message', 'mcp__finto-mcp__delete_message', 'revenue_trend', 'list_and_delete']) {
+		for (const nome of ['send_message', 'mcp__finto-mcp__delete_message', 'create_report', 'list_and_delete']) {
 			const r = await T.connettore_leggi.run({ server: 'finto-mcp', strumento: nome, argomenti: {} }, ctxFinto());
 			assert.ok(/^Rifiutato/.test(r), r);
 		}
@@ -241,7 +241,7 @@ const log = [];
 		const r = await T.connettori_elenco.run({}, ctxFinto());
 		assert.ok(/Diretti e gratis/.test(r) && /Via Claude, a pagamento/.test(r), r);
 		assert.ok(/finto-mcp \(connesso\): 2 di sola lettura: list_apps, search_reviews/.test(r), r);
-		assert.ok(!/send_message|revenue_trend/.test(r));
+		assert.ok(!/send_message|create_report/.test(r));
 		assert.ok(/claude\.ai Notion: da autenticare/.test(r));
 		const uno = await T.connettori_elenco.run({ server: 'finto-mcp' }, ctxFinto());
 		assert.ok(/list_apps\(limit: number, periodo\*: ieri\|settimana\): Le app del conto\./.test(uno), uno);

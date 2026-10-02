@@ -217,13 +217,17 @@ function permesso(server: string, breve: string): boolean {
 	return false;
 }
 
+/** Letture che restano fuori comunque: codici promozionali riscattabili, certificati, firme dei webhook. Non scrivono,
+ *  ma il loro contenuto finirebbe nel contesto di Melissa e del suo cervello. */
+const SENSIBILI = /one_time_code_values|certificate|verify_signature|parse_payload|secret|credential|password/i;
+
 /** Vero solo per gli strumenti che leggono e non contengono parole che scrivono, inviano o cancellano
  *  (get_or_create, list_and_delete, auth_generate_token restano fuori, readOnlyHint o no). Legge chi ha un verbo
  *  di lettura in qualunque posizione, oppure `readOnlyHint: true` nelle annotazioni di tools/list, oppure il
  *  permesso a mano per il suo server (`server`, o il prefisso mcp__<server>__ del nome). */
 export function soloLettura(nome: string, annotazioni?: { readOnlyHint?: boolean } | null, server?: string): boolean {
 	const w = paroleStrumento(nome);
-	if (!w.length || w.some(x => SCRIVE.has(x))) return false;
+	if (!w.length || w.some(x => SCRIVE.has(x)) || SENSIBILI.test(nome)) return false;
 	if (w.some(x => LEGGE.has(x))) return true;
 	if (annotazioni?.readOnlyHint === true) return true;
 	const breve = nome.includes('__') ? nome.slice(nome.lastIndexOf('__') + 2) : nome;

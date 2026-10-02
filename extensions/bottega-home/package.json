@@ -374,6 +374,18 @@
           "default": "ide",
           "description": "Dove sta la sfera di Melissa."
         },
+        "bottega.briefing.calendario": {
+          "type": "boolean",
+          "default": true,
+          "description": "Il briefing del mattino dice gli appuntamenti di oggi da Google Calendar (una lettura via Claude al giorno, a pagamento)."
+        },
+        "bottega.vercel.ogniMinuti": {
+          "type": "number",
+          "default": 30,
+          "minimum": 10,
+          "maximum": 1440,
+          "description": "Ogni quanti minuti la Vedetta rilegge le pubblicazioni su Vercel."
+        },
         "bottega.briefing.voce": {
           "type": "boolean",
           "default": true,
