@@ -28,6 +28,14 @@ Eseguibile: `Bottega Nucleo.app/Contents/MacOS/BottegaNucleo`, bundle id `com.an
 `LSUIElement = YES`. Dentro la Bottega sta in
 `Bottega.app/Contents/Resources/app/extensions/bottega-home/nucleo/Bottega Nucleo.app`.
 In sviluppo: `nucleo/build/Bottega Nucleo.app` (prodotto da `nucleo/build.sh`).
+
+Responsabile di se stesso (2/10/2026, `Sources/Autonomo.swift`): lanciato dall'estensione, il Nucleo avrebbe Bottega.app
+come processo responsabile e macOS gli applicherebbe il permesso del microfono di Bottega, consegnando silenzio senza
+errori se manca (misurato: 10 s di audio inviati a ElevenLabs, nessuna parola). In modalita' servizio il Nucleo si
+rilancia una volta con la responsabilita' separata (`responsibility_spawnattrs_setdisclaim`, variabile
+`BOTTEGA_NUCLEO_AUTONOMO=1` nel figlio): stdin, stdout e stderr ereditati, segnali inoltrati, il padre esce con il
+codice del figlio. Il microfono si chiede come "Bottega Nucleo", con il suo permesso, come Avo. Il registro dice dopo
+3 s dall'apertura `segnale del microfono: N blocchi, M con suono` (M = 0 vuol dire silenzio da macOS).
 Solo arm64, macOS 27+, solo framework Apple, firma ad hoc.
 
 ### Modalita' servizio (default, lanciato dall'estensione)

@@ -401,6 +401,12 @@ final class Listener {
         usingDuplex = duplexOK
         mode = newMode
         Log.info("microfono aperto: modo \(newMode.rawValue), \(Self.backend)\(wantDuplex ? ", eco \(echoCancellation)" : "")")
+        // Three seconds later: does the mic deliver sound, or the silence of a capture macOS does not allow?
+        let healthTap = tap
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            let (seen, audible) = healthTap.health
+            Log.info("segnale del microfono dopo 3 s: \(seen) blocchi, \(audible) con suono\(seen > 0 && audible == 0 ? " (SILENZIO: macOS non sta dando l'audio a questo processo)" : "")")
+        }
         VoiceHub.shared.refresh()
         if duplexOK { scheduleVPIOWatchdog() }
     }
