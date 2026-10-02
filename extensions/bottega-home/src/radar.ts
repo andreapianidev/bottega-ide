@@ -9,6 +9,8 @@
      in memoria: token.json di admob-mcp non si riscrive mai.
    - Tutto finisce in ~/.bottega/radar/stato.json (cartella 700, file 600): senza rete si mostra
      l'ultimo dato con la sua eta' (ascAt, admobAt). Tra due letture passano almeno 45 minuti.
+   - I siti su Vercel (src/vercel.ts) viaggiano con il radar: stessa cartella, stessa spinta (refresh), ognuno con
+     la sua cadenza, e arrivano alla plancia in RadarState.vercel.
    I bundle id sono identificatori tecnici: servono a collegare, il nome mostrato viene da ASC.
    Contratto verso la plancia: docs/CONTRATTI.md, sezione 4.1. */
 
@@ -17,6 +19,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { Project } from './scan';
+import { Vercel } from './vercel';
 
 import type { RadarApp, RadarState } from './tipi';
 
@@ -29,6 +32,8 @@ export interface RadarOptions {
 	now?: () => number;
 	ascEnvFile?: string;
 	admobDir?: string;
+	/** Il lettore dei siti su Vercel. Di default ce n'e' uno vero, salvo con dir o fetch finti (le prove). */
+	vercel?: Vercel | false;
 }
 
 type Money = NonNullable<RadarApp['money']>;
@@ -229,6 +234,7 @@ export class Radar {
 	private jwt: { token: string; exp: number } | undefined;
 	private google: { token: string; exp: number } | undefined;
 	private publisher: string | undefined;
+	readonly vercel: Vercel | null;
 
 	constructor(private readonly opts: RadarOptions = {}) {
 		this.dir = opts.dir ?? path.join(os.homedir(), '.bottega', 'radar');
@@ -238,10 +244,14 @@ export class Radar {
 		this.ascEnvFile = opts.ascEnvFile ?? path.join(os.homedir(), '.secrets', 'appstoreconnect-api.env');
 		this.admobDir = opts.admobDir ?? path.join(os.homedir(), 'admob-mcp');
 		this.cache = this.load();
+		this.vercel = opts.vercel === false ? null : (opts.vercel ?? (opts.dir || opts.fetch ? null : new Vercel({ dir: this.dir, log: opts.log })));
+		this.vercel?.onChange(() => this.emit());
 	}
 
 	state(): RadarState {
-		return { ...this.cache.state, refreshing: !!this.running };
+		const s: RadarState = { ...this.cache.state, refreshing: !!this.running };
+		if (this.vercel) s.vercel = this.vercel.state();
+		return s;
 	}
 
 	onChange(cb: (s: RadarState) => void): void {
@@ -288,6 +298,8 @@ export class Radar {
 
 	/** Una lettura alla volta; tra due letture almeno 45 minuti, salvo force. */
 	refresh(projects: Project[], opts: { force?: boolean } = {}): Promise<RadarState> {
+		// Vercel ha la sua cadenza (bottega.vercel.ogniMinuti) e si limita da solo
+		if (this.vercel) void this.vercel.refresh(projects, opts);
 		if (this.running) return this.running;
 		if (!opts.force && this.now() - this.cache.triedAt < MIN_GAP) return Promise.resolve(this.state());
 		this.running = this.run(projects)
