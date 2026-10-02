@@ -32,6 +32,8 @@
 	<true/>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>
 	<true/>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Melissa capisce quello che dici con il riconoscimento vocale del Mac, come in Avo.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>La Bottega ascolta la tua voce solo mentre tieni premuto il tasto per parlare con Melissa, o mentre la conversazione e' accesa.</string>
 	<key>NSUserNotificationAlertStyle</key>

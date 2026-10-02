@@ -32,7 +32,7 @@ import os
 /// STT client.
 final class MicTap: @unchecked Sendable {
     private struct State {
-        var stt: ScribeClient?
+        var stt: (any Trascrittore)?
         var vadArmed = false          // conversation + hardware AEC + Melissa speaking
         var voicedSince: CFTimeInterval?
         var vadFired = false
@@ -43,7 +43,7 @@ final class MicTap: @unchecked Sendable {
     private let state = OSAllocatedUnfairLock(uncheckedState: State())
     var onVAD: (@Sendable () -> Void)?
 
-    func setSTT(_ c: ScribeClient?) { state.withLockUnchecked { $0.stt = c } }
+    func setSTT(_ c: (any Trascrittore)?) { state.withLockUnchecked { $0.stt = c } }
     func setEmitLevels(_ on: Bool) { state.withLockUnchecked { $0.emitLevels = on } }
     func armVAD(_ on: Bool) {
         state.withLockUnchecked { s in
@@ -61,7 +61,7 @@ final class MicTap: @unchecked Sendable {
         let level = AudioLevels.rms(buffer)
         let now = CACurrentMediaTime()
         var fireVAD = false
-        let (stt, emit): (ScribeClient?, Bool) = state.withLockUnchecked { s in
+        let (stt, emit): ((any Trascrittore)?, Bool) = state.withLockUnchecked { s in
             s.buffers += 1
             if level > 0.0005 { s.audible += 1 }
             // Barge-in by energy, only with hardware echo cancellation (otherwise the mic
@@ -131,7 +131,9 @@ final class Listener {
 
     enum Mode: String { case push, utterance, converse, wake }
 
-    static let backend = "elevenlabs:\(ScribeClient.model)"
+    /// Avo's engine (SFSpeechRecognizer) by default; ElevenLabs realtime with BOTTEGA_STT=elevenlabs.
+    static let usaElevenLabs = ProcessInfo.processInfo.environment["BOTTEGA_STT"] == "elevenlabs"
+    static let backend = usaElevenLabs ? "elevenlabs:\(ScribeClient.model)" : AppleSTT.name
 
     private(set) var mode: Mode?
     var backendName: String { Self.backend }
@@ -139,7 +141,7 @@ final class Listener {
     private(set) var echoCancellation = "software"
     private(set) var echoTested = false
 
-    private var stt: ScribeClient?
+    private var stt: (any Trascrittore)?
     private var sttLanguage = "it"
     private var sttCloseWork: DispatchWorkItem?
     private var mic: MicEngine?
@@ -229,13 +231,19 @@ final class Listener {
 
     /// The warm STT session, opened if needed. On failure the voice goes to the error
     /// state with an Italian message, and the request fails with the same message.
-    private func ensureSTT(locale loc: String) async throws -> ScribeClient {
+    private func ensureSTT(locale loc: String) async throws -> any Trascrittore {
         sttCloseWork?.cancel(); sttCloseWork = nil
         let lang = Self.languageCode(loc)
         if let s = stt, s.isReady, lang == sttLanguage { return s }
         stt?.close()
         stt = nil
-        let s = ScribeClient(language: lang)
+        if !Self.usaElevenLabs {
+            do { try await AppleSTT.ensureAuthorization() } catch {
+                VoiceHub.shared.error(error.localizedDescription)
+                throw error
+            }
+        }
+        let s: any Trascrittore = Self.usaElevenLabs ? ScribeClient(language: lang) : AppleSTT(language: loc.isEmpty ? lang : loc)
         s.onEvent = { [weak self, weak s] event in
             guard let self, let s, self.stt === s else { return }
             self.handleSTT(event)
@@ -248,10 +256,10 @@ final class Listener {
         }
         stt = s
         sttLanguage = lang
-        guard await s.waitReady() else {
+        guard await s.waitReady(timeout: 6) else {
             s.close()
             if stt === s { stt = nil }
-            let message = "ElevenLabs non risponde: la trascrizione della voce non e' disponibile. Controlla la connessione."
+            let message = "La trascrizione della voce non e' disponibile: il servizio non risponde."
             VoiceHub.shared.error(message)
             throw NucleoError(message)
         }
@@ -277,7 +285,7 @@ final class Listener {
 
     /// Opens the STT session ahead of a likely listen (orb shown, hotkey pressed).
     func prewarm() {
-        guard ElevenLabsConfig.isConfigured else { return }
+        guard !Self.usaElevenLabs || ElevenLabsConfig.isConfigured else { return }
         Task {
             _ = try? await ensureSTT(locale: locale)
             if mode == nil { scheduleSTTClose() }
@@ -312,7 +320,8 @@ final class Listener {
         if conversing { return }
         if isCapturing { await finishWindow(emit: true, commitFirst: true) }
         await suspendWake()
-        try await open(mode: .converse, locale: loc ?? locale, duplex: true)
+        // Avo: no voice processing on macOS (VPIO starves SFSpeechRecognizer: "No speech detected").
+        try await open(mode: .converse, locale: loc ?? locale, duplex: Self.usaElevenLabs)
         Speaker.shared.prewarm()
     }
 
@@ -556,7 +565,7 @@ final class Listener {
     }
 
     private func sttFailed(_ message: String) {
-        Log.warn("trascrizione ElevenLabs: \(message)")
+        Log.warn("trascrizione (\(Self.backend)): \(message)")
         stt = nil
         guard let m = mode else { return }
         let text = "La trascrizione di ElevenLabs si e' interrotta: \(message)"
@@ -669,6 +678,8 @@ final class Listener {
             return
         }
         guard conversing else { return }
+        // Avo Agency AI: while Melissa speaks the microphone is not heard (no echo, no self-talk).
+        if !Self.usaElevenLabs { stt?.setMuted(true); return }
         tap.armVAD(echoCancellation == "hardware")
     }
 
@@ -676,6 +687,7 @@ final class Listener {
         speechEndedAt = Date()
         lastSpoken = spoken
         tap.armVAD(false)
+        if conversing, !Self.usaElevenLabs { stt?.setMuted(false) }
         if !conversing { Task { await resumeWakeIfNeeded() } }
     }
 

@@ -566,6 +566,8 @@ export class Assistant {
 	private awaitingPushFinal = false;
 	private pushFinalTimer?: NodeJS.Timeout;
 	private readonly out = vscode.window.createOutputChannel('Melissa', { log: true });
+	/** Il turno in corso e' a voce: Agnes risponde subito, senza ragionare (come Avo). */
+	private spokenTurn = false;
 	private filled = false;
 	private lastLevelEmit = 0;
 
@@ -892,6 +894,7 @@ export class Assistant {
 	}
 
 	async turn(userText: string, speak: boolean): Promise<string> {
+		this.spokenTurn = speak;
 		this.pushLog('tu', userText);
 
 		// Conferma in sospeso: questo turno e' il si/no.
@@ -1265,7 +1268,9 @@ export class Assistant {
 		const key = await this.apiKey();
 		if (!key) throw new Error('Nessuna chiave Agnes.');
 		const effort = this.deps.cervelli?.choice().effort;
-		const reasoning = effort === 'profondo' ? 'high' : effort === 'normale' ? 'low' : 'none';
+		// A voce Agnes risponde senza ragionare, come la Melissa di Avo (reasoning_effort none): con "profondo"
+		// pensava circa 4 s prima della prima parola. L'impegno scelto vale per le domande scritte.
+		const reasoning = this.spokenTurn ? 'none' : effort === 'profondo' ? 'high' : effort === 'normale' ? 'low' : 'none';
 		const body = JSON.stringify({ model: AGNES_MODEL, messages, tools, tool_choice: 'auto', reasoning_effort: this.deps.cervelli ? reasoning : 'none', stream: true });
 		let wait = 2000;
 		for (let attempt = 0; attempt < 4; attempt++) {
