@@ -13,6 +13,7 @@ import type { Livello } from './tipi';
      FINITO    un lavoro della Bottega esce dalla lista mentre era «in corso»
      CONFERMA  Melissa aspetta un si' o un no
      REGOLA    un progetto passa a rosso nel semaforo
+     NEGOZIO   un allarme della stanza App Store: crollo dei guadagni, riempimento a picco, app non piu' approvata
    Le notifiche partono solo con Andrea lontano dal Mac (bottega.iphone.avvisi). Con Andrea al Mac ATTESA, FINITO e
    REGOLA le ha gia' viste (allontanandosi non gli arriva una raffica per ogni sessione ferma); solo CONFERMA aspetta
    che si allontani, finche' la domanda resta aperta, e porta il suo numero: l'app lo rimanda col si' o col no.
@@ -40,6 +41,15 @@ export interface Istantanea {
 	segui?: { progetto: string; passo: string; stato: string };
 	/** Il semaforo; null finche' non ha fatto il primo controllo. */
 	regole?: RegolaProgetto[] | null;
+	/** Gli allarmi della stanza App Store delle ultime 48 ore; null finche' non ha letto (src/appstore.ts). */
+	negozio?: AllarmeNegozio[] | null;
+}
+
+/** Un allarme della stanza App Store: l'id cambia a ogni fatto nuovo (contiene il giorno), quindi suona una volta. */
+export interface AllarmeNegozio {
+	id: string;
+	app: string;
+	testo: string;
 }
 
 export interface AvvisiDeps {
@@ -95,6 +105,7 @@ export class Avvisi {
 	/** Dopo un invio fallito (non per un token morto) le notifiche si riprovano, ma non prima di un minuto. */
 	private pausaFino = -Infinity;
 	private livelli?: Map<string, Livello>;
+	private allarmiVisti?: Set<string>;
 	private la = { avviata: false, tentata: -Infinity, ultimoInvio: -Infinity, firma: '', tiAspetta: -1, vuotoDal: undefined as number | undefined, token: '', da: 0, nostra: false };
 	private wg = { ultimo: -Infinity, inCorso: 0, tiAspetta: 0 };
 	private corsa?: Promise<void>;
@@ -157,18 +168,24 @@ export class Avvisi {
 			if (this.livelli && !primo) for (const r of ist.regole) if (r.livello === 'rosso' && this.livelli.get(r.path) !== 'rosso') rossi.push(r);
 			this.livelli = new Map(ist.regole.map(r => [r.path, r.livello]));
 		}
+		// gli allarmi del negozio: suona quello che non c'era al giro prima (alla partenza nessuno)
+		const negozio: AllarmeNegozio[] = [];
+		if (ist.negozio) {
+			if (this.allarmiVisti && !primo) for (const a of ist.negozio) if (!this.allarmiVisti.has(a.id)) negozio.push(a);
+			this.allarmiVisti = new Set(ist.negozio.map(a => a.id));
+		}
 
 		const disp = this.d.dispositivo();
 		if (primo) this.wg = { ultimo: -Infinity, inCorso: ist.conti.inCorso, tiAspetta: ist.conti.tiAspetta };
 		if (!disp) return;
-		await this.notifiche(disp, ist, now, finiti, rossi);
+		await this.notifiche(disp, ist, now, finiti, rossi, negozio);
 		await this.attivita(this.d.dispositivo() ?? disp, ist, now);
 		await this.widget(this.d.dispositivo() ?? disp, ist, now);
 	}
 
 	// ---------- notifiche ----------
 
-	private async notifiche(disp: Dispositivo, ist: Istantanea, now: number, finiti: WorkItem[], rossi: RegolaProgetto[]): Promise<void> {
+	private async notifiche(disp: Dispositivo, ist: Istantanea, now: number, finiti: WorkItem[], rossi: RegolaProgetto[], negozio: AllarmeNegozio[] = []): Promise<void> {
 		const modo = this.d.modo();
 		if (modo === 'mai' || !disp.token || now < this.pausaFino) return;
 		const attese = ist.lavori.filter(w => {
@@ -176,9 +193,9 @@ export class Avvisi {
 			return a && !a.avvisata && now - (this.ultimaAttesa.get(w.key) ?? -Infinity) >= ATTESA_OGNI_MS;
 		});
 		const conferma = this.conferma && !this.conferma.avvisata ? this.conferma : undefined;
-		if (!attese.length && !conferma && !finiti.length && !rossi.length) return;
+		if (!attese.length && !conferma && !finiti.length && !rossi.length && !negozio.length) return;
 		if (modo === 'lontano' && (await this.d.inattivoMs()) <= LONTANO_MS) {
-			// al Mac: chi ti aspetta lo vedi li', FINITO e REGOLA pure; resta solo la CONFERMA
+			// al Mac: chi ti aspetta lo vedi li', FINITO e REGOLA pure; NEGOZIO e' gia' una notifica del Mac; resta solo la CONFERMA
 			for (const w of attese) this.attese.get(w.key)!.avvisata = true;
 			return;
 		}
@@ -233,6 +250,10 @@ export class Avvisi {
 		}
 		for (const r of rossi) {
 			const vivo = await manda({ aps: { alert: { title: pulisci(r.progetto, 40), body: pulisci(r.frase || 'Il semaforo è rosso.', 140) }, category: 'REGOLA' } }, now + 24 * 3600_000, () => undefined);
+			if (!vivo) return;
+		}
+		for (const a of negozio.slice(0, 3)) {
+			const vivo = await manda({ aps: { alert: { title: pulisci(a.app, 40), body: pulisci(a.testo, 160) }, 'thread-id': 'appstore' } }, now + 24 * 3600_000, () => undefined);
 			if (!vivo) return;
 		}
 	}

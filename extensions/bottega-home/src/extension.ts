@@ -25,12 +25,15 @@ import { Aggiornamenti } from './aggiorna';
 import { TOOLS } from './assistant';
 import { registraStrumentiConnettori, STRUMENTI_CONNETTORI } from './strumenti-connettori';
 import { registerTerminale, STRUMENTI_TERMINALE } from './terminale-host';
-import { AppStore } from './appstore';
+import type { AppStore } from './appstore';
+import { allarmiAppStore, briefingAppStore, handleAppStore, registerAppStore, STRUMENTI_APPSTORE } from './appstore-host';
 
 // Melissa usa i connettori di Claude Code in sola lettura (docs/CONTRATTI.md, 5 e 6): prima che nasca l'assistente.
 Object.assign(TOOLS, STRUMENTI_CONNETTORI satisfies typeof TOOLS);
 // Il terminale (docs/CONTRATTI.md, 12): «aprimi un terminale su Woofmap».
 Object.assign(TOOLS, STRUMENTI_TERMINALE satisfies typeof TOOLS);
+// La stanza App Store (docs/CONTRATTI.md, 13.7): «quanto hanno reso le app questa settimana».
+Object.assign(TOOLS, STRUMENTI_APPSTORE satisfies typeof TOOLS);
 
 export interface Snapshot {
 	projects: Project[];
@@ -523,12 +526,6 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 		case 'assistant.ask':
 			if (m.text) await assistant?.ask(m.text);
 			return;
-		case 'appstore.request':
-			// lo stato salvato subito; il motore rilegge da solo se sono passati 45 minuti
-			if (appStore) panelHost?.send({ type: 'appstore', state: appStore.state() });
-			return void appStore?.refresh();
-		case 'appstore.refresh':
-			return void appStore?.refresh({ force: true });
 		case 'osservatorio.open':
 			return void vscode.commands.executeCommand('bottega.openOsservatorio');
 		case 'cielo.diag':
@@ -539,6 +536,7 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 			return;
 		}
 		default:
+			if (handleAppStore(m, { send: msg => panelHost?.send(msg) })) return;
 			if (await handleConnettori(m)) return;
 			await idee?.handle(m);
 	}
@@ -653,6 +651,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
 				frase: p.hits.find(h => h.livello === 'rosso')?.frase,
 			}));
 		},
+		// gli allarmi della stanza App Store: all'iPhone quando Andrea e' lontano (CONTRATTI 13.7)
+		negozio: allarmiAppStore,
 	});
 	ctx.subscriptions.push(changed.event(() => ponte?.notify()));
 
@@ -672,10 +672,17 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		openProject: p => openProject(p),
 		refresh: () => refreshDynamic(),
 		log: s => console.warn(s),
+		appstore: briefingAppStore,
 	});
 	idee.start(ctx);
-	appStore = new AppStore({ radar: () => idee?.radar, projects: () => snapshot.projects, log: s => console.warn(s) });
-	appStore.onChange(s => panelHost?.send({ type: 'appstore', state: s }));
+	appStore = registerAppStore(ctx, {
+		radar: () => idee?.radar,
+		projects: () => snapshot.projects,
+		send: msg => panelHost?.send(msg),
+		nucleo: () => nucleo,
+		showHome: view => showHome(view, undefined, true),
+		log: s => console.warn(s),
+	});
 	registraStrumentiConnettori(registerConnettori(ctx, { projects: () => snapshot.projects, send: msg => panelHost?.send(msg), showHome: view => showHome(view, undefined, true), log: s => console.warn(s) }));
 
 	// La parte nativa (docs/CONTRATTI.md, 7 e 8): Osservatorio, bacheca viva, categorie del lavoro (Apple
