@@ -1,7 +1,8 @@
 /* Il briefing del mattino e i consigli della Home.
 
    Tutti e due nascono dagli stessi fatti, raccolti qui senza inventare niente: ore e progetti di ieri (cruscotto),
-   lavori che aspettano, novita' dallo Store, soldi di ieri, regole violate, progetti dimenticati, la notte.
+   lavori che aspettano, novita' dallo Store, soldi di ieri, regole violate, progetti dimenticati, la notte, e gli
+   appuntamenti di oggi se Google Calendar e' collegato in Claude Code (strumenti-connettori.ts ne e' la fonte).
    - Il briefing si fa una volta al giorno: Melissa lo scrive con la sua voce (Agnes, ripiego Apple Intelligence,
      ripiego frasi fisse) e lo dice in una trentina di secondi. Mai insistente: una volta, poi resta una card.
    - I consigli li scrive Apple Intelligence sul Mac (ai.generate del Nucleo), da 3 a 5 frasi; senza Apple
@@ -18,7 +19,7 @@ import type { RadarState, RulesState, RuleAction } from './tipi';
 import type { Stats } from './stats';
 
 export interface BriefingPoint {
-	kind: 'ore' | 'lavori' | 'store' | 'soldi' | 'regole' | 'dimenticati' | 'notte';
+	kind: 'ore' | 'lavori' | 'store' | 'soldi' | 'regole' | 'dimenticati' | 'notte' | 'calendario';
 	text: string;
 	act?: RuleAction;
 }
@@ -48,6 +49,37 @@ export interface Facts {
 	/** Stati delle versioni e recensioni gia' raccontati nel briefing precedente. */
 	seen?: BriefingMemory;
 	now?: number;
+	/** Gli appuntamenti di oggi; assente = si chiede alla fonte registrata, null = nessuna riga. */
+	calendario?: EventoCalendario[] | null;
+}
+
+export interface EventoCalendario {
+	/** "10:00" oppure "tutto il giorno". */
+	ora: string;
+	titolo: string;
+}
+
+/** Chi sa gli appuntamenti di oggi (strumenti-connettori.ts): deve rispondere subito, senza aspettare la rete. */
+export type FonteCalendario = (now: number) => EventoCalendario[] | null;
+let fonteCalendario: FonteCalendario | undefined;
+export function impostaFonteCalendario(f?: FonteCalendario): void {
+	fonteCalendario = f;
+}
+
+/** «Oggi hai: 10:00 chiamata con Rossi, 16:30 dentista.» Al massimo cinque, gli altri contati. */
+export function fraseCalendario(eventi: EventoCalendario[]): string {
+	const pulito = (t: string) => t.replace(/\s*[\u2013\u2014]\s*/g, ', ').replace(/\s+/g, ' ').replace(/[.;,\s]+$/, '').trim();
+	const ok = eventi.filter(e => e && pulito(String(e.titolo ?? '')));
+	if (!ok.length) return 'Oggi in agenda non hai niente.';
+	const chiave = (o: string) => (/^\d{1,2}[:.]\d{2}$/.test(o) ? o.replace('.', ':').padStart(5, '0') : '');
+	const ordinati = [...ok].sort((a, b) => chiave(a.ora).localeCompare(chiave(b.ora)));
+	const voci = ordinati.slice(0, 5).map(e => {
+		const o = String(e.ora ?? '').trim();
+		const quando = chiave(o) ? chiave(o) : /tutto/i.test(o) ? 'tutto il giorno' : '';
+		return `${quando ? quando + ' ' : ''}${pulito(String(e.titolo)).slice(0, 60)}`;
+	});
+	const altri = ordinati.length - voci.length;
+	return `Oggi hai: ${voci.join(', ')}${altri ? `, e ${altri === 1 ? 'un altro' : `altri ${altri}`}` : ''}.`;
 }
 
 export interface BriefingMemory {
@@ -105,6 +137,18 @@ export function briefingPoints(f: Facts): BriefingPoint[] {
 	} else if (yellow) {
 		pts.push({ kind: 'regole', text: `Nessuna regola rossa, ${yellow === 1 ? 'un progetto in giallo' : `${yellow} progetti in giallo`}.`, act: { act: 'view', label: 'Apri la Vedetta', args: { view: 'vedetta' } } });
 	}
+
+	// appuntamenti di oggi: se la fonte non li ha (delega in corso, fallita, tetto), niente riga
+	let cal: EventoCalendario[] | null = null;
+	if (f.calendario !== undefined) cal = f.calendario;
+	else {
+		try {
+			cal = fonteCalendario ? fonteCalendario(now) : null;
+		} catch {
+			cal = null;
+		}
+	}
+	if (cal) pts.push({ kind: 'calendario', text: fraseCalendario(cal) });
 
 	// lavori
 	const waiting = f.jobs.filter(j => j.status === 'ti aspetta');

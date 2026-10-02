@@ -19,6 +19,11 @@ import { Cervelli, Effort, FAMILIES, Provider, spokenChoice } from './cervelli';
 import { digest, digestText } from './mani';
 import { CategorieMinuti, Osservatorio, categorieMinuti, fraseCategorie } from './osservatorio';
 import { registerPonte } from './ponte-host';
+import { TOOLS } from './assistant';
+import { registraStrumentiConnettori, STRUMENTI_CONNETTORI } from './strumenti-connettori';
+
+// Melissa usa i connettori di Claude Code in sola lettura (docs/CONTRATTI.md, 5 e 6): prima che nasca l'assistente.
+Object.assign(TOOLS, STRUMENTI_CONNETTORI satisfies typeof TOOLS);
 
 export interface Snapshot {
 	projects: Project[];
@@ -630,7 +635,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		log: s => console.warn(s),
 	});
 	idee.start(ctx);
-	registerConnettori(ctx, { projects: () => snapshot.projects, send: msg => panelHost?.send(msg), showHome: view => showHome(view, undefined, true), log: s => console.warn(s) });
+	registraStrumentiConnettori(registerConnettori(ctx, { projects: () => snapshot.projects, send: msg => panelHost?.send(msg), showHome: view => showHome(view, undefined, true), log: s => console.warn(s) }));
 
 	// La parte nativa (docs/CONTRATTI.md, 7 e 8): Osservatorio, bacheca viva, categorie del lavoro (Apple
 	// Intelligence), schermate delle trascrizioni lette con Vision e rese cercabili nella Memoria.
