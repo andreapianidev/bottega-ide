@@ -29,6 +29,8 @@ Eseguibile: `Bottega Nucleo.app/Contents/MacOS/BottegaNucleo`, bundle id `com.an
 `Bottega.app/Contents/Resources/app/extensions/bottega-home/nucleo/Bottega Nucleo.app`.
 In sviluppo: `nucleo/build/Bottega Nucleo.app` (prodotto da `nucleo/build.sh`).
 
+Correzione (2/10/2026, 19:07): il rilancio qui sotto NON sposta il responsabile per macOS. Il crash della prima richiesta di riconoscimento vocale mostra che macOS legge la spiegazione da Bottega.app: le chiavi dei permessi usati dal Nucleo (`NSMicrophoneUsageDescription`, `NSSpeechRecognitionUsageDescription`) vanno anche nell'Info.plist della Bottega, e le mette `scripts/package.sh`. Il silenzio delle 18:43 non era dimostrato essere dei permessi: era il motore di trascrizione. Il rilancio resta, innocuo. Il testo che segue e' l'ipotesi di allora.
+
 Responsabile di se stesso (2/10/2026, `Sources/Autonomo.swift`): lanciato dall'estensione, il Nucleo avrebbe Bottega.app
 come processo responsabile e macOS gli applicherebbe il permesso del microfono di Bottega, consegnando silenzio senza
 errori se manca (misurato: 10 s di audio inviati a ElevenLabs, nessuna parola). In modalita' servizio il Nucleo si

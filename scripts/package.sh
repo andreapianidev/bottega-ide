@@ -93,7 +93,10 @@ PL=$DIST/Contents/Info.plist
 
 # Permessi di macOS: i testi li legge Andrea nella finestra di richiesta, quindi in italiano.
 /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription La Bottega ascolta la tua voce solo mentre parli con Melissa." $PL
+# Il riconoscimento vocale di Apple (come la Melissa di Avo) lo chiede il Nucleo, ma macOS legge la spiegazione
+# dall'app responsabile, cioe' la Bottega: senza questa chiave il Nucleo viene chiuso alla prima richiesta (2/10/2026).
 /usr/libexec/PlistBuddy -c "Delete :NSSpeechRecognitionUsageDescription" $PL 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :NSSpeechRecognitionUsageDescription string Melissa capisce quello che dici con il riconoscimento vocale del Mac, come in Avo." $PL
 
 # Firma con un'identita' stabile (il certificato Apple Development del Mac): con la firma ad hoc ogni
 # build e' un'app nuova per macOS, che richiede di nuovo la password del Portachiavi ("Bottega Safe

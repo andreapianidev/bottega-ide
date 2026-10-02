@@ -4,6 +4,13 @@
 //
 //  The Nucleo answers for itself in front of macOS privacy (TCC), like a standalone app.
 //
+//  CORRECTION (2/10/2026, 19:07): this did NOT move TCC off Bottega. The crash report of the
+//  first speech-recognition request says macOS read the usage description from the responsible
+//  app, Bottega.app (coalition com.andreapiani.bottega), not from the Nucleo. So the permissions
+//  the Nucleo uses need their usage strings in Bottega.app too (scripts/package.sh). The silence
+//  of 18:43 was not proven to be a TCC problem: the transcription engine was (see AppleSTT.swift).
+//  The re-launch is harmless and stays until it is removed on purpose.
+//
 //  Spawned by the Bottega extension (node child_process), the Nucleo has Bottega.app as its
 //  "responsible process": macOS applies Bottega's microphone permission, not the Nucleo's.
 //  On 2/10/2026 that gave silence: authorizationStatus said "authorized", the mic opened, 10 s
