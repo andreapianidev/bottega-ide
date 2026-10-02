@@ -67,17 +67,32 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 	// i tempi della Live Activity (15 s, 2 minuti) e dei widget passano anche senza cambi
 	const giri = setInterval(() => disp && avvisa(), 5000);
 
+	let impegnata = false;
 	const ponte = new Ponte({
 		dir,
 		versione: String(ctx.extension.packageJSON.version ?? ''),
 		stato: () => stato(deps),
-		occupata: () => deps.assistant()?.busy() ?? true,
+		// prenotata subito, prima di qualunque await: due domande dall'iPhone non passano insieme il controllo
+		occupata: () => impegnata || (deps.assistant()?.busy() ?? true),
+		confermaAttuale: () => deps.assistant()?.pendingConfirmation(),
 		chiedi: async testo => {
 			const a = deps.assistant();
 			if (!a) throw Object.assign(new Error('Melissa non e\' ancora pronta.'), { status: 503 });
-			return a.askRemote(testo);
+			impegnata = true;
+			try {
+				return await a.askRemote(testo);
+			} finally {
+				impegnata = false;
+			}
 		},
-		parla: (testo, emetti, segnale) => parla(deps, testo, emetti, segnale),
+		parla: async (testo, emetti, segnale) => {
+			impegnata = true;
+			try {
+				return await parla(deps, testo, emetti, segnale);
+			} finally {
+				impegnata = false;
+			}
+		},
 		voce: async testo => {
 			const n = deps.nucleo();
 			if (!n?.available) throw Object.assign(new Error('Il Nucleo non e\' acceso: niente voce.'), { status: 503 });
@@ -110,8 +125,10 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 		},
 		vscode.workspace.onDidChangeConfiguration(e => {
 			if (!e.affectsConfiguration('bottega.ponte.attivo')) return;
-			if (acceso()) void ponte.start();
-			else ponte.stop();
+			if (acceso()) {
+				avvisi.riparti();
+				void ponte.start();
+			} else ponte.stop();
 		}),
 		vscode.commands.registerCommand('bottega.ponte.collega', () => mostraCollegamento(ponte, deps, acceso())),
 	);
@@ -131,6 +148,11 @@ async function parla(deps: PonteHostDeps, testo: string, emetti: (r: RigaParla) 
 	const n = deps.nucleo();
 	const id = crypto.randomUUID();
 	const voce = !!n?.available && (await n.request<{ ok: boolean }>('ponte.flusso.apri', { id }, 5000).then(r => !!r?.ok).catch(() => false));
+	if (segnale.aborted) {
+		// l'iPhone ha gia' chiuso mentre si apriva il socket: niente turno fantasma
+		if (voce) n!.fireAndForget('ponte.flusso.ferma', { id });
+		throw Object.assign(new Error('L\'iPhone ha chiuso la richiesta.'), { status: 499 });
+	}
 	emetti({ tipo: 'voce', ok: voce });
 
 	let chiudiAudio!: () => void;
@@ -162,6 +184,7 @@ async function parla(deps: PonteHostDeps, testo: string, emetti: (r: RigaParla) 
 		chiudiAudio();
 	};
 	segnale.addEventListener('abort', interrompi, { once: true });
+	let attesa: NodeJS.Timeout | undefined;
 	try {
 		const risposta = await a.askRemoteVoice(testo, {
 			frase: t => {
@@ -171,9 +194,10 @@ async function parla(deps: PonteHostDeps, testo: string, emetti: (r: RigaParla) 
 			fine,
 		});
 		fine();
-		await Promise.race([audioFinito, new Promise(r => setTimeout(r, 30_000))]);
+		await Promise.race([audioFinito, new Promise(r => (attesa = setTimeout(r, 30_000)))]);
 		return risposta;
 	} finally {
+		clearTimeout(attesa);
 		segnale.removeEventListener('abort', interrompi);
 		if (voce) {
 			n!.off('ponte.audio', suAudio);

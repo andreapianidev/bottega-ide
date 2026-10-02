@@ -22,7 +22,7 @@ export interface Push {
 	payload: object;
 	/** 10 subito, 5 quando conviene alla batteria. */
 	priorita: 5 | 10;
-	/** Secondi dal 1970 oltre i quali APNs non ci riprova piu'; assente = un tentativo solo. */
+	/** Secondi dal 1970 oltre i quali APNs non ci riprova piu'; assente = un tentativo solo (apns-expiration 0). */
 	scadenza?: number;
 }
 
@@ -237,7 +237,8 @@ export class Apns implements Invio {
 				'content-type': 'application/json',
 				'content-length': corpo.length,
 			};
-			if (p.scadenza !== undefined) headers['apns-expiration'] = String(Math.floor(p.scadenza));
+			// senza scadenza APNs puo' tenere la push e consegnarla ore dopo: 0 vuol dire un tentativo solo, adesso
+			headers['apns-expiration'] = String(p.scadenza !== undefined ? Math.floor(p.scadenza) : 0);
 			const req = s.request(headers);
 			req.setTimeout(ATTESA_RISPOSTA, () => req.close(http2.constants.NGHTTP2_CANCEL));
 			let status = 0;

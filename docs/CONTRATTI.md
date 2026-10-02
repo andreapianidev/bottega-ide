@@ -1058,13 +1058,15 @@ nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard,
   `~/.bottega/ponte.json` (permessi 600) ed e' copiato in `~/.secrets/bottega.env` (`BOTTEGA_PONTE_TOKEN`). Per
   cambiarlo si cancella `ponte.json`, si riavvia la Bottega e si ricollega l'iPhone. Confronto a tempo costante;
   indirizzi fuori da 100.64.0.0/10 e fd7a:115c:a1e0::/48 -> 403; 20 gettoni sbagliati in 10 minuti -> quell'indirizzo
-  riceve 429 per 10 minuti. Corpo al massimo 16 KB, testo al massimo 2000 caratteri.
+  riceve 429 per 10 minuti sui gettoni sbagliati (il gettone giusto passa sempre, cosi' un nuovo QR non resta
+  chiuso fuori dai widget col gettone vecchio). Corpo al massimo 16 KB, testo al massimo 2000 caratteri.
 - `GET /v1/stato` -> `{versione, mac, ora, melissa: {stato, cervello, parziale?, registro: [{chi: tu|melissa|azione,
   testo, alle}]}, lavori: [{chiave, origine: bottega|altrove, stato, progetto, titolo, da, jobId?}], conti: {inCorso,
   tiAspetta, inCoda, vive}}`. Registro: gli ultimi 30 della barra di Melissa. Lavori: i primi 40 di `snapshot.work`.
 - `GET /v1/eventi` -> `text/event-stream`: subito una riga `data: <stato>`, poi una a ogni cambio di Melissa o dei
   lavori (al massimo tre al secondo), `: ping` ogni 25 s.
-- `POST /v1/chiedi {testo}` -> `{risposta, stato}`. `Assistant.askRemote`: stesso cervello, stessa storia e stessi
+- `POST /v1/chiedi {testo, conferma?}` -> `{risposta, stato}`. Con `conferma` (il numero arrivato nella notifica
+  CONFERMA) passa solo se e' ancora la domanda aperta (`Assistant.pendingConfirmation()`), altrimenti 409. `Assistant.askRemote`: stesso cervello, stessa storia e stessi
   strumenti della barra, con `speak` falso (il Mac sta zitto). Conferme a rischio (push) come sul Mac: il turno dopo
   e' il si' o il no. 409 se Melissa sta gia' rispondendo (`Assistant.busy()`).
 - `POST /v1/parla {testo}` -> `application/x-ndjson`, una riga per evento mentre Melissa risponde:
@@ -1098,7 +1100,7 @@ nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard,
 
 ### 9.3 L'app (`ios/`)
 
-- Progetto XcodeGen (`ios/project.yml`, `cd ios && xcodegen`), bundle `com.andreapiani.bottega.ios`, iOS 18+, solo
+- Progetto XcodeGen (`ios/project.yml`, `cd ios && xcodegen`), bundle `com.andreapiani.bottega.ios`, iOS 27+, solo
   iPhone, schema `bottega://` per il collegamento. Versione e build in `ios/Version.xcconfig`, scritte da
   `scripts/bump-build.sh`: sempre uguali a quelle della Bottega. Icona: `swift brand/icon.swift <out> --ios`.
 - Sfera: `nucleo/Sources/Orb/OrbRenderer.swift`, `OrbShaders.metal` e `nucleo/Sources/Voice/AudioLevels.swift` sono
@@ -1127,11 +1129,14 @@ minuti. Host: `api.sandbox.push.apple.com` per `ambiente: 'sviluppo'` (build Deb
 `com.andreapiani.bottega.ios.push-type.widgets`. Un token che APNs dice morto (410, `BadDeviceToken`,
 `Unregistered`) si toglie dal registro.
 
+Ogni push porta `apns-expiration` (0 = un tentativo solo, adesso). Un turno dall'iPhone esclude quelli del Mac:
+finche' dura, microfono, tasto e barra del Mac non aprono turni (`Assistant.remote`, `busy()`).
+
 **Registro.** `POST /v1/dispositivo {token?, ambiente, avvio?, attivita?, widget?}` -> `{ok: true}`: token in esadecimale.
 `token` = notifiche (`didRegisterForRemoteNotifications`), `avvio` = push-to-start della Live Activity
 (`Activity<BottegaAttivita>.pushToStartTokenUpdates`), `attivita` = la Live Activity aperta adesso
 (`activity.pushTokenUpdates`; `attivita: ''` quando finisce), `widget` = `WidgetPushHandler`. Un solo iPhone per
-ora: i campi si fondono. File `~/.bottega/iphone.json` (600).
+ora: i campi si fondono; se cambia `ambiente` i token di prima si buttano. File `~/.bottega/iphone.json` (600).
 
 **Notifiche** (`apns-push-type: alert`). Solo quando Andrea e' lontano dal Mac: nessun input da tastiera o mouse da
 2 minuti (`HIDIdleTime`), impostazione `bottega.iphone.avvisi` (`lontano` | `sempre` | `mai`, default `lontano`).
@@ -1143,19 +1148,23 @@ Il testo passa dai server di Apple: solo nome del progetto e una frase breve, ma
 - `FINITO`: un lavoro della Bottega esce dalla lista mentre era «in corso» (o un lavoro della notte finisce).
   `{aps: {alert: {title, body: "Ha finito: <titolo>"}, category: "FINITO", "thread-id"}}`.
 - `CONFERMA`: Melissa aspetta un si' o un no su un'azione a rischio (push, stop). `{aps: {alert: {title: "Melissa",
-  body: "Posso <azione>?"}, sound: "default", category: "CONFERMA", "interruption-level": "time-sensitive"}}`. Azioni «Si'» e «No»: l'app manda
-  «si'» o «no» con `POST /v1/chiedi`.
+  body: "Posso <azione>?"}, sound: "default", category: "CONFERMA", "interruption-level": "time-sensitive"},
+  conferma: <numero della domanda>}`. Azioni «Si'» e «No»: l'app manda
+  `POST /v1/chiedi {testo: "si'"|"no", conferma}`; una notifica vecchia prende 409 e non conferma niente.
 - `REGOLA`: un progetto passa a rosso nel semaforo. `{aps: {alert: {title, body: <frase>}, category: "REGOLA"}}`.
 Toccare una notifica apre l'app (ATTESA, FINITO: stanza Lavori; CONFERMA: Melissa).
-Con Andrea al Mac: ATTESA e CONFERMA restano in sospeso e partono quando si allontana, se la sessione aspetta
-ancora o la domanda e' ancora aperta; FINITO e REGOLA si scartano (le ha viste sul Mac). All'avvio della Bottega i
+Con Andrea al Mac: ATTESA, FINITO e REGOLA si considerano viste (allontanandosi non arriva una raffica per ogni
+sessione ferma; arriva solo chi comincia ad aspettare mentre e' via); la CONFERMA resta in sospeso e parte quando si
+allontana, se la domanda e' ancora aperta. Un invio fallito per la rete si riprova dopo un minuto. All'avvio della Bottega i
 primi 60 secondi fanno da linea di partenza: quello che c'e' gia' non suona. `mai` spegne solo le notifiche: Live
 Activity e widget restano.
 
 **Live Activity** (`apns-push-type: liveactivity`, attributi `BottegaAttivita` in `ios/Condiviso/BottegaAttivita.swift`).
 `content-state` = `{inCorso, tiAspetta, vive, righe: [{progetto, stato, da}], aggiornato}` (al massimo tre righe,
 prima chi ti aspetta; `da` e `aggiornato` in ms dal 1970).
-- Avvio con il token `avvio` quando ci sono sessioni al lavoro o che aspettano e non c'e' un'attivita' aperta:
+- Vive finche' ci sono sessioni AL LAVORO (`inCorso`): quelle ferme contano come «ti aspetta» tutto il giorno e
+  non la farebbero mai finire. Chi aspetta resta nel contenuto, in ambra, finche' l'attivita' vive.
+- Avvio con il token `avvio` quando ci sono sessioni al lavoro e non c'e' un'attivita' aperta:
   `{aps: {timestamp, event: "start", "content-state", "attributes-type": "BottegaAttivita", attributes: {mac},
   alert: {title: "Bottega", body: "<n> sessioni Claude al lavoro"}}}`, priorita' 10. Vale anche con Andrea al Mac.
 - Aggiornamento con il token `attivita` a ogni cambio, al massimo ogni 15 s (priorita' 5; 10 se cambia `tiAspetta`):

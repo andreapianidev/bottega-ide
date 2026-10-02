@@ -165,7 +165,7 @@ function banco(opz = {}) {
 	assert.ok(tokenMorto(e) && tokenMorto({ ok: false, status: 410 }) && tokenMorto({ ok: false, status: 400, reason: 'Unregistered' }));
 	assert.ok(!tokenMorto({ ok: false, status: 403, reason: 'InvalidProviderToken' }));
 	assert.strictEqual(richieste[1].headers['apns-topic'], 'com.andreapiani.bottega.ios');
-	assert.strictEqual(richieste[1].headers['apns-expiration'], undefined);
+	assert.strictEqual(richieste[1].headers['apns-expiration'], '0', 'senza scadenza: un tentativo solo');
 	assert.strictEqual(richieste[1].headers.authorization, r0.headers.authorization, 'stesso JWT entro 50 minuti');
 	oraApns += 51 * MIN;
 	await apns.manda({ tipo: 'widgets', token: tok, ambiente: 'produzione', priorita: 5, payload: { aps: { 'content-changed': true } } });
@@ -239,8 +239,11 @@ function banco(opz = {}) {
 		assert.ok(b.letture >= 1);
 		b.inattivo = 3 * MIN; // si alza
 		await b.giro(1000);
+		assert.strictEqual(b.presi('alert').length, 0, 'quello che ha visto al Mac non arriva quando si alza: niente raffica');
+		b.lavori = [lavoro('sess:s1', 'ti aspetta'), lavoro('sess:s3', 'ti aspetta')]; // s3 aspetta mentre e' via
+		await b.giro(1000);
 		const a = b.presi('alert');
-		assert.deepStrictEqual(a.map(p => p.payload.aps.category), ['ATTESA'], 'chi aspetta ancora arriva; il FINITO visto al Mac no');
+		assert.deepStrictEqual(a.map(p => p.payload.chiave), ['sess:s3'], 'arriva solo chi comincia ad aspettare quando e\' via');
 
 		b.modo = 'mai';
 		b.lavori = [lavoro('sess:s1', 'in corso'), lavoro('sess:s2', 'ti aspetta')];
@@ -252,7 +255,7 @@ function banco(opz = {}) {
 		await b.giro(1000);
 		assert.strictEqual(b.presi('alert').length, 1, 'con «sempre» anche al Mac');
 		assert.strictEqual(b.letture, prima, 'con «sempre» non serve leggere l\'inattivita\'');
-		ok('lontano dal Mac: al Mac niente, poi arriva chi aspetta ancora; «mai» e «sempre»');
+		ok('lontano dal Mac: al Mac niente, poi solo chi comincia ad aspettare quando e\' via; «mai» e «sempre»');
 	}
 
 	// ---------- FINITO, CONFERMA, REGOLA ----------
@@ -272,16 +275,16 @@ function banco(opz = {}) {
 		assert.deepStrictEqual(a[0].payload, { aps: { alert: { title: 'Peak', body: 'Ha finito: Aggiorna il README' }, category: 'FINITO', 'thread-id': 'Peak' } });
 		assert.strictEqual(a[0].ambiente, 'produzione');
 
-		b.conferma = 'Posso fare git push su Bottega?';
+		b.conferma = { id: 1, testo: 'Posso fare git push su Bottega?' };
 		await b.giro(1000);
 		a = b.presi('alert');
-		assert.deepStrictEqual(a[0].payload, { aps: { alert: { title: 'Melissa', body: 'Posso fare git push su Bottega?' }, sound: 'default', category: 'CONFERMA', 'interruption-level': 'time-sensitive' } });
+		assert.deepStrictEqual(a[0].payload, { aps: { alert: { title: 'Melissa', body: 'Posso fare git push su Bottega?' }, sound: 'default', category: 'CONFERMA', 'interruption-level': 'time-sensitive' }, conferma: 1 });
 		assert.ok(a[0].scadenza > b.ora / 1000);
 		await b.giro(1000);
 		assert.strictEqual(b.presi('alert').length, 0, 'la stessa domanda una volta sola');
 		b.conferma = undefined;
 		await b.giro(1000);
-		b.conferma = 'Posso fermare il lavoro su Peak?';
+		b.conferma = { id: 2, testo: 'Posso fermare il lavoro su Peak?' };
 		await b.giro(1000);
 		assert.strictEqual(b.presi('alert').length, 1, 'una domanda nuova si');
 
@@ -315,7 +318,7 @@ function banco(opz = {}) {
 		assert.strictEqual(aps.timestamp, Math.floor(b.ora / 1000));
 		assert.strictEqual(aps['attributes-type'], 'BottegaAttivita');
 		assert.deepStrictEqual(aps.attributes, { mac: 'mac-di-prova' });
-		assert.deepStrictEqual(aps.alert, { title: 'Bottega', body: '4 sessioni Claude al lavoro' });
+		assert.deepStrictEqual(aps.alert, { title: 'Bottega', body: '3 sessioni Claude al lavoro' });
 		const cs = aps['content-state'];
 		assert.deepStrictEqual({ ...cs, aggiornato: 0 }, { inCorso: 3, tiAspetta: 1, vive: 5, righe: [{ progetto: 'Due', stato: 'ti aspetta', da: 1000 }, { progetto: 'Uno', stato: 'in corso', da: 1000 }, { progetto: 'Bottega', stato: 'in corso', da: 1000 }], aggiornato: 0 });
 		assert.strictEqual(cs.aggiornato, b.ora);

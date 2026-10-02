@@ -53,6 +53,8 @@ export interface PonteDeps {
 	/** Vero mentre Melissa sta gia' rispondendo a qualcuno. */
 	occupata(): boolean;
 	chiedi(testo: string): Promise<string>;
+	/** Il numero della conferma che Melissa aspetta adesso (per le notifiche CONFERMA), se ce n'e' una. */
+	confermaAttuale?(): number | undefined;
 	/** Domanda a voce: `emetti` riceve le righe ({tipo: voce|frase|audio}) mentre Melissa risponde; `segnale`
 	 *  scatta se l'iPhone chiude (interruzione). Ritorna la risposta intera. */
 	parla(testo: string, emetti: (riga: RigaParla) => void, segnale: AbortSignal): Promise<string>;
@@ -155,6 +157,8 @@ export class Ponte {
 	/** Gettoni sbagliati per indirizzo: dopo 20 in dieci minuti quell'indirizzo resta fuori dieci minuti. */
 	private readonly sbagli = new Map<string, number[]>();
 	private fermato = false;
+	/** Un riallineamento alla volta: due insieme aprirebbero due server, e uno resterebbe orfano. */
+	private allineando?: Promise<void>;
 
 	constructor(private readonly deps: PonteDeps) {
 		this.token = leggiGettone(deps.dir);
@@ -199,7 +203,12 @@ export class Ponte {
 		return { versione: this.deps.versione, mac: os.hostname().replace(/\.local$/, ''), ora: Date.now(), ...this.deps.stato() };
 	}
 
-	private async allinea(): Promise<void> {
+	private allinea(): Promise<void> {
+		this.allineando ??= this.riallinea().finally(() => (this.allineando = undefined));
+		return this.allineando;
+	}
+
+	private async riallinea(): Promise<void> {
 		const rete = await (this.deps.indirizzo ?? tailscaleSelf)();
 		if (this.fermato) return;
 		if (!rete) {
@@ -224,10 +233,16 @@ export class Ponte {
 			server.on('error', (e: any) => {
 				this.errore = e?.code === 'EADDRINUSE' ? `La porta ${this.porta} e' gia' occupata.` : String(e?.message ?? e);
 				this.deps.log(`ponte: ${this.errore}`);
-				this.server = undefined;
+				if (this.server === server) this.chiudi();
+				else server.close();
 				resolve();
 			});
 			server.listen(this.porta, ip, () => {
+				if (this.fermato) {
+					// spento mentre si apriva: non resta un server acceso che nessuno chiude
+					server.close();
+					return resolve();
+				}
 				this.server = server;
 				this.errore = undefined;
 				this.deps.log(`ponte: in ascolto su ${ip}:${this.porta} (${this.rete?.nome})`);
@@ -263,10 +278,11 @@ export class Ponte {
 			res.end(JSON.stringify(body));
 		};
 		if (!inTailnet(addr)) return json(403, { errore: 'Solo dalla rete Tailscale.' });
-		if (this.escluso(addr)) return json(429, { errore: 'Troppi tentativi sbagliati: riprova tra dieci minuti.' });
 		const auth = String(req.headers.authorization ?? '');
 		const dato = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+		// il gettone giusto passa sempre: dopo un nuovo QR i widget col gettone vecchio non chiudono fuori l'iPhone
 		if (!dato || !uguali(dato, this.token)) {
+			if (this.escluso(addr)) return json(429, { errore: 'Troppi tentativi sbagliati: riprova tra dieci minuti.' });
 			this.sbagli.get(addr)!.push(Date.now());
 			this.deps.log(`ponte: gettone sbagliato da ${addr}`);
 			return json(401, { errore: 'Gettone non valido: ricollega l\'iPhone dalla Bottega.' });
@@ -276,11 +292,16 @@ export class Ponte {
 			if (req.method === 'GET' && url === '/v1/stato') return json(200, this.stato());
 			if (req.method === 'GET' && url === '/v1/eventi') return this.eventi(req, res);
 			if (req.method !== 'POST') return json(404, { errore: 'Non c\'e\' niente qui.' });
-			const corpo = await leggiCorpo(req);
+			const corpo = (await leggiCorpo(req)) ?? {};
+			if (typeof corpo !== 'object') return json(400, { errore: 'JSON non valido.' });
 			const testo = typeof corpo.testo === 'string' ? corpo.testo.trim().slice(0, MAX_TESTO) : '';
 			if (url === '/v1/chiedi') {
 				if (!testo) return json(400, { errore: 'Manca il testo.' });
 				if (this.deps.occupata()) return json(409, { errore: 'Melissa sta gia\' rispondendo: riprova tra un attimo.' });
+				// un si' o un no da una notifica CONFERMA vale solo per la domanda di quella notifica
+				if (typeof corpo.conferma === 'number' && this.deps.confermaAttuale?.() !== corpo.conferma) {
+					return json(409, { errore: 'La domanda e\' cambiata o e\' gia\' chiusa: guarda Melissa nell\'app.' });
+				}
 				this.deps.log(`ponte: domanda dall'iPhone (${testo.length} caratteri)`);
 				const risposta = await this.deps.chiedi(testo);
 				return json(200, { risposta, stato: this.stato() });
@@ -288,6 +309,8 @@ export class Ponte {
 			if (url === '/v1/parla') {
 				if (!testo) return json(400, { errore: 'Manca il testo.' });
 				if (this.deps.occupata()) return json(409, { errore: 'Melissa sta gia\' rispondendo: riprova tra un attimo.' });
+				// l'iPhone ha chiuso mentre arrivava la domanda: niente turno fantasma
+				if (req.socket.destroyed) return;
 				this.deps.log(`ponte: domanda a voce dall'iPhone (${testo.length} caratteri)`);
 				res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
 				res.socket?.setNoDelay(true);

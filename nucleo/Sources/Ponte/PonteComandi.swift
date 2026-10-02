@@ -98,7 +98,11 @@ final class PonteFlusso {
     private var guardia: DispatchWorkItem?
 
     func apri(_ nuovo: String) -> Bool {
-        if !id.isEmpty, id != nuovo { Out.event("ponte.audio.fine", ["id": id]) }
+        if !id.isEmpty, id != nuovo {
+            Out.event("ponte.audio.fine", ["id": id])
+            // il turno di prima ha ancora audio in arrivo: arriverebbe con l'id nuovo, socket nuovo
+            if inAttesa > 0 { stream?.close(); stream = nil }
+        }
         id = nuovo
         inAttesa = 0
         chiuso = false
@@ -148,6 +152,8 @@ final class PonteFlusso {
             if chiuso && inAttesa == 0 { concludi() }
         case .failed(let err):
             Out.event("ponte.audio.errore", ["id": id, "errore": err.localizedDescription])
+            // chiuso davvero: il keep-alive ogni 8 s non deve restare acceso per sempre
+            stream?.close()
             stream = nil
             id = ""
             guardia?.cancel()
