@@ -865,7 +865,7 @@ Provate il 2/10/2026 su 21 domande vere (successo@1 / @5 / MRR): ricerca di oggi
 contestuale (`NLContextualEmbedding`, media dei token) fusi con RRF k=60: 24% / 38% / 0,33; + espansione guidata della
 domanda: 24% / 43% / 0,36 (1,2 s); + riordino guidato dei primi 20 entro 1,5 s: mai in tempo. Tetto senza limite di
 tempo: riordino "migliori" 48% / 62% / 0,53 (3,6 s), "punteggi" 38% / 48% (6 s). Obiettivo 60% / 85% non raggiunto:
-la ricerca resta quella della sezione 2. Il lavoro sta nel ramo `nativo-ricerca-misurata` (non spinto).
+la ricerca resta quella della sezione 2. Il lavoro sta nel ramo `nativo-ricerca-misurata` su GitHub.
 
 ### 7.5 Widget, controlli, Siri e Spotlight
 
@@ -985,5 +985,5 @@ Su dati veri, il 2/10/2026, soglia 8 su 10 (o 4 su 5) giusti e nessun fatto inve
   modello passata), il senso no (circa 1 su 5, confronti falsi con segnaposto validi);
 - documenti (PDF e scansioni: testo, tabelle e importi riconosciuti bene, 96-98% delle parole) restano fuori perche'
   il riassunto breve sul Mac non e' stato giudicato e il testo dei documenti non deve andare ad Agnes.
-Il lavoro sta nel ramo locale `fase3-completa`.
+Il lavoro sta nel ramo `fase3-completa` su GitHub.
 
