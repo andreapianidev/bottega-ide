@@ -24,9 +24,12 @@ import { registerCline } from './cline-host';
 import { Aggiornamenti } from './aggiorna';
 import { TOOLS } from './assistant';
 import { registraStrumentiConnettori, STRUMENTI_CONNETTORI } from './strumenti-connettori';
+import { registerTerminale, STRUMENTI_TERMINALE } from './terminale-host';
 
 // Melissa usa i connettori di Claude Code in sola lettura (docs/CONTRATTI.md, 5 e 6): prima che nasca l'assistente.
 Object.assign(TOOLS, STRUMENTI_CONNETTORI satisfies typeof TOOLS);
+// Il terminale (docs/CONTRATTI.md, 12): «aprimi un terminale su Woofmap».
+Object.assign(TOOLS, STRUMENTI_TERMINALE satisfies typeof TOOLS);
 
 export interface Snapshot {
 	projects: Project[];
@@ -863,6 +866,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	}
 	ensureClaudeExtension(ctx);
 	registerCline(ctx);
+	registerTerminale(ctx, { cartellaLavoro: t => jobManager?.list().find(j => jobManager!.terminal(j.id) === t)?.path });
 	ensureItalian(ctx);
 }
 

@@ -151,6 +151,30 @@
         "title": "Collega l'iPhone",
         "category": "Bottega",
         "icon": "$(device-mobile)"
+      },
+      {
+        "command": "bottega.terminale",
+        "title": "Apri il terminale",
+        "category": "Bottega",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "bottega.terminaleQui",
+        "title": "Terminale qui",
+        "category": "Bottega",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "bottega.terminaleEsterno",
+        "title": "Apri in iTerm2",
+        "category": "Bottega",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "bottega.terminaleEsternoDaQui",
+        "title": "Apri in iTerm2",
+        "category": "Bottega",
+        "icon": "$(link-external)"
       }
     ],
     "viewsContainers": {
@@ -199,6 +223,11 @@
           "command": "bottega.refresh",
           "when": "view == bottega.projects",
           "group": "navigation"
+        },
+        {
+          "command": "bottega.terminaleEsternoDaQui",
+          "when": "view == terminal",
+          "group": "navigation@50"
         }
       ],
       "view/item/context": [
@@ -244,6 +273,10 @@
         {
           "command": "bottega.item.xcode",
           "when": "false"
+        },
+        {
+          "command": "bottega.terminaleEsternoDaQui",
+          "when": "false"
         }
       ],
       "explorer/context": [
@@ -251,6 +284,20 @@
           "command": "bottega.claudeHere",
           "when": "explorerResourceIsFolder",
           "group": "navigation@99"
+        },
+        {
+          "command": "bottega.terminaleQui",
+          "group": "navigation@97"
+        },
+        {
+          "command": "bottega.terminaleEsterno",
+          "group": "navigation@98"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "bottega.terminaleQui",
+          "group": "9_terminale@1"
         }
       ]
     },
@@ -312,6 +359,24 @@
           "type": "boolean",
           "default": true,
           "description": "Cline come riserva di Claude Code: lo installa da Open VSX, lo mette nella barra di destra dopo Claude Code e gli passa i server MCP, le regole di ~/.claude/CLAUDE.md e la memoria della Bottega."
+        },
+        "bottega.terminale.barra": {
+          "type": "boolean",
+          "default": true,
+          "description": "Il terminale come ultima voce della barra di destra, dopo Melissa, Claude Code e Cline. Si sposta una volta sola, alla prossima chiusura della Bottega: dopo decide Andrea."
+        },
+        "bottega.terminale.esterno": {
+          "type": "string",
+          "enum": [
+            "iterm2",
+            "terminal"
+          ],
+          "enumDescriptions": [
+            "iTerm2 con il profilo Bottega (colori e carattere del tema); se manca, Terminale.",
+            "Terminale di macOS."
+          ],
+          "default": "iterm2",
+          "description": "Quale terminale apre «Apri in iTerm2»."
         },
         "bottega.nucleoPath": {
           "type": "string",
@@ -541,7 +606,7 @@
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=out/extension.js",
     "typecheck": "tsc --noEmit",
-    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/whatsapp.cjs && node test/strumenti-connettori.cjs && node test/vercel.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs && node test/ponte-sessioni.cjs && node test/avvisi.cjs && node test/aggiorna.cjs && node test/cline.cjs"
+    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/whatsapp.cjs && node test/strumenti-connettori.cjs && node test/vercel.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs && node test/ponte-sessioni.cjs && node test/avvisi.cjs && node test/aggiorna.cjs && node test/cline.cjs && node test/terminale.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
