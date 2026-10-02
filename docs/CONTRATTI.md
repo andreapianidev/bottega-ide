@@ -1099,7 +1099,7 @@ Apple ha la stessa forma degli altri cervelli: `appleOpenAiStream(nucleo, {effor
 (messaggi e strumenti OpenAI dentro, `{content}` e `{tool_call:{index,id,name,arguments}}` fuori, un passo per
 chiamata). Dietro c'e' una sola sessione FoundationModels per turno: il passo finisce con la tool_call, il messaggio
 `tool` successivo con lo stesso `tool_call_id` diventa `tool.result` e la sessione riprende. Strumenti per Apple:
-sottoinsieme ordinato `APPLE_TOOLS` (14), con le stesse conferme di Melissa per push e stop; l'impegno (`rapido`,
+sottoinsieme ordinato `APPLE_TOOLS` (17, con `stanza_leggi` e `stanza_mostra`), con le stesse conferme di Melissa per push e stop; l'impegno (`rapido`,
 `normale`, `profondo`) e' quello della barra.
 
 | cmd | argomenti | risposta |
