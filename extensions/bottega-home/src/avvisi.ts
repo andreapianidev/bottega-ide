@@ -36,6 +36,8 @@ export interface Istantanea {
 	conti: { inCorso: number; tiAspetta: number; vive: number };
 	/** La domanda di Melissa in attesa di un si' o un no, con il suo numero. */
 	conferma?: { id: number; testo: string };
+	/** La sessione che Andrea segue dalla scheda dell'iPhone (9.5): il suo ultimo passo va nella Live Activity. */
+	segui?: { progetto: string; passo: string; stato: string };
 	/** Il semaforo; null finche' non ha fatto il primo controllo. */
 	regole?: RegolaProgetto[] | null;
 }
@@ -300,7 +302,9 @@ export class Avvisi {
 			.sort((a, b) => (a.status === b.status ? 0 : a.status === 'ti aspetta' ? -1 : 1))
 			.slice(0, 3)
 			.map(w => ({ progetto: pulisci(w.project, 40), stato: w.status, da: w.since }));
-		return { inCorso: ist.conti.inCorso, tiAspetta: ist.conti.tiAspetta, vive: ist.conti.vive, righe, aggiornato: now };
+		// `segui` e' facoltativo: le Live Activity di prima lo ignorano
+		const segui = ist.segui ? { segui: { progetto: pulisci(ist.segui.progetto, 40), passo: pulisci(ist.segui.passo, 60), stato: ist.segui.stato } } : {};
+		return { inCorso: ist.conti.inCorso, tiAspetta: ist.conti.tiAspetta, vive: ist.conti.vive, righe, ...segui, aggiornato: now };
 	}
 
 	// ---------- widget ----------

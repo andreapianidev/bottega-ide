@@ -17,7 +17,8 @@ import { CAMPI_TOKEN, DispositivoParziale, TOKEN_HEX } from './dispositivo';
      POST /v1/parla {testo}       -> application/x-ndjson   la domanda a voce: frasi e audio mentre Melissa risponde
      POST /v1/voce {testo}        -> audio/wav              la voce di Melissa, sintetizzata sul Mac
      POST /v1/lavoro {id, testo}  -> {ok}                   scrive in un lavoro della Bottega
-     POST /v1/dispositivo {...}   -> {ok}                   i token APNs dell'iPhone (9.4): notifiche, Live Activity, widget */
+     POST /v1/dispositivo {...}   -> {ok}                   i token APNs dell'iPhone (9.4): notifiche, Live Activity, widget
+     /v1/sessione...              -> la scheda di una sessione (9.5), in src/ponte-sessioni.ts */
 
 export interface PonteMelissa {
 	stato: string;
@@ -63,9 +64,24 @@ export interface PonteDeps {
 	/** I token APNs dell'iPhone: si fondono con quelli gia' noti ('' toglie un campo). */
 	registraDispositivo(d: DispositivoParziale): void;
 	log(riga: string): void;
+	/** Le rotte della scheda di sessione (/v1/sessione..., docs/CONTRATTI.md 9.5), dopo il gettone. */
+	sessioni?: RotteSessioni;
 	/** Solo per i test: dove ascoltare al posto dell'indirizzo Tailscale. */
 	indirizzo?: () => Promise<Rete | null>;
 	porta?: number;
+}
+
+/** Quello che il ponte passa alle rotte della scheda di sessione (src/ponte-sessioni.ts). */
+export interface AiutiRotte {
+	corpo(): Promise<any>;
+	occupata(): boolean;
+	parla: PonteDeps['parla'];
+}
+
+export interface RotteSessioni {
+	gestisci(req: http.IncomingMessage, res: http.ServerResponse, aiuti: AiutiRotte): Promise<void>;
+	/** Il ponte si chiude: si chiudono anche i flussi della scheda. */
+	chiudi(): void;
 }
 
 export type RigaParla =
@@ -259,6 +275,7 @@ export class Ponte {
 		this.pingTimer = undefined;
 		for (const r of this.flussi) r.end();
 		this.flussi.clear();
+		this.deps.sessioni?.chiudi();
 		this.server?.close();
 		this.server?.closeAllConnections?.();
 		this.server = undefined;
@@ -289,6 +306,10 @@ export class Ponte {
 		}
 		const url = (req.url ?? '/').split('?')[0];
 		try {
+			if (url === '/v1/sessione' || url.startsWith('/v1/sessione/')) {
+				if (!this.deps.sessioni) return json(404, { errore: 'Non c\'e\' niente qui.' });
+				return await this.deps.sessioni.gestisci(req, res, { corpo: () => leggiCorpo(req), occupata: () => this.deps.occupata(), parla: (t, e, s) => this.deps.parla(t, e, s) });
+			}
 			if (req.method === 'GET' && url === '/v1/stato') return json(200, this.stato());
 			if (req.method === 'GET' && url === '/v1/eventi') return this.eventi(req, res);
 			if (req.method !== 'POST') return json(404, { errore: 'Non c\'e\' niente qui.' });
