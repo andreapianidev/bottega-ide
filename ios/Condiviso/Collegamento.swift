@@ -49,48 +49,53 @@ struct Collegamento: Equatable {
     private static let chiave = "collegamento"
     private static let servizio = "com.andreapiani.bottega.ios.ponte"
 
+    /// Dove sta il gettone. Fino alla build 30 nel portachiavi della sola app; dalla 31 in quello condiviso con i
+    /// widget. Ogni lettura e cancellazione nomina il suo gruppo: senza gruppo SecItemDelete cancella in tutti (era
+    /// il guaio della build 31, che dopo aver copiato il gettone cancellava anche la copia).
+    private enum Posto {
+        case condiviso, app
+        var gruppo: String { self == .condiviso ? Condiviso.portachiavi : "ERAK83QBBM.com.andreapiani.bottega.ios" }
+    }
+
     static func carica() -> Collegamento? {
-        migra()
-        guard let d = Condiviso.preferenze.dictionary(forKey: chiave),
-              let host = d["host"] as? String, let porta = d["porta"] as? Int,
-              let token = leggiToken(gruppo: true) else { return nil }
+        let d = Condiviso.preferenze.dictionary(forKey: chiave) ?? UserDefaults.standard.dictionary(forKey: chiave)
+        guard let d, let host = d["host"] as? String, let porta = d["porta"] as? Int else { return nil }
+        let token: String
+        if let t = leggiToken(.condiviso) {
+            token = t
+        } else if let t = leggiToken(.app) {
+            // collegamento di prima: si copia dove lo leggono anche i widget, e quello vecchio resta li'
+            token = t
+            scriviToken(t, .condiviso)
+        } else {
+            return nil
+        }
+        if Condiviso.preferenze.dictionary(forKey: chiave) == nil { Condiviso.preferenze.set(d, forKey: chiave) }
         return Collegamento(host: host, ip: d["ip"] as? String ?? "", porta: porta, token: token)
     }
 
     func salva() {
-        Condiviso.preferenze.set(["host": host, "ip": ip, "porta": porta], forKey: Self.chiave)
-        Self.scriviToken(token)
+        let d: [String: Any] = ["host": host, "ip": ip, "porta": porta]
+        Condiviso.preferenze.set(d, forKey: Self.chiave)
+        UserDefaults.standard.set(d, forKey: Self.chiave)
+        Self.scriviToken(token, .condiviso)
+        Self.scriviToken(token, .app)
     }
 
     static func dimentica() {
         Condiviso.preferenze.removeObject(forKey: chiave)
         UserDefaults.standard.removeObject(forKey: chiave)
-        SecItemDelete(query(gruppo: true) as CFDictionary)
-        SecItemDelete(query(gruppo: false) as CFDictionary)
+        SecItemDelete(query(.condiviso) as CFDictionary)
+        SecItemDelete(query(.app) as CFDictionary)
     }
 
-    /// Fino alla build 30 il collegamento stava solo nell'app: si sposta nel gruppo, senza ricollegare l'iPhone.
-    private static func migra() {
-        guard Condiviso.preferenze.dictionary(forKey: chiave) == nil,
-              let vecchio = UserDefaults.standard.dictionary(forKey: chiave),
-              let token = leggiToken(gruppo: false) else { return }
-        Condiviso.preferenze.set(vecchio, forKey: chiave)
-        scriviToken(token)
-        if leggiToken(gruppo: true) == token {
-            UserDefaults.standard.removeObject(forKey: chiave)
-            SecItemDelete(query(gruppo: false) as CFDictionary)
-        }
+    private static func query(_ posto: Posto) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: servizio,
+         kSecAttrAccount as String: "gettone", kSecAttrAccessGroup as String: posto.gruppo]
     }
 
-    private static func query(gruppo: Bool) -> [String: Any] {
-        var q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: servizio,
-                                kSecAttrAccount as String: "gettone"]
-        if gruppo { q[kSecAttrAccessGroup as String] = Condiviso.portachiavi }
-        return q
-    }
-
-    private static func leggiToken(gruppo: Bool) -> String? {
-        var q = query(gruppo: gruppo)
+    private static func leggiToken(_ posto: Posto) -> String? {
+        var q = query(posto)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: AnyObject?
@@ -98,11 +103,12 @@ struct Collegamento: Equatable {
         return String(data: d, encoding: .utf8)
     }
 
-    private static func scriviToken(_ token: String) {
-        SecItemDelete(query(gruppo: true) as CFDictionary)
-        var q = query(gruppo: true)
+    private static func scriviToken(_ token: String, _ posto: Posto) {
+        SecItemDelete(query(posto) as CFDictionary)
+        var q = query(posto)
         q[kSecValueData as String] = Data(token.utf8)
         q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(q as CFDictionary, nil)
+        let esito = SecItemAdd(q as CFDictionary, nil)
+        if esito != errSecSuccess { NSLog("Bottega: gettone non salvato nel portachiavi (%d)", esito) }
     }
 }
