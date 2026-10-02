@@ -866,7 +866,11 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	}
 	ensureClaudeExtension(ctx);
 	registerCline(ctx);
-	registerTerminale(ctx, { cartellaLavoro: t => jobManager?.list().find(j => jobManager!.terminal(j.id) === t)?.path });
+	registerTerminale(ctx, {
+		cartellaLavoro: t => jobManager?.list().find(j => jobManager!.terminal(j.id) === t)?.path,
+		// Agnes nel terminale (docs/CONTRATTI.md, 12): gli stessi cervelli di Melissa, Apple dal Nucleo
+		agnes: { cervelli: cervelli!, nucleo: () => nucleo, apple: () => !!nucleo?.available && !!nucleo.capabilities?.foundationModels },
+	});
 	ensureItalian(ctx);
 }
 

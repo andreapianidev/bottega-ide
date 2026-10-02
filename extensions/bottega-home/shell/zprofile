@@ -1,0 +1,7 @@
+# La Bottega: il .zprofile vero di Andrea, con ZDOTDIR al suo posto. Vedi .zshenv qui accanto.
+: ${__bottega_zdot:=${${(%):-%x}:A:h}} ${__bottega_utente:=${BOTTEGA_ZDOTDIR_UTENTE:-$HOME}}
+if [[ $__bottega_utente != $__bottega_zdot && -f $__bottega_utente/.zprofile ]]; then
+	ZDOTDIR=$__bottega_utente
+	. $__bottega_utente/.zprofile
+fi
+ZDOTDIR=$__bottega_zdot

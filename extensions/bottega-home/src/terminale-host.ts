@@ -6,7 +6,10 @@
      worktree) o nella cartella di lavoro del file attivo. Anche quello che VS Code crea da solo quando si apre la voce
      vuota: se e' nato nella cartella sbagliata lo si sostituisce subito con uno nella cartella giusta;
    - `bottega.terminaleQui`, `bottega.terminaleEsterno` (iTerm2 con il profilo «Bottega», o Terminale) e lo strumento
-     di Melissa `terminale_apri`.
+     di Melissa `terminale_apri`;
+   - Agnes nel terminale (bottega.terminale.agnes): ZDOTDIR=~/.bottega/zsh in tutti i terminali della Bottega (variabile
+     d'ambiente dell'estensione, i file veri di Andrea restano intatti), il socket ~/.bottega/terminale.sock e il comando
+     «Terminale: comandi consentiti». Logica in src/terminale-agnes.ts, widget in shell/agnes.zsh.
    Logica pura in src/terminale.ts. Contratto: docs/CONTRATTI.md, sezione 12. */
 
 import { ChildProcess, execFile, spawn } from 'child_process';
@@ -15,8 +18,11 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { Assistant, ToolSpec } from './assistant';
+import type { NucleoBridge } from './cervello';
+import type { Cervelli } from './cervelli';
 import { CLINE_ID } from './cline';
 import { cartellaCorrente, cartellaDi, coloriEffettivi, comandoEsterno, Esterno, profiloIterm, programmaTerminale } from './terminale';
+import { apriSportello, CervelloTerminale, comandoIterm, installaZsh, leggiConsentiti, Modo, pensatore, scriviConsentiti, Sportello } from './terminale-agnes';
 
 const CASA = os.homedir();
 const TEMA_ID = 'andreapiani.bottega-theme';
@@ -29,6 +35,8 @@ export interface TerminaleDeps {
 	bottega?: string;
 	iterm?: string;
 	profilo?: string;
+	/** Agnes nel terminale: i cervelli di Melissa e il Nucleo per Apple Intelligence. Senza, niente Agnes. */
+	agnes?: { cervelli: Cervelli; nucleo(): NucleoBridge | undefined; apple(): boolean };
 }
 
 export interface TerminaleApi {
@@ -148,6 +156,88 @@ export function registerTerminale(ctx: vscode.ExtensionContext, deps: TerminaleD
 		}),
 	);
 
+	// ---------- Agnes nel terminale ----------
+
+	const ZDOT = path.join(BOTTEGA, 'zsh');
+	const SOCK = path.join(BOTTEGA, 'terminale.sock');
+	const CONSENTITI = path.join(BOTTEGA, 'terminale-consentiti.json');
+	const agnesAccesa = () => !!deps.agnes && cfg().get<boolean>('agnes', true);
+	const cervelloScelto = (): CervelloTerminale => (cfg().get<string>('cervello', 'agnes') === 'deepseek' ? 'deepseek' : 'agnes');
+	const modo = (): Modo => {
+		const m = cfg().get<string>('agnesModo', 'chiedi');
+		return m === 'proponi' || m === 'auto' ? m : 'chiedi';
+	};
+	let sportello: Sportello | undefined;
+	let zshPronto = false;
+	/** Accesa: i file di zsh in ~/.bottega/zsh, ZDOTDIR nei terminali nuovi, il socket. Spenta: niente di tutto questo. */
+	const agnes = () => {
+		if (!deps.agnes) return;
+		const ambiente = ctx.environmentVariableCollection;
+		if (!agnesAccesa()) {
+			ambiente.delete('ZDOTDIR');
+			ambiente.delete('BOTTEGA_ZDOTDIR_UTENTE');
+			zshPronto = false;
+			if (sportello) out.info('Agnes nel terminale spenta');
+			void sportello?.chiudi();
+			sportello = undefined;
+			return;
+		}
+		try {
+			const scritti = installaZsh(path.join(ctx.extensionPath, 'shell'), ZDOT, cervelloScelto());
+			if (scritti.length) out.info(`file di zsh aggiornati in ${ZDOT}: ${scritti.join(', ')}`);
+		} catch (e: any) {
+			// senza i file ZDOTDIR non si tocca: un terminale con ZDOTDIR in una cartella vuota perderebbe l'ambiente
+			out.warn(`file di zsh non scritti, Agnes nel terminale resta spenta: ${e?.message ?? e}`);
+			return;
+		}
+		zshPronto = true;
+		// solo per questa sessione: si rimette a ogni avvio, dopo aver scritto i file
+		ambiente.persistent = false;
+		ambiente.description = 'La Bottega: scrivi in italiano cosa vuoi fare e Agnes propone il comando';
+		ambiente.replace('ZDOTDIR', ZDOT);
+		const suo = process.env.ZDOTDIR;
+		if (suo && path.resolve(suo) !== ZDOT && !suo.startsWith(os.tmpdir()) && esiste(path.join(suo, '.zshrc'))) ambiente.replace('BOTTEGA_ZDOTDIR_UTENTE', suo);
+		sportello ??= apriSportello({
+			percorso: SOCK,
+			modo,
+			cervello: cervelloScelto,
+			pensa: pensatore(deps.agnes!),
+			consentiti: CONSENTITI,
+			home: CASA,
+			log: m => out.info(`agnes: ${m}`),
+		});
+	};
+	agnes();
+	ctx.subscriptions.push(
+		{ dispose: () => void sportello?.chiudi() },
+		vscode.workspace.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration('bottega.terminale.agnes') || e.affectsConfiguration('bottega.terminale.cervello')) {
+				agnes();
+				aggiornaProfilo();
+			}
+		}),
+		vscode.commands.registerCommand('bottega.terminaleConsentiti', () => {
+			const qp = vscode.window.createQuickPick<vscode.QuickPickItem>();
+			qp.title = 'Comandi consentiti nel terminale';
+			qp.placeholder = 'Questi Agnes li esegue senza chiedere. La x li toglie.';
+			const togli = { iconPath: new vscode.ThemeIcon('close'), tooltip: 'Togli' };
+			const carica = () => {
+				const forme = leggiConsentiti(CONSENTITI);
+				qp.items = forme.length
+					? forme.map(label => ({ label, buttons: [togli] }))
+					: [{ label: 'Nessun comando consentito', description: 'si aggiungono con s alla domanda «eseguo?»' }];
+			};
+			qp.onDidTriggerItemButton(e => {
+				scriviConsentiti(CONSENTITI, leggiConsentiti(CONSENTITI).filter(f => f !== e.item.label));
+				out.info(`consentiti: tolto ${e.item.label}`);
+				carica();
+			});
+			qp.onDidHide(() => qp.dispose());
+			carica();
+			qp.show();
+		}),
+	);
+
 	// ---------- iTerm2 ----------
 
 	const itermInstallato = () => esiste(ITERM_APP);
@@ -180,7 +270,7 @@ export function registerTerminale(ctx: vscode.ExtensionContext, deps: TerminaleD
 				dimensione: ti.get<number>('fontSize') || ed.get<number>('fontSize'),
 				altezzaRiga: ti.get<number>('lineHeight'),
 				cursore: ti.get<string>('cursorStyle'),
-			});
+			}, agnesAccesa() && zshPronto ? comandoIterm(ZDOT, process.env.SHELL) : undefined);
 			try {
 				if (fs.readFileSync(PROFILO, 'utf8') === testo) return;
 			} catch {}

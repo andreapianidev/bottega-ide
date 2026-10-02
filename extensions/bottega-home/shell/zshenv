@@ -1,0 +1,21 @@
+# I terminali della Bottega partono con ZDOTDIR=~/.bottega/zsh (src/terminale-host.ts). Questi file caricano quelli
+# veri di Andrea ($HOME, o BOTTEGA_ZDOTDIR_UTENTE), nello stesso ordine e con ZDOTDIR al suo posto, cosi' l'ambiente
+# resta identico; poi .zshrc carica agnes.zsh. Funziona anche quando VS Code inietta la sua shell integration: VS Code
+# prende questa cartella come USER_ZDOTDIR e carica questi file al posto di quelli di $HOME.
+# Copiati a ogni avvio dall'estensione da extensions/bottega-home/shell: si modificano li'.
+# Contratto: docs/CONTRATTI.md, sezione 12.
+
+typeset -g __bottega_zdot=${${(%):-%x}:A:h}
+typeset -g __bottega_utente=${BOTTEGA_ZDOTDIR_UTENTE:-$HOME}
+if [[ $__bottega_utente != $__bottega_zdot && -f $__bottega_utente/.zshenv ]]; then
+	ZDOTDIR=$__bottega_utente
+	. $__bottega_utente/.zshenv
+	# il .zshenv di Andrea puo' scegliere un'altra cartella per gli altri file
+	[[ -n $ZDOTDIR && $ZDOTDIR != $__bottega_utente ]] && __bottega_utente=$ZDOTDIR
+fi
+# una shell che non e' interattiva ne' di login (script, attivita') torna subito alla cartella di Andrea
+if [[ -o interactive || -o login ]]; then
+	ZDOTDIR=$__bottega_zdot
+else
+	ZDOTDIR=$__bottega_utente
+fi
