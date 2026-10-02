@@ -503,7 +503,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		},
 	},
 	cruscotto_mostra: {
-		spec: { type: 'function', function: { name: 'cruscotto_mostra', description: 'Mostra il cruscotto delle ore e dei token, eventualmente su un progetto e un periodo (7, 30 o 90 giorni). Usalo per "fammi vedere le ore di Woofmap questa settimana".', parameters: obj({ progetto: { type: 'string' }, giorni: { type: 'number' } }) } },
+		spec: { type: 'function', function: { name: 'cruscotto_mostra', description: 'Mostra il cruscotto delle ore e dei token, eventualmente su un progetto e un periodo (7, 30 o 90 giorni). Usalo per "fammi vedere le ore di Woofmap questa settimana". Solo la vista: per DIRE ore, sessioni, token e valore chiama anche stanza_leggi con stanza cruscotto, stessi progetto e periodo.', parameters: obj({ progetto: { type: 'string' }, giorni: { type: 'number' } }) } },
 		run(a, ctx) {
 			if (!ctx.deps.actions.showCruscotto) return 'Il cruscotto non e\' disponibile.';
 			const r = ctx.deps.actions.showCruscotto(a.progetto, a.giorni);
