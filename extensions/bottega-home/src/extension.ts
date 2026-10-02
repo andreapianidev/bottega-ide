@@ -18,6 +18,7 @@ import { brainName } from './assistant';
 import { Cervelli, Effort, FAMILIES, Provider, spokenChoice } from './cervelli';
 import { digest, digestText } from './mani';
 import { CategorieMinuti, Osservatorio, categorieMinuti, fraseCategorie } from './osservatorio';
+import { registerPonte } from './ponte-host';
 
 export interface Snapshot {
 	projects: Project[];
@@ -67,6 +68,7 @@ let appleOk = false;
 /** I lavori che aspettavano al giro prima: Melissa avvisa a voce solo dei nuovi. */
 let waitingBefore = new Set<string>();
 let osservatorio: Osservatorio | undefined;
+let ponte: { notify(): void } | undefined;
 let categorieCache: { at: number; value: CategorieMinuti | null } = { at: 0, value: null };
 let paintStatus: (() => void) | undefined;
 /** Il cruscotto si calcola solo dopo che la plancia l'ha chiesto almeno una volta. */
@@ -592,12 +594,23 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			snapshot.assistant = state;
 			panelHost?.send({ type: 'assistant', state });
 			barraView?.update();
+			ponte?.notify();
 		},
 		onConverse: () => barraView?.reveal(),
 	});
 
 	panelHost = new PlanciaPanel(ctx.extensionUri, () => snapshot, changed.event, m => void onPlanciaMessage(m));
 	assistant.wire(ctx);
+
+	// La Bottega per iPhone: Melissa e i lavori raggiungibili dalla rete Tailscale (src/ponte.ts).
+	ponte = registerPonte(ctx, {
+		assistant: () => assistant,
+		nucleo: () => nucleo,
+		work: () => snapshot.work,
+		counts: () => snapshot.workCounts,
+		writeJob: (id, text) => !!jobManager?.write(id, text),
+	});
+	ctx.subscriptions.push(changed.event(() => ponte?.notify()));
 
 	idee = new Idee({
 		projects: () => snapshot.projects,

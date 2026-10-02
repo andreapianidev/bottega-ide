@@ -212,6 +212,20 @@ sta lavorando o dove c'è da mettere le mani. L'icona è il banco stesso: la lam
 codice, il martello appoggiato accanto. Titoli senza maiuscolo forzato, schede e finestre arrotondate. Copilot non
 è incluso: la Bottega lavora con Claude Code.
 
+### La Bottega per iPhone
+
+Melissa e i lavori del Mac in tasca, anche fuori casa. L'app per iPhone (`ios/`) ha la stessa icona e la stessa
+sfera: gli stessi file Metal del Nucleo, compilati anche per iOS. Tocchi la sfera e parli. L'iPhone ti sente con il
+riconoscimento vocale di Apple, la frase va al Mac, Melissa pensa con il suo cervello e i suoi strumenti (apre
+progetti, avvia lavori, legge le sessioni, chiede conferma per un push) e ti risponde con la sua voce. La
+conversazione è la stessa della barra sul Mac. La stanza Lavori mostra tutte le sessioni Claude del Mac, con in cima
+chi ti aspetta, e ai lavori della Bottega puoi scrivere da lì.
+
+iPhone e Mac si parlano solo dentro [Tailscale](https://tailscale.com), senza server in mezzo: la Bottega apre un
+piccolo ponte sull'indirizzo Tailscale del Mac, invisibile dal Wi-Fi e da internet, e ogni richiesta porta un
+gettone. Il Mac deve essere acceso, con la Bottega aperta. Per collegare l'iPhone: comando «Collega l'iPhone» nella
+Bottega, poi inquadri il codice con la Fotocamera. Il protocollo è in `docs/CONTRATTI.md`, sezione 9.
+
 ## Requisiti
 
 - Mac con Apple Silicon e macOS 27 o successivo
@@ -301,6 +315,17 @@ server MCP `bottega-memoria`. Ogni hook esce entro 150 millisecondi e non blocca
 Si toglie con `node ~/.bottega/memoria-app/cli.mjs uninstall`. Dettagli in
 [`memoria/README.md`](memoria/README.md).
 
+### L'app per iPhone
+
+Serve [XcodeGen](https://github.com/yonaskolb/XcodeGen) e un account sviluppatore Apple (per installarla sul tuo
+iPhone): in `ios/project.yml` metti il tuo `DEVELOPMENT_TEAM`, poi
+
+```bash
+cd ios && xcodegen && open Bottega.xcodeproj
+```
+
+e la installi da Xcode sul tuo iPhone. Tailscale acceso sull'iPhone e sul Mac, con lo stesso account.
+
 ## Cosa esce dal tuo Mac
 
 - verso Agnes AI: le domande che fai a Melissa e il testo delle sessioni da riassumere (al massimo
@@ -309,7 +334,9 @@ Si toglie con `node ~/.bottega/memoria-app/cli.mjs uninstall`. Dettagli in
   riconoscimento vocale del Mac, che puo' usare i server di Apple come fa Siri;
 - verso ElevenLabs: il testo che Melissa deve pronunciare (e l'audio dell'ascolto solo con
   `BOTTEGA_STT=elevenlabs`);
-- verso Open VSX: le ricerche e i download delle estensioni.
+- verso Open VSX: le ricerche e i download delle estensioni;
+- verso il tuo iPhone, solo dentro la tua rete Tailscale e solo se usi la Bottega per iPhone: lo stato di Melissa e
+  dei lavori, le risposte e la loro voce;
 - verso Claude e Anthropic, solo se premi «Cerca anche in Gmail» (o accendi `bottega.posta.gmailOgniMinuti`): la
   richiesta a Gmail e i mittenti, gli oggetti e le anteprime dei fili trovati, come nell'uso normale dei connettori.
 
@@ -336,6 +363,7 @@ statistiche restano in locale.
 | `extensions/bottega-home/` | plancia, lavori, Melissa, client del Nucleo e della memoria |
 | `extensions/bottega-theme/` | temi e impostazioni predefinite |
 | `nucleo/` | l'app nativa in Swift e Metal |
+| `ios/` | la Bottega per iPhone (SwiftUI, XcodeGen), con la sfera del Nucleo |
 | `memoria/` | hook, server MCP e riga di comando della memoria (Node, zero dipendenze) |
 | `docs/CONTRATTI.md` | i protocolli tra i pezzi: da leggere prima di toccarne uno |
 

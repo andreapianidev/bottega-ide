@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Alza il numero di build della Bottega. Va lanciato in ogni commit che cambia l'app.
+# Alza il numero di build della Bottega (e della Bottega per iPhone). Va lanciato in ogni commit che cambia l'app.
 #   scripts/bump-build.sh            build +1
 #   scripts/bump-build.sh 0.2.0      build +1 e nuova versione
 set -euo pipefail
@@ -13,5 +13,9 @@ for e in ("extensions/bottega-home/package.json", "extensions/bottega-theme/pack
     q = p.rsplit("/", 1)[0] + "/" + e; x = json.load(open(q)); x["version"] = d["version"]
     json.dump(x, open(q, "w"), indent=2, ensure_ascii=False); open(q, "a").write("\n")
 json.dump(d, open(p, "w"), indent=2); open(p, "a").write("\n")
+# la Bottega per iPhone ha la stessa versione e la stessa build
+x = p.rsplit("/", 1)[0] + "/ios/Version.xcconfig"
+open(x, "w").write("// Scritto da scripts/bump-build.sh: la Bottega per iPhone ha sempre la versione e la build della Bottega.\n"
+                   f"MARKETING_VERSION = {d['version']}\nCURRENT_PROJECT_VERSION = {d['build']}\n")
 print(f"Bottega {d['version']} build {d['build']}")
 PY

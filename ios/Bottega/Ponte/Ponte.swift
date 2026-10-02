@@ -1,0 +1,241 @@
+//
+//  Ponte.swift
+//  Bottega per iPhone
+//
+//  Il cliente del ponte della Bottega (extensions/bottega-home/src/ponte.ts, docs/CONTRATTI.md, 9): HTTP sulla
+//  rete Tailscale, gettone in ogni richiesta. Gli eventi in diretta tengono aggiornati Melissa e i lavori; se
+//  cadono si riprovano da soli, sempre piu' di rado, finche' l'app e' davanti.
+//
+
+import Foundation
+import Observation
+
+struct StatoMac: Decodable, Equatable {
+    struct Riga: Decodable, Equatable, Identifiable {
+        let chi: String
+        let testo: String
+        let alle: Double
+        var id: String { "\(alle)-\(chi)-\(testo.prefix(24))" }
+    }
+    struct Melissa: Decodable, Equatable {
+        let stato: String
+        let cervello: String
+        let parziale: String?
+        let registro: [Riga]
+    }
+    struct Lavoro: Decodable, Equatable, Identifiable {
+        let chiave: String
+        let origine: String
+        let stato: String
+        let progetto: String
+        let titolo: String
+        let da: Double
+        let jobId: String?
+        var id: String { chiave }
+    }
+    struct Conti: Decodable, Equatable {
+        let inCorso: Int
+        let tiAspetta: Int
+        let inCoda: Int
+        let vive: Int
+    }
+    let versione: String
+    let mac: String
+    let ora: Double
+    let melissa: Melissa
+    let lavori: [Lavoro]
+    let conti: Conti
+}
+
+struct ErrorePonte: LocalizedError {
+    let messaggio: String
+    var errorDescription: String? { messaggio }
+}
+
+@MainActor
+@Observable
+final class Ponte {
+    enum Linea: Equatable {
+        case scollegato
+        case provo
+        case collegato
+        case fuori(String)
+    }
+
+    private(set) var collegamento: Collegamento? = Collegamento.carica()
+    private(set) var stato: StatoMac?
+    private(set) var linea: Linea = .scollegato
+
+    private var eventi: Task<Void, Never>?
+    /// Se il nome MagicDNS non si risolve (MagicDNS spento sull'iPhone) si passa all'indirizzo 100.x.
+    private var usaIP = false
+    private let sessione: URLSession = {
+        let c = URLSessionConfiguration.ephemeral
+        c.timeoutIntervalForRequest = 90
+        c.waitsForConnectivity = false
+        return URLSession(configuration: c)
+    }()
+
+    var collegato: Bool { collegamento != nil }
+
+    // MARK: - collegamento
+
+    @discardableResult
+    func collega(_ url: URL) -> Bool {
+        guard let c = Collegamento(url: url) else { return false }
+        c.salva()
+        collegamento = c
+        usaIP = false
+        stato = nil
+        riavvia()
+        return true
+    }
+
+    func scollega() {
+        ferma()
+        Collegamento.dimentica()
+        collegamento = nil
+        stato = nil
+        linea = .scollegato
+    }
+
+    // MARK: - eventi in diretta
+
+    func avvia() {
+        guard collegamento != nil, eventi == nil else { return }
+        eventi = Task { [weak self] in await self?.segui() }
+    }
+
+    func ferma() {
+        eventi?.cancel()
+        eventi = nil
+    }
+
+    func riavvia() {
+        ferma()
+        avvia()
+    }
+
+    private func segui() async {
+        var attesa: UInt64 = 1
+        while !Task.isCancelled {
+            linea = .provo
+            do {
+                let (bytes, risposta) = try await sessione.bytes(for: richiesta("/v1/eventi", timeout: 60))
+                try controlla(risposta, corpo: nil)
+                attesa = 1
+                for try await riga in bytes.lines {
+                    guard riga.hasPrefix("data: ") else { continue }
+                    let dati = Data(riga.dropFirst(6).utf8)
+                    if let s = try? JSONDecoder().decode(StatoMac.self, from: dati) {
+                        aggiorna(s)
+                        linea = .collegato
+                    }
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                if Task.isCancelled { return }
+                if scambiaSuIP(error) { continue }
+                linea = .fuori(spiega(error))
+            }
+            try? await Task.sleep(nanoseconds: attesa * 1_000_000_000)
+            attesa = min(attesa * 2, 30)
+        }
+    }
+
+    private func aggiorna(_ s: StatoMac) {
+        stato = s
+        MetalEngine.shared.setLoad(s.conti.inCorso)
+    }
+
+    // MARK: - richieste
+
+    func chiedi(_ testo: String) async throws -> String {
+        struct R: Decodable { let risposta: String; let stato: StatoMac }
+        let r: R = try await manda("/v1/chiedi", ["testo": testo])
+        aggiorna(r.stato)
+        return r.risposta
+    }
+
+    func voce(_ testo: String) async throws -> Data {
+        try await mandaDati("/v1/voce", ["testo": testo])
+    }
+
+    func scriviLavoro(_ id: String, _ testo: String) async throws {
+        struct R: Decodable { let ok: Bool }
+        let _: R = try await manda("/v1/lavoro", ["id": id, "testo": testo])
+    }
+
+    func aggiornaStato() async {
+        do {
+            let (d, r) = try await sessione.data(for: richiesta("/v1/stato"))
+            try controlla(r, corpo: d)
+            aggiorna(try JSONDecoder().decode(StatoMac.self, from: d))
+            linea = .collegato
+        } catch {
+            if scambiaSuIP(error) { await aggiornaStato() } else { linea = .fuori(spiega(error)) }
+        }
+    }
+
+    private func manda<T: Decodable>(_ percorso: String, _ corpo: [String: String]) async throws -> T {
+        let d = try await mandaDati(percorso, corpo)
+        return try JSONDecoder().decode(T.self, from: d)
+    }
+
+    private func mandaDati(_ percorso: String, _ corpo: [String: String]) async throws -> Data {
+        var req = try richiesta(percorso)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: corpo)
+        do {
+            let (d, r) = try await sessione.data(for: req)
+            try controlla(r, corpo: d)
+            return d
+        } catch {
+            if scambiaSuIP(error) { return try await mandaDati(percorso, corpo) }
+            throw ErrorePonte(messaggio: spiega(error))
+        }
+    }
+
+    private func richiesta(_ percorso: String, timeout: TimeInterval = 90) throws -> URLRequest {
+        guard let c = collegamento else { throw ErrorePonte(messaggio: "L'iPhone non e' collegato a nessun Mac.") }
+        let host = usaIP && !c.ip.isEmpty ? c.ip : c.host
+        guard let url = URL(string: "http://\(host):\(c.porta)\(percorso)") else {
+            throw ErrorePonte(messaggio: "Indirizzo del Mac non valido.")
+        }
+        var req = URLRequest(url: url, timeoutInterval: timeout)
+        req.setValue("Bearer \(c.token)", forHTTPHeaderField: "authorization")
+        return req
+    }
+
+    private func controlla(_ r: URLResponse, corpo: Data?) throws {
+        guard let h = r as? HTTPURLResponse else { return }
+        guard (200..<300).contains(h.statusCode) else {
+            struct E: Decodable { let errore: String }
+            let m = corpo.flatMap { try? JSONDecoder().decode(E.self, from: $0) }?.errore
+            throw ErrorePonte(messaggio: m ?? "Il Mac ha risposto \(h.statusCode).")
+        }
+    }
+
+    private func scambiaSuIP(_ error: Error) -> Bool {
+        guard !usaIP, let c = collegamento, !c.ip.isEmpty, c.ip != c.host,
+              (error as? URLError)?.code == .cannotFindHost || (error as? URLError)?.code == .dnsLookupFailed else { return false }
+        usaIP = true
+        return true
+    }
+
+    private func spiega(_ error: Error) -> String {
+        if let e = error as? ErrorePonte { return e.messaggio }
+        switch (error as? URLError)?.code {
+        case .notConnectedToInternet?, .networkConnectionLost?:
+            return "Niente rete sull'iPhone."
+        case .cannotConnectToHost?, .timedOut?, .cannotFindHost?, .dnsLookupFailed?:
+            return "Il Mac non risponde: controlla che sia acceso, con la Bottega aperta e Tailscale attivo su tutti e due."
+        case .appTransportSecurityRequiresSecureConnection?:
+            return "iOS ha bloccato la connessione al Mac."
+        default:
+            return error.localizedDescription
+        }
+    }
+}

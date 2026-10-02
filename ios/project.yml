@@ -1,0 +1,38 @@
+# La Bottega per iPhone. Il progetto Xcode si rigenera con: cd ios && xcodegen
+# Sfera e livelli audio sono gli stessi file del Nucleo (nucleo/Sources), non copie.
+name: Bottega
+options:
+  bundleIdPrefix: com.andreapiani
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: Version.xcconfig
+  Release: Version.xcconfig
+settings:
+  base:
+    DEVELOPMENT_TEAM: ERAK83QBBM
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  Bottega:
+    type: application
+    platform: iOS
+    sources:
+      - path: Bottega
+      - path: ../nucleo/Sources/Orb/OrbRenderer.swift
+        group: Bottega/Sfera/Nucleo
+      - path: ../nucleo/Sources/Orb/OrbShaders.metal
+        group: Bottega/Sfera/Nucleo
+      - path: ../nucleo/Sources/Voice/AudioLevels.swift
+        group: Bottega/Sfera/Nucleo
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.andreapiani.bottega.ios
+        PRODUCT_NAME: Bottega
+        INFOPLIST_FILE: Bottega/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        MTL_FAST_MATH: YES

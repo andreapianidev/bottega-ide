@@ -2,7 +2,8 @@
 /* Bottega, la sfera di Melissa su WebGPU (sul Mac passa da Metal). E' la sfera Metal di Avo Agency AI
    (Features/Voice/VoiceOrbShaders.metal + VoiceOrbRenderer.swift, la stessa del Nucleo in
    nucleo/Sources/Orb) portata in WGSL senza tagli: lo stesso sole di plasma in raymarching (80 passi
-   fuori, 56 dentro il nucleo volumetrico), la pelle granulosa con la convezione, l'iridescenza, la
+   fuori, 28 dentro il nucleo volumetrico: Avo ne fa 56, la meta' toglie circa 1 ms per fotogramma
+   senza differenze visibili), la pelle granulosa con la convezione, l'iridescenza, la
    corona e i raggi accesi per banda, l'onda d'urto a ogni attacco della voce, il battito e il
    vagabondaggio a riposo, l'impulso a ogni cambio di stato, la molla della voce. In piu' come in
    Avo: 12.288 particelle sulla GPU (uno shader di calcolo le muove: a riposo orbitano e respirano,
@@ -157,7 +158,7 @@ const BANDE: i32 = 16;
 const INV: f32 = 1.0 / 64.0;
 const PI: f32 = 3.14159265;
 const PASSI_FUORI: i32 = 80;
-const PASSI_DENTRO: i32 = 56;
+const PASSI_DENTRO: i32 = 28;
 
 fn tex(x: vec3f) -> vec4f { return textureSampleLevel(rumore, campione, x * INV, 0.0); }
 fn vn(x: vec3f) -> f32 { return tex(x).r; }

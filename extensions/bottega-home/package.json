@@ -140,6 +140,12 @@
         "title": "Apri l'Osservatorio",
         "category": "Bottega",
         "icon": "$(star-empty)"
+      },
+      {
+        "command": "bottega.ponte.collega",
+        "title": "Collega l'iPhone",
+        "category": "Bottega",
+        "icon": "$(device-mobile)"
       }
     ],
     "viewsContainers": {
@@ -310,6 +316,11 @@
           "default": "auto",
           "description": "Quanti lavori in parallelo. \"auto\" si adatta alla pressione di memoria e alla temperatura del Mac (3, 2 o 1); oppure un numero fisso."
         },
+        "bottega.ponte.attivo": {
+          "type": "boolean",
+          "default": true,
+          "description": "Accende il ponte verso la Bottega per iPhone: ascolta solo sull'indirizzo Tailscale del Mac, con un gettone."
+        },
         "bottega.voice.enabled": {
           "type": "boolean",
           "default": true,
@@ -445,7 +456,7 @@
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=out/extension.js",
     "typecheck": "tsc --noEmit",
-    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs"
+    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

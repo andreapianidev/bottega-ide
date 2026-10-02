@@ -20,8 +20,6 @@ let arguments = CommandLine.arguments
 if let i = arguments.firstIndex(of: "--cli") {
     CLI.run(Array(arguments[(i + 1)...]))
 }
-// Service mode: the Nucleo answers for itself to macOS privacy, like Avo (see Autonomo.swift).
-if !LaunchMode.fromMacOS { Autonomo.rilancia() }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {

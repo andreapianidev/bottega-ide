@@ -29,15 +29,11 @@ Eseguibile: `Bottega Nucleo.app/Contents/MacOS/BottegaNucleo`, bundle id `com.an
 `Bottega.app/Contents/Resources/app/extensions/bottega-home/nucleo/Bottega Nucleo.app`.
 In sviluppo: `nucleo/build/Bottega Nucleo.app` (prodotto da `nucleo/build.sh`).
 
-Correzione (2/10/2026, 19:07): il rilancio qui sotto NON sposta il responsabile per macOS. Il crash della prima richiesta di riconoscimento vocale mostra che macOS legge la spiegazione da Bottega.app: le chiavi dei permessi usati dal Nucleo (`NSMicrophoneUsageDescription`, `NSSpeechRecognitionUsageDescription`) vanno anche nell'Info.plist della Bottega, e le mette `scripts/package.sh`. Il silenzio delle 18:43 non era dimostrato essere dei permessi: era il motore di trascrizione. Il rilancio resta, innocuo. Il testo che segue e' l'ipotesi di allora.
-
-Responsabile di se stesso (2/10/2026, `Sources/Autonomo.swift`): lanciato dall'estensione, il Nucleo avrebbe Bottega.app
-come processo responsabile e macOS gli applicherebbe il permesso del microfono di Bottega, consegnando silenzio senza
-errori se manca (misurato: 10 s di audio inviati a ElevenLabs, nessuna parola). In modalita' servizio il Nucleo si
-rilancia una volta con la responsabilita' separata (`responsibility_spawnattrs_setdisclaim`, variabile
-`BOTTEGA_NUCLEO_AUTONOMO=1` nel figlio): stdin, stdout e stderr ereditati, segnali inoltrati, il padre esce con il
-codice del figlio. Il microfono si chiede come "Bottega Nucleo", con il suo permesso, come Avo. Il registro dice dopo
-3 s dall'apertura `segnale del microfono: N blocchi, M con suono` (M = 0 vuol dire silenzio da macOS).
+Permessi (2/10/2026): lanciato dall'estensione, il Nucleo ha Bottega.app come processo responsabile, e macOS legge da
+li' la spiegazione dei permessi che usa: `NSMicrophoneUsageDescription` e `NSSpeechRecognitionUsageDescription` stanno
+anche nell'Info.plist della Bottega (le mette `scripts/package.sh`), senza macOS chiude il Nucleo. Il rilancio con la
+responsabilita' separata (`Autonomo.swift`, `BOTTEGA_NUCLEO_AUTONOMO`) non spostava il responsabile ed e' stato tolto.
+Il registro dice dopo 3 s dall'apertura `segnale del microfono: N blocchi, M con suono` (M = 0 vuol dire silenzio da macOS).
 Solo arm64, macOS 27+, solo framework Apple, firma ad hoc.
 
 ### Modalita' servizio (default, lanciato dall'estensione)
@@ -1031,3 +1027,61 @@ Su dati veri, il 2/10/2026, soglia 8 su 10 (o 4 su 5) giusti e nessun fatto inve
   il riassunto breve sul Mac non e' stato giudicato e il testo dei documenti non deve andare ad Agnes.
 Il lavoro sta nel ramo `fase3-completa` su GitHub.
 
+
+## 9. La Bottega per iPhone e il ponte
+
+```
+iPhone (ios/, SwiftUI)  --HTTP sulla rete Tailscale-->  estensione: src/ponte.ts  --stdio-->  Nucleo: ponte.voce, ponte.qr
+   sfera Metal del Nucleo (stessi file)                   Melissa (assistant.ts), lavori (jobs.ts)
+   ascolto: SFSpeechRecognizer it-IT sull'iPhone
+```
+
+Il Mac deve essere acceso con la Bottega aperta: il ponte vive nell'estensione. Nessun server di terzi in mezzo,
+nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
+
+### 9.1 Il ponte (estensione, `src/ponte.ts`, `src/ponte-host.ts`)
+
+- Ascolta SOLO sull'indirizzo IPv4 Tailscale del Mac (`tailscale status --json`, `Self.TailscaleIPs`), porta 7790.
+  Dal Wi-Fi o da internet non si vede. Ogni minuto ricontrolla Tailscale: se si spegne il ponte si chiude, se
+  l'indirizzo cambia si riapre. Impostazione `bottega.ponte.attivo` (vero). Registro: canale «Bottega per iPhone».
+- Ogni richiesta: `Authorization: Bearer <gettone>`. Il gettone (32 byte casuali, base64url) nasce una volta in
+  `~/.bottega/ponte.json` (permessi 600) ed e' copiato in `~/.secrets/bottega.env` (`BOTTEGA_PONTE_TOKEN`). Per
+  cambiarlo si cancella `ponte.json`, si riavvia la Bottega e si ricollega l'iPhone. Confronto a tempo costante;
+  indirizzi fuori da 100.64.0.0/10 e fd7a:115c:a1e0::/48 -> 403; 20 gettoni sbagliati in 10 minuti -> quell'indirizzo
+  riceve 429 per 10 minuti. Corpo al massimo 16 KB, testo al massimo 2000 caratteri.
+- `GET /v1/stato` -> `{versione, mac, ora, melissa: {stato, cervello, parziale?, registro: [{chi: tu|melissa|azione,
+  testo, alle}]}, lavori: [{chiave, origine: bottega|altrove, stato, progetto, titolo, da, jobId?}], conti: {inCorso,
+  tiAspetta, inCoda, vive}}`. Registro: gli ultimi 30 della barra di Melissa. Lavori: i primi 40 di `snapshot.work`.
+- `GET /v1/eventi` -> `text/event-stream`: subito una riga `data: <stato>`, poi una a ogni cambio di Melissa o dei
+  lavori (al massimo tre al secondo), `: ping` ogni 25 s.
+- `POST /v1/chiedi {testo}` -> `{risposta, stato}`. `Assistant.askRemote`: stesso cervello, stessa storia e stessi
+  strumenti della barra, con `speak` falso (il Mac sta zitto). Conferme a rischio (push) come sul Mac: il turno dopo
+  e' il si' o il no. 409 se Melissa sta gia' rispondendo (`Assistant.busy()`).
+- `POST /v1/voce {testo}` -> `audio/wav` (PCM 16 bit, 24 kHz, mono), dal Nucleo con `ponte.voce`. 503 senza Nucleo.
+- `POST /v1/lavoro {id, testo}` -> `{ok: true}` | 404: scrive nel terminale di un lavoro della Bottega.
+- Errori: `{errore}` in italiano, da mostrare cosi' com'e'.
+- Comando «Collega l'iPhone» (`bottega.ponte.collega`): pagina con il QR (dal Nucleo) di
+  `bottega://collega?host=<nome MagicDNS>&ip=<100.x>&porta=7790&token=<gettone>` e il pulsante per copiarlo.
+
+### 9.2 Il Nucleo (`nucleo/Sources/Ponte/PonteComandi.swift`)
+
+- `ponte.voce {testo}` -> `{path, engine: elevenlabs|apple, seconds}`: `SpeechFile.render` (ElevenLabs con la voce di
+  Melissa, ripiego sulla voce di sistema) in un WAV sotto la cartella temporanea `bottega-ponte/`. L'estensione lo
+  legge e lo cancella; i file piu' vecchi di dieci minuti li toglie il Nucleo al giro dopo.
+- `ponte.qr {testo}` -> `{png}`: QR in base64 (CoreImage, correzione M, 12 px per modulo).
+
+### 9.3 L'app (`ios/`)
+
+- Progetto XcodeGen (`ios/project.yml`, `cd ios && xcodegen`), bundle `com.andreapiani.bottega.ios`, iOS 18+, solo
+  iPhone, schema `bottega://` per il collegamento. Versione e build in `ios/Version.xcconfig`, scritte da
+  `scripts/bump-build.sh`: sempre uguali a quelle della Bottega. Icona: `swift brand/icon.swift <out> --ios`.
+- Sfera: `nucleo/Sources/Orb/OrbRenderer.swift`, `OrbShaders.metal` e `nucleo/Sources/Voice/AudioLevels.swift` sono
+  compilati anche nell'app, non copiati; `ios/Bottega/Sfera/NucleoSuIPhone.swift` rifa' quel poco del Nucleo che
+  chiamano (`MetalEngine`, `Log`, `Out`, `Nucleo.bundle`, `OrbPanel`). Chi cambia l'interfaccia di quei tre file
+  compila anche l'app.
+- Ascolto sull'iPhone come sul Mac: `SFSpeechRecognizer` it-IT, frase chiusa dopo 1,8 s senza parole nuove, otto
+  secondi senza parole chiudono la conversazione; «basta», «a dopo», «chiudi» la chiudono a voce. Risposta: il WAV
+  di `/v1/voce`, ripiego sulla voce italiana di iOS. Gettone nel portachiavi (`AfterFirstUnlockThisDeviceOnly`),
+  nome e porta nelle preferenze.
+- Rete: prima il nome MagicDNS (eccezione ATS per `ts.net`, HTTP dentro Tailscale), se non si risolve l'indirizzo
+  100.x. Eventi ripresi da soli con attesa crescente fino a 30 s, fermi con l'app dietro.

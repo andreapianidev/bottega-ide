@@ -1,12 +1,14 @@
-// Genera l'icona della Bottega (1024x1024). Uso: swift icon.swift out.png
+// Genera l'icona della Bottega (1024x1024). Uso: swift icon.swift out.png [--ios]
+// Con --ios: la stessa scena a tutta pagina, senza trasparenza, ombra e bordo: gli angoli li ritaglia iOS.
 // Il soggetto: la bottega di un artigiano del software, di notte. Una lampada da banco accesa, il suo cono
 // di luce sul banco, un portatile con il codice e un martello accanto; fuori, poche stelle.
 import AppKit
 
 let S: CGFloat = 1024
-let out = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "icon-1024.png"
+let ios = CommandLine.arguments.contains("--ios")
+let out = CommandLine.arguments.dropFirst().first { $0 != "--ios" } ?? "icon-1024.png"
 let cs = CGColorSpace(name: CGColorSpace.sRGB)!
-let ctx = CGContext(data: nil, width: Int(S), height: Int(S), bitsPerComponent: 8, bytesPerRow: 0, space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+let ctx = CGContext(data: nil, width: Int(S), height: Int(S), bitsPerComponent: 8, bytesPerRow: 0, space: cs, bitmapInfo: (ios ? CGImageAlphaInfo.noneSkipLast : CGImageAlphaInfo.premultipliedLast).rawValue)!
 func c(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor {
     CGColor(srgbRed: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255, blue: CGFloat(hex & 255) / 255, alpha: a)
 }
@@ -14,13 +16,20 @@ func c(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor {
 // Griglia macOS: 824 pt di forma dentro 1024, angolo ~185.
 let inset: CGFloat = 100
 let rect = CGRect(x: inset, y: inset, width: S - 2 * inset, height: S - 2 * inset)
-let shape = CGPath(roundedRect: rect, cornerWidth: 185, cornerHeight: 185, transform: nil)
+let shape = ios ? CGPath(rect: rect, transform: nil) : CGPath(roundedRect: rect, cornerWidth: 185, cornerHeight: 185, transform: nil)
+if ios {
+    // il quadrato della forma allargato a tutta la tela
+    ctx.scaleBy(x: S / rect.width, y: S / rect.height)
+    ctx.translateBy(x: -inset, y: -inset)
+}
 
 // Ombra sotto la forma
-ctx.saveGState()
-ctx.setShadow(offset: CGSize(width: 0, height: -14), blur: 36, color: c(0x000000, 0.45))
-ctx.addPath(shape); ctx.setFillColor(c(0x0c1222)); ctx.fillPath()
-ctx.restoreGState()
+if !ios {
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -14), blur: 36, color: c(0x000000, 0.45))
+    ctx.addPath(shape); ctx.setFillColor(c(0x0c1222)); ctx.fillPath()
+    ctx.restoreGState()
+}
 
 ctx.saveGState()
 ctx.addPath(shape); ctx.clip()
@@ -123,7 +132,7 @@ ctx.restoreGState()
 
 // Bordo interno sottile, come il vetro delle icone di macOS 27
 ctx.restoreGState()
-ctx.addPath(shape); ctx.setStrokeColor(c(0xffffff, 0.10)); ctx.setLineWidth(3); ctx.strokePath()
+if !ios { ctx.addPath(shape); ctx.setStrokeColor(c(0xffffff, 0.10)); ctx.setLineWidth(3); ctx.strokePath() }
 
 let img = ctx.makeImage()!
 let rep = NSBitmapImageRep(cgImage: img)

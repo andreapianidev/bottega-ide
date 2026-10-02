@@ -1,0 +1,184 @@
+//
+//  PlanciaView.swift
+//  Bottega per iPhone
+//
+//  La schermata dell'app: in alto il Mac e la linea, poi la sfera di Melissa, sotto la conversazione (la stessa
+//  della barra della Bottega sul Mac) o i lavori, in fondo la riga per scriverle.
+//
+
+import SwiftUI
+
+struct PlanciaView: View {
+    let ponte: Ponte
+    @Bindable var melissa: Melissa
+    let davanti: Bool
+
+    enum Stanza: String, CaseIterable { case melissa = "Melissa", lavori = "Lavori" }
+    @State private var stanza: Stanza = .melissa
+    @State private var testo = ""
+    @State private var impostazioni = false
+    @FocusState private var scrivendo: Bool
+
+    var body: some View {
+        ZStack {
+            Tinte.sfondo.ignoresSafeArea()
+            VStack(spacing: 0) {
+                testata
+                sfera
+                Picker("Stanza", selection: $stanza) {
+                    ForEach(Stanza.allCases, id: \.self) { s in
+                        Text(etichetta(s)).tag(s)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+                switch stanza {
+                case .melissa: ConversazioneView(stato: ponte.stato, melissa: melissa)
+                case .lavori: LavoriView(ponte: ponte)
+                }
+                if stanza == .melissa { scrivi }
+            }
+        }
+        .sheet(isPresented: $impostazioni) {
+            ImpostazioniView(ponte: ponte, melissa: melissa)
+                .presentationDetents([.medium, .large])
+        }
+        .alert("Melissa", isPresented: Binding(get: { melissa.avviso != nil }, set: { if !$0 { melissa.avviso = nil } })) {
+            Button("Va bene", role: .cancel) {}
+        } message: {
+            Text(melissa.avviso ?? "")
+        }
+    }
+
+    // MARK: - pezzi
+
+    private var testata: some View {
+        HStack(spacing: 10) {
+            Circle().fill(coloreLinea).frame(width: 9, height: 9)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(ponte.collegamento?.nomeMac ?? "Mac")
+                    .font(.headline)
+                    .foregroundStyle(Tinte.testo)
+                Text(fraseLinea)
+                    .font(.caption)
+                    .foregroundStyle(Tinte.tinta)
+                    .lineLimit(2)
+            }
+            Spacer()
+            Button {
+                impostazioni = true
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.title3)
+                    .foregroundStyle(Tinte.tinta)
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Impostazioni")
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 6)
+    }
+
+    private var sfera: some View {
+        VStack(spacing: 6) {
+            SferaView(stato: melissa.sfera, attiva: davanti)
+                .frame(width: 250, height: 250)
+                .contentShape(Circle())
+                .onTapGesture { melissa.tocca() }
+                .accessibilityLabel("Sfera di Melissa")
+                .accessibilityHint(melissa.sfera == .ascolta ? "Tocca per mandare la frase" : "Tocca per parlare con Melissa")
+                .accessibilityAddTraits(.isButton)
+            Text(fraseSfera)
+                .font(.callout)
+                .foregroundStyle(melissa.sfera == .errore ? Tinte.rosso : Tinte.tinta)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .frame(minHeight: 44, alignment: .top)
+                .padding(.horizontal, 28)
+                .animation(.easeOut(duration: 0.2), value: fraseSfera)
+            if melissa.conversazione {
+                Button("Chiudi la conversazione") { melissa.chiudiConversazione() }
+                    .font(.footnote)
+                    .foregroundStyle(Tinte.ambra)
+            }
+        }
+        .padding(.bottom, 10)
+    }
+
+    private var scrivi: some View {
+        HStack(spacing: 10) {
+            TextField("Scrivi a Melissa", text: $testo, axis: .vertical)
+                .lineLimit(1...4)
+                .focused($scrivendo)
+                .submitLabel(.send)
+                .onSubmit(manda)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .background(RoundedRectangle(cornerRadius: 18).fill(Tinte.notteFonda))
+                .overlay(RoundedRectangle(cornerRadius: 18).stroke(Tinte.bordo))
+                .foregroundStyle(Tinte.testo)
+            Button(action: manda) {
+                Image(systemName: "arrow.up")
+                    .font(.headline)
+                    .foregroundStyle(Tinte.notteFonda)
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(testo.isEmpty || melissa.occupata ? Tinte.tinta.opacity(0.4) : Tinte.ambra))
+            }
+            .disabled(testo.trimmingCharacters(in: .whitespaces).isEmpty || melissa.occupata)
+            .accessibilityLabel("Manda")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private func manda() {
+        let t = testo
+        testo = ""
+        scrivendo = false
+        melissa.scrivi(t)
+    }
+
+    // MARK: - frasi
+
+    private func etichetta(_ s: Stanza) -> String {
+        guard s == .lavori, let c = ponte.stato?.conti, c.tiAspetta > 0 else { return s.rawValue }
+        return "Lavori · \(c.tiAspetta) ti aspetta\(c.tiAspetta == 1 ? "" : "no")"
+    }
+
+    private var coloreLinea: Color {
+        switch ponte.linea {
+        case .collegato: Tinte.verde
+        case .provo, .scollegato: Tinte.ambra
+        case .fuori: Tinte.rosso
+        }
+    }
+
+    private var fraseLinea: String {
+        switch ponte.linea {
+        case .collegato:
+            guard let c = ponte.stato?.conti else { return "Collegato" }
+            if c.vive == 0 { return "Collegato, nessuna sessione Claude aperta" }
+            return "Collegato, \(c.vive) session\(c.vive == 1 ? "e" : "i") Claude, \(c.inCorso) al lavoro"
+        case .provo: return "Cerco il Mac…"
+        case .scollegato: return "Scollegato"
+        case .fuori(let perche): return perche
+        }
+    }
+
+    private var fraseSfera: String {
+        switch melissa.sfera {
+        case .ascolta: melissa.parziale.isEmpty ? "Ti ascolto" : melissa.parziale
+        case .pensa: "Ci penso…"
+        case .parla: "Tocca la sfera per interrompermi"
+        case .errore: "Qualcosa non è andato. Tocca la sfera per riprovare."
+        case .riposo:
+            switch ponte.stato?.melissa.stato {
+            case "thinking"?: "Sul Mac sto già rispondendo"
+            case "speaking"?: "Sto parlando sul Mac"
+            case "listening"?: "Sul Mac ti sto ascoltando"
+            default: "Tocca la sfera per parlarmi"
+            }
+        }
+    }
+}

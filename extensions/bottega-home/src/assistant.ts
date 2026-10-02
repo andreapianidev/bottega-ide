@@ -888,6 +888,23 @@ export class Assistant {
 		await this.turn(text, this.state.enabled && this.deps.nucleo.available);
 	}
 
+	/** Vero mentre un turno e' in corso (pensa o parla): il ponte non ne apre un secondo. */
+	busy(): boolean {
+		return !!this.currentAbort || this.state.state === 'thinking' || this.state.state === 'speaking';
+	}
+
+	/** Domanda dalla Bottega per iPhone (src/ponte.ts): stesso cervello e stessa conversazione, ma il Mac sta
+	 *  zitto. La voce la sintetizza poi l'iPhone dal ponte. */
+	async askRemote(text: string): Promise<string> {
+		this.out.info(`domanda dall'iPhone: "${text.slice(0, 80)}"`);
+		const answer = await this.turn(text, false);
+		if (!this.state.conversing && this.state.state === 'thinking') {
+			this.setState('idle');
+			this.deps.nucleo.fireAndForget('orb.state', { state: 'idle' });
+		}
+		return cleanForVoice(answer);
+	}
+
 	/** Domanda scritta dalla plancia: stesso cervello, parlata solo se la voce e' accesa. */
 	async ask(text: string): Promise<string> {
 		return this.turn(text, this.state.enabled && this.deps.nucleo.available);
