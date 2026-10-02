@@ -1,8 +1,25 @@
 /* Le deleghe a Claude Code senza finestra, per i connettori di claude.ai (Gmail, Google Calendar, Vercel...):
    le loro credenziali le tiene Claude, quindi l'unico modo di usarli e' chiedere a `claude -p`.
 
-   Costano: con haiku da 20 a 70 secondi e da 0,14 a 0,46 dollari l'una (misurato il 2 ottobre 2026; il grosso e'
-   il contesto con gli strumenti di tutti i connettori dell'utente), quindi:
+   Il perimetro: Claude Code carica gli schemi degli strumenti di TUTTI i server MCP dell'utente (il 2 ottobre 2026
+   erano 997 strumenti, asc-mcp da solo 389) e haiku, che non ha la ricerca differita degli strumenti, sforava il
+   contesto ("Prompt is too long"). `--tools ""` toglie solo gli strumenti di base, non quelli MCP; `--strict-mcp-config`
+   toglie anche i connettori di claude.ai, quindi non serve. Funziona invece `--settings` con:
+   - `allowedMcpServers: [{ serverUrl: "<origine del server>/*" }]`: parte SOLO il server che serve (l'origine viene
+     da `claude mcp list`, connettori.ts) e i server locali stdio non vengono nemmeno avviati. Il filtro per nome
+     (`serverName: "claude.ai Gmail"`) con i connettori di claude.ai non funziona: li toglie tutti;
+   - `disableAllHooks: true`: niente hook dell'utente (uno costava 6 secondi a ogni delega);
+   piu' `--disallowedTools` con gli altri strumenti dello stesso server, imparati dal messaggio `init` delle deleghe
+   precedenti (strumenti-visti.json, solo nomi), e con gli altri server se l'origine non e' nota.
+
+   Misure del 2 ottobre 2026, una ricerca Gmail che conta i fili non letti (search_threads, due turni):
+   - haiku con tutti i server, come prima: "Prompt is too long", nessun risultato;
+   - sonnet con la ricerca differita, tutti i server: 0,72 $ al primo turno, fermata da --max-budget-usd;
+   - haiku, altri server negati, 30 strumenti Gmail: 16 s, 0,068 $;
+   - haiku, solo search_threads, senza hook: 9 s, 0,028 $.
+   La delega vera della posta (richiestaGmail, due ricerche, 24 fili in uscita) con questo codice: 81 s, 0,077 $; con
+   poche risposte da 8 a 9 s e da 0,017 a 0,021 $. Una volta haiku ha risposto [] senza chiamare lo strumento: il
+   prompt ora lo vieta. Quindi haiku, sempre con il perimetro. Il resto:
    - una alla volta, in coda, con `nice`, timeout 180 secondi, mai sul filo del processo delle estensioni;
    - solo strumenti di sola lettura (soloLettura), passati con --allowedTools, piu' --permission-mode dontAsk
      (tutto il resto e' negato senza chiedere) e --tools "" (niente Bash, Edit, Read...);
@@ -20,10 +37,12 @@ import { pathEsteso, soloLettura, trovaClaude } from './connettori';
 
 export const DIR_CONNETTORI = path.join(os.homedir(), '.bottega', 'connettori');
 export const TIMEOUT_DELEGA = 180_000;
-/** Stima di partenza, prima di avere uno storico: la piu' cara delle due misure fatte a mano con haiku. */
-export const STIMA_BASE = { secondi: 60, usd: 0.45 };
+/** Stima di partenza, prima di avere uno storico: la ricerca Gmail della posta misurata con il perimetro. */
+export const STIMA_BASE = { secondi: 60, usd: 0.08 };
 /** Una sola delega non spende mai piu' di cosi' (--max-budget-usd), anche con il tetto giornaliero alto. */
-export const MASSIMO_PER_DELEGA = 0.8;
+export const MASSIMO_PER_DELEGA = 0.4;
+/** Gli strumenti MCP visti nelle deleghe precedenti (solo nomi): servono a negare quelli che non si usano. */
+export const FILE_STRUMENTI_VISTI = 'strumenti-visti.json';
 
 export interface RichiestaDelega {
 	/** Dove salvare il risultato: ~/.bottega/connettori/<capacita>.json */
@@ -67,6 +86,7 @@ export function promptDelega(r: RichiestaDelega, strumenti: string[]): string {
 		'Sei un lettore di dati per la Bottega, un programma che mostra queste informazioni in una sua schermata.',
 		`Puoi usare SOLO questi strumenti, e solo per leggere: ${strumenti.join(', ')}.`,
 		'Non inviare, non rispondere, non inoltrare, non creare bozze, non modificare e non cancellare niente.',
+		'Chiama sempre gli strumenti prima di rispondere: non rispondere mai a memoria o per supposizione.',
 		'',
 		`Compito: ${r.compito}`,
 		'',
@@ -77,17 +97,79 @@ export function promptDelega(r: RichiestaDelega, strumenti: string[]): string {
 	].join('\n');
 }
 
-export function argomentiDelega(o: { modello: string; strumenti: string[]; budgetUsd: number }): string[] {
+/** Un connettore come lo vede la coda: il prefisso dei suoi strumenti e, per i remoti, l'origine dell'indirizzo. */
+export interface ServerDelega {
+	nome: string;
+	prefisso: string;
+	tipo?: string;
+	origine?: string;
+}
+
+export interface Perimetro {
+	/** Voci di allowedMcpServers: vuoto se un server da usare non ha un modo sicuro di essere scelto. */
+	ammessi: ({ serverUrl: string } | { serverName: string })[];
+	/** Regole di --disallowedTools: altri server ("mcp__asc-mcp") e altri strumenti dei server usati. */
+	negati: string[];
+}
+
+const RE_REGOLA = /^mcp__[A-Za-z0-9_-]+(__[A-Za-z0-9_-]+)?$/;
+const serverDiStrumento = (t: string) => (t.lastIndexOf('__') > 4 ? t.slice(0, t.lastIndexOf('__')) : t);
+const senzaCoda = (prefisso: string) => prefisso.replace(/__$/, '');
+
+/** Cosa caricare e cosa negare per una delega che usa solo `strumenti`. `server` viene dall'elenco dei connettori,
+ *  `visti` dai messaggi init delle deleghe precedenti. */
+export function perimetroDelega(strumenti: string[], server: ServerDelega[] = [], visti: string[] = []): Perimetro {
+	const usati = new Set(strumenti.map(serverDiStrumento));
+	const ammessi: Perimetro['ammessi'] = [];
+	let tutti = usati.size > 0;
+	for (const u of usati) {
+		const s = server.find(x => senzaCoda(x.prefisso) === u);
+		if (s?.origine && /^https?:\/\/[a-z0-9.-]+(:\d+)?$/.test(s.origine)) ammessi.push({ serverUrl: `${s.origine}/*` });
+		else if (s && s.tipo === 'locale') ammessi.push({ serverName: s.nome });
+		else tutti = false;
+	}
+	const negati = new Set<string>();
+	// senza una lista di ammessi completa si negano per nome tutti gli altri server noti
+	if (!tutti) {
+		for (const p of [...server.map(x => senzaCoda(x.prefisso)), ...visti.map(serverDiStrumento)]) if (!usati.has(p)) negati.add(p);
+	}
+	for (const t of visti) if (usati.has(serverDiStrumento(t)) && !strumenti.includes(t)) negati.add(t);
+	return { ammessi: tutti ? ammessi : [], negati: [...negati].filter(x => RE_REGOLA.test(x)).sort() };
+}
+
+export function argomentiDelega(o: { modello: string; strumenti: string[]; budgetUsd: number; perimetro?: Perimetro }): string[] {
+	const impostazioni: Record<string, unknown> = { disableAllHooks: true };
+	if (o.perimetro?.ammessi.length) impostazioni.allowedMcpServers = o.perimetro.ammessi;
 	return [
 		'-p',
-		'--output-format', 'json',
+		// stream-json: il primo messaggio (init) dice quali strumenti sono stati caricati, e la coda li impara
+		'--output-format', 'stream-json',
+		'--verbose',
 		'--model', o.modello || 'haiku',
 		'--permission-mode', 'dontAsk',
 		'--no-session-persistence',
 		'--max-budget-usd', Math.max(0.01, o.budgetUsd).toFixed(2),
+		'--settings', JSON.stringify(impostazioni),
 		'--tools', '',
 		'--allowedTools', o.strumenti.join(','),
+		...(o.perimetro?.negati.length ? ['--disallowedTools', o.perimetro.negati.join(',')] : []),
 	];
+}
+
+/** Gli strumenti MCP del messaggio init di `--output-format stream-json`. Solo nomi. */
+export function strumentiDaInit(stdout: string): string[] {
+	for (const line of String(stdout ?? '').split('\n')) {
+		if (!line.includes('"init"')) continue;
+		try {
+			const x = JSON.parse(line);
+			if (x?.type === 'system' && x?.subtype === 'init' && Array.isArray(x.tools)) {
+				return x.tools.filter((t: unknown) => typeof t === 'string' && /^mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+$/.test(t));
+			}
+		} catch {
+			// riga storta
+		}
+	}
+	return [];
 }
 
 /** Il JSON dentro una risposta: tollera blocchi ```json e testo intorno. */
@@ -177,6 +259,8 @@ export interface CodaOpts {
 	tetto: () => number;
 	onChange: () => void;
 	log: (s: string) => void;
+	/** I connettori conosciuti (da `claude mcp list`): per caricare solo il server che serve. */
+	server?: () => ServerDelega[];
 	/** Per i test: sostituisce il lancio di claude. */
 	esegui?: (args: string[], stdin: string, timeoutMs: number) => Promise<{ stdout: string; code: number | null }>;
 	ora?: () => number;
@@ -269,11 +353,19 @@ export class CodaDeleghe {
 		if (speso + st.usd > tetto) {
 			return fail(`tetto di spesa di oggi raggiunto: ${speso.toFixed(2)} $ su ${tetto.toFixed(2)} $`);
 		}
-		const args = argomentiDelega({ modello: this.o.modello(), strumenti, budgetUsd: Math.min(tetto - speso, MASSIMO_PER_DELEGA) });
+		let server: ServerDelega[] = [];
+		try {
+			server = this.o.server?.() ?? [];
+		} catch {
+			// senza elenco si nega solo quello che si e' visto
+		}
+		const perimetro = perimetroDelega(strumenti, server, this.strumentiVisti());
+		const args = argomentiDelega({ modello: this.o.modello(), strumenti, budgetUsd: Math.min(tetto - speso, MASSIMO_PER_DELEGA), perimetro });
 		const prompt = promptDelega(r, strumenti);
 		fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
 		const run = this.o.esegui ?? ((a, s, t) => this.lancia(a, s, t));
 		const { stdout, code } = await run(args, prompt, TIMEOUT_DELEGA);
+		this.imparaStrumenti(strumentiDaInit(stdout));
 		const u = leggiUscita(stdout);
 		const durataMs = this.ora() - t0;
 		const esito: EsitoDelega = {
@@ -292,6 +384,28 @@ export class CodaDeleghe {
 			this.o.log(`delega: non salvo il risultato (${err})`);
 		}
 		return esito;
+	}
+
+	strumentiVisti(): string[] {
+		try {
+			const d = JSON.parse(fs.readFileSync(path.join(this.dir, FILE_STRUMENTI_VISTI), 'utf8'));
+			return Array.isArray(d?.strumenti) ? d.strumenti.filter((x: unknown) => typeof x === 'string') : [];
+		} catch {
+			return [];
+		}
+	}
+
+	/** Si unisce a quelli gia' visti: con il perimetro stretto l'init mostra solo il server usato. */
+	private imparaStrumenti(nuovi: string[]): void {
+		if (!nuovi.length) return;
+		const prima = this.strumentiVisti();
+		const tutti = [...new Set([...prima, ...nuovi])].sort().slice(0, 5000);
+		if (tutti.length === prima.length) return;
+		try {
+			scriviPrivato(path.join(this.dir, FILE_STRUMENTI_VISTI), { at: this.ora(), strumenti: tutti });
+		} catch (err) {
+			this.o.log(`delega: non salvo gli strumenti visti (${err})`);
+		}
 	}
 
 	private registra(e: EsitoDelega): void {

@@ -15,6 +15,8 @@ export interface StrumentoMcp {
 	name: string;
 	description?: string;
 	inputSchema?: any;
+	/** Suggerimenti del server: readOnlyHint vero allarga soloLettura (le parole che scrivono vincono comunque). */
+	annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; [k: string]: unknown };
 }
 
 export interface RisultatoMcp {
@@ -41,6 +43,8 @@ export class ClientMcp {
 	private seq = 0;
 	private attese = new Map<number, { ok: (v: any) => void; ko: (e: Error) => void; t: NodeJS.Timeout }>();
 	private pronto?: Promise<void>;
+	/** Le annotazioni di tools/list, per nome: chiama le passa a soloLettura quando le conosce. */
+	private annotazioni = new Map<string, StrumentoMcp['annotations']>();
 
 	constructor(
 		private readonly nome: string,
@@ -138,12 +142,15 @@ export class ClientMcp {
 	async strumenti(): Promise<StrumentoMcp[]> {
 		await this.avvia();
 		const r = await this.richiesta('tools/list', {});
-		return Array.isArray(r?.tools) ? r.tools : [];
+		const tools: StrumentoMcp[] = Array.isArray(r?.tools) ? r.tools : [];
+		for (const t of tools) if (t && typeof t.name === 'string' && t.annotations && typeof t.annotations === 'object') this.annotazioni.set(t.name, t.annotations);
+		return tools;
 	}
 
-	/** Chiama uno strumento, solo se e' di sola lettura. */
+	/** Chiama uno strumento, solo se e' di sola lettura: per nome, per le annotazioni viste in tools/list o per
+	 *  il permesso a mano sul server (soloLettura). */
 	async chiama(nome: string, args: Record<string, unknown> = {}): Promise<RisultatoMcp> {
-		if (!soloLettura(nome)) throw new Error(`${nome} non e' di sola lettura: la Bottega non lo usa`);
+		if (!soloLettura(nome, this.annotazioni.get(nome), this.nome)) throw new Error(`${nome} non e' di sola lettura: la Bottega non lo usa`);
 		await this.avvia();
 		return this.richiesta('tools/call', { name: nome, arguments: args });
 	}

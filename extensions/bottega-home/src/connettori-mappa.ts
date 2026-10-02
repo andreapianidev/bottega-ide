@@ -23,6 +23,7 @@ export const CAPACITA: Capacita[] = [
 	{ id: 'pagamenti', nome: 'Pagamenti', cosa: 'incassi e abbonamenti' },
 	{ id: 'pubblicita', nome: 'Pubblicità', cosa: 'i guadagni della pubblicità nelle app' },
 	{ id: 'ricerca', nome: 'Motori di ricerca', cosa: 'il traffico dai motori di ricerca' },
+	{ id: 'messaggi', nome: 'Messaggi', cosa: 'le chat WhatsApp dei clienti di ogni progetto' },
 ];
 
 export const MAPPA_BASE: Record<string, string[]> = {
@@ -34,6 +35,7 @@ export const MAPPA_BASE: Record<string, string[]> = {
 	pagamenti: ['stripe'],
 	pubblicita: ['admob'],
 	ricerca: ['searchconsole', '/search-?console/'],
+	messaggi: ['/^whatsapp/'],
 };
 
 /** Strumenti di sola lettura da usare, per capacita' e per connettore (nome pulito). Il resto non si usa. */
@@ -45,4 +47,8 @@ export const STRUMENTI: Record<string, Record<string, string[]>> = {
 	calendario: { 'google calendar': ['list_events', 'list_calendars', 'search_events', 'get_event'] },
 	deploy: { vercel: ['list_deployments', 'list_projects', 'get_deployment', 'list_teams'] },
 	file: { 'google drive': ['search_files', 'list_recent_files', 'get_file_metadata'] },
+	messaggi: {
+		'whatsapp-business': ['list_chats', 'search_contacts'],
+		'whatsapp-personal': ['list_chats', 'search_contacts'],
+	},
 };

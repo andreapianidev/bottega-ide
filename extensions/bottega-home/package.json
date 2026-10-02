@@ -397,6 +397,27 @@
           },
           "description": "Connettori di Claude Code in piu' per le capacita' della Bottega, per esempio { \"posta\": [\"mio-server-imap\"] }. Un nome esatto o un'espressione regolare tra barre. Si aggiungono alla mappa di base."
         },
+        "bottega.connettori.letturaPermessa": {
+          "type": "object",
+          "default": {
+            "admob": [
+              "/.*/"
+            ],
+            "searchconsole": [
+              "/.*/"
+            ],
+            "keyword-suggest": [
+              "/.*/"
+            ]
+          },
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "Strumenti che la Bottega puo' usare anche senza un verbo di lettura nel nome, per server: { \"admob\": [\"/.*/\"] }. Nomi esatti o espressioni regolari tra barre. Le parole che scrivono (send, delete, update, generate, token...) restano escluse comunque."
+        },
         "bottega.connettori.modello": {
           "type": "string",
           "default": "haiku",
@@ -434,6 +455,18 @@
           },
           "default": [],
           "description": "Domini da non suggerire mai per la rubrica, per esempio il tuo sito personale."
+        },
+        "bottega.whatsapp.giorni": {
+          "type": "number",
+          "default": 7,
+          "minimum": 1,
+          "maximum": 90,
+          "description": "Quanti giorni di chat WhatsApp guardare. Si aggiornano insieme alla posta locale, o con il pulsante Aggiorna WhatsApp."
+        },
+        "bottega.whatsapp.personaleDaAssegnare": {
+          "type": "boolean",
+          "default": false,
+          "description": "Mostra in \"Da assegnare\" anche le chat del numero personale che non sono in rubrica. Spento: del numero personale si vedono solo i contatti in rubrica."
         }
       }
     },
@@ -456,7 +489,7 @@
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=out/extension.js",
     "typecheck": "tsc --noEmit",
-    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs"
+    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/whatsapp.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
