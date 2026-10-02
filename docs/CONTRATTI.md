@@ -151,7 +151,9 @@ CLI: `node memoria/cli.mjs <comando>`; comandi minimi: `ingest`, `search <testo>
 Comandi aggiunti dall'implementazione: `sessione <id>`, `worker` (interno, riassunti in background),
 `grafici [--giorni N=30] --json` (la stanza Memoria, `lib/grafici.mjs`: `{giorni, ora, scritti: [{giorno: 'AAAA-MM-GG',
 fatti, decisioni, riassunti, schermate, richieste}], letti: [{giorno, avvio, ricerche, strumenti: {cerca, ...}}],
-progetti: [{progetto, ricordi}] (al massimo 8), totali: {ricordi, sessioni, riassunte, coda, lettiSettimana, ultimo}}`;
+progetti: [{progetto, ricordi}] (al massimo 8), ore: number[7][24] (lunedi' per primo, senza le richieste),
+adesso: {giorno, ora}, totali: {ricordi, sessioni, riassunte, coda, lettiSettimana, ultimo}}`; `ore` alimenta il battito
+della stanza Memoria, disegnato in WebGPU da `media/motore/battito-gpu.js` (Metal sul Mac, griglia SVG ferma se manca);
 le note vanno con i fatti; `avvio` = sessioni avviate quel giorno, cioe' contesti dati da SessionStart; `ricerche` =
 osservazioni con uno strumento `mcp__bottega-memoria__*`; solo letture, giorni dell'orologio del Mac, da 7 a 90),
 `bacheca` restituisce `[{at, sessionId, project, kind, summary, file?}]`. Radici dei progetti

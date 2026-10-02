@@ -873,7 +873,47 @@ kbd {
 .mem-tabella thead th { position: sticky; top: 0; background: var(--basalto); color: var(--tinta); }
 .mem-tabella .num { text-align: right; font-variant-numeric: tabular-nums; }
 .mem-grafico .mostra-tabella { margin-top: 6px; font-size: 12px; }
-@media (prefers-reduced-motion: reduce) { .mem-grafico .colonna { transition: none; } }
+.mem-tre { display: contents; }
+.mem-grafico .m1 { fill: var(--m1); }
+.mem-grafico .m2 { fill: var(--m2); }
+.mem-grafico .m3 { fill: var(--m3); }
+.mem-grafico .m4 { fill: var(--m4); }
+.mem-legenda i.m1 { background: var(--m1); }
+.mem-legenda i.m2 { background: var(--m2); }
+.mem-legenda i.m3 { background: var(--m3); }
+.mem-legenda i.m4 { background: var(--m4); }
+
+/* la prima volta colonne e barre crescono dalla base, una dopo l'altra per giorno */
+.mem-grafici.entra .colonna rect:not(.bersaglio),
+.mem-grafici.entra .colonna path {
+	transform-box: fill-box;
+	transform-origin: 50% 100%;
+	animation: mem-cresce 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.mem-grafici.entra .colonna path.barra { transform-origin: 0 50%; animation-name: mem-allunga; }
+.mem-grafici.entra .colonna:nth-child(n + 6) :is(rect, path) { animation-delay: 0.08s; }
+.mem-grafici.entra .colonna:nth-child(n + 12) :is(rect, path) { animation-delay: 0.16s; }
+.mem-grafici.entra .colonna:nth-child(n + 18) :is(rect, path) { animation-delay: 0.24s; }
+.mem-grafici.entra .colonna:nth-child(n + 24) :is(rect, path) { animation-delay: 0.32s; }
+.mem-grafici.entra .colonna:nth-child(n + 30) :is(rect, path) { animation-delay: 0.4s; }
+@keyframes mem-cresce { from { transform: scaleY(0); opacity: 0.3; } to { transform: none; opacity: 1; } }
+@keyframes mem-allunga { from { transform: scaleX(0); } to { transform: none; } }
+
+/* il battito: la tela WebGPU, le etichette in HTML sopra, la griglia ferma in SVG se WebGPU manca */
+.battito-tela { position: relative; width: 100%; height: 200px; }
+.battito-tela canvas, .battito-fermo { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.battito-fermo .vuota { fill: var(--linea); }
+.battito-fermo .piena { fill: var(--sodio); }
+.battito-etichette { position: absolute; inset: 0; pointer-events: none; font: 10px var(--sans); color: var(--tinta); font-variant-numeric: tabular-nums; }
+.battito-etichette .giorno { position: absolute; left: 0; transform: translateY(-50%); }
+.battito-etichette .ora { position: absolute; top: 4px; }
+.battito-scala { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 11px; color: var(--tinta); }
+.battito-scala i { width: 90px; height: 7px; border-radius: 4px; background: linear-gradient(90deg, var(--linea), var(--sodio)); box-shadow: 0 0 10px -2px var(--sodio-alone); }
+
+@media (prefers-reduced-motion: reduce) {
+	.mem-grafico .colonna { transition: none; }
+	.mem-grafici.entra .colonna :is(rect, path) { animation: none; }
+}
 .mem-risultati.in-attesa { opacity: 0.55; }
 
 .giorno + .giorno { margin-top: 36px; }

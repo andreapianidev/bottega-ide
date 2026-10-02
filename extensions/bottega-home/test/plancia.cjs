@@ -688,7 +688,7 @@ test('«Dove l\'ho già risolto?»: due blocchi, risposte vecchie scartate, evid
 	assert.deepStrictEqual(t.errors, []);
 });
 
-test('Memoria: si rinnova entrando, «Mostra altri ricordi», quattro numeri e tre grafici con le tabelle', () => {
+test('Memoria: si rinnova entrando, «Mostra altri ricordi», tre numeri, tre grafici e il battito in WebGPU, con le tabelle', () => {
 	const t = boot();
 	t.send({ type: 'snapshot', snapshot: snapshot() });
 	t.click(t.$('#tab-memoria'));
@@ -714,6 +714,8 @@ test('Memoria: si rinnova entrando, «Mostra altri ricordi», quattro numeri e t
 		scritti: giorni(30).map((giorno, i) => ({ giorno, fatti: i % 3, decisioni: i % 2, riassunti: 1, schermate: i === 29 ? 4 : 0, richieste: 5 })),
 		letti: giorni(30).map((giorno, i) => ({ giorno, avvio: 2, ricerche: i === 29 ? 3 : 0, strumenti: i === 29 ? { cerca: 2, bacheca: 1 } : {} })),
 		progetti: [{ progetto: 'Faro', ricordi: 40 }, { progetto: 'Fuori dai progetti', ricordi: 12 }],
+		ore: Array.from({ length: 7 }, (_, g) => Array.from({ length: 24 }, (_, o) => (g === 2 && o === 15 ? 9 : o >= 9 && o < 19 ? 1 : 0))),
+		adesso: { giorno: 5, ora: 0 },
 		totali: { ricordi: 1755, sessioni: 127, riassunte: 124, coda: 0, lettiSettimana: 92, ultimo: Date.now() },
 	};
 	t.send({ type: 'memoria.grafici', dati });
@@ -723,7 +725,13 @@ test('Memoria: si rinnova entrando, «Mostra altri ricordi», quattro numeri e t
 	assert.match(tessere[0], /1\.755ricordi in tutto/);
 	assert.match(tessere[1], /124 su 127sessioni riassunte/);
 	const figure = t.$$('.mem-grafico');
-	assert.strictEqual(figure.length, 3);
+	assert.strictEqual(figure.length, 4, 'tre grafici e il battito: niente buchi nella griglia');
+	assert.match(t.$('#battito-nota').textContent, /mercoledì dalle 15 alle 16, 9 ricordi/);
+	assert.match(t.$('#mem-battito').getAttribute('aria-label'), /mercoledì 18/);
+	assert.ok(!t.$('.mem-legenda i').hasAttribute('style'), 'i colori della legenda passano dalle classi');
+	assert.ok(t.$('.mem-legenda i').classList.contains('m1'));
+	t.click(t.$('[data-memtab="battito"]'));
+	assert.strictEqual(t.$$('#battito-tabella tbody tr').length, 7);
 	assert.strictEqual(figure[0].querySelectorAll('.colonna').length, 30, 'una colonna per giorno');
 	assert.match(figure[0].querySelector('figcaption').textContent, /150 tue richieste registrate/);
 	assert.match(figure[1].querySelector('.colonna:last-of-type').getAttribute('data-tip'), /Ricerche di Claude: 3 \(cerca 2, bacheca 1\)/);
