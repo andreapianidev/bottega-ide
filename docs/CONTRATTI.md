@@ -848,10 +848,12 @@ Codice: `src/strumenti-connettori.ts`. Gli strumenti entrano nell'elenco di Meli
 (`Object.assign(TOOLS, STRUMENTI_CONNETTORI)`, prima che nasca l'assistente) e il modulo riceve la stanza con
 `registraStrumentiConnettori(registerConnettori(...))`. Gli strumenti sono in sezione 6 («Le mani di Melissa»).
 
-- Sola lettura prima di avviare qualsiasi processo: `connettore_leggi` e gli elenchi (`strumentiLeggibili`,
-  `strumentiNoti`) chiamano `soloLettura(nome breve)` senza annotazioni ne' server, quindi per Melissa valgono oggi le
-  regole 1, 2 e 3 di 5.3: gli strumenti di admob senza verbo (`top_apps`, `wow_revenue`) non le arrivano, anche se
-  `letturaPermessa` li ammette per la stanza e per le deleghe.
+- Sola lettura in due passi. Prima di avviare qualsiasi processo `connettore_leggi` scarta chi ha una parola che
+  scrive o e' sensibile (regole 1 e 2 di 5.3, `soloLettura(nome, { readOnlyHint: true })`). Poi il server parte,
+  `tools/list` da' le annotazioni e `ClientMcp.chiama` applica tutte le regole di 5.3 con annotazioni e server.
+  `strumentiLeggibili(tools, server)` negli elenchi usa le stesse regole complete: per Melissa valgono quindi anche
+  `readOnlyHint` e `letturaPermessa` (i report di admob come `top_apps` le arrivano). `strumentiNoti`, per le deleghe
+  ai connettori di claude.ai, resta sui nomi brevi della mappa.
 - Server locali stdio: `conServer` per chiamata, timeout 60 s, server chiuso a fine chiamata. Gli elenchi degli
   strumenti (`tools/list`: nome, descrizione, schema; mai comando o env) restano in memoria 5 minuti.
 - Risultati per Melissa: campi vuoti tolti, testi oltre 500 caratteri accorciati, tutto troncato a 6000 caratteri con

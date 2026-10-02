@@ -126,9 +126,10 @@ export function argomentiBrevi(schema: any): string {
 	return parti.join(', ');
 }
 
-/** Solo gli strumenti che la Bottega puo' chiamare (connettori.ts, soloLettura). */
-export function strumentiLeggibili(tools: StrumentoMcp[]): StrumentoMcp[] {
-	return tools.filter(t => t && typeof t.name === 'string' && soloLettura(t.name));
+/** Solo gli strumenti che la Bottega puo' chiamare (connettori.ts, soloLettura): con le annotazioni del server
+ *  (readOnlyHint) e i permessi a mano per server (bottega.connettori.letturaPermessa). */
+export function strumentiLeggibili(tools: StrumentoMcp[], server?: string): StrumentoMcp[] {
+	return tools.filter(t => t && typeof t.name === 'string' && soloLettura(t.name, t.annotations, server));
 }
 
 const norma = (s: string) => String(s ?? '').toLowerCase().replace(/^claude\.ai\s+/, '').replace(/[^a-z0-9]+/g, '');
@@ -211,9 +212,9 @@ async function elenco(a: { server?: string; cerca?: string }): Promise<string> {
 		} catch (e: any) {
 			return `${c.nome} non risponde: ${e?.message ?? e}`;
 		}
-		const ro = strumentiLeggibili(tools).filter(t => !cerca || `${t.name} ${t.description ?? ''}`.toLowerCase().includes(cerca));
+		const ro = strumentiLeggibili(tools, c.nome).filter(t => !cerca || `${t.name} ${t.description ?? ''}`.toLowerCase().includes(cerca));
 		if (!ro.length) {
-			return `${c.nome}: ${tools.length} strumenti, ma nessuno di sola lettura${cerca ? ` che parli di "${cerca}"` : ''} secondo le regole della Bottega (cominciano per search, list, get o read): non posso leggerlo direttamente.`;
+			return `${c.nome}: ${tools.length} strumenti, ma nessuno di sola lettura${cerca ? ` che parli di "${cerca}"` : ''} secondo le regole della Bottega: non posso leggerlo direttamente.`;
 		}
 		const righe = ro.map(t => `${t.name}(${argomentiBrevi(t.inputSchema)}): ${descrizioneBreve(t.description)}`);
 		return tronca(`${c.nome}, diretto e gratis, ${ro.length} strumenti di sola lettura (con asterisco gli argomenti obbligatori). Chiamali con connettore_leggi:\n${righe.join('\n')}`);
@@ -231,7 +232,7 @@ async function elenco(a: { server?: string; cerca?: string }): Promise<string> {
 			await Promise.all(
 				pronti.slice(i, i + 3).map(async c => {
 					try {
-						const ro = strumentiLeggibili(await strumentiDi(c)).map(t => t.name);
+						const ro = strumentiLeggibili(await strumentiDi(c), c.nome).map(t => t.name);
 						conti.set(c.nome, ro.length ? `${ro.length} di sola lettura: ${ro.slice(0, 20).join(', ')}${ro.length > 20 ? ` e altri ${ro.length - 20}` : ''}` : 'nessuno strumento di sola lettura');
 					} catch (e: any) {
 						conti.set(c.nome, `non risponde (${String(e?.message ?? e).slice(0, 80)})`);
@@ -266,8 +267,9 @@ function argomentiOggetto(v: unknown): Record<string, unknown> | string {
 async function leggi(a: { server: string; strumento: string; argomenti?: unknown }, ctx?: Pick<Assistant, 'azione'>): Promise<string> {
 	if (!fonte) return 'I connettori non sono pronti: la stanza Connettori non e\' partita.';
 	const strumento = nomeBreve(a.strumento);
-	// prima di tutto, e prima di avviare qualsiasi processo: solo lettura
-	if (!soloLettura(strumento)) {
+	// prima di tutto, e prima di avviare qualsiasi processo: fuori subito chi ha una parola che scrive o e' sensibile
+	// (readOnlyHint supposto vero qui; il controllo vero, con le annotazioni del server, lo fa ClientMcp.chiama)
+	if (!soloLettura(strumento, { readOnlyHint: true })) {
 		return `Rifiutato: ${strumento} non e' di sola lettura. La Bottega non invia, non risponde, non crea e non cancella niente.`;
 	}
 	const c = serverDiretto(a.server);
@@ -287,7 +289,7 @@ async function leggi(a: { server: string; strumento: string; argomenti?: unknown
 	let timer: NodeJS.Timeout | undefined;
 	try {
 		const r = await Promise.race([
-			conServer(c.nome, avvio, s => s.chiama(strumento, args), TIMEOUT_LETTURA),
+			conServer(c.nome, avvio, async s => (await s.strumenti(), s.chiama(strumento, args)), TIMEOUT_LETTURA),
 			new Promise<never>((_, ko) => {
 				timer = setTimeout(() => ko(new Error(`nessuna risposta in ${TIMEOUT_LETTURA / 1000} secondi`)), TIMEOUT_LETTURA);
 			}),
@@ -470,7 +472,7 @@ export const STRUMENTI_CONNETTORI: Record<string, StrumentoMelissa> = {
 				name: 'connettore_leggi',
 				description:
 					'Legge dati da un server MCP locale di Claude Code chiamando un suo strumento di sola lettura: gratis e subito. Esempi: "quanto ha reso Talky ieri" su admob, "come va il traffico di andreapiani.com" su searchconsole (search_analytics), "stato di Woofmap su App Store" su asc-mcp, recensioni su google-play. ' +
-					'Per i guadagni AdMob di ieri e della settimana e lo stato delle app c\'e\' gia\' store_soldi, piu\' rapido: usa questo quando serve altro. Solo strumenti che cominciano per search, list, get o read: gli altri vengono rifiutati. ' +
+					'Per i guadagni AdMob di ieri e della settimana e lo stato delle app c\'e\' gia\' store_soldi, piu\' rapido: usa questo quando serve altro. Solo strumenti di sola lettura (verbi come list, get, search, report, trend, oppure dichiarati di sola lettura dal server, oppure i report di admob, searchconsole e keyword-suggest): quelli che scrivono vengono rifiutati. ' +
 					'whatsapp-personal e mail-mcp (chat e posta personali) SOLO se Andrea te lo chiede esplicitamente, mai di tua iniziativa. Se non sai nome e argomenti dello strumento, chiama prima connettori_elenco con il server. Il risultato e\' gia\' accorciato: riassumilo a voce in poche frasi.',
 				parameters: obj(
 					{
