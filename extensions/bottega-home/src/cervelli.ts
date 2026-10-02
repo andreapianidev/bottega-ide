@@ -60,6 +60,8 @@ export interface CervelliOptions {
 	secretsDir?: string;
 	cacheFile?: string;
 	appleAvailable?: () => boolean;
+	/** Perche' Apple Intelligence non c'e', detto dal Nucleo. */
+	appleReason?: () => string | undefined;
 	usageFile?: string;
 	log?: (s: string) => void;
 }
@@ -356,7 +358,7 @@ export class Cervelli {
 			const why = this.isDown('openrouter');
 			for (const o of this.orModels?.options ?? []) out.push({ ...o, available: !why, ...(why ? { why } : {}) });
 		}
-		out.push({ provider: 'apple', model: 'apple-on-device', label: 'Apple Intelligence', note: 'sul Mac', available: !!this.o.appleAvailable?.(), why: this.o.appleAvailable?.() ? undefined : 'Apple Intelligence non è attiva su questo Mac' });
+		out.push({ provider: 'apple', model: 'apple-on-device', label: 'Apple Intelligence', note: 'sul Mac', available: !!this.o.appleAvailable?.(), why: this.o.appleAvailable?.() ? undefined : (this.o.appleReason?.() ?? 'Apple Intelligence non risponde ancora dal Nucleo') });
 		if (this.key('deepseek')) {
 			await this.probeDeepseek();
 			const why = this.isDown('deepseek');

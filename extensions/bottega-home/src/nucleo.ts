@@ -11,6 +11,8 @@ import * as vscode from 'vscode';
 
 export interface Capabilities {
 	foundationModels: boolean;
+	/** Perche' Apple Intelligence non si puo' usare (spenta, modello in preparazione...), se non si puo'. */
+	foundationModelsReason?: string;
 	speechLocaleInstalled: boolean;
 	speechLocale?: string;
 	embedding: boolean;
@@ -65,6 +67,7 @@ export class Nucleo extends EventEmitter {
 	private _available = false;
 	private _capabilities?: Capabilities;
 	private _lastStats?: SystemStats;
+	private capsTimer?: NodeJS.Timeout;
 
 	constructor(private readonly extensionPath: string) {
 		super();
@@ -122,13 +125,12 @@ export class Nucleo extends EventEmitter {
 		this._available = true;
 		this.backoff = 500;
 		this.emit('available');
-		try {
-			const caps = await this.request<Capabilities>('capabilities', {}, 5000);
-			this._capabilities = caps;
-			this.emit('capabilities', caps);
-		} catch {
-			// senza capabilities si procede lo stesso
-		}
+		// All'avvio della Bottega il Mac e' carico e il Nucleo puo' rispondere tardi: una risposta persa lasciava
+		// Apple Intelligence «non attiva» fino al riavvio. Si riprova, e ogni 10 minuti si ricontrolla (il modello
+		// puo' finire di scaricarsi, o Andrea accenderla nelle Impostazioni).
+		await this.readCapabilities();
+		clearInterval(this.capsTimer);
+		this.capsTimer = setInterval(() => void this.readCapabilities(1), 10 * 60_000);
 		const hotkey = vscode.workspace.getConfiguration('bottega').get<string>('voice.hotkey', 'option+space');
 		const { key, modifiers } = parseHotkey(hotkey);
 		this.request('hotkey.register', { key, modifiers }, 5000).catch(() => undefined);
@@ -194,9 +196,24 @@ export class Nucleo extends EventEmitter {
 		if (msg.log) this.emit('log', msg.log);
 	}
 
+	private async readCapabilities(attempts = 4): Promise<void> {
+		for (let i = 0; i < attempts && this._available; i++) {
+			try {
+				const caps = await this.request<Capabilities>('capabilities', {}, 15_000);
+				this._capabilities = caps;
+				this.emit('capabilities', caps);
+				return;
+			} catch {
+				// senza capabilities si procede lo stesso; si riprova tra poco
+				await new Promise(r => setTimeout(r, 3000));
+			}
+		}
+	}
+
 	private onExit(): void {
 		this.proc = undefined;
 		this._available = false;
+		clearInterval(this.capsTimer);
 		// Ogni richiesta in sospeso muore con il processo.
 		for (const [, p] of this.pending) {
 			clearTimeout(p.timer);

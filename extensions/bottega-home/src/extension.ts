@@ -71,7 +71,6 @@ let idee: Idee | undefined;
 let barraView: BarraView | undefined;
 let cervelli: Cervelli | undefined;
 /** Apple Intelligence attiva sul Mac (capabilities del Nucleo). */
-let appleOk = false;
 /** I lavori che aspettavano al giro prima: Melissa avvisa a voce solo dei nuovi. */
 let waitingBefore = new Set<string>();
 let osservatorio: Osservatorio | undefined;
@@ -555,9 +554,12 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		onChange: () => refreshDynamic(),
 	});
 
-	cervelli = new Cervelli({ memento: ctx.globalState, appleAvailable: () => appleOk, log: s => console.warn(s) });
-	nucleo.on('available', () => {
-		void nucleo!.request<{ foundationModels?: boolean }>('capabilities', {}, 8000).then(c => (appleOk = !!c?.foundationModels)).catch(() => undefined);
+	// Apple Intelligence: l'ultimo dato vero del Nucleo, che lo rilegge da solo (src/nucleo.ts, readCapabilities)
+	cervelli = new Cervelli({
+		memento: ctx.globalState,
+		appleAvailable: () => !!nucleo?.available && !!nucleo.capabilities?.foundationModels,
+		appleReason: () => (nucleo?.available ? nucleo.capabilities?.foundationModelsReason : 'il Nucleo non è acceso'),
+		log: s => console.warn(s),
 	});
 
 	assistant = new Assistant({

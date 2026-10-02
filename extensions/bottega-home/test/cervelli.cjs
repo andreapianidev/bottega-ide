@@ -171,6 +171,20 @@ function fakeFetch(opts = {}) {
 		assert.ok(!st.accounts.some(a => /[\u2014\u2013]/.test(a.text)));
 	});
 
+	await test('Apple Intelligence: segue il dato del Nucleo in diretta e dice il motivo vero', async () => {
+		let ok = false;
+		let motivo = 'Il modello di Apple Intelligence non e\' ancora pronto.';
+		const c = new cv.Cervelli({ memento: memento(), fetch: fakeFetch(), secretsDir: secrets, cacheFile: path.join(tmp, 'c-apple.json'), appleAvailable: () => ok, appleReason: () => motivo });
+		let a = (await c.options()).find(o => o.provider === 'apple');
+		assert.strictEqual(a.available, false);
+		assert.strictEqual(a.why, motivo, 'il motivo del Nucleo, non una frase generica');
+		ok = true;
+		motivo = undefined;
+		a = (await c.options()).find(o => o.provider === 'apple');
+		assert.strictEqual(a.available, true, 'quando il Nucleo risponde, senza riavviare');
+		assert.strictEqual(a.why, undefined);
+	});
+
 	await test('stream: testo e strumenti a pezzi, intestazioni di OpenRouter, chiave dal vault', async () => {
 		const f = fakeFetch({ events: [{ content: 'Apro ' }, { tool_calls: [{ index: 0, id: 'c1', function: { name: 'progetto_apri', arguments: '{"prog' } }] }, { tool_calls: [{ index: 0, function: { arguments: 'etto":"Peak"}' } }] }] });
 		const c = new cv.Cervelli({ memento: memento(), fetch: f, secretsDir: secrets, cacheFile: path.join(tmp, 'c3.json') });
