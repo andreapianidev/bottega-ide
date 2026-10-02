@@ -210,7 +210,7 @@ function test(name, fn) {
 		console.log(`  ok  ${name}`);
 	} catch (e) {
 		failed.push(name);
-		console.log(`  NO  ${name}\n      ${String(e && e.stack ? e.stack : e).split('\n').slice(0, 4).join('\n      ')}`);
+		console.log(`  NO  ${name}\n      ${String(e && e.stack ? e.stack : e).split('\n').slice(0, 9).join('\n      ')}`);
 	}
 }
 
@@ -229,6 +229,41 @@ function noDashes(d) {
 console.log('plancia.js in jsdom');
 
 // ---------- schede ----------
+
+test('stanze su una riga: quelle che non ci stanno vanno in «Altro», la stanza in cui sei resta sempre', () => {
+	const t = boot();
+	// jsdom non misura: una riga da 450 px, schede da 100, «Altro» da 80
+	Object.defineProperty(t.w.HTMLElement.prototype, 'offsetWidth', { configurable: true, get() { return this.id === 'altro' ? 80 : this.getAttribute('role') === 'tab' ? 100 : 0; } });
+	Object.defineProperty(t.w.HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return this.id === 'stanze' ? 450 : 0; } });
+	t.click(t.$('#tab-plancia'));
+	const fuori = () => t.$$('.tabs button.fuori').map(b => b.dataset.view);
+	assert.deepStrictEqual(fuori(), ['melissa', 'cruscotto', 'vedetta', 'clienti', 'connettori'], 'tre schede nella riga, le altre in «Altro»');
+	assert.strictEqual(t.$('#altro').hidden, false);
+	assert.match(t.$('#altro').title, /Melissa, Cruscotto, Vedetta, Clienti, Connettori/);
+	// apre il pannello e sceglie Connettori: entra nella riga al posto dell'ultima
+	t.click(t.$('#altro'));
+	assert.strictEqual(t.$('#altro').getAttribute('aria-expanded'), 'true');
+	const voci = t.$$('#altro-menu button').map(b => b.dataset.view);
+	assert.deepStrictEqual(voci, ['melissa', 'cruscotto', 'vedetta', 'clienti', 'connettori']);
+	t.click(t.$('#altro-menu button[data-view="connettori"]'));
+	assert.strictEqual(t.$('#tab-connettori').getAttribute('aria-selected'), 'true');
+	assert.ok(!fuori().includes('connettori'), 'la stanza in cui sei e\' sempre nella riga');
+	assert.ok(fuori().includes('memoria'), 'ha preso il posto dell\'ultima');
+	assert.strictEqual(t.$('#altro-menu').hidden, true, 'scelta una stanza il pannello si chiude');
+	// un segnale in una stanza nascosta compare anche su «Altro»
+	t.send({ type: 'snapshot', snapshot: snapshot() }); // Faro e' rosso nel semaforo: la Vedetta ha la brace
+	t.click(t.$('#tab-connettori'));
+	assert.strictEqual(t.$('#segnale-vedetta').hidden, false);
+	assert.strictEqual(t.$('#segnale-altro').hidden, false);
+	assert.ok(t.$('#segnale-altro').classList.contains('st-rosso'));
+	// finestra larga: tutte nella riga, «Altro» sparisce
+	Object.defineProperty(t.w.HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return this.id === 'stanze' ? 2000 : 0; } });
+	t.click(t.$('#tab-plancia'));
+	assert.deepStrictEqual(fuori(), []);
+	assert.strictEqual(t.$('#altro').hidden, true);
+	noDashes(t.d);
+	assert.deepStrictEqual(t.errors, []);
+});
 
 test('otto schede, nell\'ordine, con i tasti da 1 a 8', () => {
 	const t = boot();

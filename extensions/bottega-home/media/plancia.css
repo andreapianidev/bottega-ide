@@ -119,7 +119,104 @@ kbd {
 	font-weight: 500;
 }
 
-.tabs { display: flex; flex-wrap: wrap; gap: 2px; }
+/* Le stanze stanno su una riga: quelle che non ci stanno vanno in «Altro» (plancia.js, adattaStanze). */
+.stanze {
+	position: relative;
+	display: flex;
+	align-items: center;
+	flex: 1 1 360px;
+	min-width: 0;
+}
+
+.tabs { display: flex; flex-wrap: nowrap; gap: 2px; min-width: 0; }
+.tabs button { flex: none; white-space: nowrap; }
+.tabs button.fuori { display: none; }
+
+.altro {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	flex: none;
+	margin-left: 2px;
+	padding: 6px 11px 6px 12px;
+	border: 1px solid transparent;
+	border-radius: 999px;
+	background: none;
+	font-family: var(--serif);
+	font-size: 17px;
+	font-weight: 500;
+	color: var(--tinta);
+	cursor: pointer;
+	transition: color 0.15s, border-color 0.15s, background-color 0.15s;
+}
+.altro:hover,
+.altro[aria-expanded='true'] {
+	color: var(--calima);
+	border-color: var(--linea);
+	background: color-mix(in srgb, var(--basalto) 70%, transparent);
+}
+.altro .freccina {
+	width: 10px;
+	height: 6px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.6;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	transition: transform 0.2s ease;
+}
+.altro[aria-expanded='true'] .freccina { transform: rotate(180deg); }
+.segnale.st-conta { background: var(--sodio); }
+
+/* Il pannello di vetro con le stanze che non stanno nella riga. */
+.altro-menu {
+	position: absolute;
+	top: calc(100% + 8px);
+	right: 0;
+	z-index: 30;
+	display: grid;
+	min-width: 200px;
+	padding: 6px;
+	border: 1px solid var(--linea);
+	border-radius: 14px;
+	background: color-mix(in srgb, var(--basalto) 88%, transparent);
+	backdrop-filter: blur(18px) saturate(1.3);
+	-webkit-backdrop-filter: blur(18px) saturate(1.3);
+	box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+	transform-origin: top right;
+	animation: altro-apre 0.16s ease-out;
+}
+.altro-menu[hidden] { display: none; }
+.altro-menu button {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	padding: 9px 12px 9px 10px;
+	border: 0;
+	border-radius: 9px;
+	background: none;
+	font-family: var(--serif);
+	font-size: 17px;
+	font-weight: 500;
+	color: var(--tinta);
+	text-align: left;
+	cursor: pointer;
+}
+.altro-menu button:hover,
+.altro-menu button:focus-visible { color: var(--calima); background: color-mix(in srgb, var(--linea) 55%, transparent); outline: none; }
+.altro-menu button[aria-current='page'] { color: var(--calima); }
+.altro-menu button[aria-current='page'] .lume { background: var(--sodio); box-shadow: 0 0 8px 1px var(--sodio-alone); }
+.altro-menu .segnale { margin-left: auto; }
+
+@keyframes altro-apre {
+	from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+	to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+	.altro-menu { animation: none; }
+	.altro .freccina { transition: none; }
+}
 
 .tabs button {
 	display: inline-flex;
@@ -1608,6 +1705,7 @@ body.con-dialogo { overflow: hidden; }
 
 @media (max-width: 700px) {
 	.tabs button { font-size: 15.5px; padding: 5px 7px 5px 5px; gap: 6px; }
+	.altro, .altro-menu button { font-size: 15.5px; }
 	.brand { display: none; }
 	.lavoro, .lavoro.s-aspetta { grid-template-columns: 10px minmax(0, 1fr); }
 	.lavoro-azioni { grid-column: 2; justify-content: flex-start; }

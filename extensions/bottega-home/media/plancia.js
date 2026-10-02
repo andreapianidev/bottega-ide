@@ -325,12 +325,16 @@
 	app.innerHTML = `
 	<header class="top">
 		<p class="brand">Bottega</p>
-		<div class="tabs" role="tablist" aria-label="Stanze della Bottega">
-			${VIEWS.map(
-				([id, label], i) =>
-					`<button type="button" role="tab" id="tab-${id}" data-view="${id}" aria-controls="vista-${id}" aria-selected="false" tabindex="-1" title="${label}, tasto ${i + 1}"><i class="lume" aria-hidden="true"></i><span>${label}</span><span class="segnale" id="segnale-${id}" hidden></span></button>`,
-			).join('')}
-		</div>
+		<nav class="stanze" id="stanze" aria-label="Stanze">
+			<div class="tabs" role="tablist" aria-label="Stanze della Bottega">
+				${VIEWS.map(
+					([id, label], i) =>
+						`<button type="button" role="tab" id="tab-${id}" data-view="${id}" aria-controls="vista-${id}" aria-selected="false" tabindex="-1" title="${label}, tasto ${i + 1}"><i class="lume" aria-hidden="true"></i><span>${label}</span><span class="segnale" id="segnale-${id}" hidden></span></button>`,
+				).join('')}
+			</div>
+			<button type="button" class="altro" id="altro" aria-haspopup="menu" aria-expanded="false" aria-controls="altro-menu" hidden><span>Altro</span><span class="segnale punto" id="segnale-altro" hidden></span><svg class="freccina" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" /></svg></button>
+			<div class="altro-menu" id="altro-menu" role="menu" aria-label="Altre stanze" hidden></div>
+		</nav>
 		<p class="sistema" id="sistema"></p>
 	</header>
 
@@ -630,7 +634,119 @@
 		if (s && s.system) el.title = `Carico ${(s.system.load || []).map(num).join(', ')} (1, 5, 15 min), ${s.system.cores} core, memoria ${s.system.memoryPressure}, temperatura ${s.system.thermal}`;
 		if (info.loud && !state.loud) announce(info.text);
 		state.loud = info.loud;
+		adattaStanze();
 	}
+
+	// ---------- le stanze su una riga sola ----------
+	/* Le stanze non vanno mai a capo. Quelle che non ci stanno entrano in «Altro», un pannello di vetro con la
+	   lampada accesa sulla stanza in cui sei; la stanza in cui sei resta sempre nella riga, e il segnale piu' forte
+	   tra le stanze nascoste (una regola rossa, chi ti aspetta, Melissa che parla) compare anche su «Altro». */
+	const PESO = { 'st-rosso': 4, conta: 3, 'st-listening': 2, 'st-thinking': 2, 'st-speaking': 2, 'st-error': 2 };
+	let fuori = [];
+
+	function adattaStanze() {
+		const nav = $('stanze');
+		const tabs = nav.querySelector('.tabs');
+		const altro = $('altro');
+		const bottoni = VIEWS.map(([id]) => $('tab-' + id));
+		for (const b of bottoni) b.classList.remove('fuori');
+		altro.hidden = true;
+		const spazio = nav.clientWidth;
+		const gap = parseFloat(getComputedStyle(tabs).columnGap) || 0;
+		const larghe = bottoni.map(b => b.offsetWidth + gap);
+		const tutte = larghe.reduce((a, b) => a + b, 0);
+		fuori = [];
+		if (spazio > 0 && tutte - gap > spazio) {
+			altro.hidden = false;
+			const resta = spazio - altro.offsetWidth - 4;
+			const dentro = new Set();
+			let usato = 0;
+			for (let i = 0; i < VIEWS.length; i++) {
+				if (usato + larghe[i] > resta) break;
+				usato += larghe[i];
+				dentro.add(i);
+			}
+			// la stanza in cui sei non finisce mai in «Altro»: prende il posto dell'ultima che ci stava
+			const qui = VIEWS.findIndex(v => v[0] === state.view);
+			if (qui >= 0 && !dentro.has(qui)) {
+				const ordine = [...dentro].sort((a, b) => b - a);
+				for (const i of ordine) {
+					if (usato + larghe[qui] <= resta) break;
+					dentro.delete(i);
+					usato -= larghe[i];
+				}
+				dentro.add(qui);
+			}
+			VIEWS.forEach(([id], i) => {
+				if (dentro.has(i)) return;
+				bottoni[i].classList.add('fuori');
+				fuori.push(id);
+			});
+		}
+		// il segnale piu' forte tra le stanze nascoste, anche su «Altro»
+		let forte = null;
+		let peso = 0;
+		for (const id of fuori) {
+			const sg = $('segnale-' + id);
+			if (sg.hidden) continue;
+			const cl = [...sg.classList].find(c => c.startsWith('st-')) || 'conta';
+			if ((PESO[cl] || 1) > peso) (peso = PESO[cl] || 1), (forte = cl);
+		}
+		const sa = $('segnale-altro');
+		sa.hidden = !forte;
+		sa.className = 'segnale punto' + (forte && forte !== 'conta' ? ' ' + forte : forte ? ' st-conta' : '');
+		altro.title = fuori.length ? `Altre stanze: ${fuori.map(id => VIEWS.find(v => v[0] === id)[1]).join(', ')}` : '';
+		if (!fuori.length) chiudiAltro();
+		else if (altro.getAttribute('aria-expanded') === 'true') riempiAltro();
+	}
+
+	function riempiAltro() {
+		const menu = $('altro-menu');
+		setHTML(
+			menu,
+			fuori
+				.map(id => {
+					const label = VIEWS.find(v => v[0] === id)[1];
+					const sg = $('segnale-' + id);
+					const segno = sg.hidden ? '' : `<span class="${sg.className}">${sg.innerHTML}</span>`;
+					return `<button type="button" role="menuitem" data-view="${id}"${id === state.view ? ' aria-current="page"' : ''}><i class="lume" aria-hidden="true"></i><span>${label}</span>${segno}</button>`;
+				})
+				.join(''),
+		);
+	}
+
+	function apriAltro() {
+		riempiAltro();
+		$('altro-menu').hidden = false;
+		$('altro').setAttribute('aria-expanded', 'true');
+		const primo = $('altro-menu').querySelector('button');
+		if (primo) primo.focus();
+	}
+
+	function chiudiAltro(fuoco) {
+		const menu = $('altro-menu');
+		if (menu.hidden) return;
+		menu.hidden = true;
+		$('altro').setAttribute('aria-expanded', 'false');
+		if (fuoco) $('altro').focus();
+	}
+
+	$('altro').addEventListener('click', () => ($('altro-menu').hidden ? apriAltro() : chiudiAltro()));
+	$('altro-menu').addEventListener('click', () => chiudiAltro());
+	$('altro-menu').addEventListener('keydown', e => {
+		const voci = [...$('altro-menu').querySelectorAll('button')];
+		const i = voci.indexOf(document.activeElement);
+		if (e.key === 'Escape') return e.preventDefault(), chiudiAltro(true);
+		if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+			e.preventDefault();
+			const k = (i + (e.key === 'ArrowDown' ? 1 : -1) + voci.length) % voci.length;
+			voci[k].focus();
+		}
+	});
+	document.addEventListener('pointerdown', e => {
+		if (!$('stanze').contains(/** @type {Node} */ (e.target))) chiudiAltro();
+	});
+	if (typeof ResizeObserver === 'function') new ResizeObserver(() => adattaStanze()).observe($('stanze'));
 
 	// ---------- Plancia ----------
 
@@ -2148,6 +2264,7 @@
 		persist();
 		for (const [id] of VIEWS) $('vista-' + id).hidden = id !== view;
 		renderView();
+		adattaStanze();
 		if (focusTab) $('tab-' + view).focus();
 		if (window.scrollTo) window.scrollTo(0, state.scroll[view] || 0);
 		if (view === 'melissa') orb.wake();
