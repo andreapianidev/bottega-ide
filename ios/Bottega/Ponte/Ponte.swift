@@ -13,6 +13,8 @@ import WidgetKit
 
 struct ErrorePonte: LocalizedError {
     let messaggio: String
+    /// Il codice HTTP, quando l'errore viene da una risposta del Mac (401 gettone, 409 domanda cambiata).
+    var codice: Int?
     var errorDescription: String? { messaggio }
 }
 
@@ -41,6 +43,13 @@ final class Ponte {
         c.waitsForConnectivity = false
         return URLSession(configuration: c)
     }()
+    /// Per /v1/parla: con uno strumento lento il Mac puo' restare zitto a lungo prima della frase dopo.
+    private let sessioneLunga: URLSession = {
+        let c = URLSessionConfiguration.ephemeral
+        c.timeoutIntervalForRequest = 180
+        c.waitsForConnectivity = false
+        return URLSession(configuration: c)
+    }()
 
     var collegato: Bool { collegamento != nil }
 
@@ -49,20 +58,37 @@ final class Ponte {
     @discardableResult
     func collega(_ url: URL) -> Bool {
         guard let c = Collegamento(url: url) else { return false }
+        let prima = collegamento
         c.salva()
         collegamento = c
         usaIP = false
         stato = nil
         riavvia()
+        // un altro Mac o un gettone nuovo: quel Mac non ha i token di questo iPhone, si rimandano tutti
+        if prima == nil || prima?.host != c.host || prima?.token != c.token {
+            Avvisi.shared.dimentica()
+            // da scollegati ci pensa il cambio di `collegato` (BottegaApp)
+            if prima != nil { Avvisi.shared.avvia() }
+        }
         return true
     }
 
-    func scollega() {
+    /// Prima il Mac toglie i token di questo iPhone e si chiudono le Live Activity, poi si dimentica tutto.
+    func scollega() async {
+        await Avvisi.shared.congeda()
         ferma()
         Collegamento.dimentica()
         collegamento = nil
         stato = nil
         linea = .scollegato
+        Avvisi.shared.dimentica()
+    }
+
+    /// Il portachiavi non si legge prima del primo sblocco dopo l'accensione: se all'avvio il gettone non c'era,
+    /// si riprova da qui (app davanti, token da mandare).
+    func ricarica() {
+        guard collegamento == nil, let c = Collegamento.carica() else { return }
+        collegamento = c
     }
 
     // MARK: - eventi in diretta
@@ -104,6 +130,12 @@ final class Ponte {
                 if Task.isCancelled { return }
                 if scambiaSuIP(error) { continue }
                 linea = .fuori(spiega(error))
+                if (error as? ErrorePonte)?.codice == 401 {
+                    // gettone rifiutato: riprovare farebbe solo chiudere fuori questo iPhone dal Mac. Si riparte con
+                    // un nuovo collegamento o al prossimo ritorno davanti dell'app.
+                    eventi = nil
+                    return
+                }
             }
             try? await Task.sleep(nanoseconds: attesa * 1_000_000_000)
             attesa = min(attesa * 2, 30)
@@ -120,9 +152,13 @@ final class Ponte {
 
     // MARK: - richieste
 
-    func chiedi(_ testo: String) async throws -> String {
+    /// `conferma`: il numero della domanda arrivato con la notifica CONFERMA; se nel frattempo la domanda e'
+    /// cambiata il Mac risponde 409.
+    func chiedi(_ testo: String, conferma: Int? = nil) async throws -> String {
         struct R: Decodable { let risposta: String; let stato: StatoMac }
-        let r: R = try await manda("/v1/chiedi", ["testo": testo])
+        var corpo: [String: Any] = ["testo": testo]
+        if let conferma { corpo["conferma"] = conferma }
+        let r: R = try await manda("/v1/chiedi", corpo)
         aggiorna(r.stato)
         return r.risposta
     }
@@ -147,13 +183,13 @@ final class Ponte {
             let risposta: String?
             let stato: StatoMac?
         }
-        var req = try richiesta("/v1/parla")
+        var req = try richiesta("/v1/parla", timeout: 180)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "content-type")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["testo": testo])
         let bytes: URLSession.AsyncBytes
         do {
-            let (b, r) = try await sessione.bytes(for: req)
+            let (b, r) = try await sessioneLunga.bytes(for: req)
             if let h = r as? HTTPURLResponse, !(200..<300).contains(h.statusCode) {
                 var corpo = Data()
                 for try await x in b { corpo.append(x) }
@@ -162,7 +198,7 @@ final class Ponte {
             bytes = b
         } catch {
             if scambiaSuIP(error) { return try await parla(testo, riga: riga) }
-            throw ErrorePonte(messaggio: spiega(error))
+            throw (error as? ErrorePonte) ?? ErrorePonte(messaggio: spiega(error))
         }
         let dec = JSONDecoder()
         for try await linea in bytes.lines {
@@ -183,9 +219,9 @@ final class Ponte {
     }
 
     /// I token per le push del Mac (docs/CONTRATTI.md, 9.4): notifiche, Live Activity, widget.
-    func registraDispositivo(_ campi: [String: String]) async throws {
+    func registraDispositivo(_ campi: [String: String], timeout: TimeInterval = 90) async throws {
         struct R: Decodable { let ok: Bool }
-        let _: R = try await manda("/v1/dispositivo", campi)
+        let _: R = try await manda("/v1/dispositivo", campi, timeout: timeout)
     }
 
     func scriviLavoro(_ id: String, _ testo: String) async throws {
@@ -204,13 +240,13 @@ final class Ponte {
         }
     }
 
-    private func manda<T: Decodable>(_ percorso: String, _ corpo: [String: String]) async throws -> T {
-        let d = try await mandaDati(percorso, corpo)
+    private func manda<T: Decodable>(_ percorso: String, _ corpo: [String: Any], timeout: TimeInterval = 90) async throws -> T {
+        let d = try await mandaDati(percorso, corpo, timeout: timeout)
         return try JSONDecoder().decode(T.self, from: d)
     }
 
-    private func mandaDati(_ percorso: String, _ corpo: [String: String]) async throws -> Data {
-        var req = try richiesta(percorso)
+    private func mandaDati(_ percorso: String, _ corpo: [String: Any], timeout: TimeInterval) async throws -> Data {
+        var req = try richiesta(percorso, timeout: timeout)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "content-type")
         req.httpBody = try JSONSerialization.data(withJSONObject: corpo)
@@ -219,8 +255,8 @@ final class Ponte {
             try controlla(r, corpo: d)
             return d
         } catch {
-            if scambiaSuIP(error) { return try await mandaDati(percorso, corpo) }
-            throw ErrorePonte(messaggio: spiega(error))
+            if scambiaSuIP(error) { return try await mandaDati(percorso, corpo, timeout: timeout) }
+            throw (error as? ErrorePonte) ?? ErrorePonte(messaggio: spiega(error))
         }
     }
 
@@ -240,7 +276,10 @@ final class Ponte {
         guard (200..<300).contains(h.statusCode) else {
             struct E: Decodable { let errore: String }
             let m = corpo.flatMap { try? JSONDecoder().decode(E.self, from: $0) }?.errore
-            throw ErrorePonte(messaggio: m ?? "Il Mac ha risposto \(h.statusCode).")
+            let ripiego = h.statusCode == 401
+                ? "Il Mac non riconosce più questo iPhone: ricollegalo con «Collega l'iPhone» dalla Bottega."
+                : "Il Mac ha risposto \(h.statusCode)."
+            throw ErrorePonte(messaggio: m ?? ripiego, codice: h.statusCode)
         }
     }
 

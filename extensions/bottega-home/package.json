@@ -78,6 +78,11 @@
         "category": "Bottega"
       },
       {
+        "command": "bottega.aggiornaVSCode",
+        "title": "Controlla se VS Code va aggiornato",
+        "category": "Bottega"
+      },
+      {
         "command": "bottega.openMelissa",
         "title": "Apri Melissa",
         "category": "Bottega"
@@ -450,6 +455,21 @@
           "default": "haiku",
           "description": "Il modello di Claude Code usato per le deleghe ai connettori di claude.ai (Gmail, Calendar, Vercel)."
         },
+        "bottega.aggiornamenti.vscode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Una volta al giorno controlla se l'ultima versione di Claude Code chiede un VS Code piu' nuovo di quello sotto la Bottega. Se serve arriva una notifica: con «Aggiorna» la Bottega si ricompila da sola (da 30 a 60 minuti) e alla fine si riapre."
+        },
+        "bottega.aggiornamenti.claudeCode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ogni ora controlla su Open VSX se c'e' una versione nuova dell'estensione Claude Code e la installa. Entra in uso al prossimo riavvio delle estensioni: le sessioni aperte non cadono."
+        },
+        "bottega.aggiornamenti.sorgenti": {
+          "type": "string",
+          "default": "",
+          "description": "La cartella dei sorgenti della Bottega, se non e' quella da cui e' stata installata o ~/Prototipi/Bottega."
+        },
         "bottega.connettori.tettoGiornalieroUsd": {
           "type": "number",
           "default": 1,
@@ -516,7 +536,7 @@
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=out/extension.js",
     "typecheck": "tsc --noEmit",
-    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/whatsapp.cjs && node test/strumenti-connettori.cjs && node test/vercel.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs && node test/avvisi.cjs"
+    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/whatsapp.cjs && node test/strumenti-connettori.cjs && node test/vercel.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs && node test/avvisi.cjs && node test/aggiorna.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

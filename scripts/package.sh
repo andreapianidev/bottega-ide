@@ -58,10 +58,11 @@ echo "   dopo: $(du -sm $DIST | cut -f1) MB"
 
 # product.json viene scritto al momento della compilazione: il numero di build si allinea qui.
 # Si rifonde anche product.bottega.json, cosi' le sue modifiche valgono senza ricompilare VS Code.
-python3 - $DIST/Contents/Resources/app/product.json $VERSION $BUILD $ROOT/product.bottega.json $SESSIONS <<'PY'
+# bottegaSorgenti dice alla Bottega dove sono i suoi sorgenti: li' trova scripts/aggiorna-vscode.sh.
+python3 - $DIST/Contents/Resources/app/product.json $VERSION $BUILD $ROOT/product.bottega.json $SESSIONS $ROOT <<'PY'
 import json, sys
-p, v, b, over, sessions = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5] == "1"
-d = json.load(open(p)); d.update(json.load(open(over))); d["bottegaVersion"] = v; d["bottegaBuild"] = b
+p, v, b, over, sessions, root = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5] == "1", sys.argv[6]
+d = json.load(open(p)); d.update(json.load(open(over))); d["bottegaVersion"] = v; d["bottegaBuild"] = b; d["bottegaSorgenti"] = root
 if sessions:
     # Senza questi checksum VS Code direbbe "installazione danneggiata" per i file tolti.
     d["checksums"] = {k: c for k, c in d.get("checksums", {}).items() if not k.startswith("vs/sessions/")}

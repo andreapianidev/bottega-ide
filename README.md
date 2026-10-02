@@ -248,6 +248,17 @@ una ti aspetta. Ci sono i widget per la Home e la schermata di blocco, il pulsan
 Controllo e Siri («Chiedi a Melissa su Bottega», «Chi mi aspetta su Bottega»). Le notifiche le manda il Mac
 direttamente ai server di Apple, con la tua chiave APNs: dentro c'è solo il nome del progetto e una frase breve.
 
+### Gli aggiornamenti
+
+VS Code sotto la Bottega si aggiorna solo quando serve davvero: quando l'estensione Claude Code chiede una versione
+di VS Code piu' nuova di quella che hai. Una volta al giorno la Bottega lo controlla; se serve arriva una notifica con
+«Aggiorna» e «Dopo». Con «Aggiorna» la Bottega si ricompila da sola sulla versione nuova (da 30 a 60 minuti, il Mac
+lavora) e alla fine si chiude e si riapre. Se una delle patch non si applica piu', la compilazione si ferma, la
+Bottega che hai resta com'e' e una notifica dice dove si e' fermata. A mano: `scripts/aggiorna-vscode.sh 1.141.0`.
+
+L'estensione Claude Code invece si aggiorna sempre: la Bottega guarda su Open VSX ogni ora e installa la versione
+nuova appena esce, che entra in uso al prossimo riavvio delle estensioni, senza far cadere le sessioni aperte.
+
 ## Requisiti
 
 - Mac con Apple Silicon e macOS 27 o successivo
@@ -358,7 +369,9 @@ Per le notifiche serve una chiave APNs del tuo account (Certificates, Identifier
   riconoscimento vocale del Mac, che puo' usare i server di Apple come fa Siri;
 - verso ElevenLabs: il testo che Melissa deve pronunciare (e l'audio dell'ascolto solo con
   `BOTTEGA_STT=elevenlabs`);
-- verso Open VSX: le ricerche e i download delle estensioni;
+- verso Open VSX: le ricerche e i download delle estensioni, e una volta all'ora la versione dell'ultima Claude Code;
+- verso GitHub: l'ultima versione pubblicata di VS Code, al massimo una volta al giorno e solo quando Claude Code ne
+  chiede una piu' nuova;
 - verso il tuo iPhone, solo dentro la tua rete Tailscale e solo se usi la Bottega per iPhone: lo stato di Melissa e
   dei lavori, le risposte e la loro voce;
 - verso Claude e Anthropic, solo se premi «Cerca anche in Gmail» (o accendi `bottega.posta.gmailOgniMinuti`): la

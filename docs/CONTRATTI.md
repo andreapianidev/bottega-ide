@@ -1316,6 +1316,16 @@ nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard,
   nome e porta nelle preferenze.
 - Rete: prima il nome MagicDNS (eccezione ATS per `ts.net`, HTTP dentro Tailscale), se non si risolve l'indirizzo
   100.x. Eventi ripresi da soli con attesa crescente fino a 30 s, fermi con l'app dietro.
+  Un 401 ferma gli eventi (niente tentativi che farebbero bloccare l'indirizzo): si riparte con un nuovo QR o al
+  ritorno davanti dell'app. `/v1/parla` tollera 180 s senza dati (strumenti lenti), le altre richieste 90 s.
+- Audio: si guarda sempre `motore.isRunning` (Siri, chiamate e cuffie fermano il motore: suonare su un motore fermo
+  fa cadere l'app); a fine giro senza conversazione aperta, alla chiusura e con l'app dietro la sessione audio si
+  rilascia (`setActive(false, .notifyOthersOnDeactivation)`), cosi' musica e podcast ripartono. Con `voce-persa` a
+  meta' risposta, le frasi non ancora dette le dice la voce di iOS. Un solo giro di ascolto alla volta (contatore di
+  giro: i callback di un riconoscimento fermato non toccano quello nuovo).
+- Token per le push osservati da `didFinishLaunching`, anche quando iOS sveglia l'app in background per una Live
+  Activity; il token del widget arriva con un avviso Darwin. «Scollega» avvisa prima il Mac (token vuoti) e chiude
+  le Live Activity.
 
 ### 9.4 Notifiche, Live Activity, widget, Siri
 
@@ -1391,3 +1401,34 @@ e l'app lo manda al Mac): widget «Sessioni»
 
 **Siri** (App Intents nell'app): «Chiedi a Melissa» (`POST /v1/chiedi`, Siri legge la risposta) e «Chi mi aspetta»
 (dallo stato), con le frasi per Comandi rapidi e Siri.
+
+## 10. Gli aggiornamenti: VS Code solo quando serve, Claude Code sempre
+
+Regola di Andrea (2/10/2026): VS Code sotto la Bottega si aggiorna solo quando l'estensione Claude Code lo chiede, mai
+per le uscite mensili di Microsoft; Claude Code invece sempre. `src/aggiorna.ts` (logica, senza `vscode`) e
+`src/aggiorna-host.ts` (notifiche, comando, impostazioni `bottega.aggiornamenti.*`).
+
+- **Claude Code**, ogni ora (il primo controllo 90 s dopo l'avvio): `GET open-vsx.org/api/anthropic/claude-code/
+  darwin-arm64/latest`. Se `version` e' piu' nuova di quella installata e il suo `engines.vscode` e' soddisfatto,
+  `workbench.extensions.installExtension('anthropic.claude-code@<versione>')`. La versione nuova entra in uso al
+  prossimo riavvio delle estensioni: niente riavvio automatico, le sessioni aperte non cadono. In piu' i default del
+  tema accendono `extensions.autoCheckUpdates` e `extensions.autoUpdate`.
+- **VS Code**, al massimo una volta ogni 20 ore (il primo 2 minuti dopo l'avvio): il minimo di `engines.vscode`
+  dell'ultima Claude Code contro `vscode.version`. Se basta, finito (GitHub non si chiama). Se no, `GET api.github.com/
+  repos/microsoft/vscode/releases/latest`: se quella versione soddisfa il minimo, notifica del Nucleo `notify {id:
+  'aggiorna:<tag>', actions: [aggiorna, dopo]}` (senza Nucleo, notifica della Bottega con gli stessi pulsanti).
+  `notify.clicked`: `aggiorna` lancia, `dopo` tace la stessa versione per tre giorni, il clic sul corpo chiede conferma
+  in una finestra modale (un clic per sbaglio non fa partire un'ora di compilazione). Comando «Controlla se VS Code va
+  aggiornato» (`bottega.aggiornaVSCode`): il controllo subito, e la notifica se serve.
+- **Lo script** `scripts/aggiorna-vscode.sh <tag>` (anche a mano): parte staccato dalla Bottega (`spawn` detached,
+  uscita in `~/.bottega/aggiornamento.log`), perche' alla fine `package.sh` chiude e riapre la Bottega. Rifiuta una
+  versione che non sia `N.N.N` e una compilazione di VS Code gia' in corso. Cambia `vscodeTag`, `bump-build.sh`,
+  `build.sh` (che installa); poi commit di `bottega.json` e `ios/Version.xcconfig` e di nient'altro, e push. Se la
+  compilazione si ferma rimette `bottega.json` e `Version.xcconfig` com'erano: in /Applications resta la Bottega di
+  prima.
+- **L'esito** in `~/.bottega/aggiornamento.json`: `{stato: 'in corso' | 'fatto' | 'fallito', tag, build?, motivo?,
+  push?, at, annunciato?}`. La Bottega lo legge all'avvio e ogni 30 s mentre e' `in corso`, lo dice con una notifica
+  una volta sola (`annunciato: true`). `motivo` e' la riga `patch fallita` di `patch-source.py` o il primo errore di
+  compilazione. Un `in corso` piu' vecchio di tre ore vale come morto.
+- **Dove sono i sorgenti**: `bottegaSorgenti` in `product.json` (lo scrive `package.sh`), poi
+  `bottega.aggiornamenti.sorgenti`, poi `~/Prototipi/Bottega`.
