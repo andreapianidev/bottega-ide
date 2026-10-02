@@ -21,7 +21,7 @@ esbuild.buildSync({
 	target: 'node20',
 	logLevel: 'silent',
 });
-const { StatsEngine, mergeSpans, minutesIn, costOf } = require(path.join(OUT, 'stats.js'));
+const { StatsEngine, mergeSpans, minutesIn, costOf, whereOf, concurrency, lengthsOf } = require(path.join(OUT, 'stats.js'));
 
 let passed = 0, failed = 0;
 async function test(name, fn) {
@@ -188,6 +188,116 @@ const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}
 		write(dirB, 'sess-b.jsonl', [user(5, Bp), asst(6, Bp, 10, U(1, 1))]);
 		const s5 = await e.compute(input);
 		assert.strictEqual(s5.periods['7'].projects.find(x => x.name === 'progetto-b').claude, 11);
+	});
+
+	// ---------- la giornata, il parallelo, le durate, dove gira una sessione ----------
+
+	await test('dove gira: cartella del progetto, sottocartella, copia di lavoro col ramo, home', () => {
+		const wt = [{ path: '/x/progetto-a-copia', branch: 'prova' }];
+		assert.strictEqual(whereOf('/x/progetto-a', wt, '/x/progetto-a', '/casa'), '');
+		assert.strictEqual(whereOf('/x/progetto-a', wt, '/x/progetto-a/sito/', '/casa'), 'cartella sito');
+		assert.strictEqual(whereOf('/x/progetto-a', wt, '/x/progetto-a-copia', '/casa'), 'copia progetto-a-copia, ramo prova');
+		assert.strictEqual(whereOf('/x/progetto-a', wt, '/x/progetto-a-copia/app', '/casa'), 'copia progetto-a-copia, ramo prova, cartella app');
+		assert.strictEqual(whereOf('/x/progetto-a', [{ path: '/x/idee', branch: 'idee' }], '/x/idee', '/casa'), 'copia idee', 'ramo uguale al nome: non si ripete');
+		assert.strictEqual(whereOf('/x/progetto-a', wt, '/casa', '/casa'), 'dalla home');
+		assert.strictEqual(whereOf(null, undefined, '/y/appunti', '/casa'), 'cartella appunti');
+		assert.strictEqual(whereOf('/x/progetto-a', wt, undefined, '/casa'), '');
+	});
+
+	await test('durate: fasce e mediana', () => {
+		const l = lengthsOf([2, 7, 20, 45, 90, 180, 300, 30]);
+		assert.deepStrictEqual(l.edges, [5, 15, 30, 60, 120, 240]);
+		assert.deepStrictEqual(l.bins, [1, 1, 1, 2, 1, 1, 1], '30 minuti cadono nella fascia 30-60');
+		assert.strictEqual(l.median, 37.5);
+		assert.strictEqual(l.n, 8);
+		assert.deepStrictEqual(lengthsOf([]), { edges: [5, 15, 30, 60, 120, 240], bins: [0, 0, 0, 0, 0, 0, 0], median: 0, n: 0 });
+	});
+
+	await test('parallelo: due sessioni sovrapposte, una in fila, una fuori dalla settimana', () => {
+		const n = new Date(2026, 8, 30, 12, 20).getTime();
+		const h = (hh, mm, dd = 30) => new Date(2026, 8, dd, hh, mm).getTime();
+		const c = concurrency(
+			[
+				[h(9, 0), h(9, 40)], // A
+				[h(9, 20), h(9, 50)], // B, insieme ad A per 20 minuti
+				[h(9, 50), h(10, 10)], // C, parte quando B finisce: non sono insieme
+				[h(9, 0, 1), h(10, 0, 1)], // fuori dalle 168 ore
+			],
+			n,
+		);
+		assert.strictEqual(c.avg.length, 168);
+		assert.strictEqual(c.peak.length, 168);
+		assert.strictEqual(c.busy.length, 168);
+		assert.strictEqual(c.start, new Date(2026, 8, 30, 12 - 167).getTime());
+		const i9 = 167 - 3; // 12 e' l'ultima, 9 tre ore prima
+		assert.strictEqual(c.peak[i9], 2);
+		assert.strictEqual(c.busy[i9], 60, '9:00-10:00 coperta tutta');
+		assert.strictEqual(c.avg[i9], 1.3, '(40 + 30 + 10 minuti di sessione) / 60 coperti, arrotondato');
+		assert.strictEqual(c.peak[i9 + 1], 1);
+		assert.strictEqual(c.busy[i9 + 1], 10);
+		assert.strictEqual(c.avg[i9 + 1], 1);
+		assert.strictEqual(c.peak.reduce((a, b) => a + b, 0), 3, 'nessun altro picco');
+	});
+
+	await test('la giornata: sessioni di oggi con le copie di lavoro, i progetti fermi, i minuti per sessione', async () => {
+		const ROOT2 = path.join(TMP, 'projects2');
+		const Cp = path.join(TMP, 'lavori', 'progetto-c');
+		const COPIA = path.join(TMP, 'lavori', 'progetto-a-copia');
+		const T0 = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate()).getTime();
+		const oggi = (hh, mm) => new Date(T0 + (hh * 60 + mm) * 60_000).toISOString();
+		const ev = (type, t, cwd, extra = {}) => JSON.stringify({ type, timestamp: t, cwd, message: { role: type, content: 'ok' }, ...extra });
+		// D: progetto A, 9:00-9:40 e 10:30-10:45 (la pausa di 50 minuti spezza)
+		write(path.join(ROOT2, '-a'), 'sess-d.jsonl', [...[0, 10, 20, 30, 40].map(m => ev('user', oggi(9, m), A)), ev('user', oggi(10, 30), A), ev('user', oggi(10, 45), A), JSON.stringify({ type: 'ai-title', aiTitle: 'Rifare il menu' })]);
+		// E: nella copia di lavoro di A, 9:20-9:50, insieme a D
+		write(path.join(ROOT2, '-a-copia'), 'sess-e.jsonl', [20, 30, 40, 50].map(m => ev('user', oggi(9, m), COPIA)));
+		// F: aperta adesso in una sottocartella di B, un solo evento
+		write(path.join(ROOT2, '-b'), 'sess-f.jsonl', [ev('user', oggi(11, 50), path.join(Bp, 'sito'))]);
+		// G: un evento solo stamattina, chiusa: non e' una sessione di lavoro
+		write(path.join(ROOT2, '-b'), 'sess-g.jsonl', [ev('user', oggi(8, 0), Bp)]);
+		// H: un'ora su C dieci giorni fa, poi piu' niente
+		const dieci = new Date(T0 - 10 * 86_400_000 + 15 * 3_600_000).getTime();
+		write(path.join(ROOT2, '-c'), 'sess-h.jsonl', [0, 15, 30, 45, 60].map(m => ev('user', new Date(dieci + m * 60_000).toISOString(), Cp)));
+		const inp = {
+			projects: [
+				{ name: 'progetto-a', path: A, sessions: [{ sessionId: 'sess-e' }], worktrees: [{ path: COPIA, branch: 'prova' }] },
+				{ name: 'progetto-b', path: Bp, sessions: [] },
+				{ name: 'progetto-c', path: Cp, sessions: [] },
+			],
+			live: [{ pid: 77, sessionId: 'sess-f', cwd: path.join(Bp, 'sito'), status: 'busy', statusSince: NOW - 60_000, startedAt: NOW - 600_000 }],
+			now: NOW,
+		};
+		const s = await new StatsEngine({ projectsDir: ROOT2 }).compute(inp);
+		const t = s.todaySessions;
+		assert.deepStrictEqual(t.map(x => x.sid), ['sess-d', 'sess-e', 'sess-f'], 'in ordine di inizio, senza la G');
+		assert.deepStrictEqual(t[0].spans, [540, 580, 630, 645]);
+		assert.strictEqual(t[0].title, 'Rifare il menu');
+		assert.strictEqual(t[0].where, '');
+		assert.strictEqual(t[1].project, 'progetto-a', 'la copia di lavoro e\' del progetto principale');
+		assert.strictEqual(t[1].where, 'copia progetto-a-copia, ramo prova');
+		assert.deepStrictEqual(t[1].spans, [560, 590]);
+		assert.ok(t[2].live && !t[0].live);
+		assert.strictEqual(t[2].where, 'cartella sito');
+		assert.strictEqual(s.live[0].where, 'cartella sito');
+		assert.strictEqual(s.live[0].cwd, path.join(Bp, 'sito'));
+		// il parallelo di oggi alle 9: D 40 minuti + E 30, coperti 50
+		const c = s.concurrency7;
+		const c0 = new Date(c.start);
+		const i9 = [...Array(168).keys()].find(i => new Date(c0.getFullYear(), c0.getMonth(), c0.getDate(), c0.getHours() + i).getTime() === T0 + 9 * 3_600_000);
+		assert.ok(i9 >= 0);
+		assert.strictEqual(c.peak[i9], 2);
+		assert.strictEqual(c.busy[i9], 50);
+		assert.strictEqual(c.avg[i9], 1.4);
+		// durate nei 7 giorni: D 55 minuti, E 30; F e G non hanno minuti; H e' fuori
+		const l = s.periods['7'].lengths;
+		assert.strictEqual(l.n, 2);
+		assert.deepStrictEqual(l.bins, [0, 0, 0, 2, 0, 0, 0]);
+		assert.strictEqual(l.median, 42.5);
+		assert.strictEqual(s.periods['30'].lengths.n, 3, 'nei 30 giorni c\'e\' anche H');
+		// C si e' fermato: un'ora nei 7 giorni prima, niente in questi
+		assert.deepStrictEqual(s.periods['7'].stalled.map(x => [x.name, x.prev]), [['progetto-c', 60]]);
+		assert.ok(!s.periods['7'].projects.some(x => x.name === 'progetto-c'));
+		assert.deepStrictEqual(s.periods['30'].stalled, [], 'nei 30 giorni C ha lavorato');
+		assert.ok(JSON.stringify({ t, c, l }).length < 6000, 'campi nuovi piccoli');
 	});
 
 	await test('nessuna lineetta lunga nei testi del motore', () => {

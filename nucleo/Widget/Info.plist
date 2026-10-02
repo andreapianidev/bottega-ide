@@ -3,15 +3,15 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>com.andreapiani.bottega.nucleo</string>
+	<string>com.andreapiani.bottega.nucleo.widget</string>
 	<key>CFBundleName</key>
-	<string>Bottega Nucleo</string>
+	<string>BottegaWidget</string>
 	<key>CFBundleDisplayName</key>
-	<string>Bottega Nucleo</string>
+	<string>Bottega</string>
 	<key>CFBundleExecutable</key>
-	<string>BottegaNucleo</string>
+	<string>BottegaWidget</string>
 	<key>CFBundlePackageType</key>
-	<string>APPL</string>
+	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>
 	<string>__VERSION__</string>
 	<key>CFBundleVersion</key>
@@ -22,27 +22,11 @@
 	<string>it</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>27.0</string>
-	<key>LSUIElement</key>
-	<true/>
-	<key>LSArchitecturePriority</key>
-	<array>
-		<string>arm64</string>
-	</array>
-	<key>NSHighResolutionCapable</key>
-	<true/>
-	<key>NSSupportsAutomaticGraphicsSwitching</key>
-	<true/>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>La Bottega ascolta la tua voce solo mentre tieni premuto il tasto per parlare con Melissa, o mentre la conversazione e' accesa.</string>
-	<key>NSUserNotificationAlertStyle</key>
-	<string>alert</string>
-	<key>INAlternativeAppNames</key>
-	<array>
-		<dict>
-			<key>INAlternativeAppName</key>
-			<string>Bottega</string>
-		</dict>
-	</array>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.widgetkit-extension</string>
+	</dict>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 Andrea Piani · NIE Z2331796-S · Tijarafe, Santa Cruz de Tenerife · Islas Canarias</string>
 </dict>

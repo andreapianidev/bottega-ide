@@ -1,0 +1,405 @@
+/* Bottega, la Vedetta. Stessa notte "Roque" della plancia (plancia.css definisce i colori di base).
+   I colori di stato sono quelli della plancia, cosi' lo stesso semaforo ha lo stesso colore in ogni stanza:
+   - rosso: la brace (--brace), verificata accanto al sodio in tutti e due i temi anche per un deuteranope;
+     sul crinale, che resta notte anche nel tema chiaro, la brace del tema scuro (#f2607a).
+   - giallo: la lampada al sodio (--sodio).
+   - verde: la laurisilva (--laurisilva).
+   Il colore non va mai da solo: ogni stato ha anche una forma (rombo, cerchio, anello) e una parola.
+   Il crinale resta notte anche nel tema chiaro, come il cielo del cruscotto e la sfera di Melissa. */
+
+.ved {
+	position: relative;
+	--ved-rosso: var(--brace);
+	--ved-rosso-velo: var(--brace-velo);
+	--ved-giallo: var(--sodio);
+	--ved-verde: var(--laurisilva);
+	--ved-col: color-mix(in srgb, var(--tinta) 55%, transparent);
+	--ved-evidenza: rgba(232, 226, 208, 0.05);
+}
+
+body.vscode-light .ved {
+	--ved-col: color-mix(in srgb, var(--tinta) 45%, transparent);
+	--ved-evidenza: rgba(24, 33, 58, 0.04);
+}
+
+body.vscode-high-contrast .ved, body.vscode-high-contrast-light .ved { --ved-col: var(--tinta); }
+
+/* ---------- testa ---------- */
+
+.ved-testa {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 8px 32px;
+}
+
+.ved-frase { margin-bottom: 18px; max-width: 34ch; }
+.ved .sentence .ved-n-rosso { color: var(--ved-rosso); }
+
+.ved-timbro {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px 12px;
+	margin: 0 0 22px;
+	font-size: 12px;
+	color: var(--tinta);
+	font-variant-numeric: tabular-nums;
+}
+
+.ved-timbro[aria-busy='true'] span { color: var(--sodio); }
+.ved-timbro button:disabled { opacity: 0.5; cursor: default; }
+
+.ved-h2 {
+	font-family: var(--serif);
+	font-size: 20px;
+	font-weight: 500;
+	letter-spacing: -0.005em;
+	margin: 0 0 14px;
+}
+
+.ved-h2-grande { font-size: 26px; margin: 0; }
+
+.ved-nota { color: var(--tinta); font-size: 12.5px; line-height: 1.5; margin: 0 0 12px; max-width: 60ch; }
+
+/* ---------- i segni di stato: forma e colore insieme ---------- */
+
+.ved-segno {
+	display: inline-block;
+	flex: none;
+	width: 9px;
+	height: 9px;
+	margin-right: 8px;
+	vertical-align: 0.02em;
+}
+
+.ved-segno-rosso { background: var(--ved-rosso); transform: rotate(45deg) scale(0.92); border-radius: 1.5px; }
+.ved-segno-giallo { background: var(--ved-giallo); border-radius: 50%; }
+.ved-segno-verde { border: 2px solid var(--ved-verde); border-radius: 50%; }
+
+@media (forced-colors: active) {
+	.ved-segno-rosso, .ved-segno-giallo { background: CanvasText; }
+	.ved-segno-verde { border-color: CanvasText; }
+}
+
+/* ---------- il crinale ---------- */
+
+.ved-crinale {
+	margin: 0 0 40px;
+	padding: 0;
+	border-radius: 20px;
+	border: 1px solid var(--notte-bordo);
+	background:
+		radial-gradient(70% 120% at 34% 100%, rgba(244, 171, 60, 0.07), transparent 60%),
+		linear-gradient(180deg, #0f1628 0%, var(--notte) 62%, #172140 100%);
+	color: var(--notte-testo);
+	overflow: hidden;
+}
+
+.ved-crinale-svg { display: block; line-height: 0; }
+.ved-crinale-svg svg { display: block; width: 100%; height: auto; }
+.ved-cliccabile { cursor: crosshair; }
+
+.ved-cielo-stelle circle { fill: #e8e2d0; }
+.ved-monte { fill: #0b1222; stroke: rgba(143, 152, 173, 0.28); stroke-width: 1; stroke-linejoin: round; }
+.ved-pozza { fill: url(#ved-g-sodio); }
+.ved-torre { stroke: rgba(143, 152, 173, 0.55); stroke-width: 1; }
+.ved-alone-rosso { fill: url(#ved-g-rosso); }
+.ved-faro { fill: #f2607a; stroke: #0b1222; stroke-width: 1.5; }
+.ved-lampada { fill: #f4ab3c; stroke: #0b1222; stroke-width: 1.2; }
+.ved-finestra { fill: #74b98f; opacity: 0.55; }
+
+/* luce d'ostacolo: lampeggia piano, come quelle vere sulle torri dei telescopi */
+.ved-luce-rosso .ved-faro, .ved-luce-rosso .ved-alone-rosso { animation: ved-ostacolo 2.6s ease-in-out infinite; }
+
+@keyframes ved-ostacolo {
+	0%, 55%, 100% { opacity: 1; }
+	70%, 85% { opacity: 0.28; }
+}
+
+.ved-cerca .ved-luce:not(.ved-acceso) { opacity: 0.3; }
+.ved-cerca .ved-pozze { opacity: 0.4; }
+.ved-luce.ved-acceso .ved-finestra { opacity: 1; r: 3; }
+.ved-luce.ved-acceso .ved-lampada { r: 4; }
+.ved-luce.ved-acceso .ved-faro { r: 4.6; }
+
+.ved-legenda {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 6px 28px;
+	padding: 10px 20px 14px;
+	border-top: 1px solid var(--notte-bordo);
+	font-size: 12px;
+	line-height: 1.55;
+	color: var(--notte-tinta);
+}
+
+.ved-legenda p { margin: 0; flex: 1 1 320px; max-width: 72ch; }
+.ved-chiavi { display: flex; gap: 4px 18px; list-style: none; margin: 0; padding: 0; color: var(--notte-testo); }
+.ved-chiavi li { display: inline-flex; align-items: center; white-space: nowrap; }
+.ved-chiavi b { font-weight: 600; margin-right: 4px; font-variant-numeric: tabular-nums; }
+/* sul crinale i segni usano sempre i colori della notte */
+.ved-legenda .ved-segno-rosso { background: #f2607a; }
+.ved-legenda .ved-segno-giallo { background: #f4ab3c; }
+.ved-legenda .ved-segno-verde { border-color: #74b98f; }
+
+.ved-tip {
+	position: absolute;
+	z-index: 5;
+	min-width: 160px;
+	max-width: 320px;
+	padding: 8px 12px;
+	border-radius: 10px;
+	background: var(--basalto);
+	border: 1px solid var(--linea);
+	box-shadow: 0 10px 28px var(--ombra);
+	pointer-events: none;
+	font-size: 12px;
+}
+
+.ved-tip p { margin: 0; }
+.ved-tip-nome { font-weight: 600; }
+.ved-tip-livello { color: var(--tinta); margin-top: 2px !important; }
+
+/* ---------- elenco dei progetti da sistemare ---------- */
+
+.ved-corpo {
+	display: grid;
+	grid-template-columns: minmax(0, 1.75fr) minmax(260px, 1fr);
+	gap: 48px;
+	align-items: start;
+	margin-bottom: 64px;
+}
+
+.ved-vuoto { font-family: var(--serif); font-size: 16px; color: var(--tinta); margin: 0 0 18px; }
+
+.ved-lista, .ved-hits { list-style: none; margin: 0; padding: 0; }
+
+.ved-prog {
+	position: relative;
+	padding: 16px 0 18px 18px;
+	border-top: 1px solid var(--linea);
+}
+
+.ved-prog:last-child { border-bottom: 1px solid var(--linea); }
+
+/* un filo di colore a sinistra dice il livello anche scorrendo in fretta */
+.ved-prog::before {
+	content: '';
+	position: absolute;
+	left: 0;
+	top: 18px;
+	bottom: 20px;
+	width: 2px;
+	border-radius: 2px;
+	background: var(--ved-giallo);
+}
+
+.ved-prog-rosso::before { background: var(--ved-rosso); }
+.ved-prog-rosso { background: linear-gradient(90deg, var(--ved-rosso-velo), transparent 55%); }
+
+.ved-prog-testa { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; margin-bottom: 6px; }
+.ved-prog-livello { margin: 0; display: inline-flex; align-items: center; font-size: 12px; color: var(--tinta); min-width: 8.5em; }
+.ved-prog-rosso .ved-prog-livello { color: var(--ved-rosso); font-weight: 600; }
+.ved-prog-nome { margin: 0; font-size: inherit; font-weight: inherit; }
+
+.ved-nome {
+	background: none;
+	border: 0;
+	padding: 0;
+	font-family: var(--serif);
+	font-size: 19px;
+	font-weight: 500;
+	color: var(--calima);
+	cursor: pointer;
+	text-align: left;
+}
+
+.ved-nome:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+
+.ved-hit { padding: 8px 0 4px; }
+.ved-hit-frase { margin: 0; display: flex; align-items: baseline; font-size: 14px; line-height: 1.45; max-width: 72ch; }
+.ved-hit-frase .ved-segno { transform-origin: center; position: relative; top: -0.05em; }
+.ved-hit-rosso .ved-hit-frase { font-weight: 600; }
+.ved-hit-rimedio { margin: 2px 0 0 17px; color: var(--tinta); font-size: 13px; line-height: 1.5; max-width: 70ch; }
+.ved-hit-azioni { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 10px 0 2px 17px; }
+.ved-hit-azioni .act:disabled { opacity: 0.6; cursor: default; filter: none; }
+.ved-mostra { font-size: 12.5px; padding-left: 0; }
+
+.ved-dettagli {
+	list-style: none;
+	margin: 8px 0 0 17px;
+	padding: 8px 12px;
+	border-radius: 8px;
+	background: var(--basalto);
+	border: 1px solid var(--linea);
+	font-family: var(--mono);
+	font-size: 12px;
+	line-height: 1.7;
+	max-width: 72ch;
+	overflow-x: auto;
+}
+
+.ved-dettagli li { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.ved-verdi { margin-top: 18px; }
+.ved-conto { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; color: var(--tinta); font-size: 13px; line-height: 1.5; }
+.ved-conto > span { flex: 1 1 280px; max-width: 70ch; }
+.ved-conto .link { padding-left: 0; }
+
+.ved-verdi-nomi {
+	list-style: none;
+	margin: 10px 0 0 17px;
+	padding: 0;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 2px 4px;
+	max-width: 80ch;
+}
+
+.ved-verdi-nomi .link { color: var(--calima); font-size: 12.5px; }
+.ved-verdi-nomi li + li::before { content: ','; color: var(--tinta); margin-right: 4px; }
+
+/* ---------- regole comuni: app-ads.txt ---------- */
+
+.ved-globali { min-width: 0; }
+
+.ved-stato { margin: 0 0 4px; display: flex; align-items: center; font-weight: 500; }
+.ved-stato-rosso { color: var(--ved-rosso); font-weight: 600; }
+
+.ved-host { width: 100%; border-collapse: collapse; margin: 10px 0 6px; font-size: 12.5px; }
+.ved-host th, .ved-host td { text-align: left; padding: 6px 0; border-bottom: 1px solid var(--linea); vertical-align: baseline; }
+.ved-host thead th { color: var(--tinta); font-weight: 500; font-size: 11.5px; }
+.ved-host tbody th { font-weight: 500; padding-right: 12px; overflow-wrap: anywhere; }
+.ved-host td { text-align: right; white-space: nowrap; }
+.ved-host code { font-family: var(--mono); font-size: 12px; color: var(--calima); }
+.ved-host .ved-diverso th, .ved-host .ved-diverso code { color: var(--ved-rosso); }
+.ved-host-errore { display: block; white-space: normal; color: var(--tinta); font-size: 11.5px; }
+.ved-nd { color: var(--tinta); }
+.ved-glob-quando { display: block; margin: 4px 0 0; }
+.ved-hits-globali { margin-top: 16px; }
+
+/* ---------- lo Store e i soldi ---------- */
+
+.ved-sez-testa {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 6px 24px;
+	margin-bottom: 14px;
+}
+
+.ved-sez-testa .ved-timbro { margin: 0; }
+
+.ved-errori p {
+	display: flex;
+	align-items: baseline;
+	margin: 0 0 8px;
+	padding: 8px 12px;
+	border-radius: 8px;
+	background: var(--ved-rosso-velo);
+	font-size: 13px;
+	max-width: 80ch;
+}
+
+.ved-errori b { font-weight: 600; }
+
+.ved-cifre {
+	display: grid;
+	grid-template-columns: minmax(130px, auto) minmax(150px, auto) minmax(0, 1fr);
+	margin: 6px 0 24px;
+	border-top: 1px solid var(--linea);
+	border-bottom: 1px solid var(--linea);
+}
+
+.ved-cifra { padding: 14px 24px 14px 0; min-width: 0; }
+.ved-cifra + .ved-cifra { padding-left: 24px; border-left: 1px solid var(--linea); }
+.ved-cifra dt { font-size: 12px; color: var(--tinta); margin-bottom: 4px; }
+.ved-cifra dd { margin: 0; }
+.ved-cifra b { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; }
+.ved-cifra-serie dd { display: flex; align-items: flex-end; min-height: 36px; }
+
+.ved-serie { display: inline-flex; align-items: flex-end; }
+.ved-serie svg { display: block; overflow: visible; }
+.ved-col { fill: var(--ved-col); }
+.ved-col-ieri { fill: var(--sodio); }
+.ved-base { stroke: var(--linea); stroke-width: 1; }
+.ved-presa { fill: transparent; }
+.ved-serie g:hover .ved-col { fill: var(--tinta); }
+
+.ved-app { list-style: none; margin: 0; padding: 0; }
+
+.ved-app-riga {
+	display: grid;
+	grid-template-columns: minmax(150px, 1.1fr) minmax(170px, 1fr) minmax(220px, 1.7fr) minmax(150px, 0.9fr);
+	gap: 10px 28px;
+	align-items: start;
+	padding: 16px 0;
+	border-bottom: 1px solid var(--linea);
+}
+
+.ved-app-riga:first-child { border-top: 1px solid var(--linea); }
+.ved-app-riga > div { min-width: 0; }
+
+.ved-app-nome { margin: 0 0 2px; font-family: var(--serif); font-size: 18px; font-weight: 500; line-height: 1.25; }
+.ved-app-prog { padding-left: 0; font-size: 12.5px; text-align: left; }
+.ved-versione { white-space: normal; margin: 2px 0 0 17px; display: block; }
+
+.ved-recs { list-style: none; margin: 0; padding: 0; }
+.ved-recs-altre { margin-top: 10px; }
+.ved-rec + .ved-rec { margin-top: 10px; }
+.ved-rec-testa { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.ved-rec-testa b { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.ved-rec-corpo {
+	margin: 3px 0 0;
+	color: var(--tinta);
+	font-family: var(--serif);
+	font-size: 14px;
+	line-height: 1.5;
+	max-width: 62ch;
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.ved-stelle { letter-spacing: 1px; font-size: 12px; white-space: nowrap; }
+.ved-stelle-piene { color: var(--sodio); }
+.ved-stelle-vuote { color: var(--linea); }
+
+.ved-app-soldi p { margin: 0; }
+.ved-ieri b { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ved-ieri span { color: var(--tinta); font-size: 12px; }
+.ved-app-soldi .w { display: block; margin-bottom: 8px; }
+
+/* ---------- movimento ---------- */
+
+.ved.ved-fermo *, .ved.ved-fermo *::before { animation-play-state: paused !important; }
+
+@media (prefers-reduced-motion: reduce) {
+	.ved-luce-rosso .ved-faro, .ved-luce-rosso .ved-alone-rosso { animation: none; }
+}
+
+/* ---------- larghezze ---------- */
+
+@media (max-width: 1180px) {
+	.ved-app-riga { grid-template-columns: minmax(150px, 1fr) minmax(170px, 1fr) minmax(150px, 0.8fr); }
+	.ved-app-recensioni { grid-column: 1 / -1; grid-row: 2; }
+}
+
+@media (max-width: 960px) {
+	.ved-corpo { grid-template-columns: minmax(0, 1fr); gap: 36px; }
+}
+
+@media (max-width: 760px) {
+	.ved-cifre { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.ved-cifra-serie { grid-column: 1 / -1; border-left: 0 !important; padding-left: 0 !important; border-top: 1px solid var(--linea); }
+	.ved-app-riga { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+	.ved-app-chi { grid-column: 1 / -1; }
+	.ved-app-recensioni { grid-row: auto; }
+	.ved-prog { padding-left: 14px; }
+	.ved-prog-livello { min-width: 0; }
+}

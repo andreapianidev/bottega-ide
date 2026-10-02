@@ -13,7 +13,8 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onWebviewPanel:bottega.plancia"
   ],
   "contributes": {
     "commands": [
@@ -91,6 +92,38 @@
         "command": "bottega.voice.converse",
         "title": "Parla con Melissa",
         "category": "Bottega"
+      },
+      {
+        "command": "bottega.openVedetta",
+        "title": "Apri la vedetta: regole e Store",
+        "category": "Bottega",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "bottega.openClienti",
+        "title": "Apri le ore per cliente",
+        "category": "Bottega"
+      },
+      {
+        "command": "bottega.briefing",
+        "title": "Il briefing di oggi",
+        "category": "Bottega"
+      },
+      {
+        "command": "bottega.cerca",
+        "title": "Dove l'ho già risolto?",
+        "category": "Bottega",
+        "icon": "$(search)"
+      },
+      {
+        "command": "bottega.continua",
+        "title": "Continua un progetto da dove eri",
+        "category": "Bottega"
+      },
+      {
+        "command": "bottega.regole.controlla",
+        "title": "Ricontrolla le regole",
+        "category": "Bottega"
       }
     ],
     "viewsContainers": {
@@ -121,7 +154,8 @@
       "melissa": [
         {
           "id": "bottega.melissa",
-          "name": "Melissa"
+          "name": "Melissa",
+          "type": "webview"
         }
       ]
     },
@@ -276,12 +310,52 @@
         "bottega.voice.orbAlwaysVisible": {
           "type": "boolean",
           "default": true,
-          "description": "Tiene la sfera di Melissa sempre visibile, piccola, quando non sta parlando. Un clic apre o chiude la conversazione."
+          "description": "Con la sfera sullo schermo (bottega.voice.sfera = schermo): la tiene sempre visibile, piccola, quando Melissa non parla."
         },
         "bottega.italiano": {
           "type": "boolean",
           "default": true,
           "description": "Al primo avvio installa il pacchetto di lingua italiana e mette VS Code in italiano."
+        },
+        "bottega.voice.sfera": {
+          "type": "string",
+          "enum": [
+            "ide",
+            "schermo"
+          ],
+          "enumDescriptions": [
+            "La sfera di Melissa vive dentro la Bottega: barra laterale e barra di stato. Non copre le altre app.",
+            "La sfera galleggia sullo schermo, sopra tutte le finestre, anche con la Bottega in secondo piano."
+          ],
+          "default": "ide",
+          "description": "Dove sta la sfera di Melissa."
+        },
+        "bottega.briefing.voce": {
+          "type": "boolean",
+          "default": true,
+          "description": "Alla prima apertura della giornata Melissa dice il briefing a voce (una volta sola). Spento: resta la card nella Home."
+        },
+        "bottega.notte.permessi": {
+          "type": "string",
+          "enum": [
+            "default",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "default": "acceptEdits",
+          "enumDescriptions": [
+            "Claude chiede il permesso per ogni modifica e comando: di notte si ferma subito.",
+            "Claude modifica i file da solo, ma si ferma e ti aspetta per i comandi che non sono già permessi.",
+            "Claude decide da solo cosa è sicuro e chiede solo per il resto.",
+            "Claude fa tutto da solo, comandi compresi. Il preambolo vieta comunque push e pubblicazioni."
+          ],
+          "description": "Con quali permessi partono i lavori della notte."
+        },
+        "bottega.consigli.apple": {
+          "type": "boolean",
+          "default": true,
+          "description": "I consigli della Home li scrive Apple Intelligence sul Mac. Spento: consigli fissi ricavati dalle regole."
         }
       }
     },
@@ -296,23 +370,18 @@
           "highContrastLight": "#8a4e00"
         }
       }
-    ],
-    "viewsWelcome": [
-      {
-        "view": "bottega.melissa",
-        "contents": "Melissa ti ascolta quando tocchi Opzione e Spazio, ovunque sul Mac.\n[Parla con Melissa](command:bottega.voice.converse)\n[Apri la pagina di Melissa](command:bottega.openMelissa)"
-      }
     ]
   },
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=out/extension.js",
     "typecheck": "tsc --noEmit",
-    "test": "node test/run.cjs && node test/stats.cjs"
+    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.100.0",
     "esbuild": "^0.25.0",
+    "jsdom": "^26.1.0",
     "typescript": "^5.6.0"
   }
 }

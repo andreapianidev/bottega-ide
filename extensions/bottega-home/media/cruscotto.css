@@ -2,24 +2,34 @@
    Qui si aggiungono solo i colori dei dati, validati con lo strumento dataviz (lightness, croma,
    separazione per daltonismo, contrasto) sulla superficie scura #121a2e e su quella chiara #eef1f6:
    - tu (le tue ore): ambra del sodio, un gradino piu' scuro del sodio dei testi perche' sul blu notte
-     il sodio pieno abbaglia; Claude: luce di stella fredda. Coppia arancio e blu, sicura per tutti.
+     il sodio pieno abbaglia; Claude: ciano elettrico, lo stesso colore della strumentazione (la
+     macchina). Coppia ambra e ciano validata: CVD 22 sul blu notte, 19,8 sul chiaro, contrasto ok.
+   - --hud: il ciano degli strumenti (lancetta, reticoli, mirino, cursori). Non porta dati, li indica.
    - token: letti dalla cache in grigio (sono la massa, e costano poco: restano sullo sfondo), poi
      verde acqua, viola e rosa nell'ordine della pila, coppie vicine sempre distinguibili.
    - la settimana ora per ora: una sola tinta, il sodio, da spento a pieno.
-   La carta del cielo resta notte anche nel tema chiaro, come la sfera di Melissa. */
+   - il banco: oggi (ambra per te, ciano per le sessioni), la corrente del parallelo (ciano), chi sale
+     (ambra: sono ore tue, pieno adesso e vuoto prima, mai rosso e verde), le durate (ciano). Nessun
+     colore nuovo: le stesse coppie gia' validate.
+   La carta del cielo e la corrente restano notte anche nel tema chiaro, come la sfera di Melissa. */
 
 .crus {
 	position: relative;
 	--c-tu: #d07c14;
 	--c-tu-velo: rgba(208, 124, 20, 0.14);
-	--c-claude: #6683e6;
+	--c-claude: #22a3cf;
+	--hud: #63e6dc;
+	--hud-tenue: rgba(99, 230, 220, 0.32);
+	--hud-alone: rgba(99, 230, 220, 0.45);
+	--hud-glitch: rgba(99, 230, 220, 0.75);
+	--sodio-glitch: rgba(244, 171, 60, 0.75);
 	--t-cr: #6b7896;
 	--t-in: #1f9e86;
 	--t-cw: #9a7be8;
 	--t-out: #d4567f;
-	--griglia: #212a45;
+	--griglia: #1f2a44;
 	--asse: #36425f;
-	--evidenza: rgba(232, 226, 208, 0.07);
+	--evidenza: rgba(99, 230, 220, 0.07);
 	--h0: #1b2440;
 	--h1: color-mix(in oklab, var(--sodio) 20%, var(--h0));
 	--h2: color-mix(in oklab, var(--sodio) 38%, var(--h0));
@@ -31,14 +41,19 @@
 body.vscode-light .crus {
 	--c-tu: #a85f00;
 	--c-tu-velo: rgba(168, 95, 0, 0.12);
-	--c-claude: #3557c0;
+	--c-claude: #0b78a8;
+	--hud: #0b78a8;
+	--hud-tenue: rgba(11, 120, 168, 0.3);
+	--hud-alone: rgba(11, 120, 168, 0.25);
+	--hud-glitch: rgba(11, 120, 168, 0.45);
+	--sodio-glitch: rgba(168, 95, 0, 0.45);
 	--t-cr: #7a8399;
 	--t-in: #16896f;
 	--t-cw: #6a4bc4;
 	--t-out: #c23f6c;
 	--griglia: #d9dfe9;
 	--asse: #b3bdcf;
-	--evidenza: rgba(24, 33, 58, 0.06);
+	--evidenza: rgba(11, 120, 168, 0.07);
 	--h0: #dde3ee;
 }
 
@@ -111,7 +126,40 @@ body.vscode-light .crus {
 .cifra dt { font-size: 12px; color: var(--tinta); margin-bottom: 4px; }
 .cifra dd { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
 .cifra b { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+.cifra .lettura { font-size: 24px; font-variant-numeric: tabular-nums; }
 .cifra small { flex-basis: 100%; font-size: 11.5px; color: var(--tinta); line-height: 1.4; }
+
+/* la traccia del periodo sotto ogni cifra: un oscilloscopio, colore dell'entita' (tu, Claude) o neutro */
+.traccia-riga { flex-basis: 100%; display: block; height: 22px; margin: 6px 0 3px; }
+.traccia-mini { display: block; overflow: visible; }
+.traccia-mini .base-mini { stroke: var(--linea); stroke-width: 1; }
+.traccia-mini .linea-mini { fill: none; stroke: var(--tinta); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.traccia-mini circle { fill: var(--tinta); }
+.sp-tu .linea-mini { stroke: var(--c-tu); }
+.sp-tu circle { fill: var(--c-tu); }
+.sp-claude .linea-mini { stroke: var(--c-claude); }
+.sp-claude circle { fill: var(--c-claude); }
+
+.cifre.traccia .linea-mini { stroke-dasharray: 1; animation: disegna 1.1s cubic-bezier(0.3, 0.7, 0.2, 1) both; }
+.cifre.traccia .traccia-mini circle { animation: affiora 0.3s ease-out 1s both; }
+/* un aggiornamento periodico ha cambiato questa cifra: un segnale breve, niente conteggio */
+.cifra.cambiata .lettura { animation: segnale 1.8s ease-out; }
+
+@keyframes segnale {
+	0%, 25% { color: var(--hud); text-shadow: 0 0 14px var(--hud-alone); }
+	100% { color: var(--calima); text-shadow: none; }
+}
+
+/* la frase all'arrivo dei dati chiesti: un'interferenza breve, l'unico glitch della stanza */
+.crus-testa .sentence.glitch { animation: glitch 0.42s steps(1, end) both; }
+
+@keyframes glitch {
+	0% { text-shadow: -2px 0 var(--hud-glitch), 2px 0 var(--sodio-glitch); clip-path: inset(0 0 62% 0); transform: translateX(-2px); }
+	14% { clip-path: inset(38% 0 30% 0); transform: translateX(3px); }
+	28% { clip-path: inset(70% 0 4% 0); transform: translateX(-1px); }
+	42% { clip-path: none; transform: translateX(1px); text-shadow: 2px 0 var(--hud-glitch), -2px 0 var(--sodio-glitch); }
+	60%, 100% { clip-path: none; transform: none; text-shadow: none; }
+}
 
 .delta { font-size: 12px; color: var(--tinta); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .delta.muto { opacity: 0.75; }
@@ -129,8 +177,8 @@ body.vscode-light .crus {
 
 .carta {
 	margin: 0;
-	padding: 20px 20px 18px;
-	border-radius: 22px;
+	padding: 18px 20px 18px;
+	border-radius: 14px;
 	border: 1px solid var(--notte-bordo);
 	background: radial-gradient(90% 70% at 50% 40%, #1a2441 0%, var(--notte) 70%);
 	color: var(--notte-testo);
@@ -139,8 +187,132 @@ body.vscode-light .crus {
 .carta h2 { color: var(--notte-testo); }
 .carta :focus-visible { outline-color: #9cc2ff; }
 
-.carta-svg { display: flex; justify-content: center; }
+/* testa della carta: titolo e una riga di telemetria (quante stelle, quale motore disegna) */
+.carta-testa {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 4px 16px;
+	margin-bottom: 8px;
+}
+
+.telemetria {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 2px 14px;
+	margin: 0;
+	font-size: 11.5px;
+	color: var(--notte-tinta);
+	font-variant-numeric: tabular-nums;
+}
+
+.telemetria .motore { color: #63e6dc; white-space: nowrap; cursor: help; }
+.telemetria .motore::before {
+	content: '';
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	margin-right: 6px;
+	border-radius: 50%;
+	background: currentColor;
+	box-shadow: 0 0 6px currentColor;
+	vertical-align: 1px;
+}
+.carta[data-motore='svg'] .motore, .carta[data-motore='spento'] .motore { color: var(--notte-tinta); }
+.carta[data-motore='svg'] .motore::before, .carta[data-motore='spento'] .motore::before { box-shadow: none; }
+.carta[data-motore='avvio'] .motore::before { animation: respiro 1.2s ease-in-out infinite; }
+
+/* il palco: la tela WebGPU sotto, l'SVG sopra (dati, nomi, prese), gli angoli del cercatore attorno */
+.carta-palco {
+	position: relative;
+	margin: 0 auto;
+	max-width: 100%;
+	aspect-ratio: 1 / 1;
+	overflow: hidden;
+}
+
+.carta-gpu {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	opacity: 0;
+	transition: opacity 0.5s ease;
+	pointer-events: none;
+}
+.carta.gpu .carta-gpu { opacity: 1; }
+
+.carta-svg { position: relative; z-index: 1; display: flex; justify-content: center; }
 .carta-svg svg { display: block; max-width: 100%; height: auto; overflow: visible; }
+
+.carta-palco::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	pointer-events: none;
+	--k: rgba(99, 230, 220, 0.5);
+	--l: 16px;
+	background:
+		linear-gradient(var(--k), var(--k)) top left / var(--l) 1px,
+		linear-gradient(var(--k), var(--k)) top left / 1px var(--l),
+		linear-gradient(var(--k), var(--k)) top right / var(--l) 1px,
+		linear-gradient(var(--k), var(--k)) top right / 1px var(--l),
+		linear-gradient(var(--k), var(--k)) bottom left / var(--l) 1px,
+		linear-gradient(var(--k), var(--k)) bottom left / 1px var(--l),
+		linear-gradient(var(--k), var(--k)) bottom right / var(--l) 1px,
+		linear-gradient(var(--k), var(--k)) bottom right / 1px var(--l);
+	background-repeat: no-repeat;
+}
+
+/* righe di scansione, solo dentro la cupola, appena percettibili */
+.carta-palco::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	pointer-events: none;
+	background: repeating-linear-gradient(to bottom, rgba(232, 226, 208, 0.035) 0 1px, transparent 1px 3px);
+	-webkit-mask: radial-gradient(circle closest-side, #000 calc(100% - 32px), transparent calc(100% - 31px));
+	mask: radial-gradient(circle closest-side, #000 calc(100% - 32px), transparent calc(100% - 31px));
+}
+
+/* la scansione dell'arrivo dei dati: una riga ciano che scende e accende le stelle al suo passaggio */
+.scansione {
+	position: absolute;
+	inset: 0;
+	z-index: 3;
+	pointer-events: none;
+	opacity: 0;
+	transform: translateY(-100%);
+	background: linear-gradient(to bottom, transparent 0, rgba(99, 230, 220, 0) 76%, rgba(99, 230, 220, 0.09) 97%, rgba(170, 252, 244, 0.85) 99.6%, transparent 100%);
+}
+.rivela .scansione { animation: scansiona 1.35s cubic-bezier(0.45, 0.05, 0.55, 0.95) both; }
+
+@keyframes scansiona {
+	0% { opacity: 1; transform: translateY(-100%); }
+	90% { opacity: 1; }
+	100% { opacity: 0; transform: translateY(0); }
+}
+
+.carta .corona { opacity: 1; }
+.carta .reticolo line { stroke: rgba(99, 230, 220, 0.14); stroke-width: 1; }
+.carta .reticolo line.tacca { stroke: rgba(99, 230, 220, 0.42); }
+.carta .lancetta-asta { stroke: rgba(99, 230, 220, 0.75); stroke-width: 1.2; stroke-linecap: round; }
+.carta .lancetta-scia { fill: rgba(99, 230, 220, 0.06); }
+.carta .mira { pointer-events: none; }
+.carta .mira path { fill: none; stroke: #63e6dc; stroke-width: 1.5; stroke-linecap: square; }
+.carta .mira.aggancia .mira-dentro { animation: aggancia 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+@keyframes aggancia {
+	from { transform: scale(1.8) rotate(45deg); opacity: 0; }
+}
+
+/* con WebGPU acceso la luce la fa la scheda grafica: nell'SVG restano dati, nomi e prese */
+.carta .cupola, .carta .campo, .carta .corona, .carta .stella .alone, .carta .stella .nucleo, .carta .lancetta { transition: opacity 0.5s ease; }
+.carta.gpu .cupola, .carta.gpu .campo, .carta.gpu .corona, .carta.gpu .stella .alone, .carta.gpu .stella .nucleo, .carta.gpu .lancetta { opacity: 0; }
+.carta.gpu .stella .anello { visibility: hidden; animation: none; }
 
 .carta .campo circle { fill: #e8e2d0; }
 .carta .anelli circle { fill: none; stroke: rgba(143, 152, 173, 0.18); stroke-width: 1; }
@@ -150,8 +322,8 @@ body.vscode-light .crus {
 .carta .quadrante text { fill: #8f98ad; font-size: 10.5px; text-anchor: middle; font-variant-numeric: tabular-nums; }
 .carta .quadrante text.forte { fill: #e8e2d0; font-size: 12px; font-weight: 600; }
 .carta .centro { fill: rgba(143, 152, 173, 0.7); font-size: 10.5px; text-anchor: middle; }
-.carta .costellazione line { stroke: rgba(158, 176, 214, 0.42); stroke-width: 1; }
-.carta .costellazione line.forte { stroke: rgba(176, 192, 228, 0.62); stroke-width: 1.4; }
+.carta .costellazione line { stroke: rgba(99, 230, 220, 0.3); stroke-width: 1; }
+.carta .costellazione line.forte { stroke: rgba(99, 230, 220, 0.5); stroke-width: 1.4; }
 .carta .scie path { fill: none; stroke: rgba(246, 223, 174, 0.22); stroke-linecap: round; }
 .carta .stella .nucleo { fill: #fff6de; }
 .carta .stella .presa { fill: transparent; cursor: pointer; }
@@ -186,14 +358,25 @@ body.vscode-light .crus {
 	50% { opacity: 0.35; transform: scale(1.18); }
 }
 
-/* l'unico momento orchestrato: le stelle si accendono in ordine di grandezza, una volta sola */
+/* l'arrivo dei dati: la scansione scende, le stelle si accendono al suo passaggio, poi i legami */
 .rivela .carta .stella { animation: accendi 0.9s ease-out both; }
-.rivela .carta .costellazione line { stroke-dasharray: 1; stroke-dashoffset: 1; animation: traccia 1.2s ease-out 0.9s forwards; }
-.rivela .carta .scie path { opacity: 0; animation: compari 0.8s ease-out 0.7s forwards; }
+.rivela .carta .nomi text { animation: affiora 0.6s ease-out both; }
+.rivela .carta .costellazione line { stroke-dasharray: 1; stroke-dashoffset: 1; animation: traccia 1.2s ease-out 1.2s forwards; }
+.rivela .carta .scie path { opacity: 0; animation: compari 0.8s ease-out 0.9s forwards; }
+.rivela .carta .corona, .rivela .carta .lancetta { animation: affiora 1s ease-out 0.4s both; }
+
+/* il cambio di periodo: le stelle che c'erano migrano, le nuove si accendono, i legami si ritracciano */
+.carta .migra { transition: transform 0.85s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.ritraccia .carta .stella:not(.vecchia) { animation: accendi 0.8s ease-out both; }
+.ritraccia .carta .nomi text { animation: affiora 0.5s ease-out both; }
+.ritraccia .carta .costellazione line { stroke-dasharray: 1; stroke-dashoffset: 1; animation: traccia 0.9s ease-out 0.8s forwards; }
 
 @keyframes accendi { from { opacity: 0; } to { opacity: 1; } }
 @keyframes traccia { to { stroke-dashoffset: 0; } }
 @keyframes compari { to { opacity: 1; } }
+@keyframes affiora { from { opacity: 0; } }
+@keyframes disegna { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes cresci { from { transform: scaleY(0); } }
 
 /* ---------- classifica ---------- */
 
@@ -284,10 +467,18 @@ div.riga-progetto { cursor: default; }
 .linea-claude { fill: none; stroke: var(--c-claude); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .punto-tu { fill: var(--c-tu); stroke: var(--cielo); stroke-width: 2; }
 .punto-claude { fill: var(--c-claude); stroke: var(--cielo); stroke-width: 2; }
-.mirino line { stroke: var(--tinta); stroke-width: 1; }
+.mirino line { stroke: var(--hud); stroke-width: 1; stroke-dasharray: 3 3; }
 .col-tu { fill: var(--c-tu); }
 .col-claude { fill: var(--c-claude); }
-.crus .evidenza { fill: var(--evidenza); pointer-events: none; }
+.crus .evidenza { fill: var(--evidenza); stroke: var(--hud-tenue); stroke-width: 1; pointer-events: none; }
+
+/* i grafici si disegnano all'arrivo dei dati e al cambio di periodo o di raggruppamento */
+.grafico.traccia .linea-tu, .grafico.traccia .linea-claude { stroke-dasharray: 1; animation: disegna 1.1s cubic-bezier(0.3, 0.7, 0.2, 1) both; }
+.grafico.traccia .linea-claude { animation-delay: 0.12s; }
+.grafico.traccia .area-tu { animation: affiora 0.8s ease-out 0.35s both; }
+.grafico.traccia > svg > .punto-tu, .grafico.traccia > svg > .punto-claude { animation: affiora 0.3s ease-out 1s both; }
+.grafico.traccia .pila { transform-box: fill-box; transform-origin: 50% 100%; animation: cresci 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.calore.traccia rect[data-h] { animation: affiora 0.35s ease-out both; }
 
 .t-cr { fill: var(--t-cr); background: var(--t-cr); }
 .t-in { fill: var(--t-in); background: var(--t-in); }
@@ -336,6 +527,8 @@ div.riga-progetto { cursor: default; }
 .calore rect.h4 { fill: var(--h4); }
 .calore rect.h5 { fill: var(--h5); }
 .calore .cursore { fill: none; stroke: var(--calima); stroke-width: 1.5; pointer-events: none; }
+.calore .adesso-cella { fill: none; stroke: var(--hud); stroke-width: 1.5; pointer-events: none; }
+.scala .adesso-chiave { margin-left: 10px; background: none; border: 1.5px solid var(--hud); }
 
 .scala { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; color: var(--tinta); }
 .scala span { margin: 0 4px; }
@@ -347,13 +540,127 @@ div.riga-progetto { cursor: default; }
 .scala .h4 { background: var(--h4); }
 .scala .h5, .chiave.h5 { background: var(--h5); }
 
+/* ---------- il banco: due colonne che finiscono insieme (cruscotto.js, dividi) ---------- */
+
+.banco {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 0 44px;
+	align-items: start;
+	margin-bottom: 48px;
+}
+
+/* il gap e' lo SPAZIO di cruscotto.js: le colonne si pareggiano contando anche questo */
+.banco-col { display: flex; flex-direction: column; gap: 48px; min-width: 0; }
+.banco.una { grid-template-columns: minmax(0, 1fr); }
+.banco.una #banco-b { display: none; }
+.blocco { min-width: 0; }
+.blocco > h2 { margin-bottom: 10px; }
+
+/* ---------- oggi, sessione per sessione ---------- */
+
+.oggi svg { overflow: visible; }
+.oggi .corsia-nome { fill: var(--calima); font-size: 11.5px; text-anchor: end; }
+.oggi .corsia-nome.tu { fill: var(--c-tu); font-weight: 600; }
+.oggi .divisore { stroke: var(--griglia); stroke-width: 1; }
+.oggi .barra-tu { fill: var(--c-tu); }
+.oggi .barra-s { fill: var(--c-claude); }
+.oggi .pausa { stroke: var(--c-claude); stroke-width: 1; opacity: 0.45; }
+.oggi .ancora { stroke: var(--c-claude); stroke-width: 2; stroke-dasharray: 2 3; stroke-linecap: round; }
+.oggi .vivo-punto { fill: var(--cielo); stroke: var(--c-claude); stroke-width: 2; transform-box: fill-box; transform-origin: center; animation: pulsa 2.8s ease-in-out infinite; }
+.oggi .adesso-linea { stroke: var(--hud); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.oggi .presa-s { fill: transparent; cursor: default; }
+.oggi svg.cerca .barra-s:not(.acceso), .oggi svg.cerca .pausa:not(.acceso), .oggi svg.cerca .ancora:not(.acceso) { opacity: 0.3; }
+.oggi .barra-s.acceso { stroke: var(--calima); stroke-width: 1; }
+.grafico.oggi.traccia .barra-s, .grafico.oggi.traccia .barra-tu { animation: affiora 0.5s ease-out both; }
+
+.chiave.tratteggio { height: 0; border-top: 2px dashed var(--c-claude); background: none; }
+.chiave.tratteggio-hud { height: 0; border-top: 2px dashed var(--hud); background: none; }
+/* le chiavi della corrente: lo stesso ciano della notte, perche' la corrente resta notte anche nel tema chiaro */
+.chiave.tratteggio-notte { height: 0; border-top: 2px dashed #63e6dc; background: none; }
+.chiave.k-adesso { width: 0; height: 12px; border-left: 1.5px dashed var(--hud); background: none; }
+.chiave.q.k-fascia { background: #63e6dc; opacity: 0.75; }
+.chiave.pallino, .chiave.pallino-vuoto { width: 9px; height: 9px; border-radius: 50%; }
+.chiave.pallino { background: var(--c-tu); }
+.chiave.pallino-vuoto { background: none; border: 1.5px solid var(--c-tu); }
+
+/* ---------- lavoro in parallelo: la corrente (notte anche nel tema chiaro) ---------- */
+
+.corrente {
+	margin: 0;
+	padding: 10px 14px 8px;
+	border-radius: 12px;
+	border: 1px solid var(--notte-bordo);
+	background: radial-gradient(120% 140% at 50% 50%, #17213b 0%, var(--notte) 75%);
+	color: var(--notte-testo);
+}
+.corrente .telemetria { justify-content: space-between; margin-bottom: 4px; }
+.corrente[data-motore='svg'] .motore, .corrente[data-motore='spento'] .motore { color: var(--notte-tinta); }
+.corrente[data-motore='svg'] .motore::before, .corrente[data-motore='spento'] .motore::before { box-shadow: none; }
+.corrente[data-motore='avvio'] .motore::before { animation: respiro 1.2s ease-in-out infinite; }
+.corrente-palco { position: relative; }
+.corrente-gpu { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity 0.5s ease; pointer-events: none; }
+.corrente.gpu .corrente-gpu { opacity: 1; }
+.corrente-svg { position: relative; z-index: 1; }
+.corrente-svg:focus-visible { outline-color: #9cc2ff; }
+.corrente .asse-x, .corrente .asse-y, .corrente .adesso-t { fill: var(--notte-tinta); }
+.corrente .adesso-t { font-size: 11px; }
+.corrente .griglia-n { stroke: rgba(143, 152, 173, 0.16); stroke-width: 1; }
+.corrente .mezzeria { stroke: rgba(143, 152, 173, 0.32); stroke-width: 1; }
+.corrente .giorno { stroke: rgba(99, 230, 220, 0.16); stroke-width: 1; }
+.corrente .fascia { transition: opacity 0.5s ease; }
+.corrente.gpu .fascia { opacity: 0; } /* la luce la fa la scheda grafica: nell'SVG restano assi e massimi */
+.corrente .massimo { fill: none; stroke: #63e6dc; stroke-width: 1.2; stroke-dasharray: 3 3; opacity: 0.85; }
+.corrente .mirino line { stroke: #63e6dc; }
+.corrente.traccia .fascia { animation: affiora 0.9s ease-out both; }
+.corrente.traccia .massimo { animation: affiora 0.6s ease-out 0.7s both; }
+
+/* ---------- chi sale e chi scende ---------- */
+
+.righe-sale { list-style: none; margin: 0; padding: 0; }
+.riga-sale {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(60px, 1.1fr) 82px;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+	padding: 7px 6px;
+	border: 0;
+	border-bottom: 1px solid var(--linea);
+	background: none;
+	text-align: left;
+	cursor: pointer;
+	border-radius: 0;
+}
+.riga-sale:hover, .riga-sale:focus-visible { background: var(--evidenza); }
+.riga-sale .chi { min-width: 0; display: flex; flex-direction: column; }
+.riga-sale .chi b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.riga-sale .chi small { color: var(--tinta); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.riga-sale .delta { text-align: right; }
+.pista { position: relative; display: block; height: 14px; }
+.pista::before { content: ''; position: absolute; left: 0; right: 0; top: 6.5px; height: 1px; background: var(--griglia); }
+.pista i { position: absolute; top: 2px; display: block; }
+.pista .tratto { top: 5.5px; height: 3px; border-radius: 2px; background: var(--c-tu-velo); background: color-mix(in srgb, var(--c-tu) 45%, transparent); }
+.pista .prima, .pista .ora { width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; }
+.pista .prima { border: 1.5px solid var(--c-tu); background: var(--cielo); }
+.pista .ora { background: var(--c-tu); box-shadow: 0 0 0 2px var(--cielo); }
+
+/* ---------- quanto dura una sessione ---------- */
+
+.crus .mediana { stroke: var(--hud); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.crus .mediana-t { fill: var(--calima); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
 /* ---------- adesso e registro ---------- */
 
 .adesso { list-style: none; margin: 0; padding: 0; }
-.adesso li { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 10px; align-items: start; padding: 6px 0; font-size: 13px; }
-.adesso li.nota { display: block; }
+.adesso li { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 10px; align-items: start; padding: 7px 0; font-size: 13px; border-bottom: 1px solid var(--linea); }
+.adesso li:last-child { border-bottom: 0; }
+.adesso li.nota { display: block; border: 0; }
 .adesso .dot { margin-top: 5px; }
+.adesso b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .adesso small { display: block; color: var(--tinta); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adesso small.dove { color: var(--calima); }
+.adesso small.dove.copia::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border: 1.5px solid var(--hud); border-radius: 2px; vertical-align: 0; }
 
 .primati { margin: 0; }
 .primati div { padding: 8px 0; border-bottom: 1px solid var(--linea); }
@@ -392,12 +699,25 @@ div.riga-progetto { cursor: default; }
 	min-width: 170px;
 	max-width: 300px;
 	padding: 9px 12px 8px;
-	border-radius: 10px;
+	border-radius: 6px;
 	background: var(--basalto);
-	border: 1px solid var(--linea);
+	border: 1px solid color-mix(in srgb, var(--hud) 30%, var(--linea));
 	box-shadow: 0 10px 28px var(--ombra);
 	pointer-events: none;
 	font-size: 12px;
+}
+
+/* l'angolo del mirino anche sul cartellino: e' una lettura dello strumento */
+.crus-tip::before {
+	content: '';
+	position: absolute;
+	left: -1px;
+	top: -1px;
+	width: 10px;
+	height: 10px;
+	border-left: 2px solid var(--hud);
+	border-top: 2px solid var(--hud);
+	border-top-left-radius: 6px;
 }
 
 .crus-tip p { margin: 0; }
@@ -415,10 +735,16 @@ div.riga-progetto { cursor: default; }
 .crus.fermo *, .crus.fermo *::after { animation-play-state: paused !important; }
 
 @media (prefers-reduced-motion: reduce) {
-	.carta .stella .anello { animation: none; }
+	.carta .stella .anello, .oggi .vivo-punto { animation: none; }
+	.corrente-gpu, .corrente .fascia { transition: none; }
+	.corrente[data-motore='avvio'] .motore::before { animation: none; }
 	.rivela .carta .stella, .rivela .carta .scie path { animation: none; opacity: 1; }
-	.rivela .carta .costellazione line { animation: none; stroke-dasharray: none; stroke-dashoffset: 0; }
+	.rivela .carta .costellazione line, .ritraccia .carta .costellazione line { animation: none; stroke-dasharray: none; stroke-dashoffset: 0; }
 	.crus.in-attesa #crus-corpo { transition: none; }
+	.crus .scansione, .crus .glitch, .crus .cambiata .lettura, .crus .traccia *, .crus .traccia, .crus .mira-dentro,
+	.rivela .carta *, .ritraccia .carta *, .carta[data-motore='avvio'] .motore::before { animation: none !important; }
+	.carta .migra, .carta-gpu, .carta .cupola, .carta .campo, .carta .corona, .carta .stella .alone, .carta .stella .nucleo, .carta .lancetta { transition: none; }
+	.crus .traccia .linea-tu, .crus .traccia .linea-claude, .crus .traccia .linea-mini { stroke-dasharray: none; }
 }
 
 /* ---------- larghezze ---------- */

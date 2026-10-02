@@ -21,7 +21,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
-import { sessionOwner, projectKey } from './scan';
+import { sessionOwner, projectKey, canonKey } from './scan';
 
 export const GAP_MINUTES = 15;
 const GAP = GAP_MINUTES * 60_000;
@@ -33,6 +33,12 @@ const DAY = 86_400_000;
 const DAYS_KEPT = 90;
 const TOUCHED_MAX = 200;
 const KEYS_TAIL = 64;
+/** Fasce di durata delle sessioni (minuti di lavoro): meno di 5, 5-15, 15-30, 30-60, 1-2 h, 2-4 h, oltre. */
+export const LENGTH_EDGES = [5, 15, 30, 60, 120, 240];
+/** Sessioni di oggi mandate alla plancia: le piu' recenti. */
+const TODAY_MAX = 40;
+/** Progetti che si stanno fermando: almeno mezz'ora nel periodo prima, niente in questo. */
+const STALLED_MIN = 30;
 
 // ---------- prezzi ----------
 
@@ -136,6 +142,37 @@ export interface StatsPeriod extends StatsTotals {
 	edges: { a: string; b: string; minutes: number }[]; // progetti lavorati in parallelo
 	models: StatsModel[];
 	heat: number[][]; // [lunedi'..domenica][0..23] minuti tuoi
+	/** Quanto dura una sessione: minuti di lavoro di ogni sessione dentro il periodo, a fasce. */
+	lengths: StatsLengths;
+	/** Progetti con almeno mezz'ora nel periodo prima e nessun minuto in questo (non sono in `projects`). */
+	stalled: { name: string; path: string; prev: number; last: number }[];
+}
+
+export interface StatsLengths {
+	edges: number[]; // LENGTH_EDGES: i limiti delle fasce in minuti
+	bins: number[]; // edges.length + 1 conteggi: meno di 5, 5-15, ..., oltre l'ultimo
+	median: number; // minuti
+	n: number; // sessioni con almeno un minuto di lavoro nel periodo
+}
+
+/** Una sessione che ha lavorato oggi, per la linea del tempo della giornata. */
+export interface StatsTodaySession {
+	sid: string;
+	project: string; // "Fuori dai progetti" se non e' di un progetto
+	path: string | null;
+	title: string;
+	where: string; // vedi StatsLive.where
+	spans: number[]; // [inizio, fine, ...] in minuti dalla mezzanotte locale, gia' fusi (regola dei 15 minuti)
+	tok: number; // token di oggi
+	live: boolean; // aperta adesso
+}
+
+/** Le ultime 168 ore (7 giorni), ora per ora, dalla piu' vecchia; l'ultima e' quella in corso. */
+export interface StatsConcurrency {
+	start: number; // ms, inizio della prima ora (ora locale)
+	avg: number[]; // sessioni insieme in media mentre ne girava almeno una (minuti di sessione / minuti coperti)
+	peak: number[]; // massimo di sessioni nello stesso istante
+	busy: number[]; // minuti dell'ora con almeno una sessione (0..60)
 }
 
 export interface StatsLive {
@@ -149,6 +186,10 @@ export interface StatsLive {
 	started: number;
 	today: number; // minuti di lavoro oggi in questa sessione
 	tokToday: number;
+	cwd: string; // cartella in cui gira la sessione
+	/** Dove gira, rispetto al progetto: '' nella sua cartella, "copia Bottega-idee, ramo idee" in un
+	 *  worktree, "cartella sito" in una sottocartella, "dalla home" o "cartella X" fuori dai progetti. */
+	where: string;
 }
 
 export interface Stats {
@@ -180,11 +221,13 @@ export interface Stats {
 	live: StatsLive[];
 	prices: { note: string; perModel: Record<string, [number, number, number]> };
 	unpricedTokens: number;
+	todaySessions: StatsTodaySession[];
+	concurrency7: StatsConcurrency;
 }
 
 /** Il minimo che serve dei progetti e delle sessioni vive (sottoinsieme dello Snapshot). */
 export interface StatsInput {
-	projects: { name: string; path: string; sessions?: { sessionId: string }[]; live?: { pid: number }[] }[];
+	projects: { name: string; path: string; sessions?: { sessionId: string }[]; live?: { pid: number }[]; worktrees?: { path: string; branch: string }[] }[];
 	live: { pid: number; sessionId: string; cwd: string; status: string; statusSince: number; startedAt: number; title?: string; name?: string }[];
 	now?: number;
 }
@@ -294,6 +337,94 @@ function overlap(x: number[], y: number[], a: number, b: number): number {
 		else j += 2;
 	}
 	return m / 60_000;
+}
+
+/** Dove gira una sessione rispetto al suo progetto (vedi StatsLive.where). `worktrees` sono quelli
+ *  del progetto, come li porta lo snapshot della plancia. */
+export function whereOf(projPath: string | null, worktrees: { path: string; branch: string }[] | undefined, cwd: string | undefined, home = os.homedir()): string {
+	if (!cwd) return '';
+	const k = projectKey(cwd);
+	if (k === projectKey(home)) return 'dalla home';
+	if (!projPath) return `cartella ${path.basename(cwd)}`;
+	const pk = projectKey(projPath);
+	if (k === pk) return '';
+	const dentro = (base: string) => cwd.slice(base.replace(/\/+$/, '').length + 1).replace(/\/+$/, '');
+	if (k.startsWith(pk)) return `cartella ${dentro(projPath)}`;
+	for (const w of worktrees ?? []) {
+		const wk = projectKey(w.path);
+		if (!k.startsWith(wk)) continue;
+		const name = path.basename(w.path);
+		let out = `copia ${name}`;
+		if (w.branch && w.branch !== '?' && w.branch !== name) out += `, ramo ${w.branch}`;
+		if (k !== wk) out += `, cartella ${dentro(w.path)}`;
+		return out;
+	}
+	// un worktree che lo snapshot non elenca: canonKey lo riconduce comunque al progetto
+	return `${canonKey(cwd) !== k ? 'copia' : 'cartella'} ${path.basename(cwd)}`;
+}
+
+/** Le ultime 168 ore fino a quella in corso: quante sessioni insieme, ora per ora. `spans` sono gli
+ *  intervalli (gia' fusi) di ogni sessione. */
+export function concurrency(spans: number[][], now: number): StatsConcurrency {
+	const d = new Date(now);
+	const b: number[] = [];
+	for (let i = 0; i <= 168; i++) b.push(new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours() - 167 + i).getTime());
+	const a = b[0], z = b[168];
+	const sessMs = new Array(168).fill(0);
+	const busyMs = new Array(168).fill(0);
+	const peak = new Array(168).fill(0);
+	const ev: [number, number][] = [];
+	for (const sp of spans) {
+		for (let i = 0; i + 1 < sp.length; i += 2) {
+			const s = Math.max(a, sp[i]);
+			const e = Math.min(z, sp[i + 1]);
+			if (e > s) ev.push([s, 1], [e, -1]);
+		}
+	}
+	// a parita' di istante chi finisce esce prima di chi entra: due sessioni in fila non sono insieme
+	ev.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+	const ora = (t: number) => {
+		let lo = 0, hi = 167;
+		while (lo < hi) {
+			const m = (lo + hi + 1) >> 1;
+			if (b[m] <= t) lo = m;
+			else hi = m - 1;
+		}
+		return lo;
+	};
+	let c = 0, last = a;
+	for (const [t, dl] of ev) {
+		if (t > last && c > 0) {
+			for (let k = ora(last), j = ora(t - 1); k <= j; k++) {
+				const e = Math.min(t, b[k + 1]) - Math.max(last, b[k]);
+				if (e <= 0) continue;
+				sessMs[k] += c * e;
+				busyMs[k] += e;
+				if (c > peak[k]) peak[k] = c;
+			}
+		}
+		c += dl;
+		last = t;
+	}
+	return {
+		start: a,
+		avg: busyMs.map((m, k) => (m > 0 ? Math.round((sessMs[k] / m) * 10) / 10 : 0)),
+		peak,
+		busy: busyMs.map(m => Math.round(m / 60_000)),
+	};
+}
+
+/** Fasce di durata e mediana da una lista di minuti. */
+export function lengthsOf(mins: number[]): StatsLengths {
+	const bins = new Array(LENGTH_EDGES.length + 1).fill(0);
+	for (const m of mins) {
+		const i = LENGTH_EDGES.findIndex(e => m < e);
+		bins[i < 0 ? LENGTH_EDGES.length : i]++;
+	}
+	const s = mins.slice().sort((x, y) => x - y);
+	const n = s.length;
+	const median = !n ? 0 : n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
+	return { edges: LENGTH_EDGES.slice(), bins, median: Math.round(median * 10) / 10, n };
 }
 
 // ---------- lettura di un file ----------
@@ -535,6 +666,10 @@ interface ProjAcc {
 	last: number;
 }
 
+/** Intervalli di lavoro (gia' fusi, ms) di ogni progetto, chiave: path del progetto o null per le sessioni fuori.
+ *  Lo usano le ore per cliente (src/clienti.ts), che fanno l'unione tra progetti dello stesso cliente. */
+export type Ledger = Map<string | null, { name: string; spans: number[] }>;
+
 export interface StatsEngineOptions {
 	storageDir?: string;
 	projectsDir?: string;
@@ -549,6 +684,8 @@ export class StatsEngine {
 	private readonly cacheFile: string | undefined;
 	/** Tempi dell'ultimo calcolo, per il banco di prova. */
 	lastTiming = { listMs: 0, readMs: 0, aggregateMs: 0, saveMs: 0, busyMs: 0 };
+	/** Intervalli per progetto dell'ultimo calcolo. */
+	lastLedger: Ledger = new Map();
 
 	constructor(private readonly opts: StatsEngineOptions = {}) {
 		this.root = opts.projectsDir ?? path.join(os.homedir(), '.claude', 'projects');
@@ -628,7 +765,9 @@ export class StatsEngine {
 		if (Object.keys(cache.files).length !== Object.keys(next).length) this.dirty = true;
 		cache.files = next;
 		const t2 = performance.now();
-		const stats = aggregate(next, input, input.now ?? Date.now());
+		const ledger: Ledger = new Map();
+		const stats = aggregate(next, input, input.now ?? Date.now(), ledger);
+		this.lastLedger = ledger;
 		const t3 = performance.now();
 		try {
 			await this.save();
@@ -650,7 +789,7 @@ const r2 = (x: number) => Math.round(x * 100) / 100;
 const tok4 = (v: number[]): Tok => [v[0], v[1], v[2], v[3]];
 const tokSum = (t: number[]) => t[0] + t[1] + t[2] + t[3];
 
-export function aggregate(files: Record<string, FileRec>, input: StatsInput, now: number): Stats {
+export function aggregate(files: Record<string, FileRec>, input: StatsInput, now: number, ledger?: Ledger): Stats {
 	// 1. sessioni: file principale + sottoagenti
 	interface Sess {
 		sid: string;
@@ -773,6 +912,7 @@ export function aggregate(files: Record<string, FileRec>, input: StatsInput, now
 	}
 	for (const p of projects.values()) {
 		p.spans = mergeSpans(p.spans, 0);
+		if (ledger && p.spans.length) ledger.set(p.path, { name: p.name, spans: p.spans });
 		for (let i = 0; i + 1 < p.spans.length; i += 2) {
 			walk(p.spans[i], p.spans[i + 1], (day, h, min) => {
 				const pd = dayOf(p.days, day);
@@ -856,10 +996,14 @@ export function aggregate(files: Record<string, FileRec>, input: StatsInput, now
 		}
 		// progetti
 		const rows: (StatsProject & { acc: ProjAcc })[] = [];
+		const stalled: StatsPeriod['stalled'] = [];
 		for (const p of projects.values()) {
 			const t = totals(p.days, ks);
-			if (t.you < 0.5 && tokSum(t.tok) === 0) continue;
 			const pv = totals(p.days, prevKs);
+			if (t.you < 0.5 && tokSum(t.tok) === 0) {
+				if (p.path && pv.you >= STALLED_MIN) stalled.push({ name: p.name, path: p.path, prev: r1(pv.you), last: p.last });
+				continue;
+			}
 			const hours = new Array(24).fill(0);
 			const daily: number[] = [];
 			for (const k of ks) {
@@ -894,6 +1038,13 @@ export function aggregate(files: Record<string, FileRec>, input: StatsInput, now
 			}
 		}
 		edges.sort((x, y) => y.minutes - x.minutes);
+		stalled.sort((x, y) => y.prev - x.prev);
+		// quanto dura una sessione: i suoi minuti di lavoro dentro il periodo
+		const lens: number[] = [];
+		for (const s of sessions.values()) {
+			const m = minutesIn(s.spans, a, now + 1);
+			if (m >= 1) lens.push(m);
+		}
 		// modelli
 		const ms: StatsModel[] = [];
 		for (const [id, mm] of models) {
@@ -929,6 +1080,8 @@ export function aggregate(files: Record<string, FileRec>, input: StatsInput, now
 			edges: edges.slice(0, 16),
 			models: ms,
 			heat: heat.map(row => row.map(r1)),
+			lengths: lengthsOf(lens),
+			stalled: stalled.slice(0, 8),
 		};
 	};
 
@@ -1015,6 +1168,9 @@ export function aggregate(files: Record<string, FileRec>, input: StatsInput, now
 	const slice = (a: number, b: number) => ({ you: r1(minutesIn(union, a, b)), claude: r1(claudeIn(a, b)), tok: tokIn(a, b) });
 
 	// 7. sessioni vive
+	const wtOf = new Map<string, { path: string; branch: string }[]>();
+	for (const p of input.projects) if (p.worktrees?.length) wtOf.set(projectKey(p.path), p.worktrees);
+	const whereFor = (p: ProjAcc, cwd: string | undefined) => whereOf(p.path, p.path ? wtOf.get(projectKey(p.path)) : undefined, cwd);
 	const live: StatsLive[] = input.live.map(l => {
 		const s = sessions.get(l.sessionId);
 		const p = liveProject(l);
@@ -1031,8 +1187,33 @@ export function aggregate(files: Record<string, FileRec>, input: StatsInput, now
 			started: s?.spans[0] ?? l.startedAt,
 			today: r1(s ? minutesIn(s.spans, today0, now + 1) : 0),
 			tokToday,
+			cwd: l.cwd,
+			where: whereFor(p, l.cwd),
 		};
 	});
+
+	// 8. la giornata, sessione per sessione
+	const liveIds = new Map(input.live.map(l => [l.sessionId, l]));
+	let todaySessions: StatsTodaySession[] = [];
+	for (const s of sessions.values()) {
+		const sp: number[] = [];
+		let m = 0;
+		for (let i = 0; i + 1 < s.spans.length; i += 2) {
+			if (s.spans[i + 1] < today0 || s.spans[i] > now) continue;
+			const a = Math.max(today0, s.spans[i]);
+			const e = Math.min(now, s.spans[i + 1]);
+			sp.push(r1((a - today0) / 60_000), r1((e - today0) / 60_000));
+			m += e - a;
+		}
+		const l = liveIds.get(s.sid);
+		if (!sp.length || (m < 30_000 && !l)) continue;
+		const p = s.project ?? elsewhere;
+		let tok = 0;
+		for (const [h, n] of sessTok.get(s.sid) ?? []) if (h * HOUR >= today0) tok += n;
+		todaySessions.push({ sid: s.sid, project: p.name, path: p.path, title: s.title ?? l?.title ?? '', where: whereFor(p, s.cwd), spans: sp, tok, live: !!l });
+	}
+	todaySessions.sort((x, y) => x.spans[0] - y.spans[0]);
+	todaySessions = todaySessions.slice(-TODAY_MAX);
 
 	const todayRow = days.get(todayKey);
 	const perModel: Record<string, [number, number, number]> = {};
@@ -1072,5 +1253,7 @@ export function aggregate(files: Record<string, FileRec>, input: StatsInput, now
 		live,
 		prices: { note: PRICE_NOTE, perModel },
 		unpricedTokens: unpriced,
+		todaySessions,
+		concurrency7: concurrency(allSessionSpans, now),
 	};
 }

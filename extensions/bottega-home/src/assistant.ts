@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { LiveSession } from './claude';
-import { Job } from './jobs';
+import { Job, WorkItem } from './jobs';
 import { SystemStats } from './nucleo';
 
 // Melissa: il cervello della Bottega. Parla via Agnes AI (OpenAI-compatibile, in streaming),
@@ -77,6 +77,14 @@ export interface AssistantActions {
 	openFile(p: string): boolean;
 	editorContext(): { path?: string; selection?: string };
 	showPlancia(section?: string): void;
+	// Le otto idee (docs/CONTRATTI.md, sezione 4). Facoltative: senza, lo strumento dice che non c'e'.
+	rulesSummary?(project?: string): Promise<string> | string;
+	briefing?(): Promise<string>;
+	prepareContinue?(project: string): Promise<{ name: string; path: string; prompt: string } | undefined>;
+	startPrepared?(path: string, prompt: string): void;
+	whereSolved?(query: string): Promise<string>;
+	storeSummary?(): string;
+	queueNight?(projectPath: string, task: string): string;
 }
 
 export interface NucleoLike {
@@ -91,6 +99,8 @@ export interface AssistantDeps {
 	actions: AssistantActions;
 	liveSessions(): LiveSession[];
 	jobs(): Job[];
+	/** Tutto il lavoro in giro (lavori della Bottega e sessioni vive altrove): la stessa fonte della Home. */
+	work?(): WorkItem[];
 	systemStats(): SystemStats | undefined;
 	projectCount(): number;
 	bacheca(project?: string): Promise<{ title: string; text: string; project: string }[]>;
@@ -98,6 +108,8 @@ export interface AssistantDeps {
 	memoriaRemember(text: string, project?: string): Promise<boolean>;
 	secrets: vscode.SecretStorage;
 	onState(state: AssistantState): void;
+	/** Melissa comincia ad ascoltare con la sfera dentro l'IDE: la vista laterale si fa vedere. */
+	onConverse?(): void;
 	/** Solo per i test: uno stream finto al posto di Agnes. */
 	stream?: LlmStreamFn;
 }
@@ -147,6 +159,19 @@ export class ClauseChunker {
 		this.buf = '';
 		return c || null;
 	}
+}
+
+/** Forma di confronto di una frase: minuscole, senza punteggiatura ne' spazi doppi. */
+export function normClause(text: string): string {
+	return (text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** Quante parole di `heard` stanno anche in `said` (0..1): serve a riconoscere Melissa che sente se stessa. */
+export function echoScore(heard: string, said: string): number {
+	const h = normClause(heard).split(' ').filter(w => w.length > 2);
+	if (h.length < 3) return 0;
+	const s = new Set(normClause(said).split(' '));
+	return h.filter(w => s.has(w)).length / h.length;
 }
 
 export function nowLine(date = new Date()): string {
@@ -239,9 +264,11 @@ export const TOOLS: Record<string, ToolDef> = {
 	sessioni_attive: {
 		spec: { type: 'function', function: { name: 'sessioni_attive', description: 'Le sessioni di Claude Code vive adesso, con progetto e stato.', parameters: obj({}) } },
 		run(_a, ctx) {
+			const work = ctx.deps.work?.().filter(w => w.status === 'in corso' || w.status === 'ti aspetta' || w.status === 'nel terminale');
+			if (work) return work.length ? work.map(w => `${w.project}: ${w.status}${w.title ? `, "${w.title.slice(0, 60)}"` : ''}${w.source === 'bottega' ? ' (lavoro della Bottega)' : ''}`).join('\n') : 'Nessuna sessione di Claude viva adesso.';
 			const live = ctx.deps.liveSessions();
 			if (!live.length) return 'Nessuna sessione di Claude viva adesso.';
-			return live.map(s => `${s.title ?? s.name} in ${path.basename(s.cwd)}: ${s.status === 'busy' ? 'al lavoro' : s.status === 'idle' ? 'in attesa' : s.status}`).join('\n');
+			return live.map(s => `${s.title ?? s.name} in ${path.basename(s.cwd)}: ${s.status === 'busy' ? 'al lavoro' : s.status === 'idle' ? 'ti aspetta' : s.status}`).join('\n');
 		},
 	},
 	lavoro_nuovo: {
@@ -255,8 +282,13 @@ export const TOOLS: Record<string, ToolDef> = {
 		},
 	},
 	lavori_elenco: {
-		spec: { type: 'function', function: { name: 'lavori_elenco', description: 'Elenco dei lavori con il loro stato.', parameters: obj({}) } },
+		spec: { type: 'function', function: { name: 'lavori_elenco', description: 'Tutto il lavoro in giro: i lavori della Bottega e le sessioni Claude aperte altrove, con il loro stato.', parameters: obj({}) } },
 		run(_a, ctx) {
+			const work = ctx.deps.work?.();
+			if (work) {
+				if (!work.length) return 'Nessun lavoro in giro: nessuna sessione Claude viva, niente in coda.';
+				return work.map(w => `${w.jobId ?? w.project} su ${w.project}: ${w.status}${w.title ? `, "${w.title.slice(0, 60)}"` : ''}${w.source === 'altrove' ? ' (aperta fuori dalla Bottega)' : ''}`).join('\n');
+			}
 			const jobs = ctx.deps.jobs();
 			if (!jobs.length) return 'Nessun lavoro in corso.';
 			return jobs.map(j => `${j.id} su ${j.project}: ${j.status}, "${j.task.slice(0, 60)}"`).join('\n');
@@ -353,6 +385,68 @@ export const TOOLS: Record<string, ToolDef> = {
 			return `File: ${c.path}` + (c.selection ? `\nSelezione:\n${c.selection.slice(0, 2000)}` : '\n(niente di selezionato)');
 		},
 	},
+	regole_controlla: {
+		spec: { type: 'function', function: { name: 'regole_controlla', description: 'Il semaforo delle regole di Andrea: build che non sale, commit non spinti, repository pubblici, rilascio non automatico su App Store Connect, app-ads.txt, segreti. Senza progetto: il quadro di tutti.', parameters: obj({ progetto: { type: 'string' } }) } },
+		async run(a, ctx) {
+			if (!ctx.deps.actions.rulesSummary) return 'Il semaforo delle regole non e\' disponibile.';
+			let p: string | undefined;
+			if (a.progetto) {
+				const r = ctx.deps.actions.resolveProject(a.progetto);
+				if (!r) return `Non trovo il progetto "${a.progetto}".`;
+				p = r.path;
+			}
+			return ctx.deps.actions.rulesSummary(p);
+		},
+	},
+	briefing: {
+		spec: { type: 'function', function: { name: 'briefing', description: 'Il briefing di oggi: ore di ieri, lavori che aspettano, Store, soldi, regole, progetti dimenticati, la notte. Usalo quando Andrea dice "briefing" o chiede come siamo messi.', parameters: obj({}) } },
+		async run(_a, ctx) {
+			if (!ctx.deps.actions.briefing) return 'Il briefing non e\' disponibile.';
+			return 'Fatti del briefing (raccontali tu, a voce, in trenta secondi):\n' + (await ctx.deps.actions.briefing());
+		},
+	},
+	continua: {
+		spec: { type: 'function', function: { name: 'continua', description: 'Prepara un lavoro che riprende un progetto da dove era rimasto (ultimo riassunto e cose da fare della memoria). Mostra il prompt nella plancia e chiede conferma prima di partire.', parameters: obj({ progetto: { type: 'string' } }, ['progetto']) } },
+		risky: true,
+		async run(a, ctx) {
+			const acts = ctx.deps.actions;
+			if (!acts.prepareContinue || !acts.startPrepared) return 'Non so ancora preparare la ripresa di un progetto.';
+			const c = await acts.prepareContinue(a.progetto);
+			if (!c) return `Non trovo il progetto "${a.progetto}".`;
+			ctx.azione(`Ho preparato la ripresa di ${c.name}`);
+			ctx.setPending({
+				describe: `avviare la ripresa di ${c.name}`,
+				run: () => acts.startPrepared!(c.path, c.prompt),
+				done: `Lavoro avviato su ${c.name}.`,
+				azione: `Ho avviato la ripresa di ${c.name}`,
+			});
+			return `Prompt pronto e mostrato nella plancia, dove Andrea puo' anche cambiarlo. Inizio: "${c.prompt.slice(0, 400)}". Riassumi in una frase da dove riparte e chiedi "confermi?" per avviarlo cosi' com'e'.`;
+		},
+	},
+	dove_risolto: {
+		spec: { type: 'function', function: { name: 'dove_risolto', description: 'Dove Andrea ha gia\' risolto un problema: cerca per significato in tutta la memoria e per testo nel codice di tutti i progetti.', parameters: obj({ testo: { type: 'string' } }, ['testo']) } },
+		async run(a, ctx) {
+			if (!ctx.deps.actions.whereSolved) return 'La ricerca non e\' disponibile.';
+			return ctx.deps.actions.whereSolved(a.testo);
+		},
+	},
+	store_soldi: {
+		spec: { type: 'function', function: { name: 'store_soldi', description: 'Stato delle app su App Store Connect (versione, revisione, recensioni) e quanto hanno reso su AdMob ieri e negli ultimi sette giorni.', parameters: obj({}) } },
+		run(_a, ctx) {
+			return ctx.deps.actions.storeSummary ? ctx.deps.actions.storeSummary() : 'Il radar dello Store non e\' disponibile.';
+		},
+	},
+	lavoro_stanotte: {
+		spec: { type: 'function', function: { name: 'lavoro_stanotte', description: 'Mette in fila un lavoro per la notte: parte nella finestra notturna, alla corrente, senza push ne\' pubblicazioni.', parameters: obj({ progetto: { type: 'string' }, compito: { type: 'string' } }, ['progetto', 'compito']) } },
+		run(a, ctx) {
+			const p = ctx.deps.actions.resolveProject(a.progetto);
+			if (!p) return `Non trovo il progetto "${a.progetto}".`;
+			if (!ctx.deps.actions.queueNight) return 'La coda della notte non e\' disponibile.';
+			const r = ctx.deps.actions.queueNight(p.path, a.compito);
+			ctx.azione(`Ho messo in fila per stanotte un lavoro su ${p.name}`);
+			return r;
+		},
+	},
 	plancia_mostra: {
 		spec: { type: 'function', function: { name: 'plancia_mostra', description: 'Mostra la plancia, eventualmente su una sezione (progetti, lavori, sessioni, memoria).', parameters: obj({ sezione: { type: 'string' } }) } },
 		run(a, ctx) {
@@ -388,6 +482,10 @@ export class Assistant {
 	private currentAbort?: AbortController;
 	private speaking = false;
 	private chunker = new ClauseChunker();
+	/** Frasi gia' mandate alla voce in questo turno: una frase ripetuta dal passo successivo non si ridice. */
+	private saidClauses = new Set<string>();
+	/** Cosa ha detto Melissa di recente, per scartare l'eco della sua voce in conversazione. */
+	private recentSpeech: { text: string; at: number }[] = [];
 	private firstSpeakChunk = true;
 	private turnText = '';
 	private hotkeyDownAt = 0;
@@ -414,8 +512,10 @@ export class Assistant {
 		this.deps.onState(this.getState());
 	}
 	private setState(s: AssistantState['state'], partial?: string): void {
+		const changed = this.state.state !== s;
 		this.state.state = s;
 		this.state.partial = partial;
+		if (changed) this.paintStatus();
 		this.emit();
 	}
 	private pushLog(role: 'tu' | 'melissa' | 'azione', text: string): void {
@@ -434,12 +534,52 @@ export class Assistant {
 		return vscode.workspace.getConfiguration('bottega').get('voice.model', 'eleven_v4_turbo');
 	}
 
+	/** Dice (e scrive nel registro) un testo gia' pronto, per esempio il briefing. Parla solo se la voce e' accesa. */
+	async announce(text: string): Promise<void> {
+		await this.sayFull(text, this.state.enabled && this.deps.nucleo.available);
+	}
+
+	/** Scrive un testo con la voce di Melissa a partire da fatti dati: Agnes, poi Apple Intelligence. Null se nessuno risponde. */
+	async compose(instructions: string, facts: string, maxTokens = 400): Promise<{ text: string; engine: 'agnes' | 'apple' } | null> {
+		const messages: LlmMessage[] = [
+			{ role: 'system', content: MELISSA_CORE + '\n\n' + TRUTH_RULE + '\n\n' + instructions },
+			{ role: 'user', content: facts },
+		];
+		try {
+			let text = '';
+			const ac = new AbortController();
+			const t = setTimeout(() => ac.abort(), 25_000);
+			try {
+				if (this.deps.stream) await this.deps.stream(messages, [], d => (text += d.content ?? ''), ac.signal);
+				else await this.callAgnesPlain(messages, d => (text += d.content ?? ''), ac.signal);
+			} finally {
+				clearTimeout(t);
+			}
+			if (text.trim()) return { text: cleanForVoice(text), engine: 'agnes' };
+		} catch {
+			// Agnes a terra: si prova sul Mac
+		}
+		if (!this.deps.nucleo.available) return null;
+		try {
+			const r = await this.deps.nucleo.request<{ text: string }>('ai.generate', { prompt: facts, instructions: MELISSA_CORE + '\n\n' + instructions, maxTokens }, 30_000);
+			const text = (r?.text || '').trim();
+			return text ? { text: cleanForVoice(text), engine: 'apple' } : null;
+		} catch {
+			return null;
+		}
+	}
+
 	// ----- avvio e cablaggio con il Nucleo -----
 
 	wire(ctx: vscode.ExtensionContext): void {
 		this.statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 900);
-		this.statusBar.command = 'bottega.voice.toggle';
-		ctx.subscriptions.push(this.statusBar);
+		this.statusBar.command = 'bottega.voice.converse';
+		ctx.subscriptions.push(
+			this.statusBar,
+			vscode.workspace.onDidChangeConfiguration(e => {
+				if (e.affectsConfiguration('bottega.voice.sfera') || e.affectsConfiguration('bottega.voice.orbAlwaysVisible')) this.restOrb();
+			}),
+		);
 		this.paintStatus();
 
 		const n = this.deps.nucleo;
@@ -460,11 +600,18 @@ export class Assistant {
 	private paintStatus(): void {
 		if (!this.statusBar) return;
 		if (this.state.enabled) {
-			this.statusBar.text = this.state.conversing ? '$(mic) Melissa, in ascolto' : '$(mic) Melissa';
-			this.statusBar.tooltip = 'Melissa e\' accesa. Tap di Opzione+Spazio per conversare, tieni premuto per parlare una volta. Clic per spegnerla.';
+			const st = this.state.state;
+			this.statusBar.text =
+				st === 'thinking' ? '$(loading~spin) Melissa'
+				: st === 'speaking' ? '$(unmute) Melissa'
+				: st === 'error' ? '$(warning) Melissa'
+				: this.state.conversing || st === 'listening' ? '$(mic-filled) Melissa ti ascolta'
+				: '$(mic) Melissa';
+			this.statusBar.color = st === 'idle' && !this.state.conversing ? undefined : new vscode.ThemeColor('bottega.sodio');
+			this.statusBar.tooltip = 'Melissa è accesa. Clic, o un tocco di Opzione+Spazio, per conversare; tieni premuto per parlare una volta.';
 		} else {
 			this.statusBar.text = '$(mic-off) Melissa';
-			this.statusBar.tooltip = 'Melissa e\' spenta. Clic per accenderla.';
+			this.statusBar.tooltip = 'Melissa è spenta. Clic per accenderla e parlarle.';
 		}
 		this.statusBar.show();
 	}
@@ -472,8 +619,19 @@ export class Assistant {
 	/** Dove torna la sfera quando Melissa non sta ascoltando ne' parlando: piccola e sempre visibile
 	 *  (impostazione bottega.voice.orbAlwaysVisible), oppure nascosta se Melissa e' spenta. */
 	private restOrb(): void {
-		const docked = this.state.enabled && vscode.workspace.getConfiguration('bottega').get('voice.orbAlwaysVisible', true);
+		const docked = this.state.enabled && this.orbOnScreen() && vscode.workspace.getConfiguration('bottega').get('voice.orbAlwaysVisible', true);
 		this.deps.nucleo.fireAndForget(docked ? 'orb.dock' : 'orb.hide');
+	}
+
+	/** La sfera del Nucleo galleggia sullo schermo solo se Andrea lo chiede (bottega.voice.sfera = "schermo"):
+	 *  di default Melissa vive dentro l'IDE (vista laterale e barra di stato) e non copre le altre app. */
+	private orbOnScreen(): boolean {
+		return vscode.workspace.getConfiguration('bottega').get<string>('voice.sfera', 'ide') === 'schermo';
+	}
+
+	private showBigOrb(): void {
+		if (this.orbOnScreen()) this.deps.nucleo.fireAndForget('orb.show');
+		else this.deps.onConverse?.();
 	}
 
 	/** Comando bottega.voice.converse e icona di Melissa: apre o chiude la conversazione. */
@@ -519,7 +677,7 @@ export class Assistant {
 		this.pushStarted = true;
 		this.awaitingPushFinal = true;
 		clearTimeout(this.pushFinalTimer);
-		this.deps.nucleo.fireAndForget('orb.show');
+		this.showBigOrb();
 		this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });
 		this.setState('listening');
 		this.deps.nucleo.fireAndForget('voice.listen', { mode: 'push' });
@@ -551,7 +709,7 @@ export class Assistant {
 
 	private startConversation(): void {
 		this.state.conversing = true;
-		this.deps.nucleo.fireAndForget('orb.show');
+		this.showBigOrb();
 		this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });
 		this.deps.nucleo.fireAndForget('voice.converse.start', { model: this.model(), locale: 'it-IT' });
 		this.setState('listening');
@@ -609,6 +767,13 @@ export class Assistant {
 		if (ownPush) {
 			this.awaitingPushFinal = false;
 			clearTimeout(this.pushFinalTimer);
+		}
+		if (inConversation && !ownPush) {
+			const said = this.recentSpeech.filter(x => Date.now() - x.at < 20_000).map(x => x.text).join(' ');
+			if (said && echoScore(text, said) >= 0.6) {
+				this.out.info(`eco della mia voce, la ignoro: "${text}"`);
+				return;
+			}
 		}
 		this.out.info(`frase (${mode ?? '?'}): "${text}"`);
 		if (this.state.conversing) {
@@ -731,6 +896,7 @@ export class Assistant {
 
 	private beginSpeech(): void {
 		this.speaking = true;
+		this.saidClauses.clear();
 		this.chunker = new ClauseChunker();
 		this.firstSpeakChunk = true;
 	}
@@ -739,6 +905,14 @@ export class Assistant {
 		for (const clause of this.chunker.push(text)) this.emitClause(clause);
 	}
 	private emitClause(clause: string): void {
+		const k = normClause(clause);
+		if (k && this.saidClauses.has(k)) {
+			this.out.info(`frase gia' detta in questo turno, non la ripeto: "${clause}"`);
+			return;
+		}
+		if (k) this.saidClauses.add(k);
+		const now = Date.now();
+		this.recentSpeech = [...this.recentSpeech.filter(x => now - x.at < 20_000), { text: clause, at: now }];
 		if (this.state.state !== 'speaking') {
 			this.setState('speaking');
 			this.deps.nucleo.fireAndForget('orb.state', { state: 'speaking' });
@@ -793,7 +967,11 @@ export class Assistant {
 
 		const stream = this.deps.stream ?? ((m, t, cb, sig) => this.callAgnesStream(m, t, cb, sig));
 
-		for (let step = 0; step < 8; step++) {
+		// Stesso strumento con gli stessi argomenti nello stesso turno: non si riesegue (niente progetto aperto due
+		// volte, niente lavoro avviato due volte) e al terzo tentativo il giro si chiude.
+		const done = new Map<string, string>();
+		let repeats = 0;
+		for (let step = 0; step < 6; step++) {
 			if (signal.aborted) throw abortError();
 			let content = '';
 			const calls = new Map<number, { id: string; name: string; args: string }>();
@@ -821,14 +999,24 @@ export class Assistant {
 				messages.push({ role: 'assistant', content: content || '', tool_calls: toolCalls });
 				for (const tc of toolCalls) {
 					if (signal.aborted) throw abortError(); // tool non ancora partito: niente effetti
-					const result = await this.runTool(tc, speak, signal);
+					const key = tc.function.name + ' ' + normClause(tc.function.arguments || '');
+					let result: string;
+					if (done.has(key)) {
+						repeats++;
+						this.out.info(`strumento ${tc.function.name} richiesto di nuovo con gli stessi argomenti: non lo rieseguo`);
+						result = `${done.get(key)}\n(Questo strumento l'hai gia' chiamato in questo turno con gli stessi argomenti: non richiamarlo, rispondi ad Andrea con quello che hai.)`;
+					} else {
+						result = await this.runTool(tc, speak, signal);
+						done.set(key, result);
+					}
 					messages.push({ role: 'tool', tool_call_id: tc.id, name: tc.function.name, content: result });
 				}
+				if (repeats >= 2) break;
 				continue;
 			}
 			return content.trim() || this.turnText.trim() || 'Non ho niente da dirti.';
 		}
-		return (this.turnText.trim() || 'Mi sono incartata tra i passaggi, ridimmi cosa ti serve.');
+		return this.turnText.trim() || 'Mi sono incartata tra i passaggi, ridimmi cosa ti serve.';
 	}
 
 	private async runTool(tc: LlmToolCall, speak: boolean, signal: AbortSignal): Promise<string> {
@@ -868,9 +1056,12 @@ export class Assistant {
 		const jobs = this.deps.jobs();
 		const stats = this.deps.systemStats();
 		const liveLine = live.length
-			? live.map(s => `${s.title ?? s.name} in ${path.basename(s.cwd)} (${s.status === 'busy' ? 'al lavoro' : s.status})`).join('; ')
+			? live.map(s => `${s.title ?? s.name} in ${path.basename(s.cwd)} (${s.status === 'busy' ? 'al lavoro' : s.status === 'idle' ? 'ti aspetta' : 'nel terminale'})`).join('; ')
 			: 'nessuna';
-		const jobLine = jobs.length ? jobs.map(j => `${j.project}: ${j.status}`).join('; ') : 'nessuno';
+		const work = this.deps.work?.();
+		const jobLine = work
+			? work.length ? work.map(w => `${w.project}: ${w.status}${w.source === 'altrove' ? ' (fuori dalla Bottega)' : ''}`).join('; ') : 'nessuno'
+			: jobs.length ? jobs.map(j => `${j.project}: ${j.status}`).join('; ') : 'nessuno';
 		const pressure = stats ? `memoria ${stats.memoryPressure}, temperatura ${stats.thermal}, carico ${stats.load.map(n => n.toFixed(2)).join('/')}` : 'sconosciuta';
 
 		return [
@@ -939,6 +1130,20 @@ export class Assistant {
 			return;
 		}
 		throw new Error('Agnes continua a rispondere 429.');
+	}
+
+	/** Come callAgnesStream, ma senza strumenti (testo puro). */
+	private async callAgnesPlain(messages: LlmMessage[], onDelta: (d: LlmDelta) => void, signal: AbortSignal): Promise<void> {
+		const key = await this.apiKey();
+		if (!key) throw new Error('Nessuna chiave Agnes.');
+		const res = await fetch(AGNES_URL, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+			body: JSON.stringify({ model: AGNES_MODEL, messages, reasoning_effort: 'none', stream: true }),
+			signal,
+		});
+		if (!res.ok || !res.body) throw new Error(`Agnes ha risposto ${res.status}.`);
+		await this.readSse(res.body, onDelta);
 	}
 
 	private async readSse(body: ReadableStream<Uint8Array>, onDelta: (d: LlmDelta) => void): Promise<void> {

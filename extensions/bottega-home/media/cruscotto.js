@@ -9,7 +9,28 @@
 
    Regole: niente librerie, SVG scritto a mano, nessun attributo style nell'HTML (la CSP lo blocca;
    le posizioni dinamiche passano da element.style, che e' permesso). Testo dei dati sempre
-   sfuggito o messo con textContent. Ogni grafico ha la sua tabella e si usa da tastiera. */
+   sfuggito o messo con textContent. Ogni grafico ha la sua tabella e si usa da tastiera.
+
+   La sala di controllo (build 12): la notte dell'osservatorio diventa un banco strumenti. Due luci:
+   l'ambra del sodio per le ore tue (i dati principali), il ciano per Claude e per la strumentazione
+   (lancetta, reticoli, mirino). Il cielo ha due motori:
+   - WebGPU, che in Electron su Mac passa da Metal: nebulosa, corona delle ore, stelle con le punte
+     di diffrazione, scintille lungo i legami, l'anello che respira sulle sessioni vive. Disegna
+     solo decorazione e luce: tutti i dati restano nell'SVG sopra (nomi, prese, tabella).
+   - SVG, sempre presente: e' il ripiego (niente WebGPU, adattatore negato, dispositivo perso) e ha
+     gli stessi contenuti, solo con luci piu' semplici.
+   Animazioni con un perche': arrivo dei dati (scansione che accende le stelle, cifre che contano,
+   tracce che si disegnano), cambio di periodo (le stelle migrano), passaggio del mouse (mirino),
+   sessione viva (anello che respira). Una volta per arrivo, mai a ogni aggiornamento periodico.
+   Con "riduci movimento" solo stati finali, stessi contenuti. Stanza nascosta: niente frame, e la
+   GPU si libera dopo RILASCIO_MS.
+
+   Il banco (sotto i token): sette blocchi (oggi sessione per sessione, adesso, lavoro in parallelo,
+   la settimana ora per ora, chi sale e chi scende, quanto dura una sessione, registro) in due
+   colonne che finiscono alla stessa altezza. Dopo ogni disegno si misurano i blocchi e `dividi`
+   prova tutte le divisioni possibili (2^7) tenendo quella con lo scarto minore; sotto DUE_COLONNE
+   px una colonna sola, nell'ordine di lettura. La corrente del lavoro in parallelo e' il secondo
+   strumento su WebGPU: stesso dispositivo del cielo (l'officina), stesse regole di vita. */
 (function () {
 	'use strict';
 
@@ -155,6 +176,1127 @@
 		};
 	}
 
+	/** Ora del giorno adesso, in ore decimali (21,5 = 21:30), nel fuso del Mac. */
+	function oraAdesso() {
+		const d = new Date();
+		return d.getHours() + d.getMinutes() / 60;
+	}
+
+	const facile = k => 1 - Math.pow(1 - k, 3);
+
+	// ---------- il cielo su WebGPU (Metal) ----------
+
+	/* Un solo modulo WGSL, tre passaggi:
+	   - fondo: cupola, nebulosa (fbm), corona delle ore lungo il bordo, l'ultima ora alle spalle della
+	     lancetta. Cambia solo coi dati, con la misura o col minuto: si disegna in una texture e poi si
+	     copia, cosi' il frame normale costa una copia e poche centinaia di quadratini;
+	   - copia: la texture del fondo sulla tela;
+	   - luce: quadratini in istanza, sommati (additivi): stelle di fondo che scintillano, stelle dei
+	     progetti con alone e punte di diffrazione, anelli delle sessioni vive, scintille lungo i
+	     legami, la lancetta di adesso.
+	   Coordinate in px CSS della carta; la tela ha i px veri (dpr al massimo 2). */
+	const WGSL = /* wgsl */ `
+struct U {
+	a: vec4f,
+	b: vec4f,
+	c: vec4f,
+	hours: array<vec4f, 6>,
+};
+@group(0) @binding(0) var<uniform> u: U;
+@group(0) @binding(1) var fondo: texture_2d<f32>;
+
+fn wrap24(x: f32) -> f32 { return x - 24.0 * floor(x / 24.0); }
+
+fn hash(p: vec2f) -> f32 {
+	var q = fract(p * vec2f(123.34, 456.21));
+	q += dot(q, q + 45.32);
+	return fract(q.x * q.y);
+}
+
+fn noise(p: vec2f) -> f32 {
+	let i = floor(p);
+	let f = fract(p);
+	let w = f * f * (3.0 - 2.0 * f);
+	let a = hash(i);
+	let b = hash(i + vec2f(1.0, 0.0));
+	let c = hash(i + vec2f(0.0, 1.0));
+	let d = hash(i + vec2f(1.0, 1.0));
+	return mix(mix(a, b, w.x), mix(c, d, w.x), w.y);
+}
+
+fn fbm(p0: vec2f) -> f32 {
+	var p = p0;
+	var s = 0.0;
+	var amp = 0.5;
+	for (var k = 0; k < 5; k++) {
+		s += amp * noise(p);
+		p = p * 2.03 + vec2f(17.1, 9.2);
+		amp *= 0.5;
+	}
+	return s;
+}
+
+fn ora(i: u32) -> f32 {
+	let v = u.hours[i / 4u];
+	return v[i % 4u];
+}
+
+fn oraLiscia(h: f32) -> f32 {
+	let x = wrap24(h - 0.5);
+	let i0 = u32(floor(x)) % 24u;
+	let i1 = (i0 + 1u) % 24u;
+	let f = x - floor(x);
+	return mix(ora(i0), ora(i1), f * f * (3.0 - 2.0 * f));
+}
+
+struct VF { @builtin(position) pos: vec4f };
+
+@vertex fn vs_pieno(@builtin(vertex_index) i: u32) -> VF {
+	var p = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+	var o: VF;
+	o.pos = vec4f(p[i], 0.0, 1.0);
+	return o;
+}
+
+@fragment fn fs_fondo(v: VF) -> @location(0) vec4f {
+	let p = v.pos.xy / u.b.w;
+	let d = p - u.b.xy;
+	let R = u.b.z;
+	let r = length(d);
+	let cupola = R + 8.0;
+	let dentro = 1.0 - smoothstep(cupola - 1.0, cupola + 0.5, r);
+	let t = clamp(r / cupola, 0.0, 1.0);
+	var col = mix(vec3f(0.114, 0.157, 0.275), vec3f(0.078, 0.110, 0.200), smoothstep(0.0, 0.7, t));
+	col = mix(col, vec3f(0.059, 0.086, 0.157), smoothstep(0.7, 1.0, t));
+	let q = d / cupola * 2.4;
+	let n1 = fbm(q + vec2f(3.1, 1.7));
+	let n2 = fbm(q * 1.6 + vec2f(n1 * 1.4, 5.2));
+	col += vec3f(0.09, 0.10, 0.27) * smoothstep(0.42, 0.92, n2) * (1.0 - 0.5 * t) * 0.7;
+	col += vec3f(0.02, 0.15, 0.17) * smoothstep(0.55, 0.95, n1) * 0.45;
+	let ang = atan2(d.x, -d.y);
+	let h = wrap24(ang / 6.2831853 * 24.0 + 12.0);
+	let fascia = smoothstep(R - 36.0, R - 2.0, r) * (1.0 - smoothstep(R + 1.0, R + 7.0, r));
+	col += vec3f(0.957, 0.671, 0.235) * fascia * oraLiscia(h) * 0.42;
+	let dietro = wrap24(u.c.y - h);
+	let scia = (1.0 - smoothstep(0.0, 1.0, dietro)) * smoothstep(u.c.w, R * 0.6, r) * (1.0 - smoothstep(R, cupola, r));
+	col += vec3f(0.39, 0.90, 0.86) * scia * 0.07;
+	col *= 1.0 - 0.28 * smoothstep(0.78, 1.0, t);
+	return vec4f(col * dentro, dentro);
+}
+
+@fragment fn fs_copia(v: VF) -> @location(0) vec4f {
+	return textureLoad(fondo, vec2i(v.pos.xy), 0);
+}
+
+struct VI {
+	@location(0) a: vec4f,
+	@location(1) col: vec4f,
+	@location(2) c: vec4f,
+	@location(3) d: vec4f,
+};
+
+struct VS {
+	@builtin(position) pos: vec4f,
+	@location(0) uv: vec2f,
+	@location(1) col: vec4f,
+	@location(2) @interpolate(flat) tipo: f32,
+	@location(3) @interpolate(flat) x: f32,
+};
+
+@vertex fn vs_luce(@builtin(vertex_index) vi: u32, i: VI) -> VS {
+	var angoli = array<vec2f, 4>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0), vec2f(1.0, 1.0));
+	let k = angoli[vi];
+	let tempo = u.a.z;
+	let riv = u.a.w;
+	let acceso = u.c.x;
+	let tipo = i.a.w;
+	var centro = i.a.xy;
+	var lato = i.a.z;
+	var col = i.col;
+	var x = 0.0;
+	var p = vec2f(0.0, 0.0);
+	if (tipo < 0.5) {
+		col.a *= 0.7 + 0.3 * sin(tempo * i.c.z + i.c.w);
+	} else if (tipo < 1.5 || tipo > 4.5) {
+		let on = smoothstep(i.d.z, i.d.z + 0.7, riv);
+		col.a *= on;
+		lato *= mix(0.3, 1.0, on);
+		if (acceso >= 0.0) {
+			if (abs(i.d.x - acceso) < 0.5) { lato *= 1.2; } else { col.a *= 0.32; }
+		}
+	} else if (tipo < 2.5) {
+		let f = fract(tempo / 2.8 + i.c.w);
+		x = f;
+		lato *= 0.85 + 0.4 * f;
+		col.a *= (1.0 - f) * smoothstep(i.d.z, i.d.z + 0.7, riv);
+		if (acceso >= 0.0 && abs(i.d.x - acceso) > 0.5) { col.a *= 0.32; }
+	} else if (tipo < 3.5) {
+		let f = fract(tempo * i.c.z + i.c.w);
+		centro = mix(i.a.xy, i.c.xy, f);
+		col.a *= sin(f * 3.14159265) * smoothstep(i.d.z, i.d.z + 0.8, riv);
+		if (acceso >= 0.0) {
+			if (abs(i.d.x - acceso) < 0.5 || abs(i.d.y - acceso) < 0.5) { col.a = min(1.0, col.a * 1.5); } else { col.a *= 0.15; }
+		}
+	}
+	if (tipo > 3.5 && tipo < 4.5) {
+		let A = i.a.xy;
+		let B = i.c.xy;
+		let dir = normalize(B - A);
+		let nor = vec2f(-dir.y, dir.x);
+		p = A + dir * ((k.x * 0.5 + 0.5) * length(B - A)) + nor * (k.y * lato);
+		x = select(-1.0, fract(tempo / 4.0), u.c.z > 0.5);
+	} else {
+		p = centro + k * lato;
+	}
+	var o: VS;
+	o.pos = vec4f(p.x / u.a.x * 2.0 - 1.0, 1.0 - p.y / u.a.y * 2.0, 0.0, 1.0);
+	o.uv = k;
+	o.col = col;
+	o.tipo = tipo;
+	o.x = x;
+	return o;
+}
+
+@fragment fn fs_luce(v: VS) -> @location(0) vec4f {
+	let r = length(v.uv);
+	var a = 0.0;
+	var rgb = v.col.rgb;
+	if (v.tipo < 0.5) {
+		a = exp(-r * r * 6.0);
+	} else if (v.tipo < 1.5) {
+		let nucleo = exp(-r * r * 34.0);
+		let alone = exp(-r * r * 7.0) * 0.42 + exp(-r * 5.0) * 0.1;
+		let raggi = (exp(-abs(v.uv.y) * 70.0) + exp(-abs(v.uv.x) * 70.0)) * pow(max(0.0, 1.0 - r), 2.5) * 0.5;
+		a = nucleo + alone + raggi;
+		rgb = mix(rgb, vec3f(1.0, 0.98, 0.93), clamp(nucleo * 1.3 + raggi * 0.4, 0.0, 1.0));
+	} else if (v.tipo < 2.5) {
+		let d = (r - 0.82) * 12.0;
+		a = exp(-d * d);
+	} else if (v.tipo < 3.5) {
+		a = exp(-r * r * 9.0);
+	} else if (v.tipo < 4.5) {
+		let lungo = v.uv.x * 0.5 + 0.5;
+		a = exp(-v.uv.y * v.uv.y * 9.0) * (0.25 + 0.75 * lungo);
+		if (v.x >= 0.0) {
+			let s = lungo - v.x;
+			a += exp(-s * s * 400.0) * exp(-v.uv.y * v.uv.y * 4.0) * 0.9;
+		}
+	} else {
+		let d = (r - 0.32) * 16.0;
+		a = exp(-d * d) * 0.9;
+	}
+	let al = clamp(a * v.col.a, 0.0, 1.0);
+	return vec4f(rgb * al, al);
+}
+`;
+
+	/** Colori della luce (rgb lineari 0..1, la cupola resta notte anche nel tema chiaro). */
+	const LUCE = {
+		campo: [0.91, 0.886, 0.816],
+		stella: [0.96, 0.7, 0.34],
+		calima: [0.91, 0.886, 0.816],
+		sodio: [0.957, 0.671, 0.235],
+		ciano: [0.39, 0.9, 0.86],
+	};
+	/** Dopo quanto la GPU si libera a stanza nascosta: tornarci subito non riaccende tutto. */
+	const RILASCIO_MS = 15_000;
+	const FLOAT_ISTANZA = 16; // 4 vec4f per quadratino
+
+	const G0 = /** @type {any} */ (globalThis);
+	const USO = {
+		UNIFORM: G0.GPUBufferUsage ? G0.GPUBufferUsage.UNIFORM : 0x40,
+		COPY_DST: G0.GPUBufferUsage ? G0.GPUBufferUsage.COPY_DST : 0x08,
+		VERTEX: G0.GPUBufferUsage ? G0.GPUBufferUsage.VERTEX : 0x20,
+		RENDER: G0.GPUTextureUsage ? G0.GPUTextureUsage.RENDER_ATTACHMENT : 0x10,
+		TEXTURE: G0.GPUTextureUsage ? G0.GPUTextureUsage.TEXTURE_BINDING : 0x04,
+	};
+	const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+	/**
+	 * L'officina: un solo dispositivo WebGPU (su Mac passa da Metal) per tutta la stanza, condiviso dal
+	 * cielo e dalla corrente del lavoro in parallelo. Si apre col primo che lo chiede e si chiude
+	 * quando l'ultimo lo lascia: a stanza nascosta la GPU resta libera. Se l'adattatore manca, o il
+	 * dispositivo si perde, l'officina resta chiusa per questo montaggio e chi ascolta torna all'SVG.
+	 */
+	function creaOfficina() {
+		const gpu = typeof navigator !== 'undefined' && /** @type {any} */ (navigator).gpu;
+		/** @type {any} */ let dev = null;
+		/** @type {Promise<any> | null} */ let attesa = null;
+		let format = '';
+		let utenti = 0;
+		let rotta = gpu ? '' : 'questa finestra non offre WebGPU';
+		/** @type {Set<(motivo: string) => void>} */ const ascoltatori = new Set();
+
+		function rompi(motivo) {
+			if (rotta) return;
+			rotta = motivo;
+			const d = dev;
+			dev = null;
+			attesa = null;
+			utenti = 0;
+			try {
+				d && d.destroy();
+			} catch {}
+			for (const f of [...ascoltatori]) {
+				try {
+					f(motivo);
+				} catch (e) {
+					console.error('Bottega: cruscotto, officina', e);
+				}
+			}
+		}
+
+		async function apri() {
+			const adapter = await gpu.requestAdapter({ powerPreference: 'low-power' });
+			if (!adapter) throw new Error('nessun adattatore WebGPU');
+			const d = await adapter.requestDevice();
+			d.lost.then(info => {
+				if (dev === d) rompi(`dispositivo perso${info && info.message ? ': ' + info.message : ''}`);
+			});
+			if (d.addEventListener) d.addEventListener('uncapturederror', e => dev === d && rompi(String((e && e.error && e.error.message) || 'errore della GPU')));
+			format = gpu.getPreferredCanvasFormat();
+			dev = d;
+			return d;
+		}
+
+		return {
+			get disponibile() {
+				return !rotta;
+			},
+			/** @returns {Promise<{ device: any, format: string }>} */
+			async prendi() {
+				if (rotta) throw new Error(rotta);
+				utenti++;
+				try {
+					if (!dev) await (attesa = attesa || apri());
+					if (rotta || !dev) throw new Error(rotta || 'WebGPU spento');
+					return { device: dev, format };
+				} catch (e) {
+					utenti = Math.max(0, utenti - 1);
+					attesa = null;
+					if (!rotta) rotta = String((e && /** @type {any} */ (e).message) || e);
+					throw e;
+				}
+			},
+			lascia() {
+				utenti = Math.max(0, utenti - 1);
+				if (utenti || !dev) return;
+				const d = dev;
+				dev = null;
+				attesa = null;
+				try {
+					d.destroy();
+				} catch {}
+			},
+			/** @param {(motivo: string) => void} f */
+			ascolta(f) {
+				ascoltatori.add(f);
+			},
+		};
+	}
+
+	/**
+	 * Il motore WebGPU del cielo. Restituisce sempre un oggetto: se WebGPU manca, lo stato e' 'svg'
+	 * subito e tutti i metodi non fanno niente. Stati: 'spento' (GPU libera), 'avvio', 'gpu', 'svg'
+	 * (ripiego definitivo per questo montaggio).
+	 * @param {HTMLCanvasElement} canvas
+	 * @param {ReturnType<typeof creaOfficina>} officina
+	 * @param {{ reduced: () => boolean, onStato: (stato: string, motivo: string) => void, rilascio?: number }} opt
+	 */
+	function creaCielo(canvas, officina, opt) {
+		const rilascio = opt.rilascio ?? RILASCIO_MS;
+
+		let stato = officina.disponibile ? 'spento' : 'svg';
+		let gen = 0;
+		/** @type {any} */ let dev = null;
+		/** @type {any} */ let ctx = null;
+		/** @type {any} */ let r = null; // risorse: pipeline, buffer, texture, gruppi
+		/** @type {any} */ let scena = null;
+		let ist = new Float32Array(0);
+		let nIst = 0;
+		let fondoSporco = true;
+		let istSporche = true;
+		let attivo = false;
+		let inVista = true;
+		let raf = 0;
+		let ultimo = 0;
+		const t0 = clock();
+		let rivelaDa = -1e9;
+		let migraDa = -1e9;
+		let acceso = -1;
+		let minuto = -1;
+		let rilascioT = 0;
+		let frames = 0;
+		const U = new Float32Array(40);
+
+		function cambia(s, motivo) {
+			stato = s;
+			try {
+				opt.onStato(s, motivo || '');
+			} catch (e) {
+				console.error('Bottega: cruscotto, stato del cielo', e);
+			}
+		}
+
+		function liberaRisorse() {
+			if (!r) return;
+			for (const b of [r.ubuf, r.ibuf, r.tex]) {
+				try {
+					b && b.destroy && b.destroy();
+				} catch {}
+			}
+			r = null;
+		}
+
+		function spegni() {
+			gen++;
+			if (raf) cancelAnimationFrame(raf);
+			raf = 0;
+			const avevo = !!dev;
+			dev = null;
+			liberaRisorse();
+			try {
+				ctx && ctx.unconfigure && ctx.unconfigure();
+			} catch {}
+			if (avevo) officina.lascia();
+		}
+
+		/** Qualcosa e' andato storto: si torna all'SVG e non si riprova in questo montaggio. */
+		function ripiego(motivo) {
+			if (stato === 'svg') return;
+			console.warn('Bottega: cruscotto senza WebGPU, ripiego sull\'SVG:', motivo);
+			spegni();
+			cambia('svg', motivo);
+		}
+
+		async function avvia() {
+			if (stato === 'svg' || stato === 'avvio' || dev) return;
+			const g = ++gen;
+			cambia('avvio', '');
+			let preso = false;
+			try {
+				const { device: d, format } = await officina.prendi();
+				preso = true;
+				if (g !== gen) {
+					officina.lascia();
+					return;
+				}
+				const c = canvas.getContext('webgpu');
+				if (!c) throw new Error('la tela non da un contesto webgpu');
+				c.configure({ device: d, format, alphaMode: 'premultiplied' });
+				const mod = d.createShaderModule({ code: WGSL });
+				if (mod.getCompilationInfo) {
+					const info = await mod.getCompilationInfo();
+					const err = (info.messages || []).find(m => m.type === 'error');
+					if (err) throw new Error(`WGSL, riga ${err.lineNum}: ${err.message}`);
+				}
+				const target = [{ format }];
+				const additivo = [
+					{
+						format,
+						blend: {
+							color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+							alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+						},
+					},
+				];
+				const [pFondo, pCopia, pLuce] = await Promise.all([
+					d.createRenderPipelineAsync({ layout: 'auto', vertex: { module: mod, entryPoint: 'vs_pieno' }, fragment: { module: mod, entryPoint: 'fs_fondo', targets: target }, primitive: { topology: 'triangle-list' } }),
+					d.createRenderPipelineAsync({ layout: 'auto', vertex: { module: mod, entryPoint: 'vs_pieno' }, fragment: { module: mod, entryPoint: 'fs_copia', targets: target }, primitive: { topology: 'triangle-list' } }),
+					d.createRenderPipelineAsync({
+						layout: 'auto',
+						vertex: {
+							module: mod,
+							entryPoint: 'vs_luce',
+							buffers: [
+								{
+									arrayStride: FLOAT_ISTANZA * 4,
+									stepMode: 'instance',
+									attributes: [0, 1, 2, 3].map(n => ({ shaderLocation: n, offset: n * 16, format: 'float32x4' })),
+								},
+							],
+						},
+						fragment: { module: mod, entryPoint: 'fs_luce', targets: additivo },
+						primitive: { topology: 'triangle-strip' },
+					}),
+				]);
+				if (g !== gen) {
+					officina.lascia();
+					return;
+				}
+				const ubuf = d.createBuffer({ size: U.byteLength, usage: USO.UNIFORM | USO.COPY_DST });
+				r = { format, pFondo, pCopia, pLuce, ubuf, ibuf: null, icap: 0, tex: null, texW: 0, texH: 0, bgFondo: null, bgCopia: null, bgLuce: null };
+				r.bgFondo = d.createBindGroup({ layout: pFondo.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] });
+				r.bgLuce = d.createBindGroup({ layout: pLuce.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] });
+				dev = d;
+				ctx = c;
+				fondoSporco = true;
+				istSporche = true;
+				cambia('gpu', '');
+				chiedi();
+			} catch (e) {
+				if (preso && !dev) officina.lascia();
+				if (g !== gen) return;
+				ripiego(String((e && /** @type {any} */ (e).message) || e));
+			}
+		}
+		officina.ascolta(motivo => ripiego(motivo));
+
+		function animato() {
+			return !opt.reduced();
+		}
+
+		/** Chiede un frame se c'e' qualcosa da disegnare e qualcuno che guarda. */
+		function chiedi() {
+			if (raf || !dev || !r || !attivo || !inVista || !scena) return;
+			raf = requestAnimationFrame(passo);
+		}
+
+		function passo(ts) {
+			raf = 0;
+			if (!dev || !r || !attivo || !inVista || !scena) return;
+			const mosso = animato();
+			const t = clock();
+			// 30 fotogrammi al secondo mentre succede qualcosa, 20 a riposo
+			const vivace = t - rivelaDa < 3500 || t - migraDa < 1000 || acceso >= 0;
+			const fps = vivace ? 30 : 20;
+			if (mosso && ultimo && ts - ultimo < 1000 / fps - 2) {
+				raf = requestAnimationFrame(passo);
+				return;
+			}
+			ultimo = ts;
+			try {
+				disegna(t, mosso);
+			} catch (e) {
+				return ripiego(String((e && /** @type {any} */ (e).message) || e));
+			}
+			if (mosso) raf = requestAnimationFrame(passo);
+		}
+
+		/** Prepara i quadratini in istanza; k e' l'avanzamento della migrazione (0..1). */
+		function costruisci(k) {
+			const s = scena;
+			const e = facile(k);
+			const pos = s.stelle.map(st => (st.da ? [st.da[0] + (st.x - st.da[0]) * e, st.da[1] + (st.y - st.da[1]) * e] : [st.x, st.y]));
+			const parti = [];
+			for (const l of s.legami) {
+				const n = Math.max(1, Math.min(4, Math.round(l.minuti / 40)));
+				for (let j = 0; j < n; j++) parti.push([l, j / n]);
+			}
+			const vive = s.stelle.filter(st => st.vivo).length;
+			const tot = s.campo.length + s.stelle.length + vive + parti.length + 1;
+			if (ist.length < tot * FLOAT_ISTANZA) ist = new Float32Array(Math.ceil(tot * 1.5) * FLOAT_ISTANZA);
+			let o = 0;
+			const metti = (x, y, lato, tipo, c, a, cx, cy, cz, cw, d0, d1, d2, d3) => {
+				ist.set([x, y, lato, tipo, c[0], c[1], c[2], a, cx, cy, cz, cw, d0, d1, d2, d3], o);
+				o += FLOAT_ISTANZA;
+			};
+			for (const [x, y, rr, op, ph, w] of s.campo) metti(x, y, rr * 3.2, 0, LUCE.campo, Math.min(0.9, op * 2.2), 0, 0, w, ph, -1, -1, -1, 0);
+			s.stelle.forEach((st, j) => {
+				const [x, y] = pos[j];
+				if (st.altrove) metti(x, y, st.size * 1.75, 5, LUCE.calima, 0.95, 0, 0, 0, 0, st.i, -1, st.ritardo, 0);
+				else metti(x, y, st.size * 3.2, 1, LUCE.stella, 1, 0, 0, 0, 0, st.i, -1, st.ritardo, 0);
+			});
+			s.stelle.forEach((st, j) => {
+				if (!st.vivo) return;
+				const [x, y] = pos[j];
+				metti(x, y, (st.size + 6) / 0.82, 2, LUCE.sodio, 0.95, 0, 0, 0, (j * 0.37) % 1, st.i, -1, st.ritardo, 0);
+			});
+			const idx = new Map(s.stelle.map((st, j) => [st.i, j]));
+			for (const [l, ph] of parti) {
+				const a = pos[idx.get(l.a)];
+				const b = pos[idx.get(l.b)];
+				if (!a || !b) continue;
+				const forte = l.minuti >= 60;
+				metti(a[0], a[1], forte ? 3.8 : 3.2, 3, LUCE.ciano, forte ? 0.95 : 0.7, b[0], b[1], forte ? 0.16 : 0.11, ph, l.a, l.b, s.ritardoLegami, 0);
+			}
+			// la lancetta di adesso: dal bordo dell'anello interno al quadrante
+			const h = oraAdesso();
+			const ang = ((h - 12) / 24) * 2 * Math.PI;
+			const ax = s.c + s.R0 * Math.sin(ang), ay = s.c - s.R0 * Math.cos(ang);
+			const bx = s.c + (s.R + 8) * Math.sin(ang), by = s.c - (s.R + 8) * Math.cos(ang);
+			metti(ax, ay, 3, 4, LUCE.ciano, 0.6, bx, by, 0, 0, -1, -1, -1, 0);
+			nIst = o / FLOAT_ISTANZA;
+		}
+
+		function disegna(t, mosso) {
+			const s = scena;
+			const dpr = Math.min(2, (typeof devicePixelRatio === 'number' && devicePixelRatio) || 1);
+			const W = Math.max(1, Math.round(s.S * dpr));
+			if (canvas.width !== W || canvas.height !== W) {
+				canvas.width = W;
+				canvas.height = W;
+				fondoSporco = true;
+			}
+			const h = oraAdesso();
+			const m = Math.floor(h * 60);
+			if (m !== minuto) {
+				minuto = m;
+				fondoSporco = true;
+				istSporche = true;
+			}
+			const k = mosso ? Math.min(1, (t - migraDa) / 900) : 1;
+			if (k < 1 || istSporche) {
+				costruisci(k);
+				istSporche = k < 1; // durante la migrazione si ricostruisce a ogni frame, poi una volta in piu'
+				if (k >= 1) istSporche = false;
+				const bytes = nIst * FLOAT_ISTANZA * 4;
+				if (!r.ibuf || r.icap < bytes) {
+					if (r.ibuf) r.ibuf.destroy();
+					r.icap = Math.max(bytes, 32 * 1024);
+					r.ibuf = dev.createBuffer({ size: r.icap, usage: USO.VERTEX | USO.COPY_DST });
+				}
+				if (bytes) dev.queue.writeBuffer(r.ibuf, 0, ist.buffer, 0, bytes);
+			}
+			if (!r.tex || r.texW !== W) {
+				if (r.tex) r.tex.destroy();
+				r.tex = dev.createTexture({ size: [W, W], format: r.format, usage: USO.RENDER | USO.TEXTURE });
+				r.texW = W;
+				r.bgCopia = dev.createBindGroup({ layout: r.pCopia.getBindGroupLayout(0), entries: [{ binding: 1, resource: r.tex.createView() }] });
+				fondoSporco = true;
+			}
+			U[0] = s.S;
+			U[1] = s.S;
+			U[2] = mosso ? (t - t0) / 1000 : 0;
+			U[3] = mosso ? (t - rivelaDa) / 1000 : 99;
+			U[4] = s.c;
+			U[5] = s.c;
+			U[6] = s.R;
+			U[7] = dpr;
+			U[8] = acceso;
+			U[9] = h;
+			U[10] = mosso && s.stelle.some(st => st.vivo) ? 1 : 0;
+			U[11] = s.R0;
+			for (let i = 0; i < 24; i++) U[12 + i] = s.ore[i] || 0;
+			dev.queue.writeBuffer(r.ubuf, 0, U.buffer, 0, U.byteLength);
+			const enc = dev.createCommandEncoder();
+			if (fondoSporco) {
+				const p = enc.beginRenderPass({ colorAttachments: [{ view: r.tex.createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }] });
+				p.setPipeline(r.pFondo);
+				p.setBindGroup(0, r.bgFondo);
+				p.draw(3);
+				p.end();
+				fondoSporco = false;
+			}
+			const p = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }] });
+			p.setPipeline(r.pCopia);
+			p.setBindGroup(0, r.bgCopia);
+			p.draw(3);
+			if (nIst) {
+				p.setPipeline(r.pLuce);
+				p.setBindGroup(0, r.bgLuce);
+				p.setVertexBuffer(0, r.ibuf);
+				p.draw(4, nIst);
+			}
+			p.end();
+			dev.queue.submit([enc.finish()]);
+			frames++;
+		}
+
+		return {
+			get stato() {
+				return stato;
+			},
+			get frames() {
+				return frames;
+			},
+			get inCorsa() {
+				return !!raf;
+			},
+			/** Stanza visibile (e finestra davanti) oppure no. */
+			attiva(on) {
+				if (stato === 'svg') return;
+				attivo = !!on;
+				clearTimeout(rilascioT);
+				if (attivo) {
+					if (!dev) avvia();
+					else chiedi();
+					return;
+				}
+				if (raf) cancelAnimationFrame(raf);
+				raf = 0;
+				rilascioT = setTimeout(() => {
+					if (attivo || !dev) return;
+					spegni();
+					cambia('spento', '');
+				}, rilascio);
+			},
+			/** La carta e' sullo schermo o fuori, scorrendo la pagina. */
+			inVista(on) {
+				inVista = !!on;
+				if (inVista) chiedi();
+				else if (raf) {
+					cancelAnimationFrame(raf);
+					raf = 0;
+				}
+			},
+			/** Dati nuovi o misura nuova. s.rivela e s.migra fanno partire l'orologio delle animazioni. */
+			scena(s) {
+				scena = s;
+				const t = clock();
+				if (s.rivela) rivelaDa = t;
+				if (s.migra) {
+					migraDa = t;
+					rivelaDa = t;
+				}
+				fondoSporco = true;
+				istSporche = true;
+				chiedi();
+			},
+			accendi(i) {
+				acceso = i;
+				chiedi();
+			},
+			/** Riduci movimento cambiato, o qualcosa da ridisegnare una volta. */
+			ridisegna() {
+				istSporche = true;
+				chiedi();
+			},
+			chiudi() {
+				clearTimeout(rilascioT);
+				spegni();
+			},
+		};
+	}
+
+	// ---------- la corrente del lavoro in parallelo, su WebGPU ----------
+
+	/* Le ultime 168 ore come un canale di luce: lo spessore e' quante sessioni giravano insieme, la
+	   luminosita' quanta parte dell'ora era coperta. Due passaggi:
+	   - fiume: un triangolo che copre la tela; per ogni pixel legge le due ore vicine (uniform), le
+	     raccorda e disegna la fascia con una corrente di rumore che scorre verso adesso;
+	   - gocce: quadratini in istanza senza buffer (posizione e velocita' dal numero dell'istanza), che
+	     viaggiano dentro la fascia; dove non c'erano sessioni spariscono.
+	   Solo luce: assi, etichette, prese e numeri restano nell'SVG sopra, uguale col ripiego. */
+	const WGSL_CORRENTE = /* wgsl */ `
+struct U {
+	a: vec4f,
+	b: vec4f,
+	c: vec4f,
+	v: array<vec4f, 42>,
+	o: array<vec4f, 42>,
+};
+@group(0) @binding(0) var<uniform> u: U;
+
+fn hash(p: vec2f) -> f32 {
+	var q = fract(p * vec2f(123.34, 456.21));
+	q += dot(q, q + 45.32);
+	return fract(q.x * q.y);
+}
+
+fn noise(p: vec2f) -> f32 {
+	let i = floor(p);
+	let f = fract(p);
+	let w = f * f * (3.0 - 2.0 * f);
+	return mix(mix(hash(i), hash(i + vec2f(1.0, 0.0)), w.x), mix(hash(i + vec2f(0.0, 1.0)), hash(i + vec2f(1.0, 1.0)), w.x), w.y);
+}
+
+fn fbm(p0: vec2f) -> f32 {
+	var p = p0;
+	var s = 0.0;
+	var amp = 0.55;
+	for (var k = 0; k < 3; k++) {
+		s += amp * noise(p);
+		p = p * 2.07 + vec2f(11.3, 4.7);
+		amp *= 0.5;
+	}
+	return s;
+}
+
+fn val(i: i32) -> f32 {
+	if (i < 0 || i > 167) { return 0.0; }
+	let k = u32(i);
+	let q = u.v[k / 4u];
+	return q[k % 4u];
+}
+
+fn occ(i: i32) -> f32 {
+	if (i < 0 || i > 167) { return 0.0; }
+	let k = u32(i);
+	let q = u.o[k / 4u];
+	return q[k % 4u];
+}
+
+// x in px: (sessioni insieme, parte dell'ora coperta), raccordate tra un'ora e la successiva
+fn campiona(x: f32) -> vec2f {
+	let t = (x - u.b.z) / max(1.0, u.b.w - u.b.z) * u.c.x - 0.5;
+	let i = i32(floor(t));
+	let f = t - floor(t);
+	let s = f * f * (3.0 - 2.0 * f);
+	return vec2f(mix(val(i), val(i + 1), s), mix(occ(i), occ(i + 1), s));
+}
+
+// l'arrivo dei dati: la corrente entra da sinistra
+fn rivela(x: f32) -> f32 {
+	let k = clamp(u.c.z / 1.2, 0.0, 1.0);
+	let fronte = u.b.z - 24.0 + (u.b.w - u.b.z + 48.0) * k;
+	return 1.0 - smoothstep(fronte - 24.0, fronte, x);
+}
+
+struct VF { @builtin(position) pos: vec4f };
+
+@vertex fn vs_pieno(@builtin(vertex_index) i: u32) -> VF {
+	var p = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+	var o: VF;
+	o.pos = vec4f(p[i], 0.0, 1.0);
+	return o;
+}
+
+@fragment fn fs_fiume(v: VF) -> @location(0) vec4f {
+	let p = v.pos.xy / u.a.w;
+	let s = campiona(p.x);
+	let fuori = step(p.x, u.b.z - 1.0) + step(u.b.w + 1.0, p.x);
+	if (fuori > 0.5 || s.x < 0.01) { return vec4f(0.0); }
+	let meta = s.x * u.b.y;
+	let d = abs(p.y - u.b.x);
+	let dentro = 1.0 - smoothstep(meta - 0.8, meta + 0.8, d);
+	let alone = exp(-max(0.0, d - meta) / 6.0) * 0.28;
+	let corrente = fbm(vec2f(p.x * 0.028 - u.a.z * 0.85, p.y * 0.1 + sin(p.x * 0.012) * 0.6));
+	let cuore = exp(-(d * d) / max(1.0, meta * meta) * 1.8);
+	let piena = 0.3 + 0.7 * s.y;
+	let luce = (dentro * (0.2 + 0.55 * corrente + 0.4 * cuore) + alone) * piena * rivela(p.x);
+	let bianca = clamp((s.x - 1.0) / 3.0, 0.0, 1.0) * cuore * 0.7;
+	let col = mix(vec3f(0.39, 0.9, 0.86), vec3f(0.86, 1.0, 0.98), bianca);
+	let a = clamp(luce, 0.0, 1.0);
+	return vec4f(col * a, a);
+}
+
+struct VG {
+	@builtin(position) pos: vec4f,
+	@location(0) uv: vec2f,
+	@location(1) a: f32,
+};
+
+@vertex fn vs_goccia(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VG {
+	var angoli = array<vec2f, 4>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0), vec2f(1.0, 1.0));
+	let k = angoli[vi];
+	let f = f32(ii);
+	let largo = max(1.0, u.b.w - u.b.z);
+	let vel = 22.0 + 46.0 * hash(vec2f(f, 3.1));
+	let x = u.b.z + fract(hash(vec2f(f, 1.7)) + u.a.z * vel / largo) * largo;
+	let s = campiona(x);
+	let corsia = clamp(hash(vec2f(f, 7.3)) * 2.0 - 1.0 + sin(u.a.z * 1.3 + f) * 0.08, -1.0, 1.0);
+	let y = u.b.x + corsia * s.x * u.b.y * 0.86;
+	let lato = 1.2 + 1.8 * hash(vec2f(f, 5.9));
+	let p = vec2f(x, y) + k * lato * 2.2;
+	var o: VG;
+	o.pos = vec4f(p.x / u.a.x * 2.0 - 1.0, 1.0 - p.y / u.a.y * 2.0, 0.0, 1.0);
+	o.uv = k;
+	o.a = smoothstep(0.2, 0.9, s.x) * (0.35 + 0.65 * s.y) * rivela(x) * (0.55 + 0.45 * hash(vec2f(f, 8.8))) * u.c.y;
+	return o;
+}
+
+@fragment fn fs_goccia(v: VG) -> @location(0) vec4f {
+	let r = length(v.uv);
+	let a = clamp(exp(-r * r * 5.0) * v.a, 0.0, 1.0);
+	return vec4f(vec3f(0.8, 1.0, 0.97) * a, a);
+}
+`;
+	const GOCCE = 240;
+	const ORE7 = 168;
+
+	/**
+	 * Il motore WebGPU della corrente: stessa vita del cielo (stati 'spento', 'avvio', 'gpu', 'svg'),
+	 * stesso dispositivo (l'officina). 20 fotogrammi al secondo al massimo, solo con la stanza
+	 * visibile e la corrente sullo schermo; con "riduci movimento" un fotogramma fermo.
+	 * @param {HTMLCanvasElement} canvas
+	 * @param {ReturnType<typeof creaOfficina>} officina
+	 * @param {{ reduced: () => boolean, onStato: (stato: string, motivo: string) => void, rilascio?: number }} opt
+	 */
+	function creaCorrente(canvas, officina, opt) {
+		const rilascio = opt.rilascio ?? RILASCIO_MS;
+		let stato = officina.disponibile ? 'spento' : 'svg';
+		let gen = 0;
+		/** @type {any} */ let dev = null;
+		/** @type {any} */ let ctx = null;
+		/** @type {any} */ let r = null;
+		/** @type {any} */ let scena = null;
+		let attivo = false;
+		let inVista = true;
+		let raf = 0;
+		let ultimo = 0;
+		let rilascioT = 0;
+		let rivelaDa = -1e9;
+		const t0 = clock();
+		// a, b, c (12 float) + 168 + 168: 1392 byte, multiplo di 16
+		const U = new Float32Array(12 + ORE7 * 2);
+
+		function cambia(s, motivo) {
+			stato = s;
+			try {
+				opt.onStato(s, motivo || '');
+			} catch (e) {
+				console.error('Bottega: cruscotto, stato della corrente', e);
+			}
+		}
+
+		function spegni() {
+			gen++;
+			if (raf) cancelAnimationFrame(raf);
+			raf = 0;
+			const avevo = !!dev;
+			dev = null;
+			if (r && r.ubuf) {
+				try {
+					r.ubuf.destroy();
+				} catch {}
+			}
+			r = null;
+			try {
+				ctx && ctx.unconfigure && ctx.unconfigure();
+			} catch {}
+			if (avevo) officina.lascia();
+		}
+
+		function ripiego(motivo) {
+			if (stato === 'svg') return;
+			console.warn('Bottega: corrente senza WebGPU, ripiego sull\'SVG:', motivo);
+			spegni();
+			cambia('svg', motivo);
+		}
+		officina.ascolta(motivo => ripiego(motivo));
+
+		async function avvia() {
+			if (stato === 'svg' || stato === 'avvio' || dev) return;
+			const g = ++gen;
+			cambia('avvio', '');
+			let preso = false;
+			try {
+				const { device: d, format } = await officina.prendi();
+				preso = true;
+				if (g !== gen) {
+					officina.lascia();
+					return;
+				}
+				const c = canvas.getContext('webgpu');
+				if (!c) throw new Error('la tela non da un contesto webgpu');
+				c.configure({ device: d, format, alphaMode: 'premultiplied' });
+				const mod = d.createShaderModule({ code: WGSL_CORRENTE });
+				if (mod.getCompilationInfo) {
+					const info = await mod.getCompilationInfo();
+					const err = (info.messages || []).find(m => m.type === 'error');
+					if (err) throw new Error(`WGSL della corrente, riga ${err.lineNum}: ${err.message}`);
+				}
+				const [pFiume, pGocce] = await Promise.all([
+					d.createRenderPipelineAsync({ layout: 'auto', vertex: { module: mod, entryPoint: 'vs_pieno' }, fragment: { module: mod, entryPoint: 'fs_fiume', targets: [{ format }] }, primitive: { topology: 'triangle-list' } }),
+					d.createRenderPipelineAsync({
+						layout: 'auto',
+						vertex: { module: mod, entryPoint: 'vs_goccia' },
+						fragment: {
+							module: mod,
+							entryPoint: 'fs_goccia',
+							targets: [{ format, blend: { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } } }],
+						},
+						primitive: { topology: 'triangle-strip' },
+					}),
+				]);
+				if (g !== gen) {
+					officina.lascia();
+					return;
+				}
+				const ubuf = d.createBuffer({ size: U.byteLength, usage: USO.UNIFORM | USO.COPY_DST });
+				r = {
+					pFiume,
+					pGocce,
+					ubuf,
+					bgFiume: d.createBindGroup({ layout: pFiume.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] }),
+					bgGocce: d.createBindGroup({ layout: pGocce.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] }),
+				};
+				dev = d;
+				ctx = c;
+				cambia('gpu', '');
+				chiedi();
+			} catch (e) {
+				if (preso && !dev) officina.lascia();
+				if (g !== gen) return;
+				ripiego(String((e && /** @type {any} */ (e).message) || e));
+			}
+		}
+
+		const animato = () => !opt.reduced();
+
+		function chiedi() {
+			if (raf || !dev || !r || !attivo || !inVista || !scena) return;
+			raf = requestAnimationFrame(passo);
+		}
+
+		function passo(ts) {
+			raf = 0;
+			if (!dev || !r || !attivo || !inVista || !scena) return;
+			const mosso = animato();
+			if (mosso && ultimo && ts - ultimo < 1000 / 20 - 2) {
+				raf = requestAnimationFrame(passo);
+				return;
+			}
+			ultimo = ts;
+			try {
+				disegna(mosso);
+			} catch (e) {
+				return ripiego(String((e && /** @type {any} */ (e).message) || e));
+			}
+			if (mosso) raf = requestAnimationFrame(passo);
+		}
+
+		function disegna(mosso) {
+			const s = scena;
+			const dpr = Math.min(2, (typeof devicePixelRatio === 'number' && devicePixelRatio) || 1);
+			const W = Math.max(1, Math.round(s.W * dpr));
+			const H = Math.max(1, Math.round(s.H * dpr));
+			if (canvas.width !== W || canvas.height !== H) {
+				canvas.width = W;
+				canvas.height = H;
+			}
+			const t = clock();
+			U[0] = s.W;
+			U[1] = s.H;
+			U[2] = mosso ? (t - t0) / 1000 : 0;
+			U[3] = dpr;
+			U[4] = s.mid;
+			U[5] = s.unit;
+			U[6] = s.x0;
+			U[7] = s.x1;
+			U[8] = ORE7;
+			U[9] = mosso ? 1 : 0.6; // gocce piene in movimento, piu' tenui da ferme
+			U[10] = mosso ? (t - rivelaDa) / 1000 : 99;
+			U[11] = 0;
+			for (let i = 0; i < ORE7; i++) {
+				U[12 + i] = s.avg[i] || 0;
+				U[12 + ORE7 + i] = Math.min(1, (s.busy[i] || 0) / 60);
+			}
+			dev.queue.writeBuffer(r.ubuf, 0, U.buffer, 0, U.byteLength);
+			const enc = dev.createCommandEncoder();
+			const p = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }] });
+			p.setPipeline(r.pFiume);
+			p.setBindGroup(0, r.bgFiume);
+			p.draw(3);
+			p.setPipeline(r.pGocce);
+			p.setBindGroup(0, r.bgGocce);
+			p.draw(4, GOCCE);
+			p.end();
+			dev.queue.submit([enc.finish()]);
+		}
+
+		return {
+			get stato() {
+				return stato;
+			},
+			attiva(on) {
+				if (stato === 'svg') return;
+				attivo = !!on;
+				clearTimeout(rilascioT);
+				if (attivo) {
+					if (!dev) avvia();
+					else chiedi();
+					return;
+				}
+				if (raf) cancelAnimationFrame(raf);
+				raf = 0;
+				rilascioT = setTimeout(() => {
+					if (attivo || !dev) return;
+					spegni();
+					cambia('spento', '');
+				}, rilascio);
+			},
+			inVista(on) {
+				inVista = !!on;
+				if (inVista) chiedi();
+				else if (raf) {
+					cancelAnimationFrame(raf);
+					raf = 0;
+				}
+			},
+			/** Dati o misura nuovi; s.rivela fa entrare la corrente da sinistra. */
+			scena(s) {
+				const chiave = [s.W, s.H, s.mid, s.unit, s.x0, s.x1, s.avg.join(','), s.busy.join(',')].join('|');
+				if (s.rivela) rivelaDa = clock();
+				else if (scena && scena.chiave === chiave) return;
+				scena = { ...s, chiave };
+				chiedi();
+			},
+			ridisegna() {
+				chiedi();
+			},
+			chiudi() {
+				clearTimeout(rilascioT);
+				spegni();
+			},
+		};
+	}
+
+	// ---------- il banco: due colonne che finiscono insieme ----------
+
+	/** Sotto quanti px di guadagno una divisione nuova non vale lo spostamento dei blocchi. */
+	const TENUTA = 40;
+
+	/**
+	 * Divide i blocchi del banco in due colonne con altezze il piu' possibile uguali. I blocchi sono
+	 * pochi: si provano tutte le divisioni (2^n) e si tiene la migliore; dentro ogni colonna i blocchi
+	 * restano nel loro ordine. A parita' (6 px a blocco) vince la colonna preferita, e la divisione di
+	 * adesso resta se quella nuova guadagna meno di TENUTA px: niente blocchi che saltano per poco.
+	 * @param {number[]} alti altezze in px
+	 * @param {number} spazio px tra un blocco e il successivo nella stessa colonna
+	 * @param {number[]} fissi colonna obbligata (0 o 1), oppure -1
+	 * @param {number[]} preferite colonna preferita di ogni blocco
+	 * @param {number[] | null} attuale la divisione di adesso
+	 * @returns {{ colonne: number[], alte: number[], scarto: number }}
+	 */
+	function dividi(alti, spazio, fissi, preferite, attuale) {
+		const n = alti.length;
+		const misura = m => {
+			const a = [0, 0];
+			const k = [0, 0];
+			for (let i = 0; i < n; i++) {
+				a[m[i]] += alti[i];
+				k[m[i]]++;
+			}
+			for (const c of [0, 1]) if (k[c] > 1) a[c] += spazio * (k[c] - 1);
+			return a;
+		};
+		const costo = m => {
+			const a = misura(m);
+			let d = 0;
+			for (let i = 0; i < n; i++) if (m[i] !== preferite[i]) d++;
+			return Math.abs(a[0] - a[1]) + d * 6;
+		};
+		let best = null;
+		let bc = Infinity;
+		for (let mask = 0; mask < 1 << n; mask++) {
+			const m = [];
+			let ok = true;
+			for (let i = 0; i < n && ok; i++) {
+				const c = (mask >> i) & 1;
+				if (fissi[i] >= 0 && fissi[i] !== c) ok = false;
+				m.push(c);
+			}
+			if (!ok) continue;
+			const c = costo(m);
+			if (c < bc) {
+				bc = c;
+				best = m;
+			}
+		}
+		if (!best) best = preferite.slice();
+		const valida = !!attuale && attuale.length === n && attuale.every((c, i) => fissi[i] < 0 || fissi[i] === c);
+		const scelta = valida && costo(/** @type {number[]} */ (attuale)) - bc <= TENUTA ? /** @type {number[]} */ (attuale).slice() : best;
+		const a = misura(scelta);
+		return { colonne: scelta, alte: a, scarto: Math.abs(a[0] - a[1]) };
+	}
+
+	/** I blocchi del banco nell'ordine di lettura (una colonna sola) e la colonna preferita. */
+	const BLOCCHI = [
+		['oggi', 0],
+		['adesso', 1],
+		['parallelo', 0],
+		['calore', 1],
+		['sale', 0],
+		['durata', 1],
+		['registro', 1],
+	];
+	/** px tra un blocco e il successivo in una colonna: lo stesso gap di .banco-col nel CSS. */
+	const SPAZIO = 48;
+	/** Sotto questa larghezza il banco va su una colonna sola (due colonne da meno di 388 px). */
+	const DUE_COLONNE = 820;
+
 	// ---------- montaggio ----------
 
 	function mount(root, host) {
@@ -172,9 +1314,16 @@
 		/** @type {any} */ let stats = null;
 		let error = '';
 		let visible = false;
-		let revealed = false;
+		let paused = false;
 		let waitTimer = 0;
 		let lastKey = '';
+		/** Animazioni in attesa del prossimo disegno visibile: una volta per arrivo di dati. */
+		const anim = { rivela: false, conta: false, grafici: false, glitch: false, migra: false };
+		let richiesto = false; // l'ultima richiesta l'ha fatta Andrea (Aggiorna, Riprova)
+		/** Le cifre come le ha viste l'ultima volta, per periodo: si conta da li', si segnala cosa cambia. */
+		/** @type {Record<string, Record<string, number>>} */ const viste = {};
+		let mostrate = /** @type {Record<string, number> | null} */ (null);
+		const mosso = () => !reduced.matches;
 
 		root.innerHTML = `
 		<div class="crus" id="crus">
@@ -190,12 +1339,16 @@
 
 				<section class="crus-cielo" aria-labelledby="carta-titolo">
 					<figure class="carta" id="carta">
-						<h2 id="carta-titolo">Il cielo dei progetti</h2>
-						<div class="carta-svg" id="carta-svg" aria-hidden="true"></div>
+						<div class="carta-testa" id="carta-testa"><h2 id="carta-titolo">Il cielo dei progetti</h2><p class="telemetria"><span id="carta-conto"></span><span class="motore" id="carta-motore"></span></p></div>
+						<div class="carta-palco" id="carta-palco">
+							<canvas class="carta-gpu" id="carta-gpu" aria-hidden="true"></canvas>
+							<div class="carta-svg" id="carta-svg" aria-hidden="true"></div>
+							<div class="scansione" aria-hidden="true"></div>
+						</div>
 						<figcaption id="carta-legenda" class="carta-legenda"></figcaption>
 						<div class="tabella-blocco" id="carta-tabella"></div>
 					</figure>
-					<div class="classifica">
+					<div class="classifica" id="classifica-col">
 						<div class="sez-testa"><h2 id="classifica-titolo">Progetti</h2><div class="interruttori" role="group" aria-label="Ordina i progetti" id="crus-ordina"></div></div>
 						<p class="nota" id="classifica-nota"></p>
 						<ol class="righe-classifica" id="classifica" aria-labelledby="classifica-titolo"></ol>
@@ -226,20 +1379,56 @@
 					</aside>
 				</section>
 
-				<section class="crus-due" aria-labelledby="calore-titolo">
-					<div class="crus-sez">
-						<div class="sez-testa"><h2 id="calore-titolo">La settimana, ora per ora</h2><div class="scala" id="calore-scala"></div></div>
-						<p class="nota" id="calore-nota"></p>
-						<div class="grafico calore" id="calore" tabindex="0" role="group" aria-roledescription="mappa di calore" data-fk="c:calore"></div>
-						<div class="tabella-blocco" id="calore-tabella"></div>
+				<div class="banco" id="banco">
+					<div class="banco-col" id="banco-a">
+						<section class="blocco" id="b-oggi" aria-labelledby="oggi-titolo">
+							<div class="sez-testa"><h2 id="oggi-titolo">Oggi, sessione per sessione</h2><ul class="legenda" id="oggi-legenda"></ul></div>
+							<p class="nota" id="oggi-nota"></p>
+							<div class="grafico oggi" id="oggi" tabindex="0" role="group" aria-roledescription="linea del tempo" data-fk="c:oggi"></div>
+							<div class="tabella-blocco" id="oggi-tabella"></div>
+						</section>
+						<section class="blocco" id="b-parallelo" aria-labelledby="parallelo-titolo">
+							<div class="sez-testa"><h2 id="parallelo-titolo">Lavoro in parallelo</h2><ul class="legenda" id="parallelo-legenda"></ul></div>
+							<p class="nota" id="parallelo-nota"></p>
+							<figure class="corrente" id="corrente">
+								<p class="telemetria"><span id="corrente-conto"></span><span class="motore" id="corrente-motore"></span></p>
+								<div class="corrente-palco" id="corrente-palco">
+									<canvas class="corrente-gpu" id="corrente-gpu" aria-hidden="true"></canvas>
+									<div class="grafico corrente-svg" id="parallelo" tabindex="0" role="group" aria-roledescription="grafico" data-fk="c:parallelo"></div>
+								</div>
+							</figure>
+							<div class="tabella-blocco" id="parallelo-tabella"></div>
+						</section>
+						<section class="blocco" id="b-sale" aria-labelledby="sale-titolo">
+							<div class="sez-testa"><h2 id="sale-titolo">Chi sale e chi scende</h2><ul class="legenda" id="sale-legenda"></ul></div>
+							<p class="nota" id="sale-nota"></p>
+							<div id="sale"></div>
+							<div class="tabella-blocco" id="sale-tabella"></div>
+						</section>
 					</div>
-					<aside class="crus-lato registro-lato" aria-labelledby="registro-titolo">
-						<h3 id="adesso-titolo">Adesso</h3>
-						<ul class="adesso" id="adesso" aria-labelledby="adesso-titolo"></ul>
-						<h3 id="registro-titolo">Registro</h3>
-						<dl class="primati" id="primati"></dl>
-					</aside>
-				</section>
+					<div class="banco-col" id="banco-b">
+						<section class="blocco" id="b-adesso" aria-labelledby="adesso-titolo">
+							<h2 id="adesso-titolo">Adesso</h2>
+							<ul class="adesso" id="adesso" aria-labelledby="adesso-titolo"></ul>
+						</section>
+						<section class="blocco" id="b-calore" aria-labelledby="calore-titolo">
+							<div class="sez-testa"><h2 id="calore-titolo">La settimana, ora per ora</h2><div class="scala" id="calore-scala"></div></div>
+							<p class="nota" id="calore-nota"></p>
+							<div class="grafico calore" id="calore" tabindex="0" role="group" aria-roledescription="mappa di calore" data-fk="c:calore"></div>
+							<div class="tabella-blocco" id="calore-tabella"></div>
+						</section>
+						<section class="blocco" id="b-durata" aria-labelledby="durata-titolo">
+							<div class="sez-testa"><h2 id="durata-titolo">Quanto dura una sessione</h2><ul class="legenda" id="durata-legenda"></ul></div>
+							<p class="nota" id="durata-nota"></p>
+							<div class="grafico" id="durata" tabindex="0" role="group" aria-roledescription="grafico" data-fk="c:durata"></div>
+							<div class="tabella-blocco" id="durata-tabella"></div>
+						</section>
+						<section class="blocco" id="b-registro" aria-labelledby="registro-titolo">
+							<h2 id="registro-titolo">Registro</h2>
+							<dl class="primati" id="primati"></dl>
+						</section>
+					</div>
+				</div>
 
 				<p class="come-conto" id="come-conto"></p>
 			</div>
@@ -321,14 +1510,115 @@
 		}
 		const hideTip = () => (tip.hidden = true);
 
-		function tabella(id, label, heads, rows) {
+		/** Una classe che resta il tempo di un'animazione e poi se ne va (cosi' si puo' rifare). */
+		/** @type {WeakMap<Element, Record<string, any>>} */ const timers = new WeakMap();
+		function lampo(el, cls, ms) {
+			if (!el) return;
+			let m = timers.get(el);
+			if (!m) timers.set(el, (m = {}));
+			clearTimeout(m[cls]);
+			el.classList.remove(cls);
+			void el.getBoundingClientRect(); // riparte da capo
+			el.classList.add(cls);
+			m[cls] = setTimeout(() => el.classList.remove(cls), ms);
+		}
+
+		// ---------- letture che scorrono e si assestano ----------
+
+		const FMT = { min: v => hm(v), n: v => it(Math.round(v)), tok: v => tk(v), usd: v => usd(v) };
+		/** @type {Set<any>} */ const contatori = new Set();
+		let rafC = 0;
+		function conta(el, da, a, fmt, ms, ritardo) {
+			el.textContent = FMT[fmt](da);
+			contatori.add({ el, da, a, fmt, t0: performance.now() + ritardo, ms });
+			if (!rafC) rafC = requestAnimationFrame(giraContatori);
+		}
+		function giraContatori() {
+			rafC = 0;
+			const t = performance.now();
+			for (const c of contatori) {
+				const k = Math.max(0, Math.min(1, (t - c.t0) / c.ms));
+				c.el.textContent = FMT[c.fmt](k >= 1 ? c.a : c.da + (c.a - c.da) * facile(k));
+				if (k >= 1) contatori.delete(c);
+			}
+			if (contatori.size) rafC = requestAnimationFrame(giraContatori);
+		}
+		/** Tutte le letture al valore finale, subito (stanza nascosta, riduci movimento). */
+		function assesta() {
+			for (const c of contatori) c.el.textContent = FMT[c.fmt](c.a);
+			contatori.clear();
+			if (rafC) cancelAnimationFrame(rafC);
+			rafC = 0;
+		}
+
+		// ---------- il motore del cielo ----------
+
+		const MOTORE = {
+			gpu: ['WebGPU su Metal', 'Il cielo lo disegna la scheda grafica con WebGPU, che sul Mac passa da Metal. I dati sono gli stessi della versione in SVG.'],
+			avvio: ['accendo WebGPU', 'Sto accendendo la scheda grafica; intanto il cielo è in SVG.'],
+			spento: ['SVG', 'La scheda grafica è stata liberata mentre la stanza era nascosta; torna quando il cielo si vede.'],
+			svg: ['SVG', 'Il cielo è disegnato in SVG, con gli stessi dati.'],
+		};
+		const officina = creaOfficina();
+		const cielo = creaCielo(/** @type {any} */ ($('carta-gpu')), officina, {
+			reduced: () => !!reduced.matches,
+			rilascio: host.rilascioGpu,
+			onStato(s, motivo) {
+				$('carta').classList.toggle('gpu', s === 'gpu');
+				const [txt, why] = MOTORE[s] || MOTORE.svg;
+				const m = $('carta-motore');
+				m.textContent = txt;
+				m.title = s === 'svg' && motivo ? `${why} WebGPU non è partito: ${motivo}.` : why;
+				$('carta').setAttribute('data-motore', s);
+			},
+		});
+		{
+			const [txt, why] = MOTORE[cielo.stato] || MOTORE.svg;
+			$('carta-motore').textContent = txt;
+			$('carta-motore').title = cielo.stato === 'svg' ? `${why} Questa finestra non offre WebGPU.` : why;
+			$('carta').setAttribute('data-motore', cielo.stato);
+		}
+		const MOTORE_CORRENTE = {
+			gpu: ['WebGPU su Metal', 'La corrente la disegna la scheda grafica con WebGPU, che sul Mac passa da Metal: le particelle scorrono dentro le ore con più sessioni. I numeri sono gli stessi della versione in SVG.'],
+			avvio: ['accendo WebGPU', 'Sto accendendo la scheda grafica; intanto la corrente è in SVG.'],
+			spento: ['SVG', 'La scheda grafica è stata liberata mentre la stanza era nascosta; torna quando la corrente si vede.'],
+			svg: ['SVG', 'La corrente è disegnata in SVG, con gli stessi dati.'],
+		};
+		const statoCorrente = (s, motivo) => {
+			const [txt, why] = MOTORE_CORRENTE[s] || MOTORE_CORRENTE.svg;
+			const m = $('corrente-motore');
+			m.textContent = txt;
+			m.title = s === 'svg' && motivo ? `${why} WebGPU non è partito: ${motivo}.` : why;
+			$('corrente').classList.toggle('gpu', s === 'gpu');
+			$('corrente').setAttribute('data-motore', s);
+		};
+		const corrente = creaCorrente(/** @type {any} */ ($('corrente-gpu')), officina, {
+			reduced: () => !!reduced.matches,
+			rilascio: host.rilascioGpu,
+			onStato: statoCorrente,
+		});
+		statoCorrente(corrente.stato, officina.disponibile ? '' : 'questa finestra non offre WebGPU');
+		const attivaCielo = () => {
+			cielo.attiva(visible && !paused);
+			corrente.attiva(visible && !paused);
+		};
+		if (typeof IntersectionObserver === 'function') {
+			try {
+				new IntersectionObserver(es => cielo.inVista(es.some(e => e.isIntersecting)), { rootMargin: '80px' }).observe($('carta-palco'));
+				new IntersectionObserver(es => corrente.inVista(es.some(e => e.isIntersecting)), { rootMargin: '80px' }).observe($('corrente-palco'));
+			} catch {}
+		}
+
+		/** La tabella "Mostra i numeri"; `testo` sono le colonne di parole, allineate a sinistra. */
+		function tabella(id, label, heads, rows, testo = []) {
 			const open = !!ui.tables[id];
+			const cls = i => (i && !testo.includes(i) ? ' class="num"' : '');
 			const btn = `<button type="button" class="link mostra-tabella" data-c="tabella" data-id="${id}" data-fk="c:tab:${id}" aria-expanded="${open}">${open ? 'Nascondi i numeri' : 'Mostra i numeri'}</button>`;
 			if (!open) return btn;
 			return (
 				btn +
-				`<div class="tabella-scorre"><table><caption class="sr">${esc(label)}</caption><thead><tr>${heads.map((h, i) => `<th scope="col"${i ? ' class="num"' : ''}>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows
-					.map(r => `<tr>${r.map((c, i) => (i ? `<td class="num">${esc(c)}</td>` : `<th scope="row">${esc(c)}</th>`)).join('')}</tr>`)
+				`<div class="tabella-scorre"><table><caption class="sr">${esc(label)}</caption><thead><tr>${heads.map((h, i) => `<th scope="col"${cls(i)}>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows
+					.map(r => `<tr>${r.map((c, i) => (i ? `<td${cls(i)}>${esc(c)}</td>` : `<th scope="row">${esc(c)}</th>`)).join('')}</tr>`)
 					.join('')}</tbody></table></div>`
 			);
 		}
@@ -394,21 +1684,56 @@
 			const p = P();
 			const ok = prevOk(p);
 			const prima = `rispetto ai ${p.days} giorni prima`;
-			const cifra = (label, value, d, extra, title) =>
-				`<div class="cifra"><dt>${label}</dt><dd><b${title ? ` title="${esc(title)}"` : ''}>${value}</b>${
-					d ? `<span class="delta ${d.cls}" title="${esc(prima)}">${esc(d.txt)}${d.sr ? `<span class="sr"> ${d.sr} ${esc(prima)}</span>` : ''}</span>` : ''
-				}${extra ? `<small>${extra}</small>` : ''}</dd></div>`;
+			const giorni = stats.days.slice(-p.days);
 			const tot = sum4(p.tok);
-			put(
-				$('crus-cifre'),
-				[
-					cifra('Ore tue', hm(p.you), delta(p.you, p.prev.you, ok, 'min'), `${it(p.activeDays)} ${p.activeDays === 1 ? 'giorno attivo' : 'giorni attivi'} su ${p.days}`),
-					cifra('Ore di Claude', hm(p.claude), delta(p.claude, p.prev.claude, ok, 'min'), p.you >= 1 ? `${it(p.claude / p.you, 1)} sessioni attive in media mentre lavori` : ''),
-					cifra('Sessioni', it(p.sessions), delta(p.sessions, p.prev.sessions, ok, 'n'), p.sessions ? `in media ${hm(p.avgSession)} l'una` : ''),
-					cifra('Token', tk(tot), delta(tot, sum4(p.prev.tok), ok, 'tok'), `${it(p.prompts)} messaggi scritti da te`),
-					cifra('Valore a listino', usd(p.cost), delta(p.cost, p.prev.cost, ok, 'usd'), 'stima, non quello che paghi', stats.prices.note),
-				].join(''),
-			);
+			// [chiave, etichetta, valore, formato, delta, nota, titolo, traccia giornaliera, classe della traccia]
+			const voci = [
+				['tu', 'Ore tue', p.you, 'min', delta(p.you, p.prev.you, ok, 'min'), `${it(p.activeDays)} ${p.activeDays === 1 ? 'giorno attivo' : 'giorni attivi'} su ${p.days}`, '', giorni.map(d => d.you), 'sp-tu'],
+				['claude', 'Ore di Claude', p.claude, 'min', delta(p.claude, p.prev.claude, ok, 'min'), p.you >= 1 ? `${it(p.claude / p.you, 1)} sessioni attive in media mentre lavori` : '', '', giorni.map(d => d.claude), 'sp-claude'],
+				['sessioni', 'Sessioni', p.sessions, 'n', delta(p.sessions, p.prev.sessions, ok, 'n'), p.sessions ? `in media ${hm(p.avgSession)} l'una` : '', '', giorni.map(d => d.sessions), 'sp-n'],
+				['token', 'Token', tot, 'tok', delta(tot, sum4(p.prev.tok), ok, 'tok'), `${it(p.prompts)} messaggi scritti da te`, '', giorni.map(d => sum4(d.tok)), 'sp-n'],
+				['valore', 'Valore a listino', p.cost, 'usd', delta(p.cost, p.prev.cost, ok, 'usd'), 'stima, non quello che paghi', stats.prices.note, giorni.map(d => d.cost), 'sp-n'],
+			];
+			const cifra = ([k, label, v, fmt, d, extra, title, serie, cls]) => {
+				const value = FMT[fmt](v);
+				return `<div class="cifra" data-k="${k}"><dt>${label}</dt><dd><b class="lettura" aria-hidden="true" data-k="${k}"${title ? ` title="${esc(title)}"` : ''}>${value}</b><span class="sr">${value}</span>${
+					d ? `<span class="delta ${d.cls}" title="${esc(prima)}">${esc(d.txt)}${d.sr ? `<span class="sr"> ${d.sr} ${esc(prima)}</span>` : ''}</span>` : ''
+				}${tracciaMini(serie, cls)}${extra ? `<small>${extra}</small>` : ''}</dd></div>`;
+			};
+			put($('crus-cifre'), voci.map(cifra).join(''));
+
+			// le letture: contano all'arrivo dei dati o al cambio di periodo, altrimenti segnalano solo cosa e' cambiato
+			const valori = Object.fromEntries(voci.map(v => [v[0], v[2]]));
+			const prec = viste[ui.period];
+			if (anim.conta && mosso()) {
+				const da = anim.migra && mostrate ? mostrate : null;
+				let n = 0;
+				for (const [k, , v, fmt] of voci) {
+					const el = $('crus-cifre').querySelector(`.lettura[data-k="${k}"]`);
+					if (el) conta(el, da ? da[k] || 0 : 0, v, fmt, 900, n++ * 70);
+				}
+				lampo($('crus-cifre'), 'traccia', 1600);
+			} else if (prec && !anim.conta && mosso()) {
+				for (const [k, , v] of voci) {
+					if (Math.abs((prec[k] || 0) - v) > 1e-9) lampo($('crus-cifre').querySelector(`.cifra[data-k="${k}"]`), 'cambiata', 1800);
+				}
+			}
+			viste[ui.period] = valori;
+			mostrate = valori;
+			if (anim.glitch && mosso()) lampo($('crus-frase'), 'glitch', 420);
+		}
+
+		/** La traccia di un periodo, giorno per giorno: un oscilloscopio sotto la cifra. Decorativa
+		    (i numeri giorno per giorno stanno nelle tabelle delle ore e dei token). */
+		function tracciaMini(vals, cls) {
+			const n = vals.length;
+			if (n < 2) return '';
+			const W = 88, H = 22;
+			const max = Math.max(...vals);
+			const pts = vals.map((v, i) => [1.5 + (i / (n - 1)) * (W - 5), H - 3 - (max > 0 ? v / max : 0) * (H - 7)]);
+			const d = pts.map((q, i) => `${i ? 'L' : 'M'}${q[0].toFixed(1)},${q[1].toFixed(1)}`).join('');
+			const l = pts[n - 1];
+			return `<span class="traccia-riga" aria-hidden="true"><svg class="traccia-mini ${cls}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><path class="base-mini" d="M1.5,${H - 2.5}H${W - 2}"/><path class="linea-mini" pathLength="1" d="${d}"/><circle cx="${l[0].toFixed(1)}" cy="${l[1].toFixed(1)}" r="2"/></svg></span>`;
 		}
 
 		// ---------- la carta del cielo ----------
@@ -441,7 +1766,10 @@
 		function renderCarta() {
 			const p = P();
 			const box = $('carta-svg');
-			const S = Math.round(Math.min(width(box), 640));
+			const palco = $('carta-palco');
+			// la misura viene dalla testa della carta, che occupa tutta la larghezza: il palco ha la sua
+			const S = Math.round(Math.min(width($('carta-testa')), 640));
+			palco.style.width = S + 'px';
 			const c = S / 2;
 			const R = c - 40;
 			const R0 = R * 0.1;
@@ -452,59 +1780,97 @@
 				const a = ((h - 12) / 24) * 2 * Math.PI;
 				return [c + r * Math.sin(a), c - r * Math.cos(a)];
 			};
+			const f1 = n => n.toFixed(1);
 
+			const prima = anim.migra ? new Map(stelle.map(s => [s.row.name, [s.x / (s.S || S), s.y / (s.S || S)]])) : null;
 			const rows = p.projects.filter(x => x.you >= 1).slice(0, 48);
 			const maxYou = Math.max(1, ...rows.map(x => x.you));
 			stelle = rows.map((x, i) => {
 				const o = oraTipica(x.hours);
 				const r = rad((t - x.last) / DAY);
 				const [sx, sy] = pos(o.h, r);
-				return { i, row: x, o, r, x: sx, y: sy, size: 2.6 + 10 * Math.sqrt(x.you / maxYou) };
+				return { i, row: x, o, r, x: sx, y: sy, S, size: 2.6 + 10 * Math.sqrt(x.you / maxYou) };
 			});
 			const byName = new Map(stelle.map(s => [s.row.name, s]));
+			// la scansione accende le stelle mentre passa: ritardo in base all'altezza
+			const ritardo = s => 0.1 + (s.y / S) * 1.2;
+
+			// la corona: in quali ore del giorno lavori, da tutte le tue ore del periodo (la mappa di calore)
+			const ore = Array.from({ length: 24 }, (_, h) => p.heat.reduce((a, r) => a + r[h], 0));
+			const maxOra = Math.max(1, ...ore);
+			const oreN = ore.map(v => v / maxOra);
 
 			let svg = `<svg width="${S}" height="${S}" viewBox="0 0 ${S} ${S}" xmlns="http://www.w3.org/2000/svg">
 				<defs>
 					<radialGradient id="crus-bagliore"><stop offset="0" stop-color="#fff6de" stop-opacity="0.95"/><stop offset="0.35" stop-color="#f6dfae" stop-opacity="0.45"/><stop offset="1" stop-color="#f4ab3c" stop-opacity="0"/></radialGradient>
 					<radialGradient id="crus-cupola" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#1d2846"/><stop offset="0.7" stop-color="#141c33"/><stop offset="1" stop-color="#0f1628"/></radialGradient>
+					<radialGradient id="crus-corona" gradientUnits="userSpaceOnUse" cx="${c}" cy="${c}" r="${f1(R + 6)}"><stop offset="${((R - 36) / (R + 6)).toFixed(3)}" stop-color="#f4ab3c" stop-opacity="0"/><stop offset="${(R / (R + 6)).toFixed(3)}" stop-color="#f4ab3c" stop-opacity="0.85"/><stop offset="1" stop-color="#f4ab3c" stop-opacity="0.3"/></radialGradient>
 				</defs>
-				<circle cx="${c}" cy="${c}" r="${R + 8}" fill="url(#crus-cupola)"/>`;
-			// campo di stelle: decorazione fissa, minuscola e fioca, mai confondibile con i dati
+				<circle class="cupola" cx="${c}" cy="${c}" r="${R + 8}" fill="url(#crus-cupola)"/>`;
+			// campo di stelle: decorazione fissa, minuscola e fioca, mai confondibile con i dati.
+			// Le stesse stelle, con lo stesso seme, le disegna anche la GPU (che le fa scintillare).
 			const rnd = semi(1990);
-			let campo = '';
+			const campo = [];
+			let campoSvg = '';
 			for (let i = 0; i < 140; i++) {
 				const a = rnd() * 2 * Math.PI;
 				const rr = Math.sqrt(rnd()) * (R + 6);
-				campo += `<circle cx="${(c + rr * Math.cos(a)).toFixed(1)}" cy="${(c + rr * Math.sin(a)).toFixed(1)}" r="${(0.35 + rnd() * 0.55).toFixed(2)}" opacity="${(0.12 + rnd() * 0.3).toFixed(2)}"/>`;
+				const x = c + rr * Math.cos(a), y = c + rr * Math.sin(a);
+				const r = 0.35 + rnd() * 0.55, op = 0.12 + rnd() * 0.3;
+				campo.push([x, y, r, op, rnd() * 6.28, 0.6 + rnd() * 1.4]);
+				campoSvg += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${r.toFixed(2)}" opacity="${op.toFixed(2)}"/>`;
 			}
-			svg += `<g class="campo">${campo}</g>`;
+			svg += `<g class="campo">${campoSvg}</g>`;
+			// corona delle ore, a spicchi (la GPU la sfuma)
+			let corona = '';
+			for (let h = 0; h < 24; h++) {
+				if (oreN[h] < 0.02) continue;
+				const Ro = R + 6, Ri = R - 36;
+				const [ax, ay] = pos(h, Ro), [bx, by] = pos(h + 1, Ro), [cx2, cy2] = pos(h + 1, Ri), [dx, dy] = pos(h, Ri);
+				corona += `<path d="M${f1(ax)},${f1(ay)}A${f1(Ro)},${f1(Ro)} 0 0 1 ${f1(bx)},${f1(by)}L${f1(cx2)},${f1(cy2)}A${f1(Ri)},${f1(Ri)} 0 0 0 ${f1(dx)},${f1(dy)}Z" opacity="${(0.55 * oreN[h]).toFixed(3)}"/>`;
+			}
+			svg += `<g class="corona" fill="url(#crus-corona)">${corona}</g>`;
 			// anelli del tempo: al centro adesso, fuori l'inizio del periodo
 			const anelli = [1, 7, 30, 90].filter(d => d <= days);
 			svg += `<g class="anelli">${anelli
 				.map(d => {
 					const r = rad(d);
-					return `<circle cx="${c}" cy="${c}" r="${r.toFixed(1)}"/><text x="${c + 4}" y="${(c - r - 3).toFixed(1)}">${d === 1 ? 'ieri' : `${d} giorni fa`}</text>`;
+					return `<circle cx="${c}" cy="${c}" r="${f1(r)}"/><text x="${c + 4}" y="${f1(c - r - 3)}">${d === 1 ? 'ieri' : `${d} giorni fa`}</text>`;
 				})
 				.join('')}</g>`;
+			// reticolo del telescopio: due assi con una tacca su ogni anello, interrotti al centro
+			let ret = '';
+			for (const [ux, uy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+				ret += `<line x1="${f1(c + ux * R0 * 2.2)}" y1="${f1(c + uy * R0 * 2.2)}" x2="${f1(c + ux * R)}" y2="${f1(c + uy * R)}"/>`;
+				for (const d of anelli) {
+					const r = rad(d);
+					ret += `<line class="tacca" x1="${f1(c + ux * r - uy * 3)}" y1="${f1(c + uy * r - ux * 3)}" x2="${f1(c + ux * r + uy * 3)}" y2="${f1(c + uy * r + ux * 3)}"/>`;
+				}
+			}
+			svg += `<g class="reticolo">${ret}</g>`;
 			// quadrante delle 24 ore
 			let quad = `<circle cx="${c}" cy="${c}" r="${R + 8}" class="bordo"/>`;
 			for (let h = 0; h < 24; h++) {
 				const [x1, y1] = pos(h, R + 8);
 				const [x2, y2] = pos(h, R + (h % 6 ? 12 : 16));
-				quad += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/>`;
+				quad += `<line x1="${f1(x1)}" y1="${f1(y1)}" x2="${f1(x2)}" y2="${f1(y2)}"/>`;
 				if (h % 3 === 0) {
 					const [lx, ly] = pos(h, R + 27);
-					quad += `<text x="${lx.toFixed(1)}" y="${(ly + 4).toFixed(1)}" class="${h % 6 ? '' : 'forte'}">${h}</text>`;
+					quad += `<text x="${f1(lx)}" y="${f1(ly + 4)}" class="${h % 6 ? '' : 'forte'}">${h}</text>`;
 				}
 			}
 			svg += `<g class="quadrante">${quad}</g>`;
+			// la lancetta di adesso, con l'ultima ora alle spalle (la GPU la disegna con la sua luce)
+			svg += `<g class="lancetta"><path class="lancetta-scia"/><line class="lancetta-asta"/></g>`;
 			svg += `<text class="centro" x="${c}" y="${c + 4}">adesso</text>`;
 			// costellazioni: progetti lavorati in parallelo
 			let linee = '';
+			const legami = [];
 			for (const e of p.edges) {
 				const a = byName.get(e.a), b = byName.get(e.b);
 				if (!a || !b) continue;
-				linee += `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" pathLength="1" class="${e.minutes >= 60 ? 'forte' : ''}"/>`;
+				legami.push({ a: a.i, b: b.i, minuti: e.minutes });
+				linee += `<line x1="${f1(a.x)}" y1="${f1(a.y)}" x2="${f1(b.x)}" y2="${f1(b.y)}" pathLength="1" class="${e.minutes >= 60 ? 'forte' : ''}"/>`;
 			}
 			svg += `<g class="costellazione">${linee}</g>`;
 			// scie: le ore in cui ci lavori, come in una lunga posa
@@ -515,7 +1881,7 @@
 				const [ax, ay] = pos(h0, s.r);
 				const [bx, by] = pos(h1, s.r);
 				const large = h1 - h0 > 12 ? 1 : 0;
-				scie += `<path d="M${ax.toFixed(1)},${ay.toFixed(1)}A${s.r.toFixed(1)},${s.r.toFixed(1)} 0 ${large} 1 ${bx.toFixed(1)},${by.toFixed(1)}" stroke-width="${Math.max(1.5, Math.min(4, s.size * 0.45)).toFixed(1)}" data-i="${s.i}"/>`;
+				scie += `<path d="M${f1(ax)},${f1(ay)}A${f1(s.r)},${f1(s.r)} 0 ${large} 1 ${f1(bx)},${f1(by)}" stroke-width="${Math.max(1.5, Math.min(4, s.size * 0.45)).toFixed(1)}" data-i="${s.i}"/>`;
 			}
 			svg += `<g class="scie">${scie}</g>`;
 			// stelle
@@ -524,10 +1890,10 @@
 				const live = s.row.live > 0;
 				// le sessioni fuori dai progetti non sono un progetto: stella vuota, senza alone
 				st += `<g class="stella${live ? ' vivo' : ''}${s.row.path ? '' : ' altrove'}" data-i="${s.i}">
-					<circle class="alone" cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="${(s.size * 2.6).toFixed(1)}" fill="url(#crus-bagliore)"/>
-					${live ? `<circle class="anello" cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="${(s.size + 6).toFixed(1)}"/>` : ''}
-					<circle class="nucleo" cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="${(s.size * 0.55).toFixed(1)}"/>
-					<circle class="presa" cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="${Math.max(12, s.size + 6).toFixed(1)}" data-i="${s.i}"/>
+					<circle class="alone" cx="${f1(s.x)}" cy="${f1(s.y)}" r="${f1(s.size * 2.6)}" fill="url(#crus-bagliore)"/>
+					${live ? `<circle class="anello" cx="${f1(s.x)}" cy="${f1(s.y)}" r="${f1(s.size + 6)}"/>` : ''}
+					<circle class="nucleo" cx="${f1(s.x)}" cy="${f1(s.y)}" r="${f1(s.size * 0.55)}"/>
+					<circle class="presa" cx="${f1(s.x)}" cy="${f1(s.y)}" r="${f1(Math.max(12, s.size + 6))}" data-i="${s.i}"/>
 				</g>`;
 			}
 			svg += `<g class="stelle">${st}</g>`;
@@ -546,21 +1912,81 @@
 				if (bb[0] < 2 || bb[2] > S - 2) continue;
 				if (boxes.some(o => !(bb[2] < o[0] || bb[0] > o[2] || bb[3] < o[1] || bb[1] > o[3]))) continue;
 				boxes.push(bb);
-				nomi += `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${right ? 'start' : 'end'}" data-i="${s.i}">${esc(name)}</text>`;
+				nomi += `<text x="${f1(x)}" y="${f1(y)}" text-anchor="${right ? 'start' : 'end'}" data-i="${s.i}">${esc(name)}</text>`;
 			}
-			svg += `<g class="nomi">${nomi}</g></svg>`;
+			svg += `<g class="nomi">${nomi}</g>`;
+			// il mirino: aggancia la stella sotto il puntatore
+			svg += `<g class="mira" hidden><g class="mira-dentro"><path/></g></g></svg>`;
 			put(box, svg);
+			metteLancetta();
 
-			if (revealed === false && visible && !reduced.matches && stelle.length) {
-				revealed = true;
-				crus.classList.add('rivela');
-				box.querySelectorAll('.stella').forEach((g, i) => (/** @type {any} */ (g).style.animationDelay = `${Math.min(1100, 120 + i * 40)}ms`));
-				setTimeout(() => crus.classList.remove('rivela'), 2200);
+			const muovi = mosso() && visible;
+			if (muovi && (anim.rivela || anim.migra) && stelle.length) {
+				// accensione al passaggio della scansione; nella migrazione si accendono solo le nuove
+				box.querySelectorAll('.stella').forEach(g => {
+					const s = stelle[+(/** @type {any} */ (g).getAttribute('data-i'))];
+					/** @type {any} */ (g).style.animationDelay = `${Math.round((anim.migra ? 300 : ritardo(s) * 1000))}ms`;
+				});
+				box.querySelectorAll('.nomi text').forEach(tx => {
+					const s = stelle[+(/** @type {any} */ (tx).getAttribute('data-i'))];
+					/** @type {any} */ (tx).style.animationDelay = `${Math.round((anim.migra ? 600 : ritardo(s) * 1000 + 250))}ms`;
+				});
+				if (anim.rivela) lampo(crus, 'rivela', 2800);
+				else lampo(crus, 'ritraccia', 1800);
+				if (anim.migra && prima) {
+					// le stelle che c'erano scivolano dalla posizione di prima a quella nuova
+					box.querySelectorAll('.stella, .nomi text').forEach(el => {
+						const s = stelle[+(/** @type {any} */ (el).getAttribute('data-i'))];
+						const da = s && prima.get(s.row.name);
+						if (!da) return;
+						const dx = da[0] * S - s.x, dy = da[1] * S - s.y;
+						if (Math.abs(dx) + Math.abs(dy) < 0.5) return;
+						const e = /** @type {any} */ (el);
+						e.classList.add('vecchia');
+						e.style.transform = `translate(${f1(dx)}px, ${f1(dy)}px)`;
+					});
+					void box.getBoundingClientRect();
+					requestAnimationFrame(() =>
+						box.querySelectorAll('.vecchia').forEach(el => {
+							el.classList.add('migra');
+							/** @type {any} */ (el).style.transform = '';
+						}),
+					);
+				}
 			}
+
+			cielo.scena({
+				S,
+				c,
+				R,
+				R0,
+				campo,
+				ore: oreN,
+				stelle: stelle.map(s => {
+					const da = prima && prima.get(s.row.name);
+					return {
+						i: s.i,
+						x: s.x,
+						y: s.y,
+						size: s.size,
+						vivo: s.row.live > 0,
+						altrove: !s.row.path,
+						da: muovi && anim.migra && da ? [da[0] * S, da[1] * S] : null,
+						ritardo: !muovi ? -1 : anim.rivela ? ritardo(s) : anim.migra ? (da ? -1 : 0.3) : -1,
+					};
+				}),
+				legami,
+				ritardoLegami: !muovi ? -1 : anim.rivela ? 1.4 : anim.migra ? 0.9 : -1,
+				rivela: muovi && anim.rivela,
+				migra: muovi && anim.migra,
+			});
+
+			const vive = stelle.filter(s => s.row.live > 0).length;
+			$('carta-conto').textContent = `${it(stelle.length)} ${stelle.length === 1 ? 'stella' : 'stelle'}, ${it(legami.length)} ${legami.length === 1 ? 'legame' : 'legami'}${vive ? `, ${parola(vive)} ${vive === 1 ? 'viva' : 'vive'}` : ''}`;
 
 			put(
 				$('carta-legenda'),
-				`<p>Ogni stella è un progetto, grande quanto le ore che ci hai lavorato negli ultimi ${days} giorni. Il giro è l'orologio delle 24 ore, con mezzogiorno in alto: la stella sta all'ora in cui lavori di solito a quel progetto, la scia copre le ore in cui ci lavori. Più è vicina al centro, più di recente ci hai lavorato. Le linee uniscono i progetti che hai portato avanti negli stessi momenti; l'anello acceso segna una sessione aperta adesso. La stella vuota raccoglie le sessioni partite fuori dai progetti.</p>`,
+				`<p>Ogni stella è un progetto, grande quanto le ore che ci hai lavorato negli ultimi ${days} giorni. Il giro è l'orologio delle 24 ore, con mezzogiorno in alto: la stella sta all'ora in cui lavori di solito a quel progetto, la scia copre le ore in cui ci lavori, e la luce ambra lungo il bordo dice in quali ore del giorno lavori di più. La lancetta azzurra segna l'ora di adesso. Più una stella è vicina al centro, più di recente ci hai lavorato. Le linee azzurre uniscono i progetti che hai portato avanti negli stessi momenti; l'anello acceso segna una sessione aperta adesso. La stella vuota raccoglie le sessioni partite fuori dai progetti.</p>`,
 			);
 			put(
 				$('carta-tabella'),
@@ -573,15 +1999,56 @@
 			);
 		}
 
+		/** La lancetta dell'SVG all'ora di adesso: si sposta di un quarto di grado al minuto. */
+		function metteLancetta() {
+			const svg = $('carta-svg').querySelector('svg');
+			if (!svg || !stelle) return;
+			const S = +svg.getAttribute('width');
+			const c = S / 2, R = c - 40, R0 = R * 0.1;
+			const h = oraAdesso();
+			const pos = (hh, r) => {
+				const a = ((hh - 12) / 24) * 2 * Math.PI;
+				return [(c + r * Math.sin(a)).toFixed(1), (c - r * Math.cos(a)).toFixed(1)];
+			};
+			const [ax, ay] = pos(h, R0), [bx, by] = pos(h, R + 8);
+			const asta = svg.querySelector('.lancetta-asta');
+			if (asta) {
+				asta.setAttribute('x1', ax);
+				asta.setAttribute('y1', ay);
+				asta.setAttribute('x2', bx);
+				asta.setAttribute('y2', by);
+			}
+			const [sx, sy] = pos(h - 1, R), [ex, ey] = pos(h, R), [fx, fy] = pos(h, R * 0.6), [gx, gy] = pos(h - 1, R * 0.6);
+			const scia = svg.querySelector('.lancetta-scia');
+			if (scia) scia.setAttribute('d', `M${sx},${sy}A${R.toFixed(1)},${R.toFixed(1)} 0 0 1 ${ex},${ey}L${fx},${fy}A${(R * 0.6).toFixed(1)},${(R * 0.6).toFixed(1)} 0 0 0 ${gx},${gy}Z`);
+		}
+
 		function accendi(i, on) {
 			const svg = $('carta-svg');
 			svg.querySelectorAll('.acceso').forEach(el => el.classList.remove('acceso'));
 			svg.classList.toggle('cerca', !!on);
-			if (!on) return;
+			const mira = svg.querySelector('.mira');
+			cielo.accendi(on ? i : -1);
+			if (!on) {
+				if (mira) mira.setAttribute('hidden', '');
+				return;
+			}
 			svg.querySelectorAll(`[data-i="${i}"]`).forEach(el => {
 				const g = el.closest('.stella') || el;
 				g.classList.add('acceso');
 			});
+			const s = stelle[i];
+			if (!mira || !s) return;
+			// quattro angoli attorno alla stella, come il mirino di un cercatore
+			const m = Math.max(9, s.size * 1.25 + 5);
+			const l = Math.max(4, m * 0.45);
+			const ang = (sx, sy) => `M${sx * m},${sy * (m - l)}V${sy * m}H${sx * (m - l)}`;
+			mira.querySelector('path').setAttribute('d', ang(-1, -1) + ang(1, -1) + ang(1, 1) + ang(-1, 1));
+			const nuova = mira.getAttribute('data-m') !== String(i);
+			mira.setAttribute('transform', `translate(${s.x.toFixed(1)} ${s.y.toFixed(1)})`);
+			mira.setAttribute('data-m', String(i));
+			mira.removeAttribute('hidden');
+			if (nuova && mosso()) lampo(mira, 'aggancia', 260);
 		}
 
 		function tipStella(s, anchor, x, y) {
@@ -599,6 +2066,25 @@
 
 		// ---------- classifica ----------
 
+		/** Quante righe della classifica si vedono: dieci, o quante ne servono per arrivare in fondo al cielo. */
+		let righe = 10;
+
+		/** Accanto al cielo la classifica si allunga fino alla sua altezza, invece di lasciare un vuoto. */
+		function riempiClassifica() {
+			if (ui.all) return;
+			const carta = $('carta');
+			const col = $('classifica-col');
+			const riga = $('classifica').querySelector('li');
+			const hc = carta.offsetHeight, hl = col.offsetHeight, hr = riga ? riga.offsetHeight : 0;
+			if (!hc || !hl || !hr) return;
+			const n = P().projects.length;
+			// una colonna sola (finestra stretta): la classifica sta sotto il cielo, dieci righe bastano
+			const vuole = Math.abs(carta.offsetTop - col.offsetTop) > 4 ? 10 : Math.max(10, Math.min(n, righe + Math.floor((hc - hl) / hr)));
+			if (vuole === righe) return;
+			righe = vuole;
+			renderClassifica();
+		}
+
 		function renderClassifica() {
 			const p = P();
 			const ok = prevOk(p);
@@ -614,7 +2100,7 @@
 			const rows = p.projects.slice().sort((a, b) => (ui.sort === 'token' ? sum4(b.tok) - sum4(a.tok) : b.you - a.you));
 			const val = r => (ui.sort === 'token' ? sum4(r.tok) : r.you);
 			const max = Math.max(1, ...rows.map(val));
-			const shown = ui.all ? rows : rows.slice(0, 10);
+			const shown = ui.all ? rows : rows.slice(0, righe);
 			const idx = new Map(stelle.map(s => [s.row.name, s.i]));
 			$('classifica-nota').textContent = rows.length
 				? `${it(rows.length)} ${rows.length === 1 ? 'progetto' : 'progetti'} negli ultimi ${p.days} giorni. Tocca un progetto per aprirlo nella plancia.`
@@ -646,8 +2132,8 @@
 			$('classifica').querySelectorAll('[data-w]').forEach(el => (el.style.width = el.getAttribute('data-w') + '%'));
 			put(
 				$('classifica-piede'),
-				rows.length > 10
-					? `<button type="button" class="link" data-c="tutti" data-fk="c:tutti" aria-expanded="${ui.all}">${ui.all ? 'Mostra i primi dieci' : `Mostra tutti i ${it(rows.length)} progetti`}</button>`
+				rows.length > righe
+					? `<button type="button" class="link" data-c="tutti" data-fk="c:tutti" aria-expanded="${ui.all}">${ui.all ? `Mostra i primi ${parola(righe)}` : `Mostra tutti i ${it(rows.length)} progetti`}</button>`
 					: '',
 			);
 		}
@@ -691,6 +2177,16 @@
 			return list.map((b, i) => (list.length - 1 - i) % k === 0);
 		}
 
+		/** I grafici si disegnano da sinistra: linee tracciate, colonne che salgono, caselle che si
+		    accendono ora per ora. Ritardi scaglionati, al massimo mezzo secondo in tutto. */
+		function traccia(el) {
+			if (!mosso() || !visible) return;
+			const pile = el.querySelectorAll('.pila');
+			pile.forEach((g, i) => (/** @type {any} */ (g).style.animationDelay = `${Math.round(Math.min(500, (i * 500) / Math.max(1, pile.length)))}ms`));
+			el.querySelectorAll('rect[data-h]').forEach(r => (/** @type {any} */ (r).style.animationDelay = `${+(/** @type {any} */ (r).getAttribute('data-h')) * 22}ms`));
+			lampo(el, 'traccia', 1400);
+		}
+
 		// ---------- curva di luce: ore ----------
 
 		let curva = null;
@@ -722,7 +2218,7 @@
 				const line = ps => ps.map((q, i) => `${i ? 'L' : 'M'}${q[0].toFixed(1)},${q[1].toFixed(1)}`).join('');
 				if (n > 1) {
 					svg += `<path class="area-tu" d="${line(pts)}L${pts[n - 1][0].toFixed(1)},${y(0)}L${pts[0][0].toFixed(1)},${y(0)}Z"/>`;
-					svg += `<path class="linea-claude" d="${line(cpts)}"/><path class="linea-tu" d="${line(pts)}"/>`;
+					svg += `<path class="linea-claude" pathLength="1" d="${line(cpts)}"/><path class="linea-tu" pathLength="1" d="${line(pts)}"/>`;
 				}
 				const last = n - 1;
 				svg += `<circle class="punto-claude" cx="${cpts[last][0].toFixed(1)}" cy="${cpts[last][1].toFixed(1)}" r="4"/><circle class="punto-tu" cx="${pts[last][0].toFixed(1)}" cy="${pts[last][1].toFixed(1)}" r="4"/>`;
@@ -732,14 +2228,15 @@
 				const bw = (pair - 2) / 2;
 				list.forEach((b, i) => {
 					const x0 = cx(i) - pair / 2;
-					svg += `<path class="col-tu" d="${colonna(x0, y(b.you), bw, y(0) - y(b.you), true)}"/>`;
-					svg += `<path class="col-claude" d="${colonna(x0 + bw + 2, y(b.claude), bw, y(0) - y(b.claude), true)}"/>`;
+					svg += `<g class="pila"><path class="col-tu" d="${colonna(x0, y(b.you), bw, y(0) - y(b.you), true)}"/>`;
+					svg += `<path class="col-claude" d="${colonna(x0 + bw + 2, y(b.claude), bw, y(0) - y(b.claude), true)}"/></g>`;
 				});
 				svg += `<rect class="evidenza" hidden y="${T}" height="${ph}" rx="4"/>`;
 			}
 			svg += '</svg>';
 			put(el, svg);
 			curva = { el, list, L, slot, T, ph, y, g, idx: curva && curva.list.length === n ? curva.idx : -1 };
+			if (anim.grafici) traccia(el);
 
 			const p = P();
 			put(
@@ -834,6 +2331,7 @@
 				const x = L + slot * (i + 0.5);
 				if (show[i]) svg += `<text class="asse-x" x="${x.toFixed(1)}" y="${H - 8}">${esc(b.label)}</text>`;
 				let acc = 0;
+				svg += '<g class="pila">';
 				const segs = TIPI.map(([id, , k]) => [id, b.tok[k]]).filter(s => s[1] > 0);
 				segs.forEach(([id, v], si) => {
 					const y1 = y(acc + v);
@@ -844,10 +2342,12 @@
 					const h = y0 - y1 - (si > 0 && y0 - y1 > 3 ? 2 : 0);
 					svg += `<path class="t-${id}" d="${colonna(x - bw / 2, y1, bw, h, isTop)}"/>`;
 				});
+				svg += '</g>';
 			});
 			svg += `<rect class="evidenza" hidden y="${T}" height="${ph}" rx="4"/></svg>`;
 			put(el, svg);
 			token = { el, list, L, slot, y, idx: -1 };
+			if (anim.grafici) traccia(el);
 
 			put($('token-legenda'), TIPI.map(([id, l]) => `<li><i class="chiave q t-${id}" aria-hidden="true"></i>${l}</li>`).join(''));
 			const p = P();
@@ -957,11 +2457,16 @@
 					svg += `<rect class="h${q(p.heat[d][h])}" x="${Lw + cell * h}" y="${Tt + cell * d}" width="${cell - gap}" height="${cell - gap}" rx="3" data-d="${d}" data-h="${h}"/>`;
 				}
 			}
+			// dove sei adesso nella settimana: un riquadro azzurro
+			const oggi = new Date();
+			const dA = (oggi.getDay() + 6) % 7, hA = oggi.getHours();
+			svg += `<rect class="adesso-cella" x="${Lw + cell * hA - 1}" y="${Tt + cell * dA - 1}" width="${cell}" height="${cell}" rx="4"/>`;
 			svg += `<rect class="cursore" hidden width="${cell}" height="${cell}" rx="4"/></svg>`;
 			put(el, svg);
 			calore = { el, p, Lw, Tt, cell, at: calore ? calore.at : [0, 9] };
+			if (anim.grafici) traccia(el);
 
-			put($('calore-scala'), `<span>meno</span>${[0, 1, 2, 3, 4, 5].map(i => `<i class="h${i}" aria-hidden="true"></i>`).join('')}<span>più</span>`);
+			put($('calore-scala'), `<span>meno</span>${[0, 1, 2, 3, 4, 5].map(i => `<i class="h${i}" aria-hidden="true"></i>`).join('')}<span>più</span><i class="adesso-chiave" aria-hidden="true"></i><span>adesso</span>`);
 			// giorno e ora piu' pieni
 			const byDay = p.heat.map(r => r.reduce((a, b) => a + b, 0));
 			const byHour = Array.from({ length: 24 }, (_, h) => p.heat.reduce((a, r) => a + r[h], 0));
@@ -1009,23 +2514,631 @@
 			hideTip();
 		}
 
-		// ---------- adesso e registro ----------
+		// ---------- oggi, sessione per sessione ----------
 
-		function renderRegistro() {
+		/** "9:05" da minuti dalla mezzanotte. */
+		const hhmm = m => {
+			const t = Math.round(m);
+			return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+		};
+
+		/** Minuti dalla mezzanotte del giorno dei dati a adesso: l'orologio vero, cosi' la linea cammina da sola. */
+		function adessoMin() {
+			const t0 = parseDay(stats.today.date).getTime();
+			return Math.min(1440, Math.max((stats.computedAt - t0) / 60_000, Math.floor((Date.now() - t0) / 60_000)));
+		}
+
+		/** Unione di intervalli piatti [s, e, s, e, ...]. */
+		function unisci(flat) {
+			const pairs = [];
+			for (let i = 0; i + 1 < flat.length; i += 2) pairs.push([flat[i], flat[i + 1]]);
+			pairs.sort((a, b) => a[0] - b[0]);
+			const out = [];
+			for (const [a, b] of pairs) {
+				const n = out.length;
+				if (n && a <= out[n - 1]) out[n - 1] = Math.max(out[n - 1], b);
+				else out.push(a, b);
+			}
+			return out;
+		}
+
+		/** Minuti in cui giravano almeno `k` sessioni insieme. */
+		function minutiInsieme(liste, k) {
+			const ev = [];
+			for (const sp of liste) for (let i = 0; i + 1 < sp.length; i += 2) if (sp[i + 1] > sp[i]) ev.push([sp[i], 1], [sp[i + 1], -1]);
+			ev.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+			let c = 0, last = 0, m = 0;
+			for (const [t, d] of ev) {
+				if (c >= k) m += t - last;
+				c += d;
+				last = t;
+			}
+			return m;
+		}
+
+		let oggi = null;
+		const PASSO_OGGI = 12; // una riga di barre nella linea del tempo
+
+		function renderOggi() {
+			const el = $('oggi');
+			const ss = stats.todaySessions || [];
+			if (!ss.length) {
+				put(el, '');
+				oggi = null;
+				put($('oggi-legenda'), '');
+				$('oggi-nota').textContent = 'Oggi nessuna sessione di Claude Code, per ora. La linea del tempo si riempie da sola appena ne apri una.';
+				el.setAttribute('aria-label', 'Oggi nessuna sessione.');
+				put($('oggi-tabella'), '');
+				return;
+			}
+			const adesso = adessoMin();
+			const W = width(el);
+			// le sessioni, con la fine vera; una sessione aperta arriva fino ad adesso (tratteggio)
+			const sess = ss.map((s, i) => {
+				const fine = s.spans[s.spans.length - 1];
+				let lavoro = 0;
+				for (let j = 0; j + 1 < s.spans.length; j += 2) lavoro += s.spans[j + 1] - s.spans[j];
+				return { ...s, i, inizio: s.spans[0], fine, fino: s.live ? Math.max(fine, adesso) : fine, lavoro, riga: 0, corsia: /** @type {any} */ (null) };
+			});
+			// corsie: una per progetto, nell'ordine in cui sono partite; dentro, una riga per ogni sessione che si sovrappone
+			const MAXC = 7;
+			const corsie = [];
+			const perChiave = new Map();
+			for (const s of sess) {
+				let k = s.path || 'altrove';
+				if (!perChiave.has(k) && perChiave.size >= MAXC) k = 'altri';
+				let c = perChiave.get(k);
+				if (!c) {
+					c = { nome: k === 'altri' ? 'Altri progetti' : s.project, righe: [], sess: [], y: 0, h: 0 };
+					perChiave.set(k, c);
+					corsie.push(c);
+				}
+				let r = c.righe.findIndex(fine => fine <= s.inizio);
+				if (r < 0) {
+					r = c.righe.length;
+					c.righe.push(0);
+				}
+				c.righe[r] = s.fino + 0.5;
+				s.riga = r;
+				s.corsia = c;
+				c.sess.push(s);
+			}
+			const primo = Math.min(...sess.map(s => s.inizio));
+			const ultimo = Math.max(adesso, ...sess.map(s => s.fino));
+			let a = Math.floor(primo / 60) * 60;
+			const b = Math.min(1440, Math.max(a + 180, Math.ceil((ultimo + 1) / 60) * 60));
+			if (b - a < 180) a = Math.max(0, b - 180);
+			const Lw = Math.round(Math.min(150, Math.max(84, W * 0.22)));
+			const x0 = Lw + 10, x1 = W - 10;
+			const X = m => x0 + ((Math.max(a, Math.min(b, m)) - a) / (b - a)) * (x1 - x0);
+			const f1 = v => v.toFixed(1);
+			const T = 22;
+			const yTu = T + 6;
+			let y = yTu + 20;
+			for (const c of corsie) {
+				c.y = y;
+				c.h = c.righe.length * PASSO_OGGI + 10;
+				y += c.h;
+			}
+			const H = y + 4;
+			const yDi = s => s.corsia.y + 5 + s.riga * PASSO_OGGI;
+			const barra = (xa, xb, yy, cls, i) => {
+				const w = Math.max(2, xb - xa);
+				return `<rect class="${cls}"${i === '' ? '' : ` data-s="${i}"`} x="${f1(xa)}" y="${yy}" width="${f1(w)}" height="8" rx="${f1(Math.min(3, w / 2))}"/>`;
+			};
+
+			let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
+			const pxOra = (x1 - x0) / ((b - a) / 60);
+			const ogni = [1, 2, 3, 4, 6].find(k => k * pxOra >= 38) || 6;
+			for (let m = a; m <= b; m += 60) {
+				const x = f1(X(m));
+				svg += `<line class="griglia" x1="${x}" x2="${x}" y1="${T - 4}" y2="${H - 2}"/>`;
+				if ((m / 60) % ogni === 0) svg += `<text class="asse-x" x="${x}" y="${T - 9}">${m / 60}</text>`;
+			}
+			// tu: l'unione di tutte le sessioni, come le tue ore
+			const tu = unisci(sess.flatMap(s => s.spans));
+			svg += `<text class="corsia-nome tu" x="${Lw}" y="${yTu + 8}">Tu</text>`;
+			for (let j = 0; j + 1 < tu.length; j += 2) svg += barra(X(tu[j]), X(tu[j + 1]), yTu, 'barra-tu', '');
+			const car = Math.max(6, Math.floor(Lw / 6.6));
+			for (const c of corsie) {
+				svg += `<line class="divisore" x1="${x0 - 6}" x2="${x1}" y1="${c.y}" y2="${c.y}"/>`;
+				const nome = c.nome.length > car ? c.nome.slice(0, car - 1) + '…' : c.nome;
+				svg += `<text class="corsia-nome" x="${Lw}" y="${f1(c.y + c.h / 2 + 4)}">${esc(nome)}</text>`;
+				for (const s of c.sess) {
+					const yy = yDi(s);
+					const mid = yy + 4;
+					for (let j = 0; j + 1 < s.spans.length; j += 2) {
+						if (j) svg += `<line class="pausa" data-s="${s.i}" x1="${f1(X(s.spans[j - 1]))}" x2="${f1(X(s.spans[j]))}" y1="${mid}" y2="${mid}"/>`;
+						svg += barra(X(s.spans[j]), X(s.spans[j + 1]), yy, 'barra-s', s.i);
+					}
+					if (s.live && s.fino > s.fine) svg += `<line class="ancora" data-s="${s.i}" x1="${f1(X(s.fine))}" x2="${f1(X(s.fino))}" y1="${mid}" y2="${mid}"/>`;
+					if (s.live) svg += `<circle class="vivo-punto" data-s="${s.i}" cx="${f1(X(s.fino))}" cy="${mid}" r="3"/>`;
+				}
+			}
+			if (adesso >= a && adesso <= b) svg += `<line class="adesso-linea" x1="${f1(X(adesso))}" x2="${f1(X(adesso))}" y1="${T - 4}" y2="${H - 2}"/>`;
+			// prese: tutta la sessione, piu' alte della barra, sopra a tutto
+			for (const s of sess) svg += `<rect class="presa-s" data-s="${s.i}" x="${f1(X(s.inizio) - 3)}" y="${yDi(s) - 2}" width="${f1(Math.max(8, X(s.fino) - X(s.inizio) + 6))}" height="12"/>`;
+			svg += '</svg>';
+			put(el, svg);
+			oggi = { el, sess, X, yDi, H, idx: oggi && oggi.sess.length === sess.length ? oggi.idx : -1 };
+			if (oggi.idx >= 0 && el.contains(el.ownerDocument.activeElement)) oggiAt(oggi.idx, false);
+
+			put(
+				$('oggi-legenda'),
+				`<li><i class="chiave q b-tu" aria-hidden="true"></i>Tu</li><li><i class="chiave q b-claude" aria-hidden="true"></i>Una sessione</li><li><i class="chiave tratteggio" aria-hidden="true"></i>Aperta, al lavoro</li><li><i class="chiave k-adesso" aria-hidden="true"></i>Adesso</li>`,
+			);
+			const n = sess.length;
+			const nP = new Set(sess.map(s => s.path || 'altrove')).size;
+			const lunga = sess.reduce((x, s) => (s.lavoro > x.lavoro ? s : x));
+			const insieme = minutiInsieme(sess.map(s => s.spans), 2);
+			let nota = `Oggi ${parola(n)} ${n === 1 ? 'sessione' : 'sessioni'} su ${nP === 1 ? 'un progetto' : `${parola(nP)} progetti`}, dalle ${hhmm(primo)}.`;
+			if (insieme >= 1) nota += ` Per ${oreParole(insieme)} ne hai fatte girare almeno due insieme.`;
+			else if (n > 1) nota += ' Mai due insieme.';
+			if (lunga.lavoro >= 1 && n > 1) nota += ` La più lunga è ${lunga.title ? `«${lunga.title}»` : lunga.project}, con ${oreParole(lunga.lavoro)} di lavoro.`;
+			$('oggi-nota').textContent = nota;
+			el.setAttribute('aria-label', `Linea del tempo di oggi, una corsia per progetto. ${nota} Usa le frecce per passare da una sessione all'altra.`);
+			put(
+				$('oggi-tabella'),
+				tabella(
+					'oggi',
+					'Le sessioni di oggi',
+					['Sessione', 'Progetto', 'Dove', 'Dalle', 'Alle', 'Lavoro', 'Token'],
+					sess.map(s => [s.title || 'senza titolo', s.project, s.where || 'nella sua cartella', hhmm(s.inizio), s.live ? 'aperta' : hhmm(s.fine), hm(s.lavoro), tk(s.tok)]),
+					[1, 2],
+				),
+			);
+		}
+
+		function oggiAt(i, fromKey) {
+			const c = oggi;
+			if (!c || !c.sess.length) return;
+			i = Math.max(0, Math.min(c.sess.length - 1, i));
+			c.idx = i;
+			const s = c.sess[i];
+			const svg = c.el.querySelector('svg');
+			if (!svg) return;
+			svg.classList.add('cerca');
+			svg.querySelectorAll('.acceso').forEach(e => e.classList.remove('acceso'));
+			svg.querySelectorAll(`[data-s="${i}"]`).forEach(e => e.classList.add('acceso'));
+			const quando = s.live ? `dalle ${hhmm(s.inizio)}, ancora aperta` : `dalle ${hhmm(s.inizio)} alle ${hhmm(s.fine)}`;
+			showTip(c.el, c.X(s.fino), c.yDi(s) + 4, s.title || s.project, [
+				{ value: s.where ? `${s.project}, ${s.where}` : s.project, label: '' },
+				{ key: 'q b-claude', value: quando, label: '' },
+				{ value: hm(s.lavoro), label: 'di lavoro' },
+				{ value: tk(s.tok), label: 'token oggi' },
+			]);
+			if (fromKey) say(`${s.title || 'Sessione senza titolo'}, ${s.project}${s.where ? ', ' + s.where : ''}: ${quando}, ${hm(s.lavoro)} di lavoro.`);
+		}
+
+		function oggiOff() {
+			if (oggi) {
+				const svg = oggi.el.querySelector('svg');
+				if (svg) {
+					svg.classList.remove('cerca');
+					svg.querySelectorAll('.acceso').forEach(e => e.classList.remove('acceso'));
+				}
+			}
+			hideTip();
+		}
+
+		// ---------- adesso ----------
+
+		function renderAdesso() {
 			const t = now();
-			const STATO = { busy: 'al lavoro', idle: 'in attesa', shell: 'nel terminale' };
+			const STATO = { busy: 'al lavoro', idle: 'ti aspetta', shell: 'nel terminale' };
 			put(
 				$('adesso'),
 				stats.live.length
 					? stats.live
-							.map(
-								l => `<li class="${l.status === 'busy' ? 'busy' : ''}"><i class="dot" aria-hidden="true"></i><span><b>${esc(l.project)}</b> ${esc(STATO[l.status] || l.status)} da ${esc(fa(l.since, t).replace(' fa', '').replace('adesso', 'poco'))}${
-									l.title ? `<small>${esc(l.title)}</small>` : ''
-								}<small>Oggi ${hm(l.today)} di lavoro, ${tk(l.tokToday)} token</small></span></li>`,
-							)
+							.map(l => {
+								// il titolo davanti: tre sessioni sullo stesso progetto si distinguono da li', dalla copia di lavoro e dall'ora
+								const titolo = l.title || l.project;
+								const dove = [l.title ? l.project : '', l.where || ''].filter(Boolean).join(', ');
+								const tip = `PID ${l.pid}${l.cwd ? `, cartella ${l.cwd}` : ''}`;
+								const copia = /^copia /.test(l.where || '');
+								return `<li class="${l.status === 'busy' ? 'busy' : ''}" title="${esc(tip)}"><i class="dot" aria-hidden="true"></i><span><b>${esc(titolo)}</b>${
+									dove ? `<small class="dove${copia ? ' copia' : ''}">${esc(dove)}</small>` : ''
+								}<small>${esc(STATO[l.status] || l.status)} da ${esc(fa(l.since, t).replace(' fa', '').replace('adesso', 'poco'))}${l.started ? `, aperta alle ${ora(l.started)}` : ''}</small><small>Oggi ${hm(l.today)} di lavoro, ${tk(l.tokToday)} token</small></span></li>`;
+							})
 							.join('')
 					: '<li class="nota">Nessuna sessione Claude aperta in questo momento.</li>',
 			);
+		}
+
+		// ---------- lavoro in parallelo: la corrente ----------
+
+		let parallelo = null;
+
+		function renderParallelo() {
+			const c = stats.concurrency7;
+			const el = $('parallelo');
+			if (!c || !c.avg || c.avg.length !== ORE7) {
+				put(el, '');
+				parallelo = null;
+				$('parallelo-nota').textContent = 'I numeri del lavoro in parallelo arrivano con il prossimo aggiornamento.';
+				put($('parallelo-legenda'), '');
+				put($('parallelo-tabella'), '');
+				$('corrente-conto').textContent = '';
+				return;
+			}
+			const W = width(el);
+			const H = 176, x0 = 26, x1 = W - 46, T = 10, B = 26;
+			const ph = H - T - B;
+			const mid = T + ph / 2;
+			const slot = (x1 - x0) / ORE7;
+			const maxS = Math.max(2, Math.ceil(Math.max(...c.peak, ...c.avg)));
+			const unit = (ph / 2 - 3) / maxS;
+			const c0 = new Date(c.start);
+			const oraDi = i => new Date(c0.getFullYear(), c0.getMonth(), c0.getDate(), c0.getHours() + i);
+			const cx = i => x0 + slot * (i + 0.5);
+			const f1 = v => v.toFixed(1);
+			let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="crus-fiume" gradientUnits="userSpaceOnUse" x1="${x0}" x2="${f1(x1)}" y1="0" y2="0">${c.busy
+				.map((m, i) => `<stop offset="${((i + 0.5) / ORE7).toFixed(4)}" stop-color="#63e6dc" stop-opacity="${(0.22 + 0.6 * Math.min(1, m / 60)).toFixed(2)}"/>`)
+				.join('')}</linearGradient></defs>`;
+			const step = maxS <= 5 ? 1 : 2;
+			for (let k = step; k <= maxS; k += step) {
+				for (const sg of [-1, 1]) svg += `<line class="griglia-n" x1="${x0}" x2="${f1(x1)}" y1="${f1(mid + sg * k * unit)}" y2="${f1(mid + sg * k * unit)}"/>`;
+				svg += `<text class="asse-y" x="${x0 - 6}" y="${f1(mid - k * unit + 4)}">${k}</text>`;
+			}
+			svg += `<line class="mezzeria" x1="${x0}" x2="${f1(x1)}" y1="${f1(mid)}" y2="${f1(mid)}"/>`;
+			// i giorni: un filo a mezzanotte, il nome al centro del giorno
+			const etichetta = (da, a) => {
+				if ((a - da) * slot < 34) return '';
+				const d = oraDi(da);
+				return `<text class="asse-x" x="${f1(x0 + (slot * (da + a)) / 2)}" y="${H - 8}">${GIORNI_B[(d.getDay() + 6) % 7]} ${d.getDate()}</text>`;
+			};
+			let da = 0;
+			for (let i = 1; i < ORE7; i++) {
+				if (oraDi(i).getHours() !== 0) continue;
+				svg += `<line class="giorno" x1="${f1(x0 + slot * i)}" x2="${f1(x0 + slot * i)}" y1="${T}" y2="${T + ph}"/>`;
+				svg += etichetta(da, i);
+				da = i;
+			}
+			svg += etichetta(da, ORE7);
+			// la fascia: spessa quante sessioni giravano insieme, piena quanto l'ora era coperta
+			const sopra = c.avg.map((v, i) => `${f1(cx(i))},${f1(mid - v * unit)}`);
+			const sotto = c.avg.map((v, i) => `${f1(cx(i))},${f1(mid + v * unit)}`).reverse();
+			svg += `<path class="fascia" fill="url(#crus-fiume)" d="M${x0},${f1(mid)}L${sopra.join('L')}L${f1(x1)},${f1(mid)}L${sotto.join('L')}Z"/>`;
+			// il massimo nello stesso istante: una linea a gradini sopra la fascia
+			let mx = '';
+			for (let i = 0; i < ORE7; i++) {
+				const p = c.peak[i];
+				if (p <= 0) continue;
+				const yy = f1(mid - p * unit);
+				mx += i && c.peak[i - 1] > 0 ? `V${yy}H${f1(x0 + slot * (i + 1))}` : `M${f1(x0 + slot * i)},${yy}H${f1(x0 + slot * (i + 1))}`;
+			}
+			if (mx) svg += `<path class="massimo" d="${mx}"/>`;
+			svg += `<text class="adesso-t" x="${f1(x1 + 6)}" y="${f1(mid + 4)}">adesso</text>`;
+			svg += `<g class="mirino" hidden><line x1="0" x2="0" y1="${T}" y2="${T + ph}"/></g></svg>`;
+			put(el, svg);
+			$('corrente-palco').style.height = H + 'px';
+
+			const list = c.avg.map((v, i) => {
+				const d = oraDi(i);
+				const h = d.getHours();
+				return { avg: v, peak: c.peak[i], busy: c.busy[i], long: `${giornoL(localKey(d.getTime()))}, dalle ${h} alle ${h + 1}`, quando: d.getTime() };
+			});
+			parallelo = { el, list, L: x0, slot, idx: parallelo ? parallelo.idx : -1, mid, unit, cx };
+			if (anim.grafici) traccia($('corrente'));
+			corrente.scena({ W, H, x0, x1, mid, unit, avg: c.avg, busy: c.busy, rivela: anim.grafici && mosso() && visible });
+
+			// le cose da dire
+			let tot = 0, sess = 0, ore = 0, ore2 = 0, pi = -1;
+			for (let i = 0; i < ORE7; i++) {
+				tot += c.busy[i];
+				sess += c.avg[i] * c.busy[i];
+				if (c.busy[i] > 0) ore++;
+				if (c.peak[i] >= 2) ore2++;
+				if (pi < 0 || c.peak[i] >= c.peak[pi]) pi = c.peak[i] > 0 ? i : pi;
+			}
+			const media = tot ? sess / tot : 0;
+			let nota;
+			if (tot < 1) nota = 'Negli ultimi 7 giorni nessuna sessione di Claude Code.';
+			else {
+				nota = media < 1.05 ? 'Nelle ore in cui lavori gira una sessione alla volta.' : `Nelle ore in cui lavori girano in media ${it(media, 1)} sessioni insieme.`;
+				const p = list[pi];
+				if (p && p.peak > 1) nota += ` Al massimo ne hai avute ${parola(p.peak)} insieme, ${giornoL(localKey(p.quando))} alle ${new Date(p.quando).getHours()}.`;
+				nota += ore2 ? ` In ${it(ore2)} ${ore2 === 1 ? 'ora' : 'ore'} su ${it(ore)} ne giravano almeno due.` : ` In ${it(ore)} ${ore === 1 ? 'ora' : 'ore'} di lavoro mai due insieme.`;
+			}
+			$('parallelo-nota').textContent = nota;
+			$('corrente-conto').textContent = tot ? `${it(ore)} ${ore === 1 ? 'ora' : 'ore'} con sessioni, ${it(ore2)} con almeno due` : '';
+			el.setAttribute('aria-label', `Lavoro in parallelo negli ultimi 7 giorni, ora per ora. ${nota} Usa le frecce per leggere le ore.`);
+			put(
+				$('parallelo-legenda'),
+				`<li><i class="chiave q k-fascia" aria-hidden="true"></i>Sessioni insieme, in media</li><li><i class="chiave tratteggio-notte" aria-hidden="true"></i>Al massimo</li>`,
+			);
+			put(
+				$('parallelo-tabella'),
+				tabella(
+					'parallelo',
+					'Lavoro in parallelo, ora per ora',
+					['Ora', 'Insieme in media', 'Al massimo', 'Con almeno una sessione'],
+					list
+						.filter(x => x.busy > 0)
+						.reverse()
+						.map(x => [x.long, it(x.avg, 1), it(x.peak), hm(x.busy)]),
+				),
+			);
+		}
+
+		function paralleloAt(i, fromKey) {
+			const c = parallelo;
+			if (!c || !c.list.length) return;
+			i = Math.max(0, Math.min(c.list.length - 1, i));
+			c.idx = i;
+			const b = c.list[i];
+			const x = c.cx(i);
+			const m = c.el.querySelector('.mirino');
+			if (m) {
+				m.removeAttribute('hidden');
+				const ln = m.querySelector('line');
+				ln.setAttribute('x1', x.toFixed(1));
+				ln.setAttribute('x2', x.toFixed(1));
+			}
+			const rows = b.busy
+				? [
+						{ key: 'q k-fascia', value: it(b.avg, 1), label: b.avg === 1 ? 'sessione in media' : 'sessioni insieme in media' },
+						{ key: 'tratteggio-notte', value: it(b.peak), label: 'al massimo nello stesso istante' },
+						{ value: hm(b.busy), label: 'con almeno una sessione' },
+					]
+				: [{ value: 'nessuna sessione', label: '' }];
+			showTip(c.el, x, c.mid - b.avg * c.unit, b.long, rows);
+			if (fromKey) say(b.busy ? `${b.long}: ${it(b.avg, 1)} sessioni in media, al massimo ${it(b.peak)}.` : `${b.long}: nessuna sessione.`);
+		}
+
+		function paralleloOff() {
+			if (parallelo) {
+				const m = parallelo.el.querySelector('.mirino');
+				if (m) m.setAttribute('hidden', '');
+			}
+			hideTip();
+		}
+
+		// ---------- chi sale e chi scende ----------
+
+		let righeSale = 0;
+
+		function renderSale() {
+			const p = P();
+			const n = p.days;
+			const box = $('sale');
+			if (!prevOk(p)) {
+				righeSale = 0;
+				put(box, '');
+				put($('sale-legenda'), '');
+				put($('sale-tabella'), '');
+				$('sale-nota').textContent = `Per dire chi sale e chi scende servono dei registri anche nei ${n} giorni prima: per ora non ce ne sono.`;
+				return;
+			}
+			const voce = r => ({ name: r.name, path: r.path, you: r.you, prev: r.prev.you, last: r.last });
+			const conPath = p.projects.filter(r => r.path);
+			const su = conPath
+				.filter(r => r.you - r.prev.you >= 15)
+				.map(voce)
+				.sort((x, y) => y.you - y.prev - (x.you - x.prev))
+				.slice(0, 5);
+			const giu = conPath
+				.filter(r => r.prev.you - r.you >= 15)
+				.map(voce)
+				.concat((p.stalled || []).map(x => ({ name: x.name, path: x.path, you: 0, prev: x.prev, last: x.last })))
+				.sort((x, y) => y.prev - y.you - (x.prev - x.you))
+				.slice(0, 5);
+			righeSale = su.length + giu.length;
+			const max = Math.max(60, ...su.concat(giu).map(r => Math.max(r.you, r.prev)));
+			const q = v => ((100 * v) / max).toFixed(1);
+			const t = now();
+			const riga = (r, verso) => {
+				const d = r.you - r.prev;
+				const sotto = verso > 0 ? `${hm(r.prev)} prima, ${hm(r.you)} adesso` : `${r.you >= 1 ? hm(r.you) : 'nessuna ora'} adesso, ultima volta ${fa(r.last, t)}`;
+				const sr = `${r.name}: ${hm(r.you)} negli ultimi ${n} giorni, ${hm(r.prev)} nei ${n} prima, ${hm(Math.abs(d))} ${d > 0 ? 'in più' : 'in meno'}. Apri nella plancia.`;
+				return `<li><button type="button" class="riga-sale" data-c="progetto" data-path="${esc(r.path)}" data-fk="c:s:${esc(r.name)}" title="Apri ${esc(r.name)} nella plancia" aria-label="${esc(sr)}">
+					<span class="chi"><b>${esc(r.name)}</b><small>${esc(sotto)}</small></span>
+					<span class="pista" aria-hidden="true"><i class="tratto" data-a="${q(Math.min(r.you, r.prev))}" data-b="${q(Math.abs(d))}"></i><i class="prima" data-x="${q(r.prev)}"></i><i class="ora" data-x="${q(r.you)}"></i></span>
+					<span class="delta" aria-hidden="true">${verso > 0 ? '▲' : '▼'} ${hm(Math.abs(d))}</span>
+				</button></li>`;
+			};
+			let html = '';
+			if (su.length) html += `<h3>Salgono</h3><ol class="righe-sale">${su.map(r => riga(r, 1)).join('')}</ol>`;
+			if (giu.length) html += `<h3>Si stanno fermando</h3><ol class="righe-sale">${giu.map(r => riga(r, -1)).join('')}</ol>`;
+			put(box, html);
+			box.querySelectorAll('[data-x]').forEach(e => (e.style.left = e.getAttribute('data-x') + '%'));
+			box.querySelectorAll('[data-a]').forEach(e => {
+				e.style.left = e.getAttribute('data-a') + '%';
+				e.style.width = e.getAttribute('data-b') + '%';
+			});
+			put($('sale-legenda'), righeSale ? `<li><i class="chiave pallino-vuoto" aria-hidden="true"></i>I ${n} giorni prima</li><li><i class="chiave pallino" aria-hidden="true"></i>Gli ultimi ${n}</li>` : '');
+			let nota = '';
+			if (su.length) nota += `Sale soprattutto ${su[0].name}, ${oreParole(su[0].you - su[0].prev)} in più dei ${n} giorni prima${su[1] ? `; poi ${su[1].name}` : ''}.`;
+			if (giu.length) {
+				const g = giu[0];
+				nota += `${nota ? ' ' : ''}Si sta fermando ${g.name}: ${oreParole(g.prev)} nei ${n} giorni prima, ${g.you >= 1 ? oreParole(g.you) : 'nessuna ora'} in questi, l'ultima volta ${fa(g.last, t)}.`;
+			}
+			$('sale-nota').textContent = nota || `Nessun progetto si è mosso di più di un quarto d'ora rispetto ai ${n} giorni prima.`;
+			put(
+				$('sale-tabella'),
+				righeSale
+					? tabella(
+							'sale',
+							'Chi sale e chi scende',
+							['Progetto', `Ultimi ${n} giorni`, `${n} giorni prima`, 'Differenza', 'Ultima volta'],
+							su.concat(giu).map(r => [r.name, hm(r.you), hm(r.prev), `${r.you >= r.prev ? '▲' : '▼'} ${hm(Math.abs(r.you - r.prev))}`, fa(r.last, t)]),
+						)
+					: '',
+			);
+		}
+
+		// ---------- quanto dura una sessione ----------
+
+		const FASCE = ['meno di 5 minuti', 'da 5 a 15 minuti', 'da 15 a 30 minuti', 'da 30 a 60 minuti', 'da 1 a 2 ore', 'da 2 a 4 ore', 'oltre 4 ore'];
+		const FASCE_B = ['< 5 min', '5-15 min', '15-30 min', '30-60 min', '1-2 h', '2-4 h', '> 4 h'];
+		const FASCE_C = ['< 5', '5-15', '15-30', '30-60', '1-2 h', '2-4 h', '> 4 h'];
+		let durata = null;
+
+		function renderDurata() {
+			const p = P();
+			const l = p.lengths;
+			const el = $('durata');
+			if (!l || !l.n) {
+				put(el, '');
+				durata = null;
+				put($('durata-legenda'), '');
+				put($('durata-tabella'), '');
+				$('durata-nota').textContent = l ? `Nessuna sessione di almeno un minuto negli ultimi ${p.days} giorni.` : 'Le durate delle sessioni arrivano con il prossimo aggiornamento.';
+				return;
+			}
+			const W = width(el);
+			const H = 190, Lm = 40, Rm = 10, T = 24, B = 28;
+			const pw = W - Lm - Rm, ph = H - T - B;
+			const k = l.bins.length;
+			const slot = pw / k;
+			const max = Math.max(1, ...l.bins);
+			const step = Math.max(1, passo(max, 4));
+			const top = Math.ceil(max / step) * step;
+			const y = v => T + ph - (v / top) * ph;
+			let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
+			for (let v = 0; v <= top + 1e-6; v += step) {
+				svg += `<line class="${v ? 'griglia' : 'base'}" x1="${Lm}" x2="${W - Rm}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/><text class="asse-y" x="${Lm - 8}" y="${(y(v) + 4).toFixed(1)}">${it(v)}</text>`;
+			}
+			const nomi = slot >= 64 ? FASCE_B : FASCE_C;
+			const bw = Math.min(56, slot * 0.72);
+			l.bins.forEach((v, i) => {
+				const x = Lm + slot * (i + 0.5);
+				svg += `<text class="asse-x" x="${x.toFixed(1)}" y="${H - 8}">${esc(nomi[i])}</text>`;
+				svg += `<g class="pila"><path class="col-claude" d="${colonna(x - bw / 2, y(v), bw, y(0) - y(v), true)}"/></g>`;
+			});
+			// la mediana: dentro la sua fascia, in proporzione
+			let j = l.edges.findIndex(e => l.median < e);
+			if (j < 0) j = l.edges.length;
+			const lo = j ? l.edges[j - 1] : 0;
+			const hi = j < l.edges.length ? l.edges[j] : lo * 2;
+			const xm = Lm + slot * (j + Math.max(0, Math.min(1, (l.median - lo) / (hi - lo))));
+			const sx = xm > W - 140;
+			svg += `<line class="mediana" x1="${xm.toFixed(1)}" x2="${xm.toFixed(1)}" y1="${T - 6}" y2="${y(0).toFixed(1)}"/>`;
+			svg += `<text class="mediana-t" x="${(xm + (sx ? -6 : 6)).toFixed(1)}" y="${T - 10}" text-anchor="${sx ? 'end' : 'start'}">metà sotto ${esc(hm(l.median))}</text>`;
+			svg += `<rect class="evidenza" hidden y="${T}" height="${ph}" rx="4"/></svg>`;
+			put(el, svg);
+			durata = { el, list: l.bins.map((v, i) => ({ v, nome: FASCE[i] })), L: Lm, slot, idx: -1, y, n: l.n };
+			if (anim.grafici) traccia(el);
+			put($('durata-legenda'), `<li><i class="chiave q b-claude" aria-hidden="true"></i>Sessioni</li><li><i class="chiave tratteggio-hud" aria-hidden="true"></i>Metà delle sessioni dura meno di così</li>`);
+			const brevi = l.bins[0] + l.bins[1];
+			const lunghe = l.bins[5] + l.bins[6];
+			let nota =
+				l.n === 1
+					? `Negli ultimi ${p.days} giorni una sessione sola, con ${oreParole(l.median)} di lavoro.`
+					: `Metà delle ${it(l.n)} sessioni degli ultimi ${p.days} giorni dura meno di ${oreParole(l.median)}.`;
+			if (l.n > 1 && (lunghe || brevi)) {
+				const parti = [];
+				if (lunghe) parti.push(`${it(lunghe)} ${lunghe === 1 ? 'dura' : 'durano'} più di due ore`);
+				if (brevi) parti.push(`${it(brevi)} ${lunghe ? '' : brevi === 1 ? 'dura ' : 'durano '}meno di un quarto d'ora`);
+				nota += ` ${parti.join(' e ')}.`;
+			}
+			$('durata-nota').textContent = nota;
+			el.setAttribute('aria-label', `Quanto dura una sessione, ultimi ${p.days} giorni, a fasce. ${nota} Usa le frecce per leggere le fasce.`);
+			put(
+				$('durata-tabella'),
+				tabella('durata', 'Quanto dura una sessione', ['Durata', 'Sessioni', 'Quota'], l.bins.map((v, i) => [FASCE[i], it(v), pctTxt(pct(v, l.n))])),
+			);
+		}
+
+		function durataAt(i, fromKey) {
+			const c = durata;
+			if (!c) return;
+			i = Math.max(0, Math.min(c.list.length - 1, i));
+			c.idx = i;
+			const b = c.list[i];
+			const x = c.L + c.slot * (i + 0.5);
+			const r = c.el.querySelector('.evidenza');
+			r.removeAttribute('hidden');
+			r.setAttribute('x', (x - c.slot / 2 + 1).toFixed(1));
+			r.setAttribute('width', Math.max(2, c.slot - 2).toFixed(1));
+			showTip(c.el, x, c.y(b.v), b.nome, [
+				{ key: 'q b-claude', value: it(b.v), label: b.v === 1 ? 'sessione' : 'sessioni' },
+				{ value: pctTxt(pct(b.v, c.n)), label: 'del totale' },
+			]);
+			if (fromKey) say(`${b.nome}: ${it(b.v)} ${b.v === 1 ? 'sessione' : 'sessioni'}.`);
+		}
+
+		function durataOff() {
+			if (durata) {
+				const r = durata.el.querySelector('.evidenza');
+				if (r) r.setAttribute('hidden', '');
+			}
+			hideTip();
+		}
+
+		// ---------- il banco: due colonne che finiscono insieme ----------
+
+		/** @type {number[] | null} */ let banco = null;
+
+		/** Una colonna o due, dalla larghezza vera del banco. Prima di disegnare: i grafici prendono la misura della colonna. */
+		function impostaColonne() {
+			const b = $('banco');
+			const w = b.clientWidth || width($('crus-corpo'));
+			b.classList.toggle('una', w < DUE_COLONNE);
+		}
+
+		/** Altezza stimata di un blocco, se il browser non la misura (stanza mai vista, banco di prova). */
+		function stima(id) {
+			const testa = 34, nota = 46, bottone = 30;
+			const tab = ui.tables[id] ? 380 : 0;
+			switch (id) {
+				case 'oggi':
+					return testa + nota + (oggi ? oggi.H : 0) + bottone + tab;
+				case 'adesso':
+					return testa + Math.max(1, stats.live.length) * 72;
+				case 'parallelo':
+					return testa + nota + 22 + 176 + bottone + tab;
+				case 'calore':
+					return testa + nota + (calore ? calore.Tt + calore.cell * 7 : 200) + bottone + tab;
+				case 'sale':
+					return testa + nota + (righeSale ? righeSale * 46 + 72 : 0) + bottone + tab;
+				case 'durata':
+					return testa + nota + 190 + bottone + tab;
+				case 'registro':
+					return testa + $('primati').children.length * 64;
+			}
+			return 0;
+		}
+
+		/** Mette i blocchi nelle due colonne in modo che finiscano alla stessa altezza (vedi dividi). Le
+		    altezze sono quelle vere del browser; un blocco con la tabella aperta resta dov'e', cosi' non
+		    scappa mentre Andrea legge i numeri. */
+		function sistemaBanco() {
+			const b = $('banco');
+			const els = BLOCCHI.map(([id]) => $('b-' + id));
+			let colonne;
+			if (b.classList.contains('una')) {
+				colonne = BLOCCHI.map(() => 0);
+				banco = null;
+				b.removeAttribute('data-scarto');
+			} else {
+				const misurate = els.map(e => e.offsetHeight || 0);
+				const vere = misurate.every(h => h > 0);
+				const alti = vere ? misurate : BLOCCHI.map(([id]) => stima(id));
+				const fissi = BLOCCHI.map(([id], i) => (i === 0 ? 0 : banco && ui.tables[id] ? banco[i] : -1));
+				const r = dividi(alti, SPAZIO, fissi, BLOCCHI.map(x => x[1]), banco);
+				colonne = r.colonne;
+				banco = colonne;
+				b.setAttribute('data-scarto', String(Math.round(r.scarto)));
+			}
+			b.setAttribute('data-divisione', colonne.join(''));
+			const cols = [$('banco-a'), $('banco-b')];
+			const doc = root.ownerDocument;
+			const att = doc.activeElement;
+			let spostati = false;
+			for (const c of [0, 1]) {
+				const voglio = els.filter((_, i) => colonne[i] === c);
+				const ho = [...cols[c].children];
+				if (voglio.length === ho.length && voglio.every((e, i) => e === ho[i])) continue;
+				for (const e of voglio) cols[c].appendChild(e);
+				spostati = true;
+			}
+			if (spostati && att && root.contains(att) && doc.activeElement !== att) att.focus({ preventScroll: true });
+		}
+
+		// ---------- registro ----------
+
+		function renderRegistro() {
 			const r = stats.records;
 			const p = P();
 			const voci = [];
@@ -1061,17 +3174,31 @@
 			if (key === lastKey && !force) return;
 			lastKey = key;
 			if (!GRUPPI_OK[ui.period].includes(ui.group)) ui.group = 'giorno';
+			// le animazioni aspettano che la stanza si veda: disegnando di nascosto restano in attesa
+			const tenute = visible ? null : { ...anim };
+			if (tenute) for (const k of Object.keys(anim)) anim[/** @type {keyof typeof anim} */ (k)] = false;
+			impostaColonne();
 			renderTesta();
 			renderCarta();
 			renderClassifica();
 			renderCurva();
 			renderToken();
 			renderLato();
+			renderOggi();
+			renderAdesso();
+			renderParallelo();
 			renderCalore();
+			renderSale();
+			renderDurata();
 			renderRegistro();
+			// a stanza nascosta il browser non misura: si sistema quando torna visibile (la misura cambia)
+			if (visible || !banco) sistemaBanco();
+			if (visible) riempiClassifica();
+			Object.assign(anim, tenute || { rivela: false, conta: false, grafici: false, glitch: false, migra: false });
 		}
 
-		function request() {
+		function request(daAndrea) {
+			richiesto = !!daAndrea;
 			host.post({ type: 'stats.request', period: Number(ui.period) });
 			clearTimeout(waitTimer);
 			waitTimer = setTimeout(() => crus.classList.add('in-attesa'), 300);
@@ -1086,13 +3213,17 @@
 			const id = b.getAttribute('data-id');
 			switch (b.getAttribute('data-c')) {
 				case 'periodo':
+					if (ui.period === id) return;
 					ui.period = id;
 					if (!GRUPPI_OK[id].includes(ui.group)) ui.group = 'giorno';
 					save();
+					// cambio di periodo: le stelle migrano, le cifre scorrono dai valori di prima, i grafici si ridisegnano
+					anim.migra = anim.conta = anim.grafici = true;
 					render(true);
 					say(`Ultimi ${id} giorni.`);
 					return;
 				case 'gruppo':
+					if (ui.group !== id) anim.grafici = true;
 					ui.group = id;
 					save();
 					return render(true);
@@ -1113,7 +3244,7 @@
 					return;
 				case 'aggiorna':
 				case 'riprova':
-					return request();
+					return request(true);
 			}
 		});
 
@@ -1187,6 +3318,28 @@
 		}
 		bindSeries('curva', () => curva, curvaAt, curvaOff);
 		bindSeries('token', () => token, tokenAt, tokenOff);
+		bindSeries('parallelo', () => parallelo, paralleloAt, paralleloOff);
+		bindSeries('durata', () => durata, durataAt, durataOff);
+
+		// oggi: il puntatore trova la sessione, le frecce passano dall'una all'altra in ordine di inizio
+		const og = $('oggi');
+		og.addEventListener('pointermove', e => {
+			const t = /** @type {any} */ (e.target);
+			const i = t && t.getAttribute ? t.getAttribute('data-s') : null;
+			if (i === null || i === '') return oggiOff();
+			oggiAt(+i, false);
+		});
+		og.addEventListener('pointerleave', oggiOff);
+		og.addEventListener('blur', oggiOff);
+		og.addEventListener('focus', () => oggi && oggi.sess.length && oggiAt(oggi.idx >= 0 ? oggi.idx : oggi.sess.length - 1, true));
+		og.addEventListener('keydown', e => {
+			if (!oggi || !oggi.sess.length) return;
+			const cur = oggi.idx >= 0 ? oggi.idx : oggi.sess.length - 1;
+			const k = { ArrowLeft: cur - 1, ArrowUp: cur - 1, ArrowRight: cur + 1, ArrowDown: cur + 1, Home: 0, End: oggi.sess.length - 1 }[e.key];
+			if (k === undefined) return;
+			e.preventDefault();
+			oggiAt(k, true);
+		});
 
 		const cal = $('calore');
 		cal.addEventListener('pointermove', e => {
@@ -1212,7 +3365,31 @@
 			clearTimeout(resizeT);
 			resizeT = setTimeout(() => render(false), 140);
 		});
-		if (reduced.addEventListener) reduced.addEventListener('change', () => crus.classList.remove('rivela'));
+		if (reduced.addEventListener)
+			reduced.addEventListener('change', () => {
+				crus.classList.remove('rivela', 'ritraccia');
+				assesta();
+				cielo.ridisegna();
+				corrente.ridisegna();
+			});
+
+		// la lancetta segue l'ora, la linea di oggi il minuto; la casella di adesso nella settimana cambia allo scoccare dell'ora
+		let orologio = 0;
+		let oraVista = new Date().getHours();
+		function batti() {
+			if (!stats) return;
+			metteLancetta();
+			renderOggi();
+			const h = new Date().getHours();
+			if (h !== oraVista) {
+				oraVista = h;
+				renderCalore();
+			}
+		}
+		const accendiOrologio = on => {
+			clearInterval(orologio);
+			orologio = on ? setInterval(batti, 60_000) : 0;
+		};
 
 		return {
 			/** Dati nuovi dall'estensione (null con un errore). */
@@ -1220,6 +3397,10 @@
 				clearTimeout(waitTimer);
 				crus.classList.remove('in-attesa');
 				if (s) {
+					// arrivo dei dati: la prima volta, o quando li ha chiesti Andrea. Gli aggiornamenti
+					// periodici (ogni due minuti) non fanno ripartire niente: segnalano solo cosa e' cambiato.
+					if (!stats || richiesto) anim.rivela = anim.conta = anim.grafici = anim.glitch = true;
+					richiesto = false;
 					stats = s;
 					error = '';
 				} else error = err || 'Non riesco a leggere le sessioni di Claude Code.';
@@ -1232,22 +3413,33 @@
 			show() {
 				visible = true;
 				crus.classList.remove('fermo');
+				attivaCielo();
+				accendiOrologio(true);
 				render(false);
+				batti();
 				request();
 			},
 			hide() {
 				visible = false;
 				crus.classList.add('fermo');
 				hideTip();
+				assesta();
+				accendiOrologio(false);
+				attivaCielo();
 			},
 			pause() {
+				paused = true;
 				crus.classList.add('fermo');
+				assesta();
+				attivaCielo();
 			},
 			resume() {
+				paused = false;
 				if (visible) crus.classList.remove('fermo');
+				attivaCielo();
 			},
 		};
 	}
 
-	/** @type {any} */ (window).BottegaCruscotto = { mount };
+	/** @type {any} */ (window).BottegaCruscotto = { mount, dividi };
 })();

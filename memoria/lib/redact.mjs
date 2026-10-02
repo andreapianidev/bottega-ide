@@ -4,22 +4,24 @@ import path from 'node:path';
 // Pulizia dei testi: via le chiavi prima che tocchino il disco o la rete, via le lineette lunghe
 // da tutto cio' che un utente legge.
 
+// [schema, sostituzione, tipo, forte]. "forte": la forma basta a dire che e' una chiave; le ultime
+// due regole guardano solo il nome di una variabile e da sole danno falsi allarmi nel codice.
 const RULES = [
-	[/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z ]*PRIVATE KEY-----|$)/g, '[chiave privata nascosta]'],
-	[/\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{10,}/g, '[chiave nascosta]'],
-	[/\bwhsec_[A-Za-z0-9]{10,}/g, '[chiave nascosta]'],
-	[/\bsk-[A-Za-z0-9_-]{16,}/g, '[chiave nascosta]'],
-	[/\bre_[A-Za-z0-9_]{16,}/g, '[chiave nascosta]'],
-	[/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}/g, '[token nascosto]'],
-	[/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g, '[token nascosto]'],
-	[/\bAKIA[0-9A-Z]{16}\b/g, '[chiave nascosta]'],
-	[/\bxox[abprs]-[A-Za-z0-9-]{10,}/g, '[token nascosto]'],
-	[/\bAIza[0-9A-Za-z_-]{30,}/g, '[chiave nascosta]'],
-	[/\bhf_[A-Za-z0-9]{20,}/g, '[token nascosto]'],
-	[/\b(?:sbp|sbs)_[A-Za-z0-9]{20,}/g, '[token nascosto]'],
-	[/\b((?:[a-z][a-z0-9+.-]*):\/\/[^:\s/@]+:)[^@\s]{3,}@/gi, '$1[nascosta]@'],
-	[/\b([A-Z0-9_]*(?:API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD)[A-Z0-9_]*\s*[=:]\s*)["']?[^\s"']{6,}["']?/g, '$1[nascosto]'],
-	[/((?:api[_-]?key|token|secret|password|passwd|parola d'ordine)["']?\s*[:=]\s*)["']?[^\s"',}]{6,}["']?/gi, '$1[nascosto]'],
+	[/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z ]*PRIVATE KEY-----|$)/g, '[chiave privata nascosta]', 'chiave privata', true],
+	[/\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{10,}/g, '[chiave nascosta]', 'chiave Stripe', true],
+	[/\bwhsec_[A-Za-z0-9]{10,}/g, '[chiave nascosta]', 'segreto di webhook Stripe', true],
+	[/\bsk-[A-Za-z0-9_-]{16,}/g, '[chiave nascosta]', 'chiave sk- (OpenAI, Anthropic e simili)', true],
+	[/\bre_[A-Za-z0-9_]{16,}/g, '[chiave nascosta]', 'chiave Resend', true],
+	[/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}/g, '[token nascosto]', 'token JWT', true],
+	[/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g, '[token nascosto]', 'token GitHub', true],
+	[/\bAKIA[0-9A-Z]{16}\b/g, '[chiave nascosta]', 'chiave AWS', true],
+	[/\bxox[abprs]-[A-Za-z0-9-]{10,}/g, '[token nascosto]', 'token Slack', true],
+	[/\bAIza[0-9A-Za-z_-]{30,}/g, '[chiave nascosta]', 'chiave Google', true],
+	[/\bhf_[A-Za-z0-9]{20,}/g, '[token nascosto]', 'token Hugging Face', true],
+	[/\b(?:sbp|sbs)_[A-Za-z0-9]{20,}/g, '[token nascosto]', 'chiave Supabase', true],
+	[/\b((?:[a-z][a-z0-9+.-]*):\/\/[^:\s/@]+:)[^@\s]{3,}@/gi, '$1[nascosta]@', 'password dentro un indirizzo', true],
+	[/\b([A-Z0-9_]*(?:API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD)[A-Z0-9_]*\s*[=:]\s*)["']?[^\s"']{6,}["']?/g, '$1[nascosto]', 'variabile segreta', false],
+	[/((?:api[_-]?key|token|secret|password|passwd|parola d'ordine)["']?\s*[:=]\s*)["']?[^\s"',}]{6,}["']?/gi, '$1[nascosto]', 'campo segreto', false],
 ];
 
 // Valori da nascondere sempre, anche se scritti in chat senza nome davanti: tutti i valori del vault
@@ -57,6 +59,33 @@ function localSecrets() {
 	}
 	SECRETS = [...found].sort((a, b) => b.length - a.length);
 	return SECRETS;
+}
+
+/**
+ * Dove sono le chiavi in un testo, con gli stessi schemi di redact: tipo e posizione, mai il valore.
+ * Una posizione gia' coperta da una regola precedente non conta due volte.
+ */
+export function findSecrets(text) {
+	const out = [];
+	if (!text) return out;
+	const s = String(text);
+	const taken = [];
+	for (const [re, , tipo, forte] of RULES) {
+		const r = new RegExp(re.source, re.flags);
+		let m;
+		while ((m = r.exec(s))) {
+			const start = m.index;
+			const end = start + m[0].length;
+			if (!m[0].length) {
+				r.lastIndex++;
+				continue;
+			}
+			if (taken.some(([a, b]) => start < b && end > a)) continue;
+			taken.push([start, end]);
+			out.push({ rule: tipo, index: start, length: m[0].length, strong: forte });
+		}
+	}
+	return out.sort((a, b) => a.index - b.index);
 }
 
 export function redact(text) {

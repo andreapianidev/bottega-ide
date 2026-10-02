@@ -1,0 +1,261 @@
+/* Bottega, i Clienti. Stessa notte "Roque" della plancia (plancia.css definisce i colori di base).
+   Un solo colore per i dati: il sodio, da spento a pieno, per le ore di ogni giorno nel calendario
+   (la stessa scala sequenziale della settimana ora per ora del cruscotto, validata con dataviz) e
+   per le barre dei progetti. Il resto e' inchiostro: calima per i numeri, tinta per le note. */
+
+.cli {
+	position: relative;
+	--cli-l0: #1b2440;
+	--cli-l1: color-mix(in oklab, var(--sodio) 20%, var(--cli-l0));
+	--cli-l2: color-mix(in oklab, var(--sodio) 38%, var(--cli-l0));
+	--cli-l3: color-mix(in oklab, var(--sodio) 58%, var(--cli-l0));
+	--cli-l4: color-mix(in oklab, var(--sodio) 79%, var(--cli-l0));
+	--cli-l5: var(--sodio);
+	--cli-barra: color-mix(in oklab, var(--sodio) 72%, var(--cielo));
+}
+
+body.vscode-light .cli {
+	--cli-l0: #dde3ee;
+	--cli-barra: color-mix(in oklab, var(--sodio) 80%, var(--cielo));
+}
+
+/* ---------- testa e comandi ---------- */
+
+.cli-testa { margin-bottom: 22px; }
+.cli-frase { margin-bottom: 10px; max-width: 34ch; }
+.cli-sottofrase { margin: 0; }
+
+.cli-comandi {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px 22px;
+	padding: 12px 0;
+	border-top: 1px solid var(--linea);
+	border-bottom: 1px solid var(--linea);
+}
+
+.cli-mese { display: inline-flex; align-items: center; gap: 6px; }
+.cli-freccia { font-size: 16px; line-height: 1; padding: 4px 10px 6px; }
+.cli-freccia:disabled { opacity: 0.35; cursor: default; }
+
+.cli-select {
+	background: var(--basalto);
+	border: 1px solid var(--linea);
+	border-radius: 8px;
+	padding: 5px 8px;
+	max-width: 100%;
+}
+
+#cli-mese { font-family: var(--serif); font-size: 15px; min-width: 11em; }
+
+.cli-esporta { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+.cli-esporta .act:disabled { opacity: 0.55; cursor: default; }
+.cli-modifica { margin-left: auto; }
+
+.cli-esito { min-height: 1.5em; margin: 8px 0 18px; font-size: 12.5px; color: var(--tinta); overflow-wrap: anywhere; }
+
+.cli.cli-attesa .cli-corpo { opacity: 0.55; transition: opacity 0.2s; }
+
+/* ---------- l'editor dei clienti ---------- */
+
+.cli-editor { margin: 0 0 40px; max-width: 980px; }
+.cli-editor h2 { margin-bottom: 4px; }
+.cli-privato { margin: 0 0 16px; font-size: 11.5px; color: var(--tinta); }
+.cli-privato code { font-family: var(--mono); font-size: 11.5px; }
+
+.cli-ed-lista { list-style: none; margin: 0 0 14px; padding: 0; }
+.cli-ed { padding: 14px 0 16px; border-top: 1px solid var(--linea); }
+.cli-ed:first-child { border-top: 0; padding-top: 4px; }
+.cli-ed-vuoto { color: var(--tinta); padding: 8px 0; }
+
+.cli-ed-campi { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 10px 16px; }
+.cli-campo { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--tinta); min-width: 0; }
+.cli-campo input {
+	width: 100%;
+	background: var(--cielo);
+	border: 1px solid var(--linea);
+	border-radius: 8px;
+	padding: 7px 10px;
+	color: var(--calima);
+	font-size: 13px;
+}
+
+.cli-campo:first-child input { font-family: var(--serif); font-size: 16px; padding: 6px 10px; }
+.cli-campo-titolo { margin: 14px 0 6px; font-size: 12px; color: var(--tinta); }
+
+.cli-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.cli-chips li {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	padding: 2px 4px 2px 10px;
+	border-radius: 999px;
+	background: var(--cielo);
+	border: 1px solid var(--linea);
+	font-size: 12.5px;
+	max-width: 100%;
+}
+
+.cli-chips li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cli-chips button {
+	border: 0;
+	background: none;
+	color: var(--tinta);
+	cursor: pointer;
+	width: 22px;
+	height: 22px;
+	border-radius: 50%;
+	font-size: 15px;
+	line-height: 1;
+	flex: none;
+}
+
+.cli-chips button:hover { color: var(--calima); background: var(--linea); }
+.cli-chips .cli-chips-vuoto { border-style: dashed; color: var(--tinta); padding-right: 10px; }
+
+.cli-ed-riga { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-top: 10px; }
+.cli-ed-riga .cli-select { background: var(--cielo); }
+.cli-togli { font-size: 12.5px; }
+.cli-nuovo { margin-top: 2px; }
+
+.cli-ed-piede { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--linea); }
+.cli-ed-piede .esito { margin: 0; flex: 1 1 240px; }
+
+/* ---------- i clienti ---------- */
+
+.cli-sez-testa {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 8px 20px;
+	margin: 8px 0 6px;
+}
+
+.cli-titolo { font-family: var(--serif); font-size: 20px; font-weight: 500; letter-spacing: -0.005em; margin: 0; }
+
+.cli-scala { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; color: var(--tinta); }
+.cli-scala span { margin: 0 5px; }
+.cli-scala i { width: 11px; height: 11px; border-radius: 3px; }
+
+.cli-vuoto { font-family: var(--serif); font-size: 16px; line-height: 1.55; color: var(--tinta); max-width: 60ch; margin: 18px 0; }
+.cli-vuoto .link { font-family: var(--sans); font-size: 13px; }
+
+.cli-clienti { list-style: none; margin: 0 0 48px; padding: 0; }
+
+.cli-cliente {
+	display: grid;
+	grid-template-columns: minmax(200px, 1fr) auto minmax(240px, 1.35fr);
+	gap: 16px 36px;
+	align-items: start;
+	padding: 20px 0 22px;
+	border-bottom: 1px solid var(--linea);
+}
+
+.cli-cliente:first-child { border-top: 1px solid var(--linea); }
+.cli-cliente > * { min-width: 0; }
+.cli-spento .cli-ore b { color: var(--tinta); }
+
+.cli-nome { margin: 0 0 6px; font-family: var(--serif); font-size: 21px; font-weight: 500; line-height: 1.2; overflow-wrap: anywhere; }
+.cli-ore { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; }
+.cli-ore b { font-size: 28px; font-weight: 600; letter-spacing: -0.015em; white-space: nowrap; }
+.cli-importo { font-size: 16px; color: var(--sodio); font-weight: 600; white-space: nowrap; }
+.cli-sotto { margin: 4px 0 0; font-size: 12px; color: var(--tinta); line-height: 1.5; }
+
+/* il calendario: sette colonne, da lunedi' */
+.cli-griglia {
+	display: grid;
+	grid-template-columns: repeat(7, 15px);
+	grid-auto-rows: 15px;
+	gap: 3px;
+}
+
+.cli-g-testa { font-size: 9.5px; line-height: 15px; text-align: center; color: var(--tinta); }
+.cli-g { border-radius: 3px; }
+.cli-g-fuori { background: none; }
+.cli-l0 { background: var(--cli-l0); }
+.cli-l1 { background: var(--cli-l1); }
+.cli-l2 { background: var(--cli-l2); }
+.cli-l3 { background: var(--cli-l3); }
+.cli-l4 { background: var(--cli-l4); }
+.cli-l5 { background: var(--cli-l5); }
+.cli-oggi { outline: 1.5px solid var(--calima); outline-offset: 1px; }
+
+@media (forced-colors: active) {
+	.cli-g:not(.cli-g-fuori):not(.cli-l0) { background: CanvasText; }
+	.cli-l0 { outline: 1px solid CanvasText; }
+}
+
+.cli-progetti { list-style: none; margin: 2px 0 0; padding: 0; }
+.cli-progetti li {
+	display: grid;
+	grid-template-columns: minmax(90px, 1fr) minmax(40px, 1.1fr) auto;
+	gap: 12px;
+	align-items: center;
+	padding: 5px 0;
+	font-size: 13px;
+}
+
+.cli-p-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cli-p-ore { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; min-width: 6.5em; }
+.cli-barra { display: block; height: 6px; }
+.cli-barra i { display: block; height: 6px; width: calc(var(--cli-w, 0) * 100%); min-width: 2px; border-radius: 0 4px 4px 0; background: var(--cli-barra); }
+
+.cli-nota { margin: 4px 0 0; font-size: 12px; color: var(--tinta); line-height: 1.5; }
+
+/* ---------- le ore di nessuno ---------- */
+
+.cli-liberi { margin-bottom: 40px; max-width: 980px; }
+.cli-liberi .cli-titolo { margin-bottom: 2px; }
+.cli-liberi > .cli-nota { margin: 0 0 12px; max-width: 72ch; }
+.cli-liberi-lista { list-style: none; margin: 0; padding: 0; }
+
+.cli-libero {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto minmax(0, auto);
+	gap: 6px 18px;
+	align-items: center;
+	padding: 8px 0;
+	border-top: 1px solid var(--linea);
+}
+
+.cli-libero:last-child { border-bottom: 1px solid var(--linea); }
+.cli-l-nome { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cli-l-ore { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--calima); }
+.cli-l-perche { margin: 0; }
+.cli-assegna { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: flex-end; }
+.cli-assegna .act:disabled { opacity: 0.5; cursor: default; }
+
+.cli-regola {
+	margin: 0;
+	padding-top: 16px;
+	border-top: 1px solid var(--linea);
+	font-family: var(--serif);
+	font-size: 14px;
+	line-height: 1.6;
+	color: var(--tinta);
+	max-width: 72ch;
+}
+
+/* ---------- movimento ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+	.cli.cli-attesa .cli-corpo { transition: none; }
+}
+
+/* ---------- larghezze ---------- */
+
+@media (max-width: 1100px) {
+	.cli-cliente { grid-template-columns: minmax(0, 1fr) auto; }
+	.cli-c-progetti { grid-column: 1 / -1; }
+}
+
+@media (max-width: 760px) {
+	.cli-modifica { margin-left: 0; }
+	.cli-ed-campi { grid-template-columns: minmax(0, 1fr); }
+	.cli-cliente { grid-template-columns: minmax(0, 1fr); }
+	.cli-libero { grid-template-columns: minmax(0, 1fr) auto; }
+	.cli-assegna { grid-column: 1 / -1; justify-content: flex-start; }
+	.cli-scala span:first-child { display: none; }
+}

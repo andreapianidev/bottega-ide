@@ -7,7 +7,7 @@ import { SystemStats } from './nucleo';
 // I "Lavori": sessioni Claude avviate dalla Bottega in una scheda del terminale, con un
 // limite di parallelismo che rispetta il Mac di Andrea (Air M2 16 GB).
 
-export type JobStatus = 'in coda' | 'in corso' | 'ti aspetta' | 'finito' | 'fermato';
+export type JobStatus = 'in coda' | 'stanotte' | 'in corso' | 'ti aspetta' | 'finito' | 'fermato';
 
 export interface Job {
 	id: string;
@@ -21,6 +21,8 @@ export interface Job {
 	sessionId?: string;
 	pid?: number;
 	lastActivity?: number;
+	/** Lavoro della coda della notte (src/notte.ts): parte solo nella finestra notturna. */
+	night?: boolean;
 }
 
 export interface JobDeps {
@@ -37,7 +39,7 @@ export interface JobDeps {
 }
 
 const GLOBAL_KEY = 'bottega.jobs';
-const active = new Set<JobStatus>(['in coda', 'in corso', 'ti aspetta']);
+const active = new Set<JobStatus>(['in coda', 'stanotte', 'in corso', 'ti aspetta']);
 
 /** Mette una stringa fra apici singoli per la shell, in sicurezza. */
 export function shellQuote(s: string): string {
@@ -145,7 +147,7 @@ export class JobManager {
 		const pids = await Promise.all(terms.map(async t => [t, await t.processId] as const));
 		for (const job of this.jobs) {
 			if (!active.has(job.status)) continue;
-			if (job.status === 'in coda') continue; // non era ancora partito: lo ripromuoveremo
+			if (job.status === 'in coda' || job.status === 'stanotte') continue; // non era ancora partito: lo ripromuoveremo
 			const shellPid = this.shellPids.get(job.id);
 			const hit = shellPid ? pids.find(([, p]) => p === shellPid) : undefined;
 			if (hit) {
@@ -164,14 +166,15 @@ export class JobManager {
 	}
 
 	/** Avvia un lavoro (o lo mette in coda se non c'e' uno slot libero). */
-	start(projectPath: string, task: string): Job {
+	start(projectPath: string, task: string, opts: { night?: boolean } = {}): Job {
 		const job: Job = {
 			id: this.newId(),
 			project: path.basename(projectPath) || '~',
 			path: projectPath,
 			task,
-			status: 'in coda',
+			status: opts.night ? 'stanotte' : 'in coda',
 			createdAt: Date.now(),
+			...(opts.night ? { night: true } : {}),
 		};
 		this.jobs.unshift(job);
 		this.changed();
@@ -195,8 +198,16 @@ export class JobManager {
 		this.paintMenubar();
 	}
 
-	private launch(job: Job): void {
-		const cmd = this.deps.claudeCommand();
+	/** Fa partire adesso un lavoro della notte, con il suo preambolo e il modo di permessi della notte. */
+	launchNight(id: string, preamble: string, permissionMode?: string): boolean {
+		const job = this.jobs.find(j => j.id === id && j.status === 'stanotte');
+		if (!job) return false;
+		this.launch(job, preamble, permissionMode);
+		return true;
+	}
+
+	private launch(job: Job, preamble = '', permissionMode?: string): void {
+		const cmd = this.deps.claudeCommand() + (permissionMode ? ` --permission-mode ${shellQuote(permissionMode)}` : '');
 		const term = vscode.window.createTerminal({
 			name: `Lavoro ${job.project}`,
 			cwd: job.path,
@@ -205,7 +216,7 @@ export class JobManager {
 		});
 		this.terminals.set(job.id, term);
 		term.show();
-		term.sendText(`${cmd} ${shellQuote(job.task)}`);
+		term.sendText(`${cmd} ${shellQuote(preamble + job.task)}`);
 		job.status = 'in corso';
 		job.startedAt = Date.now();
 		void term.processId.then(pid => {
@@ -378,4 +389,96 @@ export class JobManager {
 	dispose(): void {
 		this.persist();
 	}
+}
+
+// ---------- il lavoro in giro: una sola fonte di verita' ----------
+
+/** Per Andrea ogni sessione Claude viva e' un lavoro: quelle avviate dalla Bottega (lavori) e quelle aperte
+ *  altrove (un terminale, un'altra app). Plancia, Lavori, navigazione, barra dei menu, barra di stato e Melissa
+ *  contano tutte da qui. Contratto: docs/CONTRATTI.md, 4.9. */
+export interface WorkItem {
+	key: string; // "job:<id>" oppure "sess:<sessionId>"
+	source: 'bottega' | 'altrove';
+	status: 'in corso' | 'ti aspetta' | 'nel terminale' | 'in coda' | 'stanotte';
+	project: string;
+	path: string;
+	title: string;
+	since: number;
+	jobId?: string;
+	sessionId?: string;
+	pid?: number;
+	night?: boolean;
+}
+
+export interface WorkCounts {
+	inCorso: number;
+	tiAspetta: number;
+	nelTerminale: number;
+	inCoda: number;
+	stanotte: number;
+	/** sessioni Claude vive in tutto il Mac (in corso + ti aspetta + nel terminale) */
+	vive: number;
+}
+
+const LIVE_STATUS: Record<string, WorkItem['status']> = { busy: 'in corso', idle: 'ti aspetta', shell: 'nel terminale' };
+
+export function workItems(
+	jobs: Job[],
+	live: LiveSession[],
+	projectOfLive: (s: LiveSession) => { name: string; path: string } | undefined,
+	home = '',
+): WorkItem[] {
+	const out: WorkItem[] = [];
+	const claimed = new Set<string>();
+	for (const j of jobs) {
+		if (!active.has(j.status)) continue;
+		if (j.sessionId) claimed.add(j.sessionId);
+		const s = j.sessionId ? live.find(x => x.sessionId === j.sessionId) : undefined;
+		out.push({
+			key: `job:${j.id}`,
+			source: 'bottega',
+			status: j.status as WorkItem['status'],
+			project: j.project,
+			path: j.path,
+			title: j.task.split('\n')[0].slice(0, 140),
+			since: j.status === 'in coda' || j.status === 'stanotte' ? j.createdAt : j.lastActivity || j.startedAt || j.createdAt,
+			jobId: j.id,
+			...(j.sessionId ? { sessionId: j.sessionId } : {}),
+			...(s ? { pid: s.pid } : j.pid ? { pid: j.pid } : {}),
+			...(j.night ? { night: true } : {}),
+		});
+	}
+	// un lavoro appena partito non ha ancora la sua sessione: quella nella stessa cartella, nata dopo, e' sua
+	const pending = jobs.filter(j => !j.sessionId && (j.status === 'in corso' || j.status === 'ti aspetta'));
+	for (const s of live) {
+		if (claimed.has(s.sessionId)) continue;
+		if (pending.some(j => norm(s.cwd) === norm(j.path) && (s.startedAt ?? 0) >= (j.startedAt ?? 0) - 2000)) continue;
+		const p = projectOfLive(s);
+		out.push({
+			key: `sess:${s.sessionId}`,
+			source: 'altrove',
+			status: LIVE_STATUS[s.status] ?? 'nel terminale',
+			project: p ? p.name : s.cwd === home ? 'home' : path.basename(s.cwd),
+			path: p ? p.path : s.cwd,
+			title: s.title ?? s.name ?? '',
+			since: s.statusSince || s.startedAt || 0,
+			sessionId: s.sessionId,
+			pid: s.pid,
+		});
+	}
+	const order: Record<WorkItem['status'], number> = { 'ti aspetta': 0, 'in corso': 1, 'nel terminale': 2, 'in coda': 3, stanotte: 4 };
+	return out.sort((a, b) => order[a.status] - order[b.status] || b.since - a.since);
+}
+
+export function workCounts(items: WorkItem[]): WorkCounts {
+	const c: WorkCounts = { inCorso: 0, tiAspetta: 0, nelTerminale: 0, inCoda: 0, stanotte: 0, vive: 0 };
+	for (const w of items) {
+		if (w.status === 'in corso') c.inCorso++;
+		else if (w.status === 'ti aspetta') c.tiAspetta++;
+		else if (w.status === 'nel terminale') c.nelTerminale++;
+		else if (w.status === 'in coda') c.inCoda++;
+		else if (w.status === 'stanotte') c.stanotte++;
+		if (w.status === 'in corso' || w.status === 'ti aspetta' || w.status === 'nel terminale') c.vive++;
+	}
+	return c;
 }

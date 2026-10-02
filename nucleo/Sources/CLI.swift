@@ -11,6 +11,9 @@
 //    BottegaNucleo --cli stats
 //    BottegaNucleo --cli capabilities
 //    BottegaNucleo --cli tts --out file.wav [--engine elevenlabs|apple] [--via ws|rest] < testo
+//    BottegaNucleo --cli power
+//    BottegaNucleo --cli stato [--file stato.json]   the sentences the App Intents would say
+//    BottegaNucleo --cli spotlight-find <testo>      our own items in the Spotlight index
 //
 //  Exit codes: 0 ok, 1 error (message on stderr), 2 Apple Intelligence unavailable,
 //  64 usage error.
@@ -47,6 +50,18 @@ enum CLI {
             exit(0)
         case "capabilities":
             runAsync { print(JSON.encode(await Capabilities.collect())) }
+        case "power":
+            print(JSON.encode(Power.snapshot()))
+            exit(0)
+        case "stato":
+            // Diagnostics: what "Briefing" and "Stato delle regole" would answer right now.
+            let s = opts["file"].map { Stato.load(from: URL(fileURLWithPath: $0)) } ?? Stato.load()
+            print(JSON.encode(["briefing": s.briefingText, "regole": s.rulesSentence]))
+            exit(0)
+        case "spotlight-find":
+            guard argv.count > 1, !argv[1].hasPrefix("--") else { usage() }
+            let text = argv[1]
+            runAsync { print(JSON.encode(try await Spotlight.find(text))) }
         case "embed":
             let lines = readStdin().components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             do {
@@ -124,6 +139,9 @@ enum CLI {
           stats
           capabilities
           tts --out file.wav [--engine elevenlabs|apple] [--via ws|rest] < testo
+          power
+          stato [--file stato.json]
+          spotlight-find <testo>
 
         """.utf8))
         exit(64)

@@ -136,10 +136,23 @@ export class Memoria {
 		return Memoria.items(await this.runJson<any>(args, []));
 	}
 
-	async recent(project?: string): Promise<MemoryItem[]> {
+	async recent(project?: string, opts: { kinds?: string[]; limit?: number } = {}): Promise<MemoryItem[]> {
 		const args = ['recent'];
 		if (project) args.push('--progetto', project);
+		if (opts.kinds?.length) args.push('--tipo', opts.kinds.join(','));
+		if (opts.limit) args.push('--limite', String(opts.limit));
 		return Memoria.items(await this.runJson<any>(args, []));
+	}
+
+	/** Dettaglio di una sessione (ricordi e ultime osservazioni), o undefined se la Memoria non la conosce. */
+	async session(id: string): Promise<{ session: any; memories: MemoryItem[] } | undefined> {
+		const raw = await this.runJson<any>(['sessione', id], null);
+		return raw && raw.session ? { session: raw.session, memories: Memoria.items(raw.memories) } : undefined;
+	}
+
+	/** Ricerca con piu' risultati (fino a 50), per «Dove l'ho gia' risolto?». */
+	async searchMany(query: string, limit = 20): Promise<MemoryItem[]> {
+		return Memoria.items(await this.runJson<any>(['search', query, '--limite', String(limit)], []));
 	}
 
 	/** Attivita' in diretta delle sessioni. Forma della CLI (contratto, sezione 2):

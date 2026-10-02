@@ -79,6 +79,11 @@ if [[ -f $ROOT/memoria/cli.mjs ]]; then
   rsync -a --delete --exclude test --exclude '*.test.mjs' $ROOT/memoria/ $HOME_EXT/memoria/
 fi
 
+# L'icona si rimette a ogni confezione: patch-source.py la copia solo nella compilazione completa di VS Code.
+ICONFILE=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" $DIST/Contents/Info.plist 2>/dev/null || echo Code.icns)
+[[ $ICONFILE == *.icns ]] || ICONFILE=$ICONFILE.icns
+cp $ROOT/brand/Bottega.icns "$DIST/Contents/Resources/$ICONFILE"
+
 echo "== Info.plist (build $BUILD, macOS minimo $MINOS)"
 PL=$DIST/Contents/Info.plist
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" $PL
@@ -120,6 +125,7 @@ if pgrep -f "$MAIN" >/dev/null; then
 fi
 rm -rf /Applications/Bottega.app
 ditto $DIST /Applications/Bottega.app
+touch /Applications/Bottega.app   # Finder e Dock rileggono l'icona
 # Percorsi stabili per chi sta fuori dall'IDE (hook della Memoria, server MCP).
 APPEXT=/Applications/Bottega.app/Contents/Resources/app/extensions/bottega-home
 mkdir -p ~/.bottega/bin && chmod 700 ~/.bottega
@@ -129,3 +135,14 @@ mkdir -p ~/.local/bin
 ln -sf /Applications/Bottega.app/Contents/Resources/app/bin/code ~/.local/bin/bottega
 echo "Bottega $VERSION (build $BUILD) su VS Code $(python3 -c "import json;print(json.load(open('$DIST/Contents/Resources/app/package.json'))['version'])") installata."
 if (( WAS_RUNNING )); then open -a /Applications/Bottega.app && echo "Bottega riaperta"; fi
+
+# Comandi rapidi, Spotlight e il widget trovano il Nucleo solo se LaunchServices lo conosce: si
+# registra la copia installata e si dimentica quella di sviluppo (stesso bundle id, widget doppio).
+LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+NUCLEO_APP="$APPEXT/nucleo/Bottega Nucleo.app"
+if [[ -d "$NUCLEO_APP" ]]; then
+  $LSREG -u "$ROOT/nucleo/build/Bottega Nucleo.app" 2>/dev/null || true
+  pluginkit -r "$ROOT/nucleo/build/Bottega Nucleo.app/Contents/PlugIns/BottegaWidget.appex" 2>/dev/null || true
+  $LSREG -f "$NUCLEO_APP" && echo "Nucleo registrato (Comandi rapidi, Spotlight)"
+  [[ -d "$NUCLEO_APP/Contents/PlugIns/BottegaWidget.appex" ]] && pluginkit -a "$NUCLEO_APP/Contents/PlugIns/BottegaWidget.appex" || true
+fi

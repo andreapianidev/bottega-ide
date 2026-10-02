@@ -4,13 +4,15 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { LiveSession, PastSession, readLiveSessions, readPastSessions, SESSIONS_DIR } from './claude';
-import { Project, scanProjects } from './scan';
+import { canonKey, Project, projectKey, scanProjects } from './scan';
 import { PlanciaPanel, PlanciaMessage } from './panel';
 import { Nucleo, SystemStats } from './nucleo';
-import { Job, JobManager, computeLimit, limitReason } from './jobs';
+import { Job, JobManager, computeLimit, limitReason, WorkCounts, WorkItem, workCounts, workItems } from './jobs';
 import { Memoria } from './memoria';
 import { Assistant, AssistantState } from './assistant';
 import { StatsEngine } from './stats';
+import { Idee, IdeeDynamic } from './idee';
+import { SferaView } from './sfera';
 
 export interface Snapshot {
 	projects: Project[];
@@ -20,16 +22,26 @@ export interface Snapshot {
 	scannedAt: number;
 	home: string;
 	jobs: Job[];
+	/** Tutto il lavoro in giro: lavori della Bottega e sessioni Claude vive altrove (contratto 4.9). */
+	work: WorkItem[];
+	workCounts: WorkCounts;
 	jobLimit: number;
 	jobLimitReason: string;
 	system: SystemStats | null;
 	nucleo: boolean;
 	assistant: AssistantState;
+	/** Sezione 4 del contratto: regole, radar, briefing, dimenticati, notte, consigli. */
+	rules?: IdeeDynamic['rules'];
+	radar?: IdeeDynamic['radar'];
+	briefing?: IdeeDynamic['briefing'];
+	forgotten?: IdeeDynamic['forgotten'];
+	night?: IdeeDynamic['night'];
+	advice?: IdeeDynamic['advice'];
 }
 
 const DEFAULT_ASSISTANT: AssistantState = { enabled: true, conversing: false, state: 'idle', log: [], brain: 'agnes' };
 
-let snapshot: Snapshot = { projects: [], live: [], elsewhere: [], scannedAt: 0, home: os.homedir(), jobs: [], jobLimit: 3, jobLimitReason: 'valori predefiniti', system: null, nucleo: false, assistant: DEFAULT_ASSISTANT };
+let snapshot: Snapshot = { projects: [], live: [], elsewhere: [], scannedAt: 0, home: os.homedir(), jobs: [], work: [], workCounts: workCounts([]), jobLimit: 3, jobLimitReason: 'valori predefiniti', system: null, nucleo: false, assistant: DEFAULT_ASSISTANT };
 const changed = new vscode.EventEmitter<Snapshot>();
 // Le viste ad albero vogliono un evento senza argomento: con un argomento aggiornerebbero solo quell'elemento.
 const treesChanged = new vscode.EventEmitter<void>();
@@ -42,6 +54,9 @@ let memoria: Memoria | undefined;
 let assistant: Assistant | undefined;
 let panelHost: PlanciaPanel | undefined;
 let statsEngine: StatsEngine | undefined;
+let idee: Idee | undefined;
+let sferaView: SferaView | undefined;
+let paintStatus: (() => void) | undefined;
 /** Il cruscotto si calcola solo dopo che la plancia l'ha chiesto almeno una volta. */
 let statsWanted = false;
 let statsSent = '';
@@ -58,17 +73,27 @@ function attachTitles(live: LiveSession[], past: PastSession[]): LiveSession[] {
 }
 
 /** I campi dinamici (lavori, sistema, assistente) che vivono fuori dalla scansione. */
-function withDynamic(base: Omit<Snapshot, 'jobs' | 'jobLimit' | 'jobLimitReason' | 'system' | 'nucleo' | 'assistant'>): Snapshot {
+/** Il progetto di una sessione viva, come lo vede la plancia. */
+function projectOfLive(projects: Project[], l: LiveSession): Project | undefined {
+	return projects.find(p => p.live.some(x => x.pid === l.pid));
+}
+
+function withDynamic(base: Omit<Snapshot, 'jobs' | 'work' | 'workCounts' | 'jobLimit' | 'jobLimitReason' | 'system' | 'nucleo' | 'assistant' | keyof IdeeDynamic>): Snapshot {
 	const setting = cfg().get<string | number>('jobs.maxParallel', 'auto');
 	const stats = nucleo?.lastStats;
+	const jobs = jobManager ? jobManager.list() : snapshot.jobs;
+	const work = workItems(jobs, base.live, l => projectOfLive(base.projects, l), base.home);
 	return {
 		...base,
-		jobs: jobManager ? jobManager.list() : snapshot.jobs,
+		jobs,
+		work,
+		workCounts: workCounts(work),
 		jobLimit: computeLimit(setting, stats),
 		jobLimitReason: limitReason(setting, stats),
 		system: stats ?? null,
 		nucleo: nucleo?.available ?? false,
 		assistant: assistant ? assistant.getState() : snapshot.assistant,
+		...(idee ? idee.dynamic() : {}),
 	};
 }
 
@@ -88,6 +113,7 @@ async function fullScan(): Promise<void> {
 		});
 		changed.fire(snapshot);
 		void jobManager?.reconcile();
+		idee?.afterScan();
 		if (statsWanted) void sendStats(false);
 	})().finally(() => (scanning = undefined));
 	return scanning;
@@ -98,7 +124,7 @@ function liveScan(): void {
 	const live = attachTitles(readLiveSessions(), [...snapshot.projects.flatMap(p => p.sessions), ...snapshot.elsewhere]);
 	for (const p of snapshot.projects) {
 		const mine = new Set(p.sessions.map(x => x.sessionId));
-		p.live = live.filter(s => norm(s.cwd).startsWith(norm(p.path) + '/') || mine.has(s.sessionId));
+		p.live = live.filter(s => canonKey(s.cwd).startsWith(projectKey(p.path)) || mine.has(s.sessionId));
 	}
 	snapshot = withDynamic({ ...snapshot, live });
 	changed.fire(snapshot);
@@ -109,6 +135,7 @@ function liveScan(): void {
 function refreshDynamic(): void {
 	snapshot = withDynamic(snapshot);
 	panelHost?.send({ type: 'snapshot', snapshot });
+	paintStatus?.();
 }
 
 export function projectFor(p: string): Project | undefined {
@@ -165,7 +192,7 @@ function ago(ms: number): string {
 	return d === 1 ? 'ieri' : `${d} giorni fa`;
 }
 
-const STATUS: Record<string, string> = { busy: 'al lavoro', idle: 'in attesa', shell: 'nel terminale' };
+const STATUS: Record<string, string> = { busy: 'al lavoro', idle: 'ti aspetta', shell: 'nel terminale' };
 
 class LiveTree implements vscode.TreeDataProvider<LiveSession> {
 	readonly onDidChangeTreeData = treesChanged.event;
@@ -315,7 +342,7 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 		case 'push':
 			return m.path ? push(m.path) : undefined;
 		case 'job.new':
-			if (m.path && m.task) jobManager?.start(m.path, m.task);
+			if (m.path && m.task) jobManager?.start(m.path, m.task, { night: !!m.night });
 			return;
 		case 'job.focus':
 			if (m.id) jobManager?.focus(m.id);
@@ -355,6 +382,19 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 		case 'assistant.ask':
 			if (m.text) await assistant?.ask(m.text);
 			return;
+		default:
+			await idee?.handle(m);
+	}
+}
+
+/** La Home davanti, su una stanza o su un progetto. Con `activate` porta anche la Bottega in primo piano
+ *  (clic dalla barra dei menu o da una notifica, quando l'app e' dietro). */
+function showHome(view?: string, focusPath?: string, activate = false): void {
+	panelHost?.show(focusPath);
+	if (view) panelHost?.send({ type: 'view', view });
+	if (activate && !vscode.window.state.focused) {
+		const app = path.resolve(vscode.env.appRoot, '..', '..', '..');
+		execFile('open', ['-a', app]);
 	}
 }
 
@@ -373,7 +413,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		systemStats: () => nucleo?.lastStats,
 		liveSessions: () => snapshot.live,
 		notify: args => nucleo?.fireAndForget('notify', args),
-		updateMenubar: counts => nucleo?.fireAndForget('menubar.update', { busy: counts.busy, waiting: counts.waiting, queued: counts.queued }),
+		updateMenubar: counts => (idee ? idee.paintMenubar(counts) : nucleo?.fireAndForget('menubar.update', { busy: counts.busy, waiting: counts.waiting, queued: counts.queued })),
 		onChange: () => refreshDynamic(),
 	});
 
@@ -394,9 +434,17 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			openFile,
 			editorContext,
 			showPlancia,
+			rulesSummary: p => idee?.rulesSummary(p) ?? 'Il semaforo non è pronto.',
+			briefing: async () => (idee ? idee.briefingFacts() : 'Il briefing non è pronto.'),
+			prepareContinue: async name => idee?.prepareForMelissa(name),
+			startPrepared: (p, prompt) => void jobManager!.start(p, prompt),
+			whereSolved: async q => (idee ? idee.whereSolvedText(q) : 'La ricerca non è pronta.'),
+			storeSummary: () => idee?.storeSummary() ?? 'Il radar non è pronto.',
+			queueNight: (p, task) => idee?.queueNight(p, task) ?? 'La coda della notte non è pronta.',
 		},
 		liveSessions: () => snapshot.live,
 		jobs: () => (jobManager ? jobManager.list() : []),
+		work: () => snapshot.work,
 		systemStats: () => nucleo?.lastStats,
 		projectCount: () => snapshot.projects.length,
 		bacheca: async project => (memoria ? (await memoria.bacheca(project)).map(r => ({ title: r.project, text: r.summary, project: r.project })) : []),
@@ -406,21 +454,45 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		onState: state => {
 			snapshot.assistant = state;
 			panelHost?.send({ type: 'assistant', state });
+			sferaView?.send(state);
 		},
+		onConverse: () => sferaView?.reveal(),
 	});
 
 	panelHost = new PlanciaPanel(ctx.extensionUri, () => snapshot, changed.event, m => void onPlanciaMessage(m));
 	assistant.wire(ctx);
 
+	idee = new Idee({
+		projects: () => snapshot.projects,
+		live: () => snapshot.live,
+		workCounts: () => snapshot.workCounts,
+		nucleo: nucleo!,
+		memoria: memoria!,
+		jobs: jobManager!,
+		assistant: () => assistant,
+		stats: statsEngine!,
+		send: msg => panelHost?.send(msg),
+		showHome: (view, focusPath) => showHome(view, focusPath, true),
+		push,
+		openProject: p => openProject(p),
+		refresh: () => refreshDynamic(),
+		log: s => console.warn(s),
+	});
+	idee.start(ctx);
+
 	const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 1000);
 	status.command = 'bottega.openPlancia';
 	const paint = () => {
-		const busy = snapshot.live.filter(s => s.status === 'busy').length;
+		const c = snapshot.workCounts;
 		const toPush = snapshot.projects.filter(p => (p.git?.ahead ?? 0) > 0).length;
-		status.text = `$(sparkle) ${busy}/${snapshot.live.length}` + (toPush ? `  $(cloud-upload) ${toPush}` : '');
-		status.tooltip = `${busy} sessioni Claude al lavoro su ${snapshot.live.length} aperte` + (toPush ? `\n${toPush} progetti con commit da spingere` : '');
+		status.text = `$(sparkle) ${c.inCorso}` + (c.tiAspetta ? `  $(bell-dot) ${c.tiAspetta}` : '') + (toPush ? `  $(cloud-upload) ${toPush}` : '');
+		status.tooltip =
+			`${c.inCorso} al lavoro, ${c.tiAspetta} ti aspettano, ${c.vive} sessioni Claude vive in tutto` +
+			(c.inCoda ? `, ${c.inCoda} in coda` : '') + (c.stanotte ? `, ${c.stanotte} per stanotte` : '') +
+			(toPush ? `\n${toPush} progetti con commit da spingere` : '');
 		status.show();
 	};
+	paintStatus = paint;
 
 	ctx.subscriptions.push(
 		changed,
@@ -431,6 +503,9 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		{ dispose: () => jobManager?.dispose() },
 		vscode.window.registerTreeDataProvider('bottega.live', new LiveTree()),
 		vscode.window.registerTreeDataProvider('bottega.projects', new ProjectTree()),
+		vscode.window.registerWebviewPanelSerializer('bottega.plancia', {
+			deserializeWebviewPanel: async panel => panelHost?.adopt(panel),
+		}),
 		vscode.commands.registerCommand('bottega.openPlancia', (focus?: string) => panelHost!.show(typeof focus === 'string' ? focus : undefined)),
 		vscode.commands.registerCommand('bottega.refresh', () => fullScan()),
 		vscode.commands.registerCommand('bottega.claudeHere', (uri?: vscode.Uri) => {
@@ -486,11 +561,35 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	ctx.subscriptions.push({ dispose: () => (clearInterval(tick), clearInterval(slow)) });
 	vscode.window.onDidChangeWindowState(s => s.focused && Date.now() - snapshot.scannedAt > 30_000 && void fullScan(), null, ctx.subscriptions);
 
-	// Melissa ha la sua icona nella barra laterale: aprirla porta dritto alla sua pagina.
-	const melissaView = vscode.window.createTreeView('bottega.melissa', { treeDataProvider: { getChildren: () => [], getTreeItem: (x: vscode.TreeItem) => x } });
-	melissaView.onDidChangeVisibility(e => e.visible && showPlancia('melissa'), null, ctx.subscriptions);
+	// Melissa ha la sua icona nella barra laterale: li' vive la sua sfera, dentro l'IDE.
+	sferaView = new SferaView(ctx.extensionUri, () => assistant?.getState(), {
+		converse: () => assistant?.toggleConversation(),
+		ask: text => void assistant?.ask(text),
+		open: () => showPlancia('melissa'),
+		toggle: () => void assistant?.toggle(),
+	});
 	ctx.subscriptions.push(
-		melissaView,
+		vscode.window.registerWebviewViewProvider(SferaView.id, sferaView),
+		vscode.commands.registerCommand('bottega.openVedetta', () => showPlancia('vedetta')),
+		vscode.commands.registerCommand('bottega.openClienti', () => showPlancia('clienti')),
+		vscode.commands.registerCommand('bottega.briefing', () => {
+			showPlancia('plancia');
+			void idee?.listen();
+		}),
+		vscode.commands.registerCommand('bottega.regole.controlla', () => void idee?.rules.check(snapshot.projects, { force: true })),
+		vscode.commands.registerCommand('bottega.cerca', async () => {
+			const q = await vscode.window.showInputBox({ title: 'Dove l\'ho già risolto?', prompt: 'Cerca nella memoria e nel codice di tutti i progetti', ignoreFocusOut: true });
+			if (!q) return;
+			showPlancia('memoria');
+			panelHost?.send({ type: 'ricerca.avvia', query: q });
+		}),
+		vscode.commands.registerCommand('bottega.continua', async () => {
+			const pick = await vscode.window.showQuickPick(
+				snapshot.projects.map(p => ({ label: p.name, description: ago(p.touchedAt), detail: p.path })),
+				{ placeHolder: 'Quale progetto riprendo?', matchOnDetail: true },
+			);
+			if (pick?.detail) await idee?.handle({ type: 'continua.prepare', path: pick.detail }).then(() => showPlancia('plancia'));
+		}),
 		vscode.commands.registerCommand('bottega.openMelissa', () => showPlancia('melissa')),
 		vscode.commands.registerCommand('bottega.openCruscotto', () => showPlancia('cruscotto')),
 		vscode.commands.registerCommand('bottega.voice.converse', () => assistant?.toggleConversation()),
@@ -503,8 +602,9 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		void ext.update('verifySignature', false, vscode.ConfigurationTarget.Global);
 	}
 
-	if (!vscode.workspace.workspaceFolders?.length && cfg().get('openOnStartup', true)) {
-		panelHost.show();
+	// La Home e' fissa: si apre sempre, anche con una cartella aperta (senza rubare il fuoco).
+	if (cfg().get('openOnStartup', true)) {
+		panelHost.show(undefined, { preserveFocus: !!vscode.workspace.workspaceFolders?.length });
 	}
 	await fullScan();
 	ensureClaudeExtension(ctx);
@@ -541,17 +641,31 @@ async function ensureItalian(ctx: vscode.ExtensionContext) {
 	}
 }
 
+/** L'estensione ufficiale Claude Code da Open VSX. Si riprova a ogni avvio finche' non c'e' (al massimo tre
+ *  tentativi al giorno), e solo dopo aver spento la verifica delle firme: con la verifica accesa ogni estensione da
+ *  Open VSX si ferma su "cannot verify the extension signature" (e' cosi' che il primo tentativo era caduto). */
 async function ensureClaudeExtension(ctx: vscode.ExtensionContext) {
 	const id = 'anthropic.claude-code';
-	if (!cfg().get('installClaudeExtension', true) || vscode.extensions.getExtension(id) || ctx.globalState.get('bottega.claudeInstallTried')) {
-		return;
+	if (!cfg().get('installClaudeExtension', true) || vscode.extensions.getExtension(id)) return;
+	const day = new Date().toISOString().slice(0, 10);
+	const tries = ctx.globalState.get<{ day: string; n: number }>('bottega.claudeInstall');
+	const n = tries?.day === day ? tries.n : 0;
+	if (n >= 3) return;
+	await ctx.globalState.update('bottega.claudeInstall', { day, n: n + 1 });
+	const ext = vscode.workspace.getConfiguration('extensions');
+	if (ext.get<boolean>('verifySignature') !== false) {
+		await ext.update('verifySignature', false, vscode.ConfigurationTarget.Global);
 	}
-	await ctx.globalState.update('bottega.claudeInstallTried', true);
 	try {
 		await vscode.commands.executeCommand('workbench.extensions.installExtension', id);
-		vscode.window.showInformationMessage('Estensione Claude Code installata da Open VSX.');
-	} catch (e) {
-		vscode.window.showWarningMessage(`Non riesco a installare Claude Code (${id}): cercala nel pannello Estensioni.`);
+		vscode.window.showInformationMessage('Ho installato l\'estensione Claude Code da Open VSX.');
+	} catch (e: any) {
+		const why = String(e?.message ?? e ?? '').split('\n')[0].slice(0, 200);
+		const choice = await vscode.window.showWarningMessage(
+			`Non riesco a installare l'estensione Claude Code (tentativo ${n + 1} di 3 oggi), riprovo al prossimo avvio.${why ? ` Motivo: ${why}` : ''}`,
+			'Apri le estensioni',
+		);
+		if (choice) void vscode.commands.executeCommand('workbench.extensions.search', id);
 	}
 }
 
