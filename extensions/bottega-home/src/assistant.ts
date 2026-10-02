@@ -718,27 +718,29 @@ export class Assistant {
 
 	/** Comando bottega.voice.converse e icona di Melissa: apre o chiude la conversazione. */
 	toggleConversation(): void {
+		this.out.info(`tocco: voce ${this.state.enabled ? 'accesa' : 'spenta'}, conversazione ${this.state.conversing ? 'aperta' : 'chiusa'}`);
 		if (!this.state.enabled) {
 			void this.toggle().then(() => this.startConversation());
 			return;
 		}
-		if (this.state.conversing) this.stopConversation();
+		if (this.state.conversing) this.stopConversation('tocco sulla sfera o comando');
 		else this.startConversation();
 	}
 
 	private onOrbClicked(): void {
 		if (!this.state.enabled) return;
 		this.out.info('clic sulla sfera');
-		if (this.state.conversing) this.stopConversation();
+		if (this.state.conversing) this.stopConversation('clic sulla sfera del Nucleo');
 		else this.startConversation();
 	}
 
 	/** Comando bottega.voice.toggle: interruttore generale di Melissa. */
 	async toggle(): Promise<void> {
 		this.state.enabled = !this.state.enabled;
+		this.out.info(`voce ${this.state.enabled ? 'accesa' : 'spenta'}`);
 		await vscode.workspace.getConfiguration('bottega').update('voice.enabled', this.state.enabled, vscode.ConfigurationTarget.Global);
 		if (!this.state.enabled) {
-			this.stopConversation();
+			this.stopConversation('voce spenta');
 			this.deps.nucleo.fireAndForget('voice.stop');
 			this.deps.nucleo.fireAndForget('orb.hide');
 			this.setState('idle');
@@ -775,7 +777,7 @@ export class Assistant {
 				this.awaitingPushFinal = false; // il push appena avviato e' annullato: la sua frase non conta
 				this.deps.nucleo.fireAndForget('voice.stop');
 			}
-			if (this.state.conversing) this.stopConversation();
+			if (this.state.conversing) this.stopConversation('tocco di Opzione+Spazio');
 			else this.startConversation();
 			return;
 		}
@@ -790,6 +792,7 @@ export class Assistant {
 	}
 
 	private startConversation(): void {
+		this.out.info(`conversazione aperta (Nucleo ${this.deps.nucleo.available ? 'pronto' : 'non disponibile'})`);
 		this.state.conversing = true;
 		this.showBigOrb();
 		this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });
@@ -801,7 +804,7 @@ export class Assistant {
 		this.armSilence();
 	}
 
-	private stopConversation(): void {
+	private stopConversation(reason = 'chiusa'): void {
 		if (!this.state.conversing) return;
 		this.state.conversing = false;
 		this.deps.cervelli?.endConversation();
@@ -810,7 +813,7 @@ export class Assistant {
 		this.currentAbort?.abort();
 		this.deps.nucleo.fireAndForget('voice.stopSpeaking');
 		this.deps.nucleo.fireAndForget('voice.converse.stop');
-		this.out.info('conversazione chiusa');
+		this.out.info(`conversazione chiusa: ${reason}`);
 		this.deps.nucleo.fireAndForget('orb.state', { state: 'idle' });
 		this.restOrb();
 		this.setState('idle');
@@ -821,7 +824,7 @@ export class Assistant {
 	private voiceFailed(message: string): void {
 		this.out.error(`voce: ${message}`);
 		const wasConversing = this.state.conversing;
-		this.stopConversation();
+		this.stopConversation('errore della voce');
 		this.awaitingPushFinal = false;
 		this.pushLog('azione', `La voce non funziona: ${message}`);
 		this.setState('error', message);
@@ -830,7 +833,7 @@ export class Assistant {
 
 	private armSilence(): void {
 		clearTimeout(this.silenceTimer);
-		this.silenceTimer = setTimeout(() => this.stopConversation(), SILENCE_MS);
+		this.silenceTimer = setTimeout(() => this.stopConversation('60 s di silenzio'), SILENCE_MS);
 	}
 
 	// ----- barge-in: Andrea parla sopra Melissa -----
@@ -876,7 +879,7 @@ export class Assistant {
 			this.armSilence();
 			if (isEndWord(text)) {
 				await this.sayFull('A dopo.', true);
-				this.stopConversation();
+				this.stopConversation('parola di chiusura');
 				return;
 			}
 		}

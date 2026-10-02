@@ -9,7 +9,7 @@
 //   - converse:  mic always open, every utterance the server closes is a user turn
 //                (voice.final); barge-in stops Melissa when the user talks over her;
 //   - wake:      waits for a phrase ("melissa"), event wake.detected.
-//  Conversation and wake send only the audio around the voice (cost and CPU).
+//  Wake sends only the audio around the voice; conversation sends everything (see open()).
 //
 //  Lessons kept from Melissa (Avo Agency AI, VoiceSession.swift):
 //   - a FRESH AVAudioEngine per listening window (a reused one fails with -10868 after
@@ -308,6 +308,7 @@ final class Listener {
     // MARK: - Conversation
 
     func converseStart(locale loc: String?) async throws {
+        Log.info("conversazione richiesta\(conversing ? ": era gia' aperta" : "")")
         if conversing { return }
         if isCapturing { await finishWindow(emit: true, commitFirst: true) }
         await suspendWake()
@@ -317,6 +318,7 @@ final class Listener {
 
     func converseStop() async {
         guard conversing else { return }
+        Log.info("conversazione chiusa dal Nucleo, audio inviato in questa sessione: \(String(format: "%.1f", sttSecondsSent)) s")
         // Chiudere la conversazione la chiude davvero: la frase a meta' non diventa una domanda.
         await closeWindowAudio()
         mode = nil
@@ -363,8 +365,12 @@ final class Listener {
         try await Self.ensureMicrophone()
         locale = loc
         let s = try await ensureSTT(locale: loc)
-        // Conversation and wake: only the audio around the voice goes out.
-        s.setGated(newMode == .converse || newMode == .wake)
+        // Only the wake word listens through the gate. In conversation everything goes to the
+        // transcription: on 2/10/2026 the gate (level > 0.08, about -37 dBFS) kept a MacBook Air
+        // built-in mic without voice processing (VPIO fails with -10875) below the threshold, so
+        // ElevenLabs got no audio at all and dropped the socket after 14 s. A conversation closes
+        // after 60 s of silence, so the extra audio is bounded.
+        s.setGated(newMode == .wake)
         resetWindow()
         tap.setEmitLevels(newMode != .wake)
         tap.armVAD(false)
@@ -463,6 +469,7 @@ final class Listener {
     }
 
     private func resetWindow() {
+        partialLogged = false
         committedText = ""
         partialText = ""
         commitArrived = false
@@ -558,7 +565,7 @@ final class Listener {
                 Task {
                     do {
                         let s = try await ensureSTT(locale: locale)
-                        s.setGated(true)
+                        s.setGated(m == .wake)
                         tap.setSTT(s)
                         Log.info("trascrizione ricollegata")
                     } catch {
@@ -572,7 +579,13 @@ final class Listener {
         }
     }
 
+    private var partialLogged = false
+
     private func handlePartial(_ text: String) {
+        if !partialLogged, !text.isEmpty {
+            partialLogged = true
+            Log.info("prima trascrizione parziale ricevuta (\(text.count) caratteri)")
+        }
         guard let m = mode, !text.isEmpty, text != partialText else { return }
         switch m {
         case .wake:

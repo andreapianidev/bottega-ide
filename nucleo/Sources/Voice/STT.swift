@@ -203,6 +203,7 @@ final class ScribeClient: @unchecked Sendable {
             return
         }
         lastActivity = Date()
+        if secondsSent == 0, !audio.isEmpty { Log.info("trascrizione: primo audio inviato a ElevenLabs") }
         secondsSent += Double(audio.count) / Double(Self.sampleRate * 2)
         let frame = "{\"message_type\":\"input_audio_chunk\",\"audio_base_64\":\"\(audio.base64EncodedString())\",\"commit\":\(commit),\"sample_rate\":\(Self.sampleRate)}"
         socket.send(.string(frame)) { error in
