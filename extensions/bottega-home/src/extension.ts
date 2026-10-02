@@ -12,7 +12,7 @@ import { Memoria } from './memoria';
 import { Assistant, AssistantState } from './assistant';
 import { StatsEngine } from './stats';
 import { Idee, IdeeDynamic } from './idee';
-import { handleConnettori, registerConnettori } from './connettori-host';
+import { handleConnettori, registerConnettori, stanzaConnettori } from './connettori-host';
 import { BarraView } from './barra';
 import { brainName } from './assistant';
 import { Cervelli, Effort, FAMILIES, Provider, spokenChoice } from './cervelli';
@@ -26,11 +26,15 @@ import { TOOLS } from './assistant';
 import { registraStrumentiConnettori, STRUMENTI_CONNETTORI } from './strumenti-connettori';
 import { registerTerminale, STRUMENTI_TERMINALE } from './terminale-host';
 import { AppStore } from './appstore';
+import { registraStrumentiStanze, STRUMENTI_STANZE } from './strumenti-stanze';
+import { buildReport, readClients } from './clienti';
 
 // Melissa usa i connettori di Claude Code in sola lettura (docs/CONTRATTI.md, 5 e 6): prima che nasca l'assistente.
 Object.assign(TOOLS, STRUMENTI_CONNETTORI satisfies typeof TOOLS);
 // Il terminale (docs/CONTRATTI.md, 12): «aprimi un terminale su Woofmap».
 Object.assign(TOOLS, STRUMENTI_TERMINALE satisfies typeof TOOLS);
+// Le stanze della plancia lette e mostrate a voce (docs/CONTRATTI.md, 6): «quanto ho guadagnato a settembre».
+Object.assign(TOOLS, STRUMENTI_STANZE satisfies typeof TOOLS);
 
 export interface Snapshot {
 	projects: Project[];
@@ -240,7 +244,7 @@ function showCruscotto(project?: string, period?: number): string {
 	panelHost?.send({ type: 'view', view: 'cruscotto' });
 	panelHost?.send({ type: 'crus.focus', ...(p ? { path: p.path } : {}), ...(days ? { period: days } : {}) });
 	if (project && !p) return `Ho aperto il cruscotto, ma non trovo il progetto "${project}".`;
-	return `Cruscotto aperto${p ? ` su ${p.name}` : ''}${days ? `, ultimi ${days} giorni` : ''}. Le cifre le vedi tu: se te le devo dire, chiedimele.`;
+	return `Cruscotto aperto${p ? ` su ${p.name}` : ''}${days ? `, ultimi ${days} giorni` : ''}. Per dire le cifre chiama stanza_leggi con stanza cruscotto, stesso progetto e periodo.`;
 }
 
 /** Statistiche di sistema ogni 10 s se servono (Home davanti, o lavori in corso o in coda che dipendono dalla
@@ -677,6 +681,17 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	appStore = new AppStore({ radar: () => idee?.radar, projects: () => snapshot.projects, log: s => console.warn(s) });
 	appStore.onChange(s => panelHost?.send({ type: 'appstore', state: s }));
 	registraStrumentiConnettori(registerConnettori(ctx, { projects: () => snapshot.projects, send: msg => panelHost?.send(msg), showHome: view => showHome(view, undefined, true), log: s => console.warn(s) }));
+	// Melissa legge le stanze dagli stessi stati della plancia (src/strumenti-stanze.ts)
+	const calcolaStats = async () => {
+		if (!snapshot.scannedAt) await fullScan();
+		return statsEngine ? statsEngine.compute({ projects: snapshot.projects, live: snapshot.live }) : null;
+	};
+	registraStrumentiStanze({
+		progetto: resolveProject, stats: calcolaStats, appStore: () => appStore?.state(), regole: () => idee?.rules.state(), radar: () => idee?.radar.state(),
+		clienti: async mese => ((await calcolaStats()) && statsEngine ? buildReport(statsEngine.lastLedger, readClients(), snapshot.projects, mese) : null),
+		memoria: () => memoria, connettori: stanzaConnettori, notte: () => idee?.night.state(),
+		mostra: (view, p) => showHome(view, p), send: msg => panelHost?.send(msg), osservatorio: () => vscode.commands.executeCommand('bottega.openOsservatorio'),
+	});
 
 	// La parte nativa (docs/CONTRATTI.md, 7 e 8): Osservatorio, bacheca viva, categorie del lavoro (Apple
 	// Intelligence), schermate delle trascrizioni lette con Vision e rese cercabili nella Memoria.
