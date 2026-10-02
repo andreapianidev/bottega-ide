@@ -21,6 +21,7 @@
 		['melissa', 'Melissa'],
 		['cruscotto', 'Cruscotto'],
 		['vedetta', 'Vedetta'],
+		['appstore', 'App Store'],
 		['clienti', 'Clienti'],
 		['connettori', 'Connettori'],
 	];
@@ -58,6 +59,7 @@
 		/** @type {any} */ crus: saved.crus || {},
 		/** @type {any} */ vedetta: saved.vedetta || {},
 		/** @type {any} */ clienti: saved.clienti || {},
+		/** @type {any} */ appstore: saved.appstore || {},
 		/** numeri del cruscotto per il quadro della Home (messaggio stats) */
 		/** @type {any} */ stats: null,
 		statsAskedAt: 0,
@@ -91,6 +93,7 @@
 			crus: state.crus,
 			vedetta: state.vedetta,
 			clienti: state.clienti,
+			appstore: state.appstore,
 		});
 
 	// ---------- piccoli attrezzi ----------
@@ -496,6 +499,7 @@
 	<section class="vista" id="vista-vedetta" role="tabpanel" aria-labelledby="tab-vedetta" hidden></section>
 	<section class="vista" id="vista-clienti" role="tabpanel" aria-labelledby="tab-clienti" hidden></section>
 	<section class="vista" id="vista-connettori" role="tabpanel" aria-labelledby="tab-connettori" hidden></section>
+	<section class="vista" id="vista-appstore" role="tabpanel" aria-labelledby="tab-appstore" hidden></section>
 
 	<div class="velo" id="continua-velo" hidden>
 		<div class="dialogo" id="continua" role="dialog" aria-modal="true" aria-labelledby="continua-titolo" aria-describedby="continua-fonti">
@@ -530,6 +534,7 @@
 		['vedetta', 'BottegaVedetta', 'vedetta', 'La Vedetta'],
 		['clienti', 'BottegaClienti', 'clienti', 'La stanza dei clienti'],
 		['connettori', 'BottegaConnettori', 'connettori', 'La stanza dei connettori'],
+		['appstore', 'BottegaAppStore', 'appstore', 'La stanza App Store'],
 	];
 	/** @type {Record<string, any>} */ const rooms = {};
 	for (const [id, global, key, name] of ROOMS) {
@@ -2282,7 +2287,7 @@
 	app.addEventListener('click', e => {
 		const t = /** @type {HTMLElement} */ (e.target);
 		// le stanze esterne gestiscono i loro clic da sole
-		if (t.closest('#vista-cruscotto, #vista-vedetta, #vista-clienti')) return;
+		if (t.closest('#vista-cruscotto, #vista-vedetta, #vista-clienti, #vista-appstore')) return;
 		const tab = t.closest('[data-view]');
 		// una scheda si apre dov'e'; una cifra della Home porta il fuoco sulla scheda della stanza
 		if (tab) return show(tab.getAttribute('data-view') || 'plancia', tab.getAttribute('role') !== 'tab');
@@ -2785,6 +2790,8 @@
 			case 'clients':
 			case 'clients.exported':
 				return room('clienti', 'message', m);
+			case 'appstore':
+				return room('appstore', 'message', m);
 			case 'connettori':
 			case 'posta':
 				return room('connettori', 'message', m);

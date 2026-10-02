@@ -1593,3 +1593,117 @@ in `extensions/bottega-theme`.
 - **Melissa**: `terminale_apri {progetto?, esterno?}`: un terminale nella cartella del progetto (o nella cartella
   corrente), nella Bottega o, con `esterno: true`, in iTerm2. Registrato da `extension.ts` come gli strumenti dei
   connettori (`Object.assign(TOOLS, STRUMENTI_TERMINALE)`).
+
+## 13. La stanza App Store
+
+Codice: `src/appstore.ts` (motore, regole dei buchi e lettura dei repository, provato da `test/appstore.cjs`),
+`media/appstore.js` e `media/appstore.css` (la stanza, montata da `plancia.js` come le altre: `BottegaAppStore.mount`).
+Aggancio in `extension.ts`: `new AppStore({ radar: () => idee.radar, projects, log })`.
+
+### 13.1 Fonti
+
+Tutte dirette, gratis, con le credenziali che il radar usa gia' (sezione 4.1). `Radar.asc()`, `Radar.admob()` e
+`Radar.ascJwt()` sono pubblici per questo: un solo JWT e un solo token di Google per le due cose.
+
+- **Vendite di App Store Connect**: `GET /v1/salesReports`, `reportType=SALES`, `reportSubType=SUMMARY`,
+  `vendorNumber=ASC_VENDOR_NUMBER` (da `~/.secrets/appstoreconnect-api.env`). Giornalieri versione `1_1` per gli ultimi
+  62 giorni, mensili versione `1_0` per i 24 mesi (escluso quello in corso, che si somma dai giorni). TSV dentro gzip.
+  Si contano: download nuovi (`1`, `1F`, `1T`, `F1`, `1E`, `1EP`, `1EU`), riscaricamenti (`3`, `3F`, `F3`), acquisti
+  in-app (`IA1`, `IA9`, `IAY`, `IAC`, `FI1`, con `Subscription` New o Renewal), ricavi = `Units` x `Developer Proceeds`
+  nella `Currency of Proceeds`. Gli aggiornamenti (`7*`) no. Un acquisto va alla sua app con `Parent Identifier` (lo
+  SKU della app); se lo SKU non si conosce resta sotto `sku:<sku>` e fuori dalle app.
+  Risposte: 200 si legge e si tiene per sempre; 410 e' `perso` (Apple non lo da' piu': nei grafici e' n/d, non zero);
+  404 con «no sales» e' `vuoto`, ma Apple risponde cosi' anche per un report non ancora pubblicato, quindi un vuoto
+  degli ultimi 4 giorni o degli ultimi 3 mesi non si tiene e si richiede; ogni altro 404 si richiede.
+- **AdMob**: `accounts`, `apps` e `adUnits` (elenchi) e cinque `networkReport:generate`: `DATE x APP` (62 giorni,
+  euro e impressioni), `MONTH x APP` (24 mesi), `APP x FORMAT`, `AD_UNIT` e `COUNTRY` sugli ultimi 30 giorni
+  (euro, richieste, abbinate, impressioni, clic). Si rileggono a ogni aggiornamento: AdMob ritocca gli ultimi giorni.
+  Valuta del conto AdMob: euro.
+- **Cambi**: `https://open.er-api.com/v6/latest/EUR`, senza chiave, al massimo una volta al giorno; senza risposta si
+  tengono gli ultimi. Le valute senza cambio finiscono in `senzaCambio` e fuori dai totali.
+- **I repository**: le app si collegano ai progetti con i bundle id (`projectBundleIds` del radar) e, per Android, con
+  l'`applicationId` di `app/build.gradle(.kts)`. `leggiRepo` legge fino a 5000 file (Swift, Objective-C, Kotlin, Java,
+  plist, pbxproj, xcconfig, xml, gradle, Podfile, Package.resolved; non `node_modules`, `Pods`, `build`,
+  `DerivedData`, `.git`, `.claude`...) e cerca: SDK di AdMob, formati usati nel codice, consenso UMP,
+  `NSUserTrackingUsageDescription` e `requestTrackingAuthorization`, quanti identificativi SKAdNetwork, l'ID di prova
+  di Google fuori da un file con `DEBUG` (test e framework esclusi), gli ID di unita' con la piattaforma del file
+  (segnaposto come `0000...` o `0123456789...` esclusi), acquisti in-app veri (non basta `import StoreKit`). Si
+  rilegge ogni 6 ore o con «Aggiorna».
+
+Cache in `~/.bottega/appstore/` (cartella 700, file 600): `vendite.json` (report letti, SKU, nomi, cambi, repository)
+e `stato.json` (l'ultimo stato, mostrato subito all'apertura). Tra due letture almeno 45 minuti, salvo «Aggiorna».
+Prima lettura: circa 85 report, mezzo minuto; poi uno o due report al giorno. Se AdMob non risponde si tengono i suoi
+numeri dell'ultima lettura buona, spostati sulle date nuove.
+
+### 13.2 Stato (`AppStoreStato`, estensione -> plancia `{ type: 'appstore', state }`)
+
+```ts
+{
+  aggiornatoAt, aggiornando, fase?,            // fase: «Scarico le vendite dello Store: 30 report su 85»
+  errori: { store?, admob?, cambi?, repo? },   // frasi in italiano
+  valuta: 'EUR',
+  giorni: string[],        // YYYY-MM-DD, 62, fino a ieri
+  mesi: string[],          // YYYY-MM, 24, fino al mese in corso
+  storeFinoA?: string,     // ultimo giorno con il report dello Store (Apple pubblica verso le 14)
+  storeSenzaDati: string[],// mesi «perso»
+  totale: { giorni: Serie, mesi: Serie },      // Serie = { admob: number[], store: number[], dl: number[] }, euro
+  app: AppRiga[],          // ordinate per euro degli ultimi 30 giorni
+  paesi: { codice, euro, impressioni }[],      // 30 giorni, i primi 12
+  buchi: Buco[],
+  senzaCambio: string[],
+  publisher?: string,
+}
+AppRiga = { chiave: 'ios:<Apple ID>' | 'android:<pacchetto>' | 'admob:<appId>', nome, piattaforma, ascId?, bundleId?,
+  admobId?, approvazione?, collegata?, projectPath?, projectName?, giorni: Serie, mesi: Serie,
+  formati: { formato, richieste, abbinate, impressioni, clic, euro }[], unita: { id, nome, formato, richieste,
+  impressioni, euro }[], acquisti: { nuovi, rinnovi, altri, euro }, repo?: RepoEsito }
+Buco = { id, chiave, app, gravita: 'alta' | 'media' | 'bassa', titolo, perche, cosa, stima?, stimaNota?,
+  projectPath?, compito? }
+```
+
+Si mostrano le app che in 12 mesi hanno reso, venduto, avuto almeno 10 download o chiesto annunci. L'app di AdMob
+si unisce a quella dello Store con `linkedAppInfo.appStoreId`; un'app AdMob non collegata resta `admob:<appId>`.
+
+### 13.3 I buchi (`trovaBuchi`)
+
+Sugli ultimi 30 giorni, ordinati per gravita' e poi per stima. La stima e' in euro al mese, solo dove ha un senso
+onesto, e dice sempre come e' fatta (`stimaNota`):
+
+- AdMob non ha approvato l'app (`appApprovalState` diverso da APPROVED): alta.
+- App AdMob non collegata alla scheda dello Store, con richieste: media.
+- Almeno 30 download, zero euro e zero richieste: alta; stima = download x resa mediana per download delle altre app
+  (servono almeno tre app per la mediana).
+- Riempimento sotto il 60% con almeno 500 richieste (alta sotto il 20%); stima = richieste mancanti fino al 90% x quota
+  mostrata (tra 25% e 60%) x RPM del formato nel portafoglio.
+- Annunci caricati e non mostrati, con almeno 500 abbinate, sotto la soglia del formato (apertura 20%, interstitial
+  35%, banner 50%, nativo 40%; alta sotto la meta' della soglia); stima = abbinate x (soglia - quota) x RPM.
+  Gli annunci con premio li sceglie l'utente: sotto il 15% e' un buco basso, senza stima.
+- Solo banner (o nativi) con almeno 3000 impressioni e nessun formato a schermo intero, nemmeno nel codice: media;
+  stima larga = banner x 8% x RPM degli interstitial.
+- Dal codice, se c'e' AdMob: manca UMP (alta), manca ATT o non viene mai chiesto (media, solo iOS), meno di 10
+  SKAdNetworkItems (bassa), ID di prova fuori da DEBUG (media), ID di un altro account (alta), ID di un'unita' di
+  un'altra app della stessa piattaforma (media).
+- Unita' AdMob senza richieste mentre l'app ne ha altre: bassa.
+- AdMob in calo di oltre il 35% in una settimana (con almeno 5 euro la settimana prima): media; stima = la differenza
+  portata a un mese. Download in calo di oltre il 30% sul mese prima (almeno 60): media.
+- Acquisti in-app nel codice, almeno 100 download e niente venduto: bassa.
+
+`compito` e' il testo gia' scritto per un lavoro Claude sul progetto (cita la skill `ios-admob-integration`).
+
+### 13.4 Messaggi
+
+- plancia -> estensione: `{ type: 'appstore.request' }` all'apertura della stanza (risponde subito con lo stato salvato
+  e rilegge se sono passati 45 minuti), `{ type: 'appstore.refresh' }` («Aggiorna», rilegge tutto subito),
+  `{ type: 'job.prepare', path, task }` («Sistema con Claude»: il compositore dei Lavori gia' scritto, sezione 4.2),
+  `{ type: 'open', path }` («Apri il progetto»).
+- estensione -> plancia: `{ type: 'appstore', state }` a ogni cambiamento (anche durante la lettura, per la fase).
+- Comando `bottega.openAppStore`. La stanza sta dopo la Vedetta: tasto 7 (Clienti 8, Connettori 9).
+
+### 13.5 La stanza
+
+Periodo Settimana (7 giorni contro i 7 prima), Mese (30 contro 30), Anno (12 mesi contro i 12 prima). La frase in
+cima, le cifre (totale, AdMob, Store, download, ognuna con la variazione), i guadagni a barre impilate (AdMob sotto,
+Store sopra, colori fissi verificati con il validatore della palette, suggerimento al passaggio), i download, «Dove
+intervenire» (tutti, subito, con una stima; i primi dieci, poi «Mostra tutti»), «App per app» (riga apribile con i
+formati, gli acquisti, cosa c'e' nel codice e i suoi buchi) e «Dove rende AdMob» per paese. I giorni dopo
+`storeFinoA` e i mesi `perso` non sono zero: la barra dello Store manca e il suggerimento dice perche'.

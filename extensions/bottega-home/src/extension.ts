@@ -25,6 +25,7 @@ import { Aggiornamenti } from './aggiorna';
 import { TOOLS } from './assistant';
 import { registraStrumentiConnettori, STRUMENTI_CONNETTORI } from './strumenti-connettori';
 import { registerTerminale, STRUMENTI_TERMINALE } from './terminale-host';
+import { AppStore } from './appstore';
 
 // Melissa usa i connettori di Claude Code in sola lettura (docs/CONTRATTI.md, 5 e 6): prima che nasca l'assistente.
 Object.assign(TOOLS, STRUMENTI_CONNETTORI satisfies typeof TOOLS);
@@ -72,6 +73,8 @@ let assistant: Assistant | undefined;
 let panelHost: PlanciaPanel | undefined;
 let statsEngine: StatsEngine | undefined;
 let idee: Idee | undefined;
+/** La stanza App Store (docs/CONTRATTI.md, 13): guadagni, vendite e buchi delle app. */
+let appStore: AppStore | undefined;
 let barraView: BarraView | undefined;
 let cervelli: Cervelli | undefined;
 /** Apple Intelligence attiva sul Mac (capabilities del Nucleo). */
@@ -513,6 +516,12 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 		case 'assistant.ask':
 			if (m.text) await assistant?.ask(m.text);
 			return;
+		case 'appstore.request':
+			// lo stato salvato subito; il motore rilegge da solo se sono passati 45 minuti
+			if (appStore) panelHost?.send({ type: 'appstore', state: appStore.state() });
+			return void appStore?.refresh();
+		case 'appstore.refresh':
+			return void appStore?.refresh({ force: true });
 		case 'osservatorio.open':
 			return void vscode.commands.executeCommand('bottega.openOsservatorio');
 		case 'cielo.diag':
@@ -658,6 +667,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		log: s => console.warn(s),
 	});
 	idee.start(ctx);
+	appStore = new AppStore({ radar: () => idee?.radar, projects: () => snapshot.projects, log: s => console.warn(s) });
+	appStore.onChange(s => panelHost?.send({ type: 'appstore', state: s }));
 	registraStrumentiConnettori(registerConnettori(ctx, { projects: () => snapshot.projects, send: msg => panelHost?.send(msg), showHome: view => showHome(view, undefined, true), log: s => console.warn(s) }));
 
 	// La parte nativa (docs/CONTRATTI.md, 7 e 8): Osservatorio, bacheca viva, categorie del lavoro (Apple
@@ -815,6 +826,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('bottega.barra.apri', () => barraView?.reveal()),
 		vscode.commands.registerCommand('bottega.openVedetta', () => showPlancia('vedetta')),
 		vscode.commands.registerCommand('bottega.openClienti', () => showPlancia('clienti')),
+		vscode.commands.registerCommand('bottega.openAppStore', () => showPlancia('appstore')),
 		vscode.commands.registerCommand('bottega.briefing', () => {
 			showPlancia('plancia');
 			void idee?.listen();

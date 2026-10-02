@@ -2,7 +2,7 @@
 // Banco di prova della plancia (media/plancia.js) in jsdom. NON spedito (vedi .vscodeignore).
 // Finge acquireVsCodeApi (registra i postMessage) e le stanze esterne (Cruscotto, Vedetta, Clienti),
 // poi manda snapshot finti: progetti inventati, nessun dato vero, nessun nome di cliente.
-// Verifica: otto schede e tasti, briefing, consigli, cifre, progetti fermi, semaforo e filtro
+// Verifica: nove schede e tasti, briefing, consigli, cifre, progetti fermi, semaforo e filtro
 // Regole, dialogo Continua, coda della notte, «Dove l'ho gia' risolto?», niente lineette lunghe,
 // fuoco conservato tra due snapshot, snapshot vecchi senza i campi nuovi.
 
@@ -237,14 +237,14 @@ test('stanze su una riga: quelle che non ci stanno vanno in «Altro», la stanza
 	Object.defineProperty(t.w.HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return this.id === 'stanze' ? 450 : 0; } });
 	t.click(t.$('#tab-plancia'));
 	const fuori = () => t.$$('.tabs button.fuori').map(b => b.dataset.view);
-	assert.deepStrictEqual(fuori(), ['melissa', 'cruscotto', 'vedetta', 'clienti', 'connettori'], 'tre schede nella riga, le altre in «Altro»');
+	assert.deepStrictEqual(fuori(), ['melissa', 'cruscotto', 'vedetta', 'appstore', 'clienti', 'connettori'], 'tre schede nella riga, le altre in «Altro»');
 	assert.strictEqual(t.$('#altro').hidden, false);
-	assert.match(t.$('#altro').title, /Melissa, Cruscotto, Vedetta, Clienti, Connettori/);
+	assert.match(t.$('#altro').title, /Melissa, Cruscotto, Vedetta, App Store, Clienti, Connettori/);
 	// apre il pannello e sceglie Connettori: entra nella riga al posto dell'ultima
 	t.click(t.$('#altro'));
 	assert.strictEqual(t.$('#altro').getAttribute('aria-expanded'), 'true');
 	const voci = t.$$('#altro-menu button').map(b => b.dataset.view);
-	assert.deepStrictEqual(voci, ['melissa', 'cruscotto', 'vedetta', 'clienti', 'connettori']);
+	assert.deepStrictEqual(voci, ['melissa', 'cruscotto', 'vedetta', 'appstore', 'clienti', 'connettori']);
 	t.click(t.$('#altro-menu button[data-view="connettori"]'));
 	assert.strictEqual(t.$('#tab-connettori').getAttribute('aria-selected'), 'true');
 	assert.ok(!fuori().includes('connettori'), 'la stanza in cui sei e\' sempre nella riga');
@@ -265,23 +265,23 @@ test('stanze su una riga: quelle che non ci stanno vanno in «Altro», la stanza
 	assert.deepStrictEqual(t.errors, []);
 });
 
-test('otto schede, nell\'ordine, con i tasti da 1 a 8', () => {
+test('nove schede, nell\'ordine, con i tasti da 1 a 9', () => {
 	const t = boot();
 	t.send({ type: 'snapshot', snapshot: snapshot() });
 	const tabs = t.$$('[role="tab"]');
 	assert.deepStrictEqual(
 		tabs.map(x => x.querySelector('span:not(.segnale)').textContent),
-		['Plancia', 'Lavori', 'Memoria', 'Melissa', 'Cruscotto', 'Vedetta', 'Clienti', 'Connettori'],
+		['Plancia', 'Lavori', 'Memoria', 'Melissa', 'Cruscotto', 'Vedetta', 'App Store', 'Clienti', 'Connettori'],
 	);
 	assert.match(tabs[5].getAttribute('title'), /tasto 6/);
-	const ids = ['plancia', 'lavori', 'memoria', 'melissa', 'cruscotto', 'vedetta', 'clienti', 'connettori'];
+	const ids = ['plancia', 'lavori', 'memoria', 'melissa', 'cruscotto', 'vedetta', 'appstore', 'clienti', 'connettori'];
 	ids.forEach((id, i) => {
 		t.key(String(i + 1));
 		assert.strictEqual(t.$('#tab-' + id).getAttribute('aria-selected'), 'true', `tasto ${i + 1}`);
 		assert.strictEqual(t.$('#vista-' + id).hidden, false);
 		assert.strictEqual(t.d.activeElement, t.$('#tab-' + id));
 	});
-	t.key('9'); // non esiste: resta su Connettori
+	t.key('0'); // non e' una stanza: resta su Connettori
 	assert.strictEqual(t.$('#tab-connettori').getAttribute('aria-selected'), 'true');
 	// frecce nella barra delle stanze
 	t.key('ArrowRight', t.$('#tab-connettori'));

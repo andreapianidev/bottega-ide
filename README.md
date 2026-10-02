@@ -152,6 +152,25 @@ da quanto tempo, con la CLI di Vercel già collegata, in sola lettura e senza ch
 accende di rosso il semaforo del progetto. Funziona anche senza rete, con l'età del dato in chiaro. Le chiavi si leggono
 da `~/.secrets/` e dal server MCP di AdMob già autenticato: nel repository non c'è niente.
 
+### La stanza App Store
+
+Quanto rendono le tue app, per settimana, mese e anno, e dove intervenire. In cima una frase («negli ultimi 30 giorni le
+app hanno reso...») e quattro cifre con la variazione sul periodo prima: totale, AdMob, Store e download. Sotto, i
+guadagni giorno per giorno (o mese per mese) in barre impilate, AdMob e Store, e i download.
+
+«Dove intervenire» mette insieme tre fonti: i report di AdMob (per app, formato, unità e paese), i report di vendita di
+App Store Connect e il codice dei progetti collegati alle app. Ne escono i buchi, ordinati per gravità: annunci caricati
+e mai mostrati, richieste che non trovano un annuncio, un'app che AdMob non ha approvato o non ha collegato allo Store,
+app scaricate che non guadagnano, solo banner, consenso UMP o ATT mancanti, pochi SKAdNetwork, ID di prova o di un
+altro account nel codice, unità mai chiamate, cali di guadagni e di download. Dove si può, una stima in euro al mese,
+con scritto come è fatta. «Sistema con Claude» prepara un lavoro sul progetto con il compito già scritto, da leggere
+prima di avviarlo.
+
+App per app ci sono download, AdMob, Store e andamento; aprendo una riga, i formati (richieste, quante trovano un
+annuncio, quanti vengono mostrati, resa ogni mille) e cosa c'è nel codice. In fondo, i paesi dove AdMob rende di più.
+Servono le stesse credenziali del radar più `ASC_VENDOR_NUMBER` in `~/.secrets/appstoreconnect-api.env`; i report
+letti restano in `~/.bottega/appstore/`, così dopo la prima lettura (mezzo minuto) si scarica solo il giorno nuovo.
+
 ### Il briefing del mattino, la notte, «continua da dove eri»
 
 Alla prima apertura della giornata Melissa dice in trenta secondi cosa conta: ore e progetti di ieri, lavori che
@@ -390,6 +409,8 @@ Per le notifiche serve una chiave APNs del tuo account (Certificates, Identifier
   riconoscimento vocale del Mac, che puo' usare i server di Apple come fa Siri;
 - verso ElevenLabs: il testo che Melissa deve pronunciare (e l'audio dell'ascolto solo con
   `BOTTEGA_STT=elevenlabs`);
+- verso open.er-api.com: una richiesta al giorno dei cambi delle valute, solo se apri la stanza App Store (nessun dato
+  tuo, serve a portare in euro i ricavi dello Store);
 - verso Open VSX: le ricerche e i download delle estensioni, e una volta all'ora la versione dell'ultima Claude Code;
 - verso il fornitore scelto in Cline (DeepSeek, per esempio), solo se usi Cline: quello che gli chiedi, i file che legge
   e i risultati degli strumenti che usa, come con qualsiasi agente;

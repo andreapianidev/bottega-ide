@@ -354,7 +354,8 @@ export class Radar {
 
 	// ---------- App Store Connect ----------
 
-	private ascJwt(): string {
+	/** Il JWT di App Store Connect (15 minuti di cache). Pubblico: i report di vendita lo usano con fetch diretto. */
+	ascJwt(): string {
 		const now = this.now();
 		if (this.jwt && this.jwt.exp - now > 60_000) return this.jwt.token;
 		const env = readEnvFile(this.ascEnvFile);
@@ -373,7 +374,8 @@ export class Radar {
 		return token;
 	}
 
-	private async asc(method: string, pathAndQuery: string, body?: unknown): Promise<any> {
+	/** Una chiamata a App Store Connect con il JWT del radar. Pubblica: la usa anche la stanza App Store (src/appstore.ts). */
+	async asc(method: string, pathAndQuery: string, body?: unknown): Promise<any> {
 		const url = pathAndQuery.startsWith('http') ? pathAndQuery : ASC + pathAndQuery;
 		const res = await this.fetch(url, {
 			method,
@@ -561,7 +563,8 @@ export class Radar {
 		return j.access_token;
 	}
 
-	private async admob(method: string, p: string, body?: unknown): Promise<any> {
+	/** Una chiamata ad AdMob con il token del radar. Pubblica: la usa anche la stanza App Store (src/appstore.ts). */
+	async admob(method: string, p: string, body?: unknown): Promise<any> {
 		const res = await this.fetch(ADMOB + p, {
 			method,
 			headers: { Authorization: `Bearer ${await this.googleToken()}`, 'Content-Type': 'application/json' },
