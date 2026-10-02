@@ -1,8 +1,15 @@
 /* Posta per progetto.
 
    La rubrica ~/.bottega/rubrica.json (file 600, mai nel repository: contiene indirizzi di clienti) dice quali
-   mittenti e quali domini appartengono a quale progetto:
-       { "<percorso progetto>": { "indirizzi": ["anna@esempio.it"], "domini": ["esempio.it"] } }
+   mittenti, domini, telefoni e gruppi WhatsApp appartengono a quale progetto:
+       { "<percorso progetto>": { "indirizzi": ["anna@esempio.it"], "domini": ["esempio.it"],
+                                  "telefoni": ["+34600000000"], "gruppi": ["120363000000000000@g.us"] } }
+   `telefoni` (E.164, senza spazi) e `gruppi` ci sono solo se non vuoti: le rubriche scritte prima restano valide.
+
+   I suggerimenti per la rubrica si imparano dalla posta: un mittente in "Da assegnare" il cui dominio sta nei file
+   di un solo progetto, o il cui dominio, nome o oggetto cita il nome del progetto, viene proposto per quel progetto
+   con il motivo. I domini che compaiono nei file di piu' progetti sono di fornitori, non di clienti, e si scartano.
+   I mittenti automatici (noreply, notifications, newsletter...) non vanno in "Da assegnare".
 
    Le fonti dei fili:
    - un server MCP di posta locale (mail-mcp, Apple Mail), interrogato direttamente: istantaneo, gratis, e il
@@ -23,6 +30,10 @@ export const FILI_FILE = path.join(DIR_CONNETTORI, 'posta-fili.json');
 export interface VoceRubrica {
 	indirizzi: string[];
 	domini: string[];
+	/** Numeri di telefono in formato E.164 ("+34600000000"), per le chat WhatsApp. */
+	telefoni?: string[];
+	/** Gruppi WhatsApp, per JID ("<cifre>@g.us"): entrano solo se scritti qui. */
+	gruppi?: string[];
 }
 export type Rubrica = Record<string, VoceRubrica>;
 
@@ -95,6 +106,31 @@ export function indirizzoDa(da: string): string {
 	return m ? normIndirizzo(m[1]) : '';
 }
 
+/** Un numero di telefono in E.164: "+39 333 000 0000", "0039...", "39333..." -> "+393330000000". Le cifre senza
+ *  prefisso si prendono come gia' complete del prefisso internazionale, come le scrive WhatsApp. */
+export function normTelefono(s: string): string {
+	let t = String(s ?? '').trim();
+	if (!/^[+\d\s().\-/]{7,}$/.test(t)) return '';
+	t = t.replace(/[\s().\-/]/g, '');
+	if (!/^\+?\d+$/.test(t)) return '';
+	if (t.startsWith('00')) t = '+' + t.slice(2);
+	if (!t.startsWith('+')) t = '+' + t;
+	return /^\+[1-9]\d{6,14}$/.test(t) ? t : '';
+}
+
+/** Un gruppo WhatsApp per JID: "120363000000000000@g.us" o il vecchio "<numero>-<tempo>@g.us". */
+export function normGruppo(s: string): string {
+	const t = String(s ?? '').trim().toLowerCase();
+	return /^\d{6,25}(-\d{6,15})?@g\.us$/.test(t) ? t : '';
+}
+
+/** Mittenti automatici: non sono persone e non si propongono per la rubrica (si assegnano solo a mano). */
+const RE_AUTOMATICO = /^(no-?reply|do-?not-?reply|donotreply|notifications?|notify|mailer-daemon|postmaster|newsletters?|news|bounces?|alerts?|automated|system)([+._-]|$)|(^|[+._-])no-?reply([+._-]|$)/;
+export function mittenteAutomatico(indirizzo: string): boolean {
+	const ind = normIndirizzo(indirizzo);
+	return !!ind && RE_AUTOMATICO.test(ind.split('@')[0]);
+}
+
 export const dominioDi = (indirizzo: string) => (indirizzo.includes('@') ? indirizzo.split('@').pop()! : '');
 
 /** Il dominio registrabile: "shop.cliente.it" -> "cliente.it", "x.co.uk" resta a tre parti. */
@@ -120,12 +156,19 @@ export function pulisciRubrica(raw: unknown): Rubrica {
 	for (const [k, v] of Object.entries(raw as Record<string, any>)) {
 		const p = String(k).replace(/\/+$/, '');
 		if (!p.startsWith('/')) continue;
-		const indirizzi = [...new Set((Array.isArray(v?.indirizzi) ? v.indirizzi : []).map(normIndirizzo).filter(Boolean))] as string[];
-		const domini = [...new Set((Array.isArray(v?.domini) ? v.domini : []).map(normDominio).filter(Boolean))] as string[];
-		if (indirizzi.length || domini.length) out[p] = { indirizzi, domini };
+		const lista = (x: unknown, norm: (s: string) => string) => [...new Set((Array.isArray(x) ? x : []).map(norm).filter(Boolean))] as string[];
+		const indirizzi = lista(v?.indirizzi, normIndirizzo);
+		const domini = lista(v?.domini, normDominio);
+		const telefoni = lista(v?.telefoni, normTelefono);
+		const gruppi = lista(v?.gruppi, normGruppo);
+		if (!indirizzi.length && !domini.length && !telefoni.length && !gruppi.length) continue;
+		out[p] = { indirizzi, domini, ...(telefoni.length ? { telefoni } : {}), ...(gruppi.length ? { gruppi } : {}) };
 	}
 	return out;
 }
+
+/** Tutte le voci di un progetto, per i chip e per i confronti. */
+export const vociDi = (v: VoceRubrica) => [...v.indirizzi, ...v.domini, ...(v.telefoni ?? []), ...(v.gruppi ?? [])];
 
 export function leggiRubrica(file = RUBRICA_FILE): Rubrica {
 	try {
@@ -141,18 +184,27 @@ export function scriviRubrica(r: Rubrica, file = RUBRICA_FILE): Rubrica {
 	return pulita;
 }
 
-/** Aggiunge un indirizzo (se c'e' la chiocciola) o un dominio alla voce di un progetto. */
+/** Aggiunge alla voce di un progetto un gruppo WhatsApp (JID @g.us), un indirizzo (se c'e' la chiocciola),
+ *  un telefono (cifre, spazi, + iniziale) o un dominio. */
 export function aggiungiVoce(r: Rubrica, progetto: string, voce: string): Rubrica {
 	const p = String(progetto ?? '').replace(/\/+$/, '');
 	if (!p.startsWith('/')) return r;
 	const v = String(voce ?? '').trim();
 	const out: Rubrica = JSON.parse(JSON.stringify(r));
-	const cur = out[p] ?? { indirizzi: [], domini: [] };
-	const ind = /^[^@\s]+@/.test(v) ? normIndirizzo(v) : '';
-	const dom = ind ? '' : normDominio(v);
-	if (ind && !cur.indirizzi.includes(ind)) cur.indirizzi.push(ind);
-	if (dom && !cur.domini.includes(dom)) cur.domini.push(dom);
-	if (ind || dom) out[p] = cur;
+	const cur: VoceRubrica = out[p] ?? { indirizzi: [], domini: [] };
+	const gru = normGruppo(v);
+	const ind = !gru && /^[^@\s]+@/.test(v) ? normIndirizzo(v) : '';
+	const tel = gru || ind ? '' : normTelefono(v);
+	const dom = gru || ind || tel ? '' : normDominio(v);
+	const metti = (k: 'indirizzi' | 'domini' | 'telefoni' | 'gruppi', x: string) => {
+		const l = (cur[k] ??= []);
+		if (!l.includes(x)) l.push(x);
+	};
+	if (gru) metti('gruppi', gru);
+	if (ind) metti('indirizzi', ind);
+	if (tel) metti('telefoni', tel);
+	if (dom) metti('domini', dom);
+	if (gru || ind || tel || dom) out[p] = cur;
 	return out;
 }
 
@@ -161,10 +213,26 @@ export function togliVoce(r: Rubrica, progetto: string, voce: string): Rubrica {
 	const cur = out[progetto];
 	if (!cur) return out;
 	const v = String(voce ?? '').trim().toLowerCase();
+	const tel = normTelefono(v);
 	cur.indirizzi = cur.indirizzi.filter(x => x !== v);
 	cur.domini = cur.domini.filter(x => x !== v);
-	if (!cur.indirizzi.length && !cur.domini.length) delete out[progetto];
+	if (cur.telefoni) cur.telefoni = cur.telefoni.filter(x => x !== v && x !== tel);
+	if (cur.gruppi) cur.gruppi = cur.gruppi.filter(x => x !== v);
+	if (!cur.telefoni?.length) delete cur.telefoni;
+	if (!cur.gruppi?.length) delete cur.gruppi;
+	if (!vociDi(cur).length) delete out[progetto];
 	return out;
+}
+
+/** I progetti di un numero di telefono (E.164) o di un gruppo WhatsApp. */
+export function progettiDiTelefono(telefono: string, r: Rubrica): string[] {
+	const t = normTelefono(telefono);
+	return t ? Object.entries(r).filter(([, v]) => (v.telefoni ?? []).includes(t)).map(([p]) => p) : [];
+}
+
+export function progettiDiGruppo(jid: string, r: Rubrica): string[] {
+	const g = normGruppo(jid);
+	return g ? Object.entries(r).filter(([, v]) => (v.gruppi ?? []).includes(g)).map(([p]) => p) : [];
 }
 
 /** I progetti di un mittente: l'indirizzo esatto vince sul dominio; tra i domini vince il piu' lungo
@@ -240,16 +308,18 @@ export function dominiNelTesto(testo: string, extra: Set<string> = new Set()): s
 	return out;
 }
 
-/** Domini suggeriti per un progetto: homepage di package.json, vercel.json, URL nel README e in CLAUDE.md.
- *  Ordinati per frequenza, senza quelli gia' in rubrica (`noti`) e senza quelli ignorati. */
-export function suggerisciDomini(dir: string, noti: string[] = [], ignorati: string[] = []): string[] {
+/** I domini nei file di un progetto, con il peso (frequenza, 3 per homepage e alias) e il primo file che li cita. */
+export function dominiDeiFile(dir: string, ignorati: string[] = []): Map<string, { peso: number; file: string }> {
 	const extra = new Set(ignorati.map(normDominio).filter(Boolean));
-	const conta = new Map<string, number>();
+	const conta = new Map<string, { peso: number; file: string }>();
+	let f = '';
 	const add = (d: string, peso = 1) => {
 		if (!d || generico(d, extra) || POSTA_GENERICA.has(d)) return;
-		conta.set(d, (conta.get(d) ?? 0) + peso);
+		const cur = conta.get(d);
+		conta.set(d, { peso: (cur?.peso ?? 0) + peso, file: cur?.file ?? f });
 	};
-	for (const f of FILE_SUGGERIMENTI) {
+	for (const nome of FILE_SUGGERIMENTI) {
+		f = nome;
 		let testo = '';
 		try {
 			const p = path.join(dir, f);
@@ -278,12 +348,115 @@ export function suggerisciDomini(dir: string, noti: string[] = [], ignorati: str
 		}
 		for (const d of dominiNelTesto(testo, extra)) add(d);
 	}
+	return conta;
+}
+
+/** Domini suggeriti per un progetto: homepage di package.json, vercel.json, URL nel README e in CLAUDE.md.
+ *  Ordinati per frequenza, senza quelli gia' in rubrica (`noti`), senza quelli ignorati e senza `esclusi`
+ *  (i domini che compaiono in piu' progetti). */
+export function suggerisciDomini(dir: string, noti: string[] = [], ignorati: string[] = [], esclusi: Set<string> = new Set()): string[] {
 	const gia = new Set(noti.map(x => x.toLowerCase()));
-	return [...conta.entries()]
-		.filter(([d]) => !gia.has(d))
-		.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+	return [...dominiDeiFile(dir, ignorati).entries()]
+		.filter(([d]) => !gia.has(d) && !esclusi.has(d))
+		.sort((a, b) => b[1].peso - a[1].peso || a[0].localeCompare(b[0]))
 		.slice(0, 6)
 		.map(([d]) => d);
+}
+
+// ---------- proposte dalla posta ----------
+
+export interface ProgettoIndice {
+	path: string;
+	name: string;
+	/** Domini che stanno nei file di questo progetto e di nessun altro, con il file che li cita. */
+	domini: Map<string, string>;
+}
+
+/** I domini dei file di tutti i progetti, senza quelli che compaiono in piu' di un progetto: quelli sono di
+ *  fornitori (agnes-ai.com, elevenlabs.io, tailscale.com...), non di clienti. */
+export function indiceProgetti(progetti: { path: string; name: string }[], ignorati: string[] = [], leggi = dominiDeiFile): { indice: ProgettoIndice[]; condivisi: Set<string> } {
+	const per = progetti.map(p => ({ ...p, tutti: leggi(p.path, ignorati) }));
+	const quanti = new Map<string, number>();
+	for (const p of per) for (const d of p.tutti.keys()) quanti.set(d, (quanti.get(d) ?? 0) + 1);
+	const condivisi = new Set([...quanti.entries()].filter(([, n]) => n > 1).map(([d]) => d));
+	const indice = per.map(p => ({
+		path: p.path,
+		name: p.name,
+		domini: new Map([...p.tutti.entries()].filter(([d]) => !condivisi.has(d)).map(([d, x]) => [d, x.file])),
+	}));
+	return { indice, condivisi };
+}
+
+/** Le parole di un nome: "CheckIn Facile" -> [checkin, facile], "ImmobiliareAI" -> [immobiliare, ai]. */
+export function paroleNome(s: string): string[] {
+	return String(s ?? '')
+		.normalize('NFD')
+		.replace(/[̀-ͯ]/g, '')
+		.replace(/([a-z])([A-Z])/g, '$1 $2')
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter(Boolean);
+}
+
+/** Vero se `testo` cita il progetto: parole intere di seguito che, attaccate, fanno il nome attaccato
+ *  ("CheckIn Facile" = "checkin facile" = "checkinfacile" = "check in facile"). Nomi sotto le 4 lettere non contano. */
+export function citaProgetto(testo: string, nome: string): boolean {
+	const compatto = paroleNome(nome).join('');
+	if (compatto.length < 4) return false;
+	const t = paroleNome(testo);
+	for (let i = 0; i < t.length; i++) {
+		let s = '';
+		for (let j = i; j < t.length && s.length < compatto.length; j++) {
+			s += t[j];
+			if (s === compatto) return true;
+		}
+	}
+	return false;
+}
+
+const NOME_FILE: Record<string, string> = { 'readme.md': 'README', 'readme.it.md': 'README', 'claude.md': 'CLAUDE.md', 'package.json': 'package.json', 'vercel.json': 'vercel.json' };
+
+export interface Proposta {
+	path: string;
+	name: string;
+	/** Cosa aggiungere alla rubrica: il dominio se il mittente e' di un dominio proprio, altrimenti l'indirizzo. */
+	voce: string;
+	motivo: string;
+}
+
+/** Proposte per i mittenti in "Da assegnare", dal piu' forte: dominio nei file di un solo progetto, dominio che
+ *  richiama il nome, nome del mittente che cita il progetto, oggetto che lo cita. Se a parita' di forza i
+ *  progetti sono piu' d'uno, nessuna proposta. I mittenti automatici restano fuori. */
+export function proposte(fili: Filo[], indice: ProgettoIndice[]): Record<string, Proposta> {
+	const per = new Map<string, Filo[]>();
+	for (const f of fili) if (f.indirizzo && !mittenteAutomatico(f.indirizzo)) per.set(f.indirizzo, [...(per.get(f.indirizzo) ?? []), f]);
+	const out: Record<string, Proposta> = {};
+	for (const [indirizzo, l] of per) {
+		const dom = dominioDi(indirizzo);
+		const base = dominioBase(dom);
+		const proprio = !!base && !POSTA_GENERICA.has(base) && !POSTA_GENERICA.has(dom);
+		const nomeMitt = (/^\s*"?([^"<]+?)"?\s*</.exec(l[0].da)?.[1] ?? '').trim();
+		const livelli: ((p: ProgettoIndice) => string | undefined)[] = [
+			p => {
+				if (!proprio) return undefined;
+				const file = p.domini.get(base) ?? p.domini.get(dom);
+				return file ? `il dominio è nel ${NOME_FILE[file.toLowerCase()] ?? file}` : undefined;
+			},
+			p => (proprio && citaProgetto(base.replace(/\.[a-z]+$/, ''), p.name) ? `il dominio richiama ${p.name}` : undefined),
+			p => (nomeMitt && citaProgetto(nomeMitt, p.name) ? `il nome del mittente cita ${p.name}` : undefined),
+			p => (l.some(f => citaProgetto(f.oggetto, p.name)) ? `l'oggetto cita ${p.name}` : undefined),
+		];
+		for (const [i, prova] of livelli.entries()) {
+			const trovati = indice.map(p => ({ p, motivo: prova(p) })).filter(x => x.motivo);
+			if (!trovati.length) continue;
+			if (trovati.length === 1) {
+				const { p, motivo } = trovati[0];
+				out[indirizzo] = { path: p.path, name: p.name, voce: proprio && i < 2 ? base : indirizzo, motivo: motivo! };
+			}
+			break;
+		}
+	}
+	return out;
 }
 
 // ---------- fonti ----------
@@ -389,7 +562,12 @@ export interface FonteStato {
 	costo?: number;
 	durataMs?: number;
 	errore?: string;
+	/** La fonte ha restituito il massimo che puo': i messaggi potrebbero essere di piu'. */
+	pieno?: boolean;
 }
+
+/** Il massimo di messaggi che mail-mcp restituisce in un search_messages. */
+export const LIMITE_LOCALE = 500;
 
 interface FileFili {
 	at: number;
@@ -465,7 +643,7 @@ export class MotorePosta {
 		const giorni = this.d.giorni();
 		const limite = this.ora() - giorni * 24 * 3_600_000;
 		const altri = this.dati.fili.filter(f => f.fonte !== fonte && (!f.data || Date.parse(f.data) >= limite));
-		const fili = [...nuovi, ...altri].sort((a, b) => (b.data || '').localeCompare(a.data || '')).slice(0, 400);
+		const fili = [...nuovi, ...altri].sort((a, b) => (b.data || '').localeCompare(a.data || '')).slice(0, 700);
 		this.dati = {
 			at: this.ora(),
 			giorni,
@@ -479,6 +657,16 @@ export class MotorePosta {
 		}
 	}
 
+	/** Un errore resta su disco come i fili: alla riapertura la stanza lo mostra ancora. I fili di prima restano. */
+	private salvaFonte(fonte: 'locale' | 'gmail', stato: FonteStato): void {
+		this.dati = { ...this.dati, fonti: { ...this.dati.fonti, [fonte]: stato } };
+		try {
+			scriviPrivato(this.file, this.dati);
+		} catch (e) {
+			this.d.log(`posta: non salvo lo stato della fonte (${e})`);
+		}
+	}
+
 	/** La fonte locale: un solo search_messages, solo intestazioni, mai il corpo. */
 	async aggiornaLocale(): Promise<void> {
 		const server = this.d.serverLocale();
@@ -489,12 +677,13 @@ export class MotorePosta {
 		const t0 = this.ora();
 		try {
 			const since = new Date(t0 - this.d.giorni() * 24 * 3_600_000).toISOString().slice(0, 10);
-			const json = await this.d.cercaLocale(server, { since, limit: 300, includeBody: false });
+			const json = await this.d.cercaLocale(server, { since, limit: LIMITE_LOCALE, includeBody: false });
 			const fili = filiDaMailMcp(json);
-			this.sostituisci('mail', fili, { nome: server, at: this.ora(), n: fili.length, durataMs: this.ora() - t0 });
+			const n = Array.isArray(json?.messages) ? json.messages.length : fili.length;
+			this.sostituisci('mail', fili, { nome: server, at: this.ora(), n: fili.length, durataMs: this.ora() - t0, ...(n >= LIMITE_LOCALE ? { pieno: true } : {}) });
 		} catch (e: any) {
 			this.errore = `${server} non risponde: ${String(e?.message ?? e).slice(0, 200)}`;
-			this.dati.fonti = { ...this.dati.fonti, locale: { nome: server, at: this.ora(), n: 0, errore: this.errore } };
+			this.salvaFonte('locale', { nome: server, at: this.ora(), n: 0, errore: this.errore });
 		} finally {
 			this.aggiornando = null;
 			this.d.onChange();
@@ -512,7 +701,7 @@ export class MotorePosta {
 			const e = await this.d.delega(richiestaGmail(this.rubrica(), this.d.giorni(), prefisso));
 			if (!e.ok) {
 				this.errore = `Gmail: ${e.errore ?? 'la delega non e\' riuscita'}`;
-				this.dati.fonti = { ...this.dati.fonti, gmail: { nome: 'Gmail', at: e.at, n: 0, costo: e.costo, durataMs: e.durataMs, errore: e.errore } };
+				this.salvaFonte('gmail', { nome: 'Gmail', at: e.at, n: 0, costo: e.costo, durataMs: e.durataMs, errore: e.errore });
 			} else {
 				const fili = filiDaGmail(e.data);
 				this.sostituisci('gmail', fili, { nome: 'Gmail', at: e.at, n: fili.length, costo: e.costo, durataMs: e.durataMs });

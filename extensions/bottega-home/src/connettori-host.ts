@@ -1,15 +1,20 @@
 /* La stanza Connettori dentro l'estensione: tiene insieme la scoperta (connettori.ts), le deleghe (delega.ts),
-   il client MCP diretto (mcp.ts) e la posta per progetto (posta.ts), e risponde ai messaggi della plancia.
+   il client MCP diretto (mcp.ts), la posta per progetto (posta.ts) e le chat WhatsApp (whatsapp.ts), e risponde
+   ai messaggi della plancia. Agli altri moduli offre stanzaConnettori() e StanzaConnettori.serverDiretto(nome).
    extension.ts la crea e le passa i messaggi che non sono suoi: un solo aggancio.
    Contratto: docs/CONTRATTI.md, sezione 5. */
 
 import { execFile } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { avvioServer, Connettore, ConnettoriStato, ScopertaConnettori, unisciMappa, utilizzabile } from './connettori';
+import { AvvioServer, avvioServer, Connettore, ConnettoriStato, impostaLetturaPermessa, LETTURA_PERMESSA_BASE, ScopertaConnettori, unisciMappa, utilizzabile } from './connettori';
 import { CodaDeleghe, StatoDeleghe } from './delega';
 import { conServer, testoRisultato } from './mcp';
-import { aggiungiVoce, Filo, MotorePosta, mittentiDaAssegnare, assegna, suggerisciDomini, togliVoce, VoceRubrica, FonteStato } from './posta';
+import {
+	aggiungiVoce, assegna, citaProgetto, Filo, FonteStato, indiceProgetti, mittenteAutomatico, mittentiDaAssegnare, MotorePosta,
+	ProgettoIndice, Proposta, proposte, togliVoce, VoceRubrica,
+} from './posta';
+import { assegnaChat, ChatWa, FonteWa, FonteWaStato, linkWhatsapp, MotoreWhatsapp } from './whatsapp';
 
 export interface ConnettoriHost {
 	projects(): { path: string; name: string }[];
@@ -27,16 +32,38 @@ export interface PostaStato {
 	/** Cosa si puo' interrogare adesso. */
 	disponibili: { locale: string | null; gmail: boolean };
 	deleghe: StatoDeleghe;
-	progetti: { path: string; name: string; voce: VoceRubrica; fili: Filo[]; nonLetti: number }[];
-	daAssegnare: ReturnType<typeof mittentiDaAssegnare>;
+	progetti: { path: string; name: string; voce: VoceRubrica; fili: Filo[]; nonLetti: number; chat: ChatWa[]; chatDaRispondere: number }[];
+	/** Mittenti fuori rubrica, senza quelli automatici; con la proposta di progetto quando c'e' un motivo forte. */
+	daAssegnare: (ReturnType<typeof mittentiDaAssegnare>[number] & { proposta?: Proposta })[];
+	/** Quanti mittenti automatici (noreply, notifications...) sono stati tolti da "Da assegnare". */
+	automatici: number;
+	/** Suggerimenti deboli: domini che stanno nei file di un solo progetto. La stanza li tiene chiusi in fondo. */
 	suggerimenti: { path: string; name: string; domini: string[] }[];
+	whatsapp: WhatsappStato;
 	/** Tutti i progetti, per le tendine (la stanza non legge lo snapshot). */
 	tuttiProgetti: { path: string; name: string }[];
+}
+
+export interface WhatsappStato {
+	aggiornatoAt: number;
+	aggiornando: boolean;
+	errore?: string;
+	giorni: number;
+	fonti: Partial<Record<FonteWa, FonteWaStato>>;
+	/** I server WhatsApp interrogabili adesso. */
+	disponibili: string[];
+	/** Chat fuori rubrica: del numero business, e di quello personale solo con bottega.whatsapp.personaleDaAssegnare. */
+	daAssegnare: (ChatWa & { proposta?: { path: string; name: string; motivo: string } })[];
 }
 
 const cfg = () => vscode.workspace.getConfiguration('bottega');
 
 let stanza: StanzaConnettori | undefined;
+
+/** La stanza di adesso, per gli altri moduli dell'estensione (undefined prima dell'attivazione). */
+export function stanzaConnettori(): StanzaConnettori | undefined {
+	return stanza;
+}
 
 /** L'unico aggancio in extension.ts, all'attivazione. */
 export function registerConnettori(ctx: vscode.ExtensionContext, h: ConnettoriHost): StanzaConnettori {
@@ -55,13 +82,15 @@ export class StanzaConnettori {
 	readonly scoperta: ScopertaConnettori;
 	readonly coda: CodaDeleghe;
 	readonly posta: MotorePosta;
+	readonly whatsapp: MotoreWhatsapp;
 	private timers: NodeJS.Timeout[] = [];
-	private suggCache?: { at: number; sig: string; v: PostaStato['suggerimenti'] };
+	private indiceCache?: { at: number; sig: string; v: ReturnType<typeof indiceProgetti> };
 	private lastGmailAuto = 0;
 	private sendTimer?: NodeJS.Timeout;
 
 	constructor(ctx: vscode.ExtensionContext, private readonly h: ConnettoriHost) {
 		const changed = () => this.cambiato();
+		impostaLetturaPermessa(cfg().get('connettori.letturaPermessa', LETTURA_PERMESSA_BASE));
 		this.scoperta = new ScopertaConnettori({
 			cacheFile: path.join(ctx.globalStorageUri.fsPath, 'connettori-mcp-list.json'),
 			claudeCommand: () => cfg().get<string>('claudeCommand', 'claude'),
@@ -75,6 +104,8 @@ export class StanzaConnettori {
 			tetto: () => cfg().get<number>('connettori.tettoGiornalieroUsd', 1),
 			onChange: changed,
 			log: h.log,
+			// per caricare solo il server della delega: nome, prefisso e origine, mai comandi o env
+			server: () => this.connettori().map(c => ({ nome: c.nome, prefisso: c.prefisso, tipo: c.tipo, ...(c.origine ? { origine: c.origine } : {}) })),
 		});
 		this.posta = new MotorePosta({
 			serverLocale: () => this.serverPostaLocale()?.nome ?? null,
@@ -85,12 +116,27 @@ export class StanzaConnettori {
 			onChange: changed,
 			log: h.log,
 		});
+		this.whatsapp = new MotoreWhatsapp({
+			server: () => this.serverWhatsapp(),
+			apri: (server, fn) => {
+				const d = this.serverDiretto(server);
+				if (!d) return Promise.reject(new Error('configurazione non trovata in ~/.claude.json'));
+				return conServer(server, d.avvio, fn, 60_000);
+			},
+			rubrica: () => this.posta.rubrica(),
+			giorni: () => this.giorniWa(),
+			personaleDaAssegnare: () => cfg().get<boolean>('whatsapp.personaleDaAssegnare', false) === true,
+			onChange: changed,
+			log: h.log,
+		});
 
 		ctx.subscriptions.push(
 			{ dispose: () => this.dispose() },
 			vscode.commands.registerCommand('bottega.openConnettori', () => h.showHome('connettori')),
 			vscode.workspace.onDidChangeConfiguration(e => {
-				if (e.affectsConfiguration('bottega.posta') || e.affectsConfiguration('bottega.connettori')) {
+				if (e.affectsConfiguration('bottega.posta') || e.affectsConfiguration('bottega.connettori') || e.affectsConfiguration('bottega.whatsapp')) {
+					this.indiceCache = undefined;
+					impostaLetturaPermessa(cfg().get('connettori.letturaPermessa', LETTURA_PERMESSA_BASE));
 					this.programma();
 					this.cambiato();
 				}
@@ -103,14 +149,16 @@ export class StanzaConnettori {
 
 	private auto?: NodeJS.Timeout;
 
-	/** Aggiornamento automatico della posta: locale ogni N minuti; Gmail (a pagamento) al massimo ogni due ore. */
+	/** Aggiornamento automatico della posta: locale e WhatsApp ogni N minuti; Gmail (a pagamento) al massimo ogni
+	 *  due ore. */
 	private programma(): void {
 		if (this.auto) clearInterval(this.auto);
 		this.auto = undefined;
 		const n = Number(cfg().get<number>('posta.aggiornaOgniMinuti', 0)) || 0;
 		if (n <= 0) return;
 		this.auto = setInterval(() => {
-			void this.posta.aggiornaLocale().then(() => {
+			void this.posta.aggiornaLocale().then(async () => {
+				await this.whatsapp.aggiorna();
 				const g = Number(cfg().get<number>('posta.gmailOgniMinuti', 0)) || 0;
 				if (g > 0 && Date.now() - this.lastGmailAuto >= Math.max(120, g) * MINUTO) {
 					this.lastGmailAuto = Date.now();
@@ -137,12 +185,32 @@ export class StanzaConnettori {
 		return this.connettori().find(c => c.diretto && c.capacita.includes('posta') && utilizzabile(c));
 	}
 
+	/** I server WhatsApp (capacita' messaggi) interrogabili direttamente. */
+	private serverWhatsapp(): string[] {
+		return this.connettori()
+			.filter(c => c.diretto && c.capacita.includes('messaggi') && utilizzabile(c))
+			.map(c => c.nome);
+	}
+
+	private giorniWa(): number {
+		return Math.max(1, Math.min(90, Number(cfg().get<number>('whatsapp.giorni', 7)) || 7));
+	}
+
+	/** Un server locale stdio utilizzabile, con il modo di avviarlo, per chi lo vuole interrogare direttamente
+	 *  con ClientMcp o conServer. L'avvio contiene comando ed env: resta in memoria, mai in log, cache o messaggi. */
+	serverDiretto(nome: string): { nome: string; avvio: AvvioServer } | undefined {
+		const c = this.connettori().find(x => x.nome === nome && x.diretto && utilizzabile(x));
+		if (!c) return undefined;
+		const avvio = avvioServer(c.nome);
+		return avvio ? { nome: c.nome, avvio } : undefined;
+	}
+
 	private gmail(): Connettore | undefined {
 		return this.connettori().find(c => c.tipo === 'claude.ai' && c.pulito === 'gmail' && c.stato === 'connesso');
 	}
 
 	private async cercaLocale(server: string, args: Record<string, unknown>): Promise<any> {
-		const avvio = avvioServer(server);
+		const avvio = this.serverDiretto(server)?.avvio ?? avvioServer(server);
 		if (!avvio) throw new Error('configurazione non trovata in ~/.claude.json');
 		return conServer(server, avvio, async c => {
 			const tools = await c.strumenti();
@@ -159,30 +227,82 @@ export class StanzaConnettori {
 		return { ...this.scoperta.stato(), deleghe: this.coda.stato() };
 	}
 
-	private suggerimenti(rubrica: Record<string, VoceRubrica>): PostaStato['suggerimenti'] {
+	/** I domini dei file di ogni progetto, senza quelli condivisi da piu' progetti. Rileggere i file costa: si tiene
+	 *  dieci minuti, e si rifa' se cambiano i progetti o i domini ignorati. */
+	private indice(): ProgettoIndice[] {
 		const projects = this.h.projects();
 		const ignorati = cfg().get<string[]>('posta.dominiIgnorati', []) ?? [];
-		const sig = JSON.stringify([projects.map(p => p.path), rubrica, ignorati]);
-		if (this.suggCache && this.suggCache.sig === sig && Date.now() - this.suggCache.at < 10 * MINUTO) return this.suggCache.v;
-		const noti = Object.values(rubrica).flatMap(v => v.domini);
-		const v = projects
-			.map(p => ({ path: p.path, name: p.name, domini: suggerisciDomini(p.path, noti, ignorati) }))
+		const sig = JSON.stringify([projects.map(p => p.path), ignorati]);
+		if (!this.indiceCache || this.indiceCache.sig !== sig || Date.now() - this.indiceCache.at > 10 * MINUTO) {
+			this.indiceCache = { at: Date.now(), sig, v: indiceProgetti(projects, ignorati) };
+		}
+		return this.indiceCache.v.indice;
+	}
+
+	/** I suggerimenti deboli: domini nei file di un solo progetto, non ancora in rubrica. */
+	private suggerimenti(indice: ProgettoIndice[], rubrica: Record<string, VoceRubrica>): PostaStato['suggerimenti'] {
+		const noti = new Set(Object.values(rubrica).flatMap(v => v.domini));
+		return indice
+			.map(p => ({ path: p.path, name: p.name, domini: [...p.domini.keys()].filter(d => !noti.has(d)).slice(0, 4) }))
 			.filter(s => s.domini.length)
 			.slice(0, 40);
-		this.suggCache = { at: Date.now(), sig, v };
-		return v;
+	}
+
+	private statoWhatsapp(rubrica: Record<string, VoceRubrica>, indice: ProgettoIndice[]): { stato: WhatsappStato; perProgetto: Record<string, ChatWa[]> } {
+		const personale = cfg().get<boolean>('whatsapp.personaleDaAssegnare', false) === true;
+		const { perProgetto, daAssegnare } = assegnaChat(this.whatsapp.chat, rubrica, personale);
+		const propostaPer = (c: ChatWa) => {
+			if (c.gruppo || !c.contatto) return undefined;
+			const t = indice.filter(p => citaProgetto(c.contatto, p.name));
+			return t.length === 1 ? { path: t[0].path, name: t[0].name, motivo: `il nome del contatto cita ${t[0].name}` } : undefined;
+		};
+		return {
+			perProgetto,
+			stato: {
+				aggiornatoAt: this.whatsapp.aggiornatoAt,
+				aggiornando: this.whatsapp.aggiornando,
+				...(this.whatsapp.errore ? { errore: this.whatsapp.errore } : {}),
+				giorni: this.giorniWa(),
+				fonti: this.whatsapp.fonti,
+				disponibili: this.serverWhatsapp(),
+				daAssegnare: daAssegnare.slice(0, 30).map(c => {
+					const proposta = propostaPer(c);
+					return proposta ? { ...c, proposta } : c;
+				}),
+			},
+		};
 	}
 
 	statoPosta(): PostaStato {
 		const rubrica = this.posta.rubrica();
+		const indice = this.indice();
 		const { perProgetto, daAssegnare } = assegna(this.posta.fili, rubrica);
+		const wa = this.statoWhatsapp(rubrica, indice);
 		const nomi = new Map(this.h.projects().map(p => [p.path, p.name]));
+		const recente = (x: { fili: Filo[]; chat: ChatWa[] }) => [x.fili[0]?.data ?? '', x.chat[0]?.data ?? ''].sort().pop() ?? '';
 		const progetti = Object.entries(rubrica)
 			.map(([p, voce]) => {
 				const fili = perProgetto[p] ?? [];
-				return { path: p, name: nomi.get(p) ?? path.basename(p), voce, fili: fili.slice(0, 30), nonLetti: fili.filter(f => f.nonLetto).length };
+				const chat = wa.perProgetto[p] ?? [];
+				return {
+					path: p,
+					name: nomi.get(p) ?? path.basename(p),
+					voce,
+					fili: fili.slice(0, 30),
+					nonLetti: fili.filter(f => f.nonLetto).length,
+					chat: chat.slice(0, 20),
+					chatDaRispondere: chat.filter(c => !c.mio).length,
+				};
 			})
-			.sort((a, b) => b.nonLetti - a.nonLetti || (b.fili[0]?.data ?? '').localeCompare(a.fili[0]?.data ?? '') || a.name.localeCompare(b.name));
+			.sort((a, b) => b.nonLetti - a.nonLetti || recente(b).localeCompare(recente(a)) || a.name.localeCompare(b.name));
+		const umani = daAssegnare.filter(f => !mittenteAutomatico(f.indirizzo));
+		const automatici = new Set(daAssegnare.filter(f => mittenteAutomatico(f.indirizzo)).map(f => f.indirizzo)).size;
+		const prop = proposte(umani, indice);
+		const mittenti = mittentiDaAssegnare(umani, 60)
+			.map(m => (prop[m.indirizzo] ? { ...m, proposta: prop[m.indirizzo] } : m))
+			// prima chi ha una proposta: e' quello che si sistema con un clic
+			.sort((a, b) => Number(!!(b as any).proposta) - Number(!!(a as any).proposta))
+			.slice(0, 40);
 		return {
 			aggiornatoAt: this.posta.aggiornatoAt,
 			aggiornando: this.posta.aggiornando,
@@ -192,8 +312,10 @@ export class StanzaConnettori {
 			disponibili: { locale: this.serverPostaLocale()?.nome ?? null, gmail: !!this.gmail() },
 			deleghe: this.coda.stato(),
 			progetti,
-			daAssegnare: mittentiDaAssegnare(daAssegnare),
-			suggerimenti: this.suggerimenti(rubrica),
+			daAssegnare: mittenti,
+			automatici,
+			suggerimenti: this.suggerimenti(indice, rubrica),
+			whatsapp: wa.stato,
 			tuttiProgetti: this.h.projects().map(p => ({ path: p.path, name: p.name })),
 		};
 	}
@@ -224,13 +346,22 @@ export class StanzaConnettori {
 				if (m.fonte === 'gmail') void this.posta.aggiornaGmail();
 				else void this.posta.aggiornaLocale();
 				return true;
+			case 'whatsapp.refresh':
+				void this.whatsapp.aggiorna();
+				return true;
+			case 'whatsapp.apri': {
+				const c = this.whatsapp.chat.find(x => x.id === m.id);
+				const link = c ? linkWhatsapp(c) : undefined;
+				// apre la chat in WhatsApp, senza scrivere niente; per i gruppi e i numeri sconosciuti non fa nulla
+				if (link) execFile('open', [link], () => undefined);
+				return true;
+			}
 			case 'rubrica.add':
 			case 'rubrica.remove': {
 				const p = String(m.path ?? '');
 				if (!this.h.projects().some(x => x.path === p)) return true;
 				const r = this.posta.rubrica();
 				this.posta.salvaRubrica(m.type === 'rubrica.add' ? aggiungiVoce(r, p, String(m.voce ?? '')) : togliVoce(r, p, String(m.voce ?? '')));
-				this.suggCache = undefined;
 				this.cambiato();
 				return true;
 			}

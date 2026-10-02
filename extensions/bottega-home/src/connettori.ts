@@ -35,6 +35,11 @@ export interface Connettore {
 	ambito: 'claude.ai' | 'utente' | 'progetto' | 'plugin';
 	/** Per i server configurati solo in alcuni progetti. */
 	progetti?: string[];
+	/** Una nota sullo stato, per esempio quando e' scaduto solo il controllo degli strumenti. */
+	avviso?: string;
+	/** Per i server remoti: schema e host dell'indirizzo ("https://gmailmcp.googleapis.com"), mai percorso o query,
+	 *  che possono contenere chiavi. Serve alla delega per caricare solo quel server. */
+	origine?: string;
 }
 
 export interface StatoCapacita {
@@ -140,7 +145,14 @@ export function capacitaDi(pulito: string, mappa: Record<string, string[]> = MAP
 
 // ---------- strumenti di sola lettura ----------
 
-const LEGGE = new Set(['search', 'list', 'get', 'read']);
+/** Verbi e nomi di lettura. Possono stare in qualunque posizione: asc-mcp e google-play mettono l'oggetto prima
+ *  del verbo (apps_list, reviews_list, builds_get_processing_state). */
+const LEGGE = new Set([
+	'search', 'list', 'get', 'read', 'query', 'fetch', 'find', 'count', 'check', 'inspect', 'analyze', 'analyse',
+	'analysis', 'compare', 'comparison', 'explore', 'trend', 'trends', 'stats', 'report', 'summary', 'overview',
+	'breakdown', 'status',
+]);
+/** Parole che scrivono, inviano, cancellano o spendono: vincono sempre, anche su readOnlyHint e sui permessi. */
 const SCRIVE = new Set([
 	'send', 'reply', 'forward', 'delete', 'remove', 'trash', 'untrash', 'move', 'set', 'update', 'create', 'write',
 	'upload', 'save', 'add', 'edit', 'patch', 'put', 'post', 'submit', 'release', 'cancel', 'buy', 'purchase',
@@ -148,6 +160,17 @@ const SCRIVE = new Set([
 	'unpause', 'label', 'unlabel', 'mark', 'unmark', 'apply', 'draft', 'respond', 'accept', 'approve', 'deploy',
 	'sign', 'issue', 'assign', 'merge', 'transfer', 'change', 'rerequest', 'invalidate', 'restore', 'record',
 	'kill', 'exchange', 'join', 'replace', 'attach', 'generate', 'duplicate', 'token', 'secret', 'decrypt',
+	// con il verbo di lettura in qualunque posizione servono piu' parole che scrivono da escludere
+	'switch', 'refresh', 'register', 'enable', 'disable', 'activate', 'deactivate', 'commit', 'reorder', 'rollout',
+	'rebrand', 'redeliver', 'ping', 'clear', 'triage', 'install', 'uninstall', 'reset', 'resolve', 'authorize',
+	'authenticate', 'login', 'logout', 'lock', 'unlock', 'close', 'extend', 'increment', 'decrement', 'overwrite',
+	'reindex', 'rebuild', 'fork', 'clone', 'mint', 'withdraw', 'pin', 'unpin', 'star', 'unstar', 'mute', 'unmute',
+	'download', 'export', 'import', 'compute', 'compile', 'transcribe', 'publish', 'unpublish', 'schedule',
+	'archive', 'unarchive', 'purge', 'destroy', 'erase', 'wipe', 'grant', 'block', 'unblock', 'ban',
+	'subscribe', 'unsubscribe', 'follow', 'unfollow', 'like', 'react', 'comment', 'connect', 'disconnect', 'sync',
+	'push', 'pull', 'notify', 'trigger', 'dispatch', 'launch', 'rename', 'toggle', 'reject', 'decline', 'confirm',
+	'complete', 'rotate', 'renew', 'revert', 'insert', 'append', 'upsert', 'modify', 'store', 'pay', 'charge',
+	'refund', 'password', 'credential', 'credentials',
 ]);
 
 /** Le parole del nome breve di uno strumento: "search_threads" -> [search, threads], "getThread" -> [get, thread]. */
@@ -160,23 +183,75 @@ export function paroleStrumento(nome: string): string[] {
 		.filter(Boolean);
 }
 
-/** Vero solo per gli strumenti che leggono: cominciano per search, list, get o read e non contengono parole
- *  che scrivono, inviano o cancellano (get_or_create, list_and_delete restano fuori). */
-export function soloLettura(nome: string): boolean {
+/** Strumenti permessi a mano per server (bottega.connettori.letturaPermessa), per i server di sola analisi i cui
+ *  nomi non hanno un verbo (admob: top_apps, wow_revenue). Chiave: nome del server, esatto o /regex/; valori: nomi
+ *  brevi degli strumenti, esatti o /regex/. SCRIVE vince comunque. Il default e' quello del package.json. */
+export const LETTURA_PERMESSA_BASE: Record<string, string[]> = { admob: ['/.*/'], searchconsole: ['/.*/'], 'keyword-suggest': ['/.*/'] };
+let letturaPermessa: Record<string, string[]> = LETTURA_PERMESSA_BASE;
+
+export function impostaLetturaPermessa(v: unknown): void {
+	const out: Record<string, string[]> = {};
+	if (v && typeof v === 'object' && !Array.isArray(v)) {
+		for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+			const l = (Array.isArray(x) ? x : [x]).map(y => String(y ?? '').trim()).filter(Boolean);
+			if (k.trim() && l.length) out[k.trim().toLowerCase()] = l;
+		}
+	}
+	letturaPermessa = out;
+}
+
+/** Il server di un nome completo: "mcp__admob__top_apps" -> "admob", "mcp__claude_ai_Gmail__x" -> "gmail". */
+function serverDiNome(nome: string): string {
+	const i = nome.lastIndexOf('__');
+	if (!nome.startsWith('mcp__') || i <= 5) return '';
+	return nome.slice(5, i).replace(/^claude_ai_/, '').replace(/^plugin_[^_]+_/, '').replace(/_/g, ' ').toLowerCase();
+}
+
+function permesso(server: string, breve: string): boolean {
+	if (!server) return false;
+	const srv = nomePulito(server);
+	for (const [k, voci] of Object.entries(letturaPermessa)) {
+		if (!corrisponde(srv, k) && !corrisponde(srv.replace(/\s+/g, '_'), k)) continue;
+		if (voci.some(v => corrisponde(breve.toLowerCase(), v))) return true;
+	}
+	return false;
+}
+
+/** Vero solo per gli strumenti che leggono e non contengono parole che scrivono, inviano o cancellano
+ *  (get_or_create, list_and_delete, auth_generate_token restano fuori, readOnlyHint o no). Legge chi ha un verbo
+ *  di lettura in qualunque posizione, oppure `readOnlyHint: true` nelle annotazioni di tools/list, oppure il
+ *  permesso a mano per il suo server (`server`, o il prefisso mcp__<server>__ del nome). */
+export function soloLettura(nome: string, annotazioni?: { readOnlyHint?: boolean } | null, server?: string): boolean {
 	const w = paroleStrumento(nome);
-	if (!w.length || !LEGGE.has(w[0])) return false;
-	return !w.some(x => SCRIVE.has(x));
+	if (!w.length || w.some(x => SCRIVE.has(x))) return false;
+	if (w.some(x => LEGGE.has(x))) return true;
+	if (annotazioni?.readOnlyHint === true) return true;
+	const breve = nome.includes('__') ? nome.slice(nome.lastIndexOf('__') + 2) : nome;
+	return permesso(server ?? serverDiNome(nome), breve);
 }
 
 // ---------- `claude mcp list` ----------
 
-function statoDa(testo: string): StatoConnettore {
+/** Lo stato dalla coda della riga. "Connected" vince su "fail" e "timed out": la riga
+ *  "! Connected · tools fetch failed, Request timed out" e' un server collegato il cui controllo degli strumenti e'
+ *  scaduto, non un server rotto. "Disconnected" e "Failed to connect" restano errori. */
+export function statoDa(testo: string): { stato: StatoConnettore; avviso?: string } {
 	const t = testo.toLowerCase();
-	if (/needs? auth/.test(t)) return 'da autenticare';
-	if (/not configured/.test(t)) return 'non configurato';
-	if (/fail|error|disconnect|timed? ?out/.test(t)) return 'errore';
-	if (/connected/.test(t)) return 'connesso';
-	return 'sconosciuto';
+	if (/needs? auth/.test(t)) return { stato: 'da autenticare' };
+	if (/not configured/.test(t)) return { stato: 'non configurato' };
+	if (/(^|[^a-z])connected/.test(t)) {
+		if (/timed? ?out/.test(t)) return { stato: 'connesso', avviso: 'collegato, il controllo degli strumenti è scaduto' };
+		if (/fail|error/.test(t)) return { stato: 'connesso', avviso: 'collegato, il controllo degli strumenti non è riuscito' };
+		return { stato: 'connesso' };
+	}
+	if (/fail|error|disconnect|timed? ?out/.test(t)) return { stato: 'errore' };
+	return { stato: 'sconosciuto' };
+}
+
+/** Schema e host di un indirizzo, senza percorso ne' query. */
+export function origineDi(dest: string): string | undefined {
+	const m = /\b(https?):\/\/([a-z0-9.-]+(?::\d+)?)/i.exec(String(dest ?? ''));
+	return m ? `${m[1].toLowerCase()}://${m[2].toLowerCase()}` : undefined;
 }
 
 /** Interpreta l'uscita di `claude mcp list`: una riga per server, "<nome>: <destinazione> - <icona> <stato>".
@@ -192,7 +267,8 @@ export function parseMcpList(text: string, mappa: Record<string, string[]> = MAP
 		const nome = line.slice(0, colon).trim();
 		if (!nome || /^checking/i.test(nome) || seen.has(nome)) continue;
 		const dest = line.slice(colon + 2, dash);
-		const stato = statoDa(line.slice(dash + 3));
+		const { stato, avviso } = statoDa(line.slice(dash + 3));
+		const origine = origineDi(dest);
 		const tipo: TipoConnettore = /^claude\.ai\s/i.test(nome) ? 'claude.ai' : /^plugin:/i.test(nome) ? 'plugin' : /\((HTTP|SSE)\)/i.test(dest) || /^\s*https?:\/\//i.test(dest) ? 'remoto' : 'locale';
 		const pulito = nomePulito(nome);
 		seen.add(nome);
@@ -205,6 +281,8 @@ export function parseMcpList(text: string, mappa: Record<string, string[]> = MAP
 			capacita: capacitaDi(pulito, mappa),
 			diretto: tipo === 'locale',
 			ambito: tipo === 'claude.ai' ? 'claude.ai' : tipo === 'plugin' ? 'plugin' : 'utente',
+			...(avviso ? { avviso } : {}),
+			...(origine && tipo !== 'locale' ? { origine } : {}),
 		});
 	}
 	return out;

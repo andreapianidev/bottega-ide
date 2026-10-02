@@ -2,8 +2,9 @@
    I dati li prepara l'estensione (src/connettori-host.ts); i messaggi connettori.*, posta.* e rubrica.* e la forma
    degli stati sono in docs/CONTRATTI.md, sezione 5.
 
-   Due schede: Posta (fili per progetto, da assegnare, suggerimenti per la rubrica) e Connettori (cosa ha
-   l'utente in Claude Code e quali capacita' della Bottega accende). La rubrica vive solo in ~/.bottega/rubrica.json:
+   Due schede: Posta (fili di posta e chat WhatsApp per progetto, da assegnare con le proposte imparate dalla posta,
+   domini trovati nei file chiusi in fondo) e Connettori (cosa ha l'utente in Claude Code e quali capacita' della
+   Bottega accende; i plugin non collegati raggruppati in fondo). La rubrica vive solo in ~/.bottega/rubrica.json:
    questo file non contiene nessun indirizzo.
    Regole: niente librerie, niente attributi style (la CSP li blocca), testo dei dati sempre sfuggito,
    aggiornamenti che non perdono il fuoco ne' il testo che si sta scrivendo. */
@@ -86,17 +87,19 @@
 						<button type="submit" class="act" data-fk="k:nuovo-ok">Aggiungi alla rubrica</button>
 					</form>
 				</div>
-				<section class="con-blocco" id="con-sugg-box" aria-labelledby="con-sugg-titolo" hidden>
-					<h2 class="con-titolo" id="con-sugg-titolo">Suggerimenti per la rubrica</h2>
-					<p class="con-nota">Domini trovati nei file dei progetti (package.json, vercel.json, README, CLAUDE.md). Un clic e li aggiungo.</p>
-					<ul class="con-sugg" id="con-sugg"></ul>
-				</section>
 				<section class="con-blocco" id="con-liberi-box" aria-labelledby="con-liberi-titolo" hidden>
 					<h2 class="con-titolo" id="con-liberi-titolo">Da assegnare</h2>
-					<p class="con-nota">Mittenti che non sono in rubrica. Scegli un progetto e aggiungi l'indirizzo, o tutto il dominio.</p>
+					<p class="con-nota" id="con-liberi-nota"></p>
 					<ul class="con-liberi" id="con-liberi"></ul>
+					<h3 class="con-sottotitolo" id="con-liberi-wa-titolo" hidden>Chat WhatsApp</h3>
+					<ul class="con-liberi" id="con-liberi-wa" aria-labelledby="con-liberi-wa-titolo"></ul>
 				</section>
-				<p class="con-privato">La rubrica sta solo su questo Mac, in <code>~/.bottega/rubrica.json</code>, mai nel repository. La Bottega legge mittente, oggetto e data, non invia mai niente.</p>
+				<details class="con-altri" id="con-sugg-box" hidden>
+					<summary id="con-sugg-titolo">Domini trovati nei file dei progetti</summary>
+					<p class="con-nota">Da package.json, vercel.json, README e CLAUDE.md, solo quelli che stanno in un progetto solo. Sono indizi deboli: un clic e li aggiungo.</p>
+					<ul class="con-sugg" id="con-sugg"></ul>
+				</details>
+				<p class="con-privato">La rubrica sta solo su questo Mac, in <code>~/.bottega/rubrica.json</code>, mai nel repository. La Bottega legge mittente, oggetto e data, e delle chat solo l'ultimo messaggio accorciato; non invia mai niente. Le chat personali compaiono solo per i numeri in rubrica.</p>
 			</section>
 
 			<section class="con-sez" id="con-elenco" aria-labelledby="con-elenco-titolo" hidden>
@@ -111,6 +114,10 @@
 				<details class="con-altri" id="con-altri-box" hidden>
 					<summary id="con-altri-titolo"></summary>
 					<ul class="con-lista" id="con-altri"></ul>
+				</details>
+				<details class="con-altri" id="con-plugin-box" hidden>
+					<summary id="con-plugin-titolo"></summary>
+					<ul class="con-lista" id="con-plugin"></ul>
 				</details>
 				<p class="con-privato">Si aggiungono in Claude Code: i connettori di claude.ai dalle impostazioni di claude.ai, i server locali con <code>claude mcp add</code>. La Bottega non tiene nessuna chiave.</p>
 			</section>
@@ -195,7 +202,7 @@
 			const p = posta;
 			if (!p) return put($('con-comandi'), '');
 			const d = p.deleghe || { stime: {}, spesaOggi: 0, tetto: 1 };
-			const st = (d.stime && d.stime.posta) || { secondi: 60, usd: 0.45 };
+			const st = (d.stime && d.stime.posta) || { secondi: 60, usd: 0.08 };
 			const occupato = !!p.aggiornando;
 			let h = '';
 			if (p.disponibili.locale) {
@@ -208,13 +215,23 @@
 				h += `<div class="con-cmd"><button type="button" class="act${p.disponibili.locale ? '' : ' main'}" data-k="gmail" data-fk="k:posta-gmail"${occupato || sfora ? ' disabled' : ''}>${testo}</button>
 					<span class="con-nota">${sfora ? `tetto di oggi raggiunto (${dollari(d.spesaOggi)} su ${dollari(d.tetto)})` : `una delega a Claude Code, circa ${it(st.secondi)} secondi e ${dollari(st.usd)}`}</span></div>`;
 			}
+			const wa = p.whatsapp;
+			if (wa && wa.disponibili && wa.disponibili.length) {
+				h += `<div class="con-cmd"><button type="button" class="act" data-k="whatsapp" data-fk="k:whatsapp"${wa.aggiornando ? ' disabled' : ''}>${wa.aggiornando ? 'Leggo WhatsApp…' : 'Aggiorna WhatsApp'}</button>
+					<span class="con-nota">da ${esc(wa.disponibili.join(' e '))}, sul Mac, gratis</span></div>`;
+			}
 			if (!h) h = '<p class="con-nota">Nessun connettore di posta. Aggiungi Gmail tra i connettori di claude.ai, oppure un server di posta locale in Claude Code, poi premi Aggiorna elenco nella scheda Connettori.</p>';
 			put($('con-comandi'), h);
 			const f = [];
 			const loc = p.fonti && p.fonti.locale;
 			const gm = p.fonti && p.fonti.gmail;
-			if (loc) f.push(loc.errore ? `${loc.nome}: ${loc.errore}` : `${cap(loc.nome)} letta ${fa(loc.at)}, ${it(loc.n)} messaggi`);
+			if (loc) f.push(loc.errore ? `${loc.nome}: ${loc.errore}` : `${cap(loc.nome)} letta ${fa(loc.at)}, ${it(loc.n)} messaggi${loc.pieno ? ' (il massimo che legge in una volta: i messaggi potrebbero essere di più, prova con meno giorni)' : ''}`);
 			if (gm) f.push(gm.errore ? `Gmail: ${gm.errore}` : `Gmail letta ${fa(gm.at)}, ${it(gm.n)} fili, ${dollari(gm.costo || 0)}`);
+			const waf = (wa && wa.fonti) || {};
+			for (const k of ['business', 'personale']) {
+				const x = waf[k];
+				if (x) f.push(x.errore ? `WhatsApp ${k}: ${x.errore}` : `WhatsApp ${k} letto ${fa(x.at)}, ${it(x.n)} chat`);
+			}
 			const ft = f.length ? f.join('. ') + `. Ultimi ${it(p.giorni)} giorni.` : '';
 			if ($('con-fonti').textContent !== ft) $('con-fonti').textContent = ft;
 		}
@@ -230,6 +247,23 @@
 			</li>`;
 		}
 
+		const FONTE_WA = { business: 'WhatsApp business', personale: 'WhatsApp personale' };
+
+		function chatHtml(c) {
+			const attesa = !c.mio || c.nonLetto;
+			const apri = c.telefono && !c.gruppo
+				? `<button type="button" class="ghost con-apri" data-k="wa-apri" data-id="${esc(c.id)}" data-fk="k:wa-apri:${esc(c.id)}" aria-label="Apri la chat con ${esc(c.contatto)} in WhatsApp">WhatsApp</button>`
+				: '<span></span>';
+			const ultimo = c.ultimo ? `, ${c.mio ? 'tu: ' : ''}${esc(c.ultimo)}` : '';
+			return `<li class="con-filo con-chat${attesa ? ' con-attesa' : ''}">
+				<span class="con-punto" aria-hidden="true"></span>
+				<span class="con-filo-testo"><span class="con-oggetto">${esc(c.contatto || c.telefono || 'contatto')}${c.gruppo ? ' <span class="con-ind">gruppo</span>' : ''}</span>
+				<span class="con-da">${esc(FONTE_WA[c.fonte] || 'WhatsApp')}${ultimo}</span></span>
+				<span class="con-quando">${esc(quando(c.data))}${attesa ? '<span class="sr">, ha scritto per ultimo</span>' : ''}</span>
+				${apri}
+			</li>`;
+		}
+
 		function renderProgetti() {
 			const list = (posta && posta.progetti) || [];
 			const vuoto = $('con-progetti-vuoto');
@@ -239,17 +273,24 @@
 				$('con-progetti'),
 				list
 					.map(p => {
-						const voci = [...p.voce.indirizzi, ...p.voce.domini];
+						const voci = [...p.voce.indirizzi, ...p.voce.domini, ...(p.voce.telefoni || []), ...(p.voce.gruppi || [])];
 						const chips = voci
 							.map(v => `<li class="con-chip"><span>${esc(v)}</span><button type="button" class="con-togli" data-k="togli" data-path="${esc(p.path)}" data-v="${esc(v)}" data-fk="k:togli:${esc(p.path)}:${esc(v)}" aria-label="Togli ${esc(v)} da ${esc(p.name)}">×</button></li>`)
 							.join('');
 						const fili = p.fili.slice(0, 8).map(filoHtml).join('');
 						const altri = p.fili.length > 8 ? `<p class="con-nota">e altri ${it(p.fili.length - 8)}</p>` : '';
+						const chatL = p.chat || [];
+						const chat = chatL.slice(0, 6).map(chatHtml).join('');
+						const altreChat = chatL.length > 6 ? `<p class="con-nota">e altre ${it(chatL.length - 6)} chat</p>` : '';
 						const conta = p.nonLetti ? `<span class="con-conta">${it(p.nonLetti)} da leggere</span>` : p.fili.length ? `<span class="con-conta con-letti">${it(p.fili.length)} letti</span>` : '';
+						const contaChat = p.chatDaRispondere ? `<span class="con-conta">${it(p.chatDaRispondere)} ${p.chatDaRispondere === 1 ? 'chat ti ha' : 'chat ti hanno'} scritto</span>` : '';
+						const vuoto = !fili && !chat ? `<p class="con-nota">Nessun filo negli ultimi ${it(posta.giorni)} giorni.</p>` : '';
 						return `<li class="con-progetto">
-							<div class="con-p-testa"><h3>${esc(p.name)}</h3>${conta}</div>
+							<div class="con-p-testa"><h3>${esc(p.name)}</h3><span class="con-conte">${conta}${contaChat}</span></div>
 							<ul class="con-chips" aria-label="Rubrica di ${esc(p.name)}">${chips}</ul>
-							${fili ? `<ul class="con-fili">${fili}</ul>${altri}` : `<p class="con-nota">Nessun filo negli ultimi ${it(posta.giorni)} giorni.</p>`}
+							${fili ? `<ul class="con-fili">${fili}</ul>${altri}` : ''}
+							${chat ? `<ul class="con-fili con-chats" aria-label="Chat WhatsApp di ${esc(p.name)}">${chat}</ul>${altreChat}` : ''}
+							${vuoto}
 						</li>`;
 					})
 					.join(''),
@@ -277,24 +318,56 @@
 			);
 		}
 
+		/** Il progetto scelto per una riga di "Da assegnare": la scelta dell'utente, o la proposta se non ha scelto. */
+		const sceltaDi = (chiave, proposta) => (Object.prototype.hasOwnProperty.call(ui.scelte, chiave) ? ui.scelte[chiave] : proposta ? proposta.path : '');
+
+		function propostaHtml(chiave, pr, voce) {
+			if (!pr) return '';
+			return `<span class="con-proposta">Forse è di ${esc(pr.name)}: ${esc(pr.motivo)}.
+				<button type="button" class="act con-s-dom" data-k="proponi" data-path="${esc(pr.path)}" data-v="${esc(voce)}" data-fk="k:proponi:${esc(chiave)}" aria-label="Aggiungi ${esc(voce)} a ${esc(pr.name)}">Assegna a ${esc(pr.name)}</button></span>`;
+		}
+
 		function renderLiberi() {
 			const list = (posta && posta.daAssegnare) || [];
-			$('con-liberi-box').hidden = !list.length;
+			const wa = (posta && posta.whatsapp && posta.whatsapp.daAssegnare) || [];
+			const auto = (posta && posta.automatici) || 0;
+			$('con-liberi-box').hidden = !list.length && !wa.length;
+			const nota = `Mittenti e chat che non sono in rubrica. Scegli un progetto e aggiungi l'indirizzo, il dominio o il numero.${auto ? ` ${it(auto)} ${auto === 1 ? 'mittente automatico' : 'mittenti automatici'} (noreply, notifiche, newsletter) non ${auto === 1 ? 'è' : 'sono'} in elenco.` : ''}`;
+			if ($('con-liberi-nota').textContent !== nota) $('con-liberi-nota').textContent = nota;
 			const opts = sel => `<option value="">Progetto</option>` + progetti.map(p => `<option value="${esc(p.path)}"${p.path === sel ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
+			const azioni = (chiave, nomeSr, scelto, pr, bottoni) => `<div class="con-l-azioni">
+				<label class="sr" for="con-l-${esc(chiave)}">Progetto per ${esc(nomeSr)}</label>
+				<select id="con-l-${esc(chiave)}" class="con-select" data-k-in="scelta" data-v="${esc(chiave)}" data-fk="k:scelta:${esc(chiave)}">${opts(scelto)}</select>
+				${bottoni.map(b => `<button type="button" class="${b.cls}" data-k="assegna" data-v="${esc(b.voce)}" data-m="${esc(chiave)}" data-def="${esc(pr ? pr.path : '')}" data-fk="k:assegna:${esc(chiave)}:${esc(b.voce)}"${scelto ? '' : ' disabled'}>${esc(b.testo)}</button>`).join('')}
+			</div>`;
 			put(
 				$('con-liberi'),
 				list
 					.map(m => {
-						const scelto = ui.scelte[m.indirizzo] || '';
+						const pr = m.proposta;
+						const scelto = sceltaDi(m.indirizzo, pr);
 						const chi = m.nome ? `${esc(m.nome)} <span class="con-ind">${esc(m.indirizzo)}</span>` : `<span class="con-ind">${esc(m.indirizzo)}</span>`;
-						return `<li class="con-libero">
-							<div class="con-l-chi">${chi}<span class="con-nota">${it(m.n)} ${m.n === 1 ? 'filo' : 'fili'}${m.nonLetti ? `, ${it(m.nonLetti)} da leggere` : ''}, ultimo ${esc(quando(m.ultimo.data))}: ${esc(m.ultimo.oggetto || '(senza oggetto)')}</span></div>
-							<div class="con-l-azioni">
-								<label class="sr" for="con-l-${esc(m.indirizzo)}">Progetto per ${esc(m.indirizzo)}</label>
-								<select id="con-l-${esc(m.indirizzo)}" class="con-select" data-k-in="scelta" data-v="${esc(m.indirizzo)}" data-fk="k:scelta:${esc(m.indirizzo)}">${opts(scelto)}</select>
-								<button type="button" class="act" data-k="assegna" data-v="${esc(m.indirizzo)}" data-fk="k:assegna:${esc(m.indirizzo)}"${scelto ? '' : ' disabled'}>Aggiungi l'indirizzo</button>
-								${m.generico ? '' : `<button type="button" class="ghost" data-k="assegna" data-v="${esc(m.dominio)}" data-m="${esc(m.indirizzo)}" data-fk="k:assegna-d:${esc(m.indirizzo)}"${scelto ? '' : ' disabled'}>Tutto ${esc(m.dominio)}</button>`}
-							</div>
+						const bottoni = [{ cls: 'act', voce: m.indirizzo, testo: "Aggiungi l'indirizzo" }];
+						if (!m.generico) bottoni.push({ cls: 'ghost', voce: m.dominio, testo: `Tutto ${m.dominio}` });
+						return `<li class="con-libero${pr ? ' con-proposto' : ''}">
+							<div class="con-l-chi">${chi}<span class="con-nota">${it(m.n)} ${m.n === 1 ? 'filo' : 'fili'}${m.nonLetti ? `, ${it(m.nonLetti)} da leggere` : ''}, ultimo ${esc(quando(m.ultimo.data))}: ${esc(m.ultimo.oggetto || '(senza oggetto)')}</span>${propostaHtml(m.indirizzo, pr, pr && pr.voce)}</div>
+							${azioni(m.indirizzo, m.indirizzo, scelto, pr, bottoni)}
+						</li>`;
+					})
+					.join(''),
+			);
+			$('con-liberi-wa-titolo').hidden = !wa.length;
+			put(
+				$('con-liberi-wa'),
+				wa
+					.map(c => {
+						const pr = c.proposta;
+						const scelto = sceltaDi(c.id, pr);
+						const voce = c.gruppo ? c.jid : c.telefono;
+						const chi = `${esc(c.contatto || c.telefono)} <span class="con-ind">${esc(c.gruppo ? 'gruppo' : c.telefono)}</span>`;
+						return `<li class="con-libero${pr ? ' con-proposto' : ''}">
+							<div class="con-l-chi">${chi}<span class="con-nota">${esc(FONTE_WA[c.fonte] || 'WhatsApp')}, ${esc(quando(c.data))}${c.ultimo ? `: ${c.mio ? 'tu: ' : ''}${esc(c.ultimo)}` : ''}</span>${propostaHtml(c.id, pr, voce)}</div>
+							${azioni(c.id, c.contatto || voce, scelto, pr, [{ cls: 'act', voce, testo: c.gruppo ? 'Aggiungi il gruppo' : 'Aggiungi il numero' }])}
 						</li>`;
 					})
 					.join(''),
@@ -305,12 +378,34 @@
 
 		function connettoreHtml(c) {
 			const caps = (c.capacita || []).map(id => ((con.capacita || []).find(x => x.id === id) || { nome: id }).nome).join(', ');
-			return `<li class="con-c con-c-${esc(c.stato.replace(/\s+/g, '-'))}">
+			return `<li class="con-c con-c-${esc(c.stato.replace(/\s+/g, '-'))}${c.avviso ? ' con-c-avviso' : ''}">
 				<span class="con-c-luce" aria-hidden="true"></span>
 				<span class="con-c-nome">${esc(c.nome)}</span>
 				<span class="con-c-stato">${esc(STATO[c.stato] || c.stato)}</span>
-				<span class="con-nota">${esc(TIPO[c.tipo] || c.tipo)}${c.ambito === 'progetto' ? `, solo in ${it((c.progetti || []).length)} ${(c.progetti || []).length === 1 ? 'progetto' : 'progetti'}` : ''}${caps ? `, accende ${esc(caps)}` : ''}</span>
+				<span class="con-nota">${esc(TIPO[c.tipo] || c.tipo)}${c.ambito === 'progetto' ? `, solo in ${it((c.progetti || []).length)} ${(c.progetti || []).length === 1 ? 'progetto' : 'progetti'}` : ''}${caps ? `, accende ${esc(caps)}` : ''}${c.avviso ? `. ${esc(cap(c.avviso))}` : ''}</span>
 			</li>`;
+		}
+
+		/** I plugin non collegati, uno per nome e stato: "gmail, non configurato, in 5 plugin (sales, design...)". */
+		function pluginHtml(list) {
+			const g = new Map();
+			for (const c of list) {
+				const k = `${c.pulito}|${c.stato}`;
+				if (!g.has(k)) g.set(k, []);
+				g.get(k).push(c);
+			}
+			return [...g.values()]
+				.sort((a, b) => b.length - a.length || a[0].pulito.localeCompare(b[0].pulito))
+				.map(l => {
+					const plugin = l.map(c => (/^plugin:([^:]+):/.exec(c.nome) || [])[1]).filter(Boolean);
+					return `<li class="con-c con-c-${esc(l[0].stato.replace(/\s+/g, '-'))}">
+						<span class="con-c-luce" aria-hidden="true"></span>
+						<span class="con-c-nome">${esc(l[0].pulito)}</span>
+						<span class="con-c-stato">${esc(STATO[l[0].stato] || l[0].stato)}</span>
+						<span class="con-nota">${l.length === 1 ? 'nel plugin' : `in ${it(l.length)} plugin:`} ${esc(plugin.join(', '))}</span>
+					</li>`;
+				})
+				.join('');
 		}
 
 		function renderElenco() {
@@ -329,7 +424,13 @@
 					)
 					.join(''),
 			);
-			const tutti = con.connettori || [];
+			// i plugin non collegati sono rumore (lo stesso gmail ripetuto in ogni plugin): raggruppati in fondo
+			const plugin = (con.connettori || []).filter(c => c.tipo === 'plugin' && c.stato !== 'connesso');
+			const tutti = (con.connettori || []).filter(c => !plugin.includes(c));
+			$('con-plugin-box').hidden = !plugin.length;
+			const tp = `Plugin di Claude Code non collegati: ${it(plugin.length)}`;
+			if ($('con-plugin-titolo').textContent !== tp) $('con-plugin-titolo').textContent = tp;
+			put($('con-plugin'), pluginHtml(plugin));
 			const utili = tutti.filter(c => c.stato === 'connesso' || c.stato === 'errore' || (c.stato === 'sconosciuto' && c.ambito === 'utente') || (c.capacita.length && c.stato === 'da autenticare'));
 			const altri = tutti.filter(c => !utili.includes(c));
 			utili.sort((a, b) => b.capacita.length - a.capacita.length || a.nome.localeCompare(b.nome));
@@ -388,13 +489,24 @@
 				}
 				case 'assegna': {
 					const ind = b.getAttribute('data-m') || b.getAttribute('data-v');
-					const p = ui.scelte[ind];
+					const p = Object.prototype.hasOwnProperty.call(ui.scelte, ind) ? ui.scelte[ind] : b.getAttribute('data-def');
 					const v = b.getAttribute('data-v');
 					if (!p) return;
 					delete ui.scelte[ind];
 					esito(`${v} ora è di ${nomeDi(p)}.`);
 					return post({ type: 'rubrica.add', path: p, voce: v });
 				}
+				case 'proponi': {
+					const p = b.getAttribute('data-path');
+					const v = b.getAttribute('data-v');
+					esito(`${v} ora è di ${nomeDi(p)}.`);
+					return post({ type: 'rubrica.add', path: p, voce: v });
+				}
+				case 'whatsapp':
+					esito('Leggo le chat WhatsApp sul Mac.');
+					return post({ type: 'whatsapp.refresh' });
+				case 'wa-apri':
+					return post({ type: 'whatsapp.apri', id: b.getAttribute('data-id') });
 			}
 		});
 
@@ -407,11 +519,12 @@
 			}
 			if (t.getAttribute('data-k-in') === 'scelta') {
 				const ind = t.getAttribute('data-v');
-				if (t.value) ui.scelte[ind] = t.value;
-				else delete ui.scelte[ind];
+				// anche la scelta vuota si ricorda: vince sulla proposta
+				ui.scelte[ind] = t.value;
 				const li = t.closest('.con-libero');
 				for (const x of li ? li.querySelectorAll('[data-k="assegna"]') : []) x.disabled = !t.value;
 				lastHTML.delete($('con-liberi'));
+				lastHTML.delete($('con-liberi-wa'));
 			}
 		});
 
@@ -452,9 +565,12 @@
 					if (prima && !con.aggiornando) esito(con.errore ? con.errore : 'Elenco dei connettori aggiornato.');
 				} else if (m.type === 'posta' && m.stato) {
 					const prima = posta && posta.aggiornando;
+					const primaWa = posta && posta.whatsapp && posta.whatsapp.aggiornando;
 					posta = m.stato;
 					if (Array.isArray(posta.tuttiProgetti)) progetti = posta.tuttiProgetti;
 					if (prima && !posta.aggiornando) esito(posta.errore ? posta.errore : 'Posta aggiornata.');
+					const wa = posta.whatsapp;
+					if (primaWa && wa && !wa.aggiornando) esito(wa.errore ? wa.errore : 'Chat WhatsApp aggiornate.');
 				} else return;
 				if (visible) render();
 			},

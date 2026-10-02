@@ -164,6 +164,16 @@
 .con-altri { margin-top: 14px; }
 .con-altri summary { cursor: pointer; color: var(--tinta); font-size: 12.5px; padding: 6px 0; }
 
+/* ---------- chat WhatsApp, proposte, avvisi ---------- */
+
+.con-conte { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; justify-content: flex-end; }
+.con-chats { margin-top: 4px; }
+.con-attesa .con-punto { background: var(--sodio); }
+.con-sottotitolo { font-family: var(--serif); font-weight: 500; font-size: 15px; margin: 18px 0 6px; }
+.con-proposta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 4px; font-size: 12px; color: var(--calima); }
+.con-proposto { border-left: 2px solid var(--sodio); padding-left: 10px; }
+.con-c-avviso .con-c-luce { background: var(--sodio); }
+
 @media (max-width: 560px) {
 	.con-c { grid-template-columns: 10px minmax(0, 1fr) auto; }
 	.con-c .con-nota { grid-column: 2 / -1; }
