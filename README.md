@@ -14,7 +14,7 @@
   Apple Silicon, macOS 27 o successivo. Open source, licenza MIT. Progetto personale in fase alfa.
 </p>
 
-![La Bottega: la plancia dei progetti e, dietro, i lavori](docs/screenshot/hero.jpg)
+![La Bottega: il cielo dei progetti nella Home, i file a sinistra e Claude Code a destra](docs/screenshot/ide.jpg)
 
 ## Perche' esiste
 
@@ -29,6 +29,8 @@ mirate e quattro pezzi propri.
 ## Cosa c'e' dentro
 
 ### La plancia
+
+![La plancia dei progetti e, dietro, i lavori](docs/screenshot/hero.jpg)
 
 All'avvio, al posto della pagina di benvenuto, una frase dice com'e' la situazione: quante sessioni
 Claude lavorano, quali progetti aspettano un push, quali hanno modifiche fuori da un commit. Sotto,
@@ -105,6 +107,26 @@ cresce e si scalda con le ore e pulsa quando Claude ci scrive, e sopra i pannell
 secondo schermo. Si apre dalla Bottega (comando «Apri l'Osservatorio»), dalla barra dei menu, da Siri e dal Centro di
 Controllo.
 
+### Il cruscotto
+
+![Il cruscotto: i numeri del mese e il cielo dei progetti](docs/screenshot/cruscotto.jpg)
+
+Quanto lavori, letto dai registri che Claude Code scrive sul Mac, senza niente da configurare. In cima le tue ore,
+le ore di Claude (che crescono quando lavorano più sessioni insieme), le sessioni, i token e il valore a listino, cioè
+quanto costerebbero quei token alle tariffe delle API: una stima, non quello che paghi con un abbonamento. Ogni numero
+ha accanto il periodo prima e una piccola curva, su 7, 30 o 90 giorni.
+
+Il cielo dei progetti è un orologio di 24 ore: ogni stella è un progetto, grande quanto le ore che ci hai messo, più
+vicina al centro quanto più di recente ci hai lavorato, e la sua scia copre le ore del giorno in cui ci lavori di
+solito. Le linee uniscono i progetti portati avanti negli stessi momenti, l'anello acceso segna una sessione aperta
+adesso.
+
+![La settimana ora per ora, il registro e quanto dura una sessione](docs/screenshot/settimana.jpg)
+
+Più in basso la settimana ora per ora, i progetti che stanno partendo e quelli che si stanno fermando, quanto dura una
+sessione, e il registro: giorni di fila, il giorno più pieno, la tirata più lunga senza pause. In fondo, scritto in
+chiaro, come si contano le ore.
+
 ### La Home
 
 La plancia è la Home dell'app: una scheda appuntata che si apre sempre, anche con una cartella aperta, e che si
@@ -113,6 +135,8 @@ Intelligence restano consigli fissi ricavati dalle regole), poi i numeri che con
 dei progetti con il loro semaforo.
 
 ### Il semaforo delle regole e la Vedetta
+
+![La Vedetta: una luce per progetto, in cima chi va sistemato subito](docs/screenshot/vedetta.jpg)
 
 Ogni progetto ha un semaforo che si accende quando una regola è violata: un commit che tocca il codice di un'app senza
 far salire il numero di build, commit non spinti, repository senza remoto, repository pubblici non voluti, chiavi nei
