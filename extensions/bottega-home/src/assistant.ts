@@ -471,7 +471,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		},
 	},
 	store_soldi: {
-		spec: { type: 'function', function: { name: 'store_soldi', description: 'Stato delle app su App Store Connect (versione, revisione, recensioni) e quanto hanno reso su AdMob ieri e negli ultimi sette giorni.', parameters: obj({}) } },
+		spec: { type: 'function', function: { name: 'store_soldi', description: 'Solo lo stato delle versioni su App Store Connect (versione, revisione, recensioni) e AdMob di ieri e degli ultimi sette giorni. Per guadagni, vendite dello Store e download (totale, AdMob piu\' Store, per settimana, mese o anno) NON usare questo: usa stanza_leggi con stanza appstore.', parameters: obj({}) } },
 		run(_a, ctx) {
 			return ctx.deps.actions.storeSummary ? ctx.deps.actions.storeSummary() : 'Il radar dello Store non e\' disponibile.';
 		},
