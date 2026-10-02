@@ -1767,7 +1767,10 @@
 	   I colori di stato sono in RGB lineare, come nello shader: si mescolano in lineare e si
 	   convertono in sRGB solo per disegnare. Gira solo quando la stanza e' visibile. */
 
-	const orb = (() => {
+	// La sfera della pagina di Melissa. Se c'e' il componente unico in WebGPU (media/motore/sfera-gpu.js,
+	// window.BottegaSferaGPU, lo stesso della barra) si usa quello; se manca, se mount lancia o se WebGPU non parte
+	// (onFail, che arriva dopo) si usa il Canvas 2D qui sotto, su un canvas nuovo.
+	const makeOrb2D = () => (() => {
 		const LIN = {
 			idle: [0.26, 0.74, 1.0],
 			listening: [0.16, 0.86, 0.86],
@@ -1969,6 +1972,48 @@
 			},
 		};
 	})();
+	let orbImpl = null;
+	let orbLast = /** @type {any[] | null} */ (null);
+	const toCanvas2D = why => {
+		if (why) console.warn('[plancia] sfera WebGPU non disponibile, uso il Canvas 2D: ' + why);
+		try {
+			orbImpl && orbImpl.sleep && orbImpl.sleep();
+		} catch {
+			// il componente GPU e' gia' andato
+		}
+		const old = $('sfera');
+		old.replaceWith(old.cloneNode(false));
+		orbImpl = makeOrb2D();
+		if (orbLast) orbImpl.set(orbLast[0], orbLast[1], orbLast[2]);
+		if (state.view === 'melissa') orbImpl.wake();
+	};
+	const sferaGpu = /** @type {any} */ (window).BottegaSferaGPU;
+	if (sferaGpu && typeof sferaGpu.mount === 'function') {
+		try {
+			orbImpl = sferaGpu.mount($('sfera'), { reduced, onFail: why => toCanvas2D(String(why || 'motivo sconosciuto')) });
+		} catch (e) {
+			orbImpl = null;
+			console.warn('[plancia] sfera WebGPU: mount ha lanciato, uso il Canvas 2D: ' + (e && e.message ? e.message : e));
+		}
+	}
+	if (!orbImpl) orbImpl = makeOrb2D();
+	const orb = {
+		set(st, dimmed, lvl) {
+			orbLast = [st, dimmed, lvl];
+			orbImpl.set(st, dimmed, lvl);
+		},
+		// la sfera gira solo nella stanza di Melissa, qualunque motore ci sia sotto
+		wake() {
+			if (state.view === 'melissa' && document.visibilityState !== 'hidden') orbImpl.wake();
+			else orbImpl.sleep();
+		},
+		sleep() {
+			orbImpl.sleep();
+		},
+		redraw() {
+			orbImpl.redraw();
+		},
+	};
 
 	// ---------- Continua da dove eri ----------
 	/* Un dialogo modale fatto a mano (role=dialog, aria-modal): il fuoco entra nel testo, Tab gira
@@ -2520,6 +2565,11 @@
 				return focusRow(m.path);
 			case 'view':
 				if (m.view) show(m.view);
+				return;
+			case 'crus.focus':
+				// Melissa a voce: la Home va sul cruscotto e lo punta su progetto e periodo
+				show('cruscotto');
+				room('cruscotto', 'focus', { path: m.path, period: m.period });
 				return;
 			case 'filter': {
 				// un'azione di navigazione rimbalzata dall'estensione: Plancia con quel filtro

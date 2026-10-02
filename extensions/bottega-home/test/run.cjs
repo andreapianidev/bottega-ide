@@ -496,6 +496,59 @@ function makeAssistant(over = {}) {
 		assert.strictEqual(asst.echoScore('ok', 'ok va bene'), 0);
 	});
 
+	// ---- i cervelli: Agnes primaria, gli altri solo se scelti, ritorno ad Agnes a ogni problema ----
+	function fakeCervelli(choice, opts = {}) {
+		const rec = { ended: 0, touched: 0, agnes: [] };
+		return {
+			rec,
+			choice: () => opts.cur || choice,
+			streamFor: () => opts.stream,
+			touch: () => rec.touched++,
+			endConversation: () => {
+				rec.ended++;
+				opts.cur = { provider: 'agnes', model: 'agnes-3.0-flash', effort: 'normale' };
+			},
+			noteAgnes: s => rec.agnes.push(s),
+		};
+	}
+
+	await test('cervello scelto che risponde 402: la stessa domanda va ad Agnes, e Melissa lo dice', async () => {
+		const cv = fakeCervelli({ provider: 'openrouter', model: 'anthropic/claude-sonnet-5.5', effort: 'normale' }, {
+			stream: async () => {
+				throw new Error('senza credito');
+			},
+		});
+		const { a } = makeAssistant({ stream: scriptedStream([[{ content: 'Ciao, sono io.' }]]) });
+		a.deps.cervelli = cv;
+		const answer = await a.turn('come va', false);
+		assert.strictEqual(answer, 'Ciao, sono io.');
+		assert.ok(a.getState().log.some(l => l.role === 'azione' && l.text === 'Claude Sonnet 5.5 non risponde (senza credito): torno ad Agnes'));
+		assert.strictEqual(cv.rec.ended, 1, 'si torna ad Agnes');
+		assert.strictEqual(cv.rec.touched, 1);
+	});
+
+	await test('Apple scelto a mano: risponde il Mac, senza dire che Agnes e\' a terra', async () => {
+		const cv = fakeCervelli({ provider: 'apple', model: 'apple-on-device', effort: 'normale' });
+		const { a, nucleo } = makeAssistant({ stream: scriptedStream([[{ content: 'non dovrei parlare io' }]]) });
+		a.deps.cervelli = cv;
+		const answer = await a.turn('dimmi una cosa', false);
+		assert.strictEqual(answer, 'risposta dal cervello di riserva');
+		const req = nucleo.reqs.find(r => r.cmd === 'ai.generate');
+		assert.ok(/Andrea ti ha chiesto di pensare con Apple Intelligence/.test(req.args.instructions));
+	});
+
+	await test('chiudere la conversazione riporta ad Agnes', async () => {
+		const cv = fakeCervelli({ provider: 'openrouter', model: 'google/gemini-3.8-flash', effort: 'normale' });
+		const { a, nucleo } = makeAssistant({ stream: scriptedStream([]) });
+		a.deps.cervelli = cv;
+		a.wire({ subscriptions: [] });
+		nucleo.fire('orb.clicked', {});
+		nucleo.fire('orb.clicked', {});
+		assert.strictEqual(cv.rec.ended, 1);
+		assert.strictEqual(asst.brainName('anthropic/claude-opus-5.5'), 'Claude Opus 5.5');
+		assert.strictEqual(asst.brainName('openai/gpt-6.1-sol'), 'GPT 6.1 Sol');
+	});
+
 	// BOTTEGA_TEST_REALE=1 npm test
 	if (process.env.BOTTEGA_TEST_REALE === '1') await test('REALE: Agnes chiama progetti_cerca con il vero formato tool', async () => {
 		const fs = require('fs');

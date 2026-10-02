@@ -524,18 +524,17 @@ dice «Buongiorno.»). Provato sui dati veri: quando Agnes riscriveva tutto il b
 
 `bottega.voice.sfera`: `ide` (default) o `schermo`. Con `ide` l'estensione non manda mai `orb.show` ne' `orb.dock` (e
 all'avvio manda `orb.hide`): la sfera del Nucleo non galleggia sullo schermo e non copre le altre app (per esempio la
-Melissa di Avo Agency AI, che ha una sfera sua e la scorciatoia Cmd+Opzione+M). Melissa sta in due posti dell'IDE:
+Melissa di Avo Agency AI, che ha una sfera sua e la scorciatoia Cmd+Opzione+M). Melissa sta nella barra laterale
+DESTRA (sezione 6) e nella barra di stato: `Melissa` con l'icona dello stato (microfono, ascolto, rotella che pensa,
+altoparlante, avviso), colorata col sodio quando e' attiva; un clic apre o chiude la conversazione. Quando Melissa
+comincia ad ascoltare, la barra si mostra senza rubare il fuoco. Con `schermo` torna il comportamento di prima (sfera
+grande in conversazione, piccola agganciata con `bottega.voice.orbAlwaysVisible`).
 
-- la vista `bottega.melissa` nella barra laterale (icona di Melissa): una webview (`media/sfera.js`, `sfera.css`) con la
-  sfera disegnata in Canvas 2D come quella della pagina di Melissa, lo stato, l'ultima frase e un campo per scriverle.
-  Riceve `{type:'assistant', state: AssistantState}`; manda `ready`, `converse` (apre o chiude la conversazione),
-  `ask {text}`, `open` (pagina di Melissa nella Home), `voice.toggle`. Quando Melissa comincia ad ascoltare la vista si
-  mostra senza rubare il fuoco. Gira solo se visibile, con riduci movimento resta ferma.
-- la barra di stato: `Melissa` con l'icona dello stato (microfono, ascolto, rotella che pensa, altoparlante, avviso),
-  colorata col sodio quando e' attiva; un clic apre o chiude la conversazione.
-
-Con `schermo` torna il comportamento di prima (sfera grande in conversazione, piccola agganciata con
-`bottega.voice.orbAlwaysVisible`).
+La sfera delle viste (barra e pagina di Melissa) usa il componente unico in WebGPU se c'e'
+(`media/motore/sfera-gpu.js`): `window.BottegaSferaGPU.mount(canvas, {reduced, onFail}) -> {set(stato, spenta,
+livello), wake(), sleep(), redraw()}`. L'adattatore arriva dopo: se WebGPU manca, `onFail(motivo)` e si passa al Canvas
+2D su un canvas nuovo, con il motivo nel log (idem se `mount` lancia o il file non c'e'). La Home carica i file di
+`media/motore/` presenti prima delle stanze.
 
 ### 4.9 Il lavoro in giro: una sola fonte di verita'
 
@@ -701,3 +700,98 @@ interface PostaStato { aggiornatoAt; aggiornando: 'locale' | 'gmail' | null; err
 ```
 
 Comando: `bottega.openConnettori` apre la Home sulla stanza Connettori.
+
+## 6. La barra di Melissa
+
+Melissa come Jarvis, con il suo carattere, nella barra laterale DESTRA della Bottega (secondary side bar).
+Contributo standard di VS Code 1.140, senza API proposte e senza patch:
+
+```json
+"viewsContainers": { "secondarySidebar": [{ "id": "melissaBarra", "title": "Melissa", "icon": "media/melissa.svg" }] },
+"views": { "melissaBarra": [{ "id": "bottega.barra", "name": "Melissa", "type": "webview" }] },
+"configurationDefaults": { "workbench.secondarySideBar.defaultVisibility": "visible" }
+```
+
+All'avvio l'estensione apre il contenitore una volta (`workbench.view.extension.melissaBarra`) senza rubare il fuoco.
+
+### Estensione -> barra
+
+`{type: 'stato', assistant, brain, work, workCounts, board}`
+
+- `assistant: AssistantState` (sezione 3)
+- `work: WorkItem[]`, `workCounts: WorkCounts` (sezione 4.9)
+- `board: Record<sessionId, {at, kind, summary, file?}[]>`: le ultime voci della bacheca della Memoria per ogni sessione
+  viva (al massimo 4 per sessione, ultime 3 ore)
+- `brain: BrainState`
+- separati: `{type:'bacheca.sessione', sessionId, items}` (risposta a «Le ultime tre ore»), `{type:'visibile', visible}`;
+  un campo assente in `stato` vuol dire invariato
+
+```ts
+type Provider = 'agnes' | 'openrouter' | 'apple' | 'deepseek';
+type Effort = 'rapido' | 'normale' | 'profondo';
+interface BrainOption {
+  provider: Provider; model: string; label: string;       // "Claude Sonnet 5.5"
+  note: string;                                            // "gratis", "a consumo", "sul Mac"
+  price?: { in: number; out: number };                     // dollari per milione di token (OpenRouter)
+  available: boolean; why?: string;                        // perche' no: "senza credito (402)", ...
+}
+interface BrainState {
+  current: { provider: Provider; model: string; label: string };
+  effort: Effort;
+  options: BrainOption[];
+  credit?: { openrouter?: number };                        // dollari rimasti, se l'API lo dice
+  accounts: Account[];                                     // i conti dei servizi, solo dati veri
+  checkedAt: number;
+}
+interface Account {
+  id: 'agnes' | 'openrouter' | 'deepseek' | 'elevenlabs';
+  label: string; text: string; tone: 'ok' | 'attesa' | 'male';
+  local?: boolean;                                         // contato dalla Bottega, non letto dal servizio
+}
+```
+
+### Barra -> estensione
+
+`ready`, `converse` (apre o chiude la conversazione a voce), `ask {text}`, `voice.toggle`,
+`brain.set {provider, model}`, `effort.set {effort}`,
+`job.focus {id}`, `job.write {id, text}` (istruzioni a un lavoro della Bottega), `open {path}`, `claude {path, id}`
+(riprendi qui una sessione aperta altrove), `bacheca.sessione {sessionId}`, `home {view}` (porta la Home su una stanza),
+`comando {id}` (comandi rapidi: `briefing`, `regole`, `lavori`, `cruscotto`, `continua`, `cerca`).
+
+### Cervelli
+
+Tutti e tre i cervelli in rete parlano l'API compatibile OpenAI con gli strumenti, in streaming:
+
+| provider | url | chiave | modelli | impegno |
+|---|---|---|---|---|
+| agnes | `https://apihub.agnes-ai.com/v1/chat/completions` | `AGNES_API_KEY` (`~/.secrets/agnes-ai.env`) | `agnes-3.0-flash` | `reasoning_effort`: none / low / high |
+| openrouter | `https://openrouter.ai/api/v1/chat/completions` | `OPENROUTER_API_KEY` (`~/.secrets/openrouter-vision.env`) | i piu' recenti per famiglia dall'elenco vero (`/api/v1/models`, cache 24 h): Claude Sonnet, Claude Opus, Gemini Flash, GPT | `reasoning: {effort}`: low / medium / high |
+| deepseek | `https://api.deepseek.com/chat/completions` | `DEEPSEEK_API_KEY` (`~/.secrets/deepseek-harness.env`) | `deepseek-chat` | non disponibile finche' l'API risponde 402 |
+| apple | Nucleo, cervello Foundation Models con strumenti (build 16, `src/cervello.ts` della sessione nativo) | | sul Mac | |
+
+**Agnes e' sempre il cervello primario** (decisione di Andrea, 2 ottobre 2026). Un altro cervello si usa solo se Andrea
+lo sceglie (dalla barra o a voce con lo strumento `cervello_cambia {cervello?, impegno?}`: «usa Claude», «pensa piu' a
+fondo», «torna ad Agnes») e vale per quella conversazione: si torna ad Agnes da soli quando la conversazione si chiude,
+dopo 15 minuti senza domande, al riavvio della Bottega e dopo qualsiasi errore (un 401 o un 402 mette anche il cervello
+da parte per un'ora). La scelta manuale non si salva mai; si ricorda solo l'impegno (`globalState`). Apple Intelligence
+resta la riserva automatica solo quando Agnes non risponde (429, rete).
+Il saldo OpenRouter si mostra com'e': l'API accetta un piccolo scoperto, quindi conta solo un 402 vero.
+
+### I conti dei servizi (in testa alla barra)
+
+Solo dati veri, al massimo ogni 5 minuti (mai a ogni domanda):
+- Agnes: nessun endpoint di saldo (`/user/balance` risponde 404). Si mostra se risponde, le richieste fatte oggi dalla
+  Bottega (contate in `globalState`) e i 429 degli ultimi 10 minuti (limite di circa 20 richieste al minuto).
+- OpenRouter: `GET /api/v1/credits` (`total_credits - total_usage`); sotto 1 $ in attesa, sotto zero «va ricaricato».
+- DeepSeek: `GET https://api.deepseek.com/user/balance` (`is_available`, `balance_infos`).
+- ElevenLabs: la chiave non puo' leggere l'account; i caratteri del mese da `~/.bottega/nucleo/usage.json`, dichiarati
+  come conteggio della Bottega.
+
+### Le mani di Melissa
+
+Strumenti nuovi: `cervello_cambia {cervello?, impegno?}`, `sessione_leggi {progetto}` (cosa ha fatto una sessione dalla
+coda della sua trascrizione, `src/mani.ts`: ultima richiesta, ultima risposta, strumenti, file, se aspetta; per le
+sessioni aperte altrove e' sola lettura), `cruscotto_mostra {progetto?, giorni?}` (la Home va sul cruscotto e manda
+`{type:'crus.focus', path?, period?}`: il cruscotto cambia periodo e accende il progetto sul cielo e in classifica
+mentre Melissa risponde; un comando arrivato prima dei dati si applica al loro arrivo). In conversazione, quando un
+lavoro comincia ad aspettare, Melissa lo dice una volta («Peak ti aspetta»).

@@ -142,8 +142,15 @@ mail viene mai inviata, nessuna bozza creata, niente spostato o cancellato.
 
 ### Melissa dentro l'IDE
 
-La sfera di Melissa vive nella barra laterale e nella barra di stato della Bottega, non sopra le altre app. Chi la vuole
-sullo schermo, come prima, imposta `bottega.voice.sfera` su `schermo`. Il Nucleo espone anche i Comandi rapidi
+Melissa vive nella barra laterale destra della Bottega, sempre aperta, e nella barra di stato: non sopra le altre app.
+La barra è il suo centro di controllo: la sfera, la conversazione, tutte le sessioni Claude del Mac (chi lavora, chi ti
+aspetta, cosa sta facendo), comandi rapidi, e in testa il cervello con cui pensa e i conti dei servizi. Il cervello è
+sempre Agnes; per una conversazione puoi scegliere Claude, Gemini o GPT via OpenRouter, Apple Intelligence o DeepSeek,
+anche a voce («usa Claude», «pensa più a fondo»), e alla fine si torna ad Agnes da soli. I conti dicono solo cose
+vere: il saldo di OpenRouter e DeepSeek letto dai servizi, le richieste di oggi ad Agnes (che non ha un saldo) e i
+caratteri di voce contati dalla Bottega. Melissa legge cosa hanno fatto le sessioni, passa istruzioni ai lavori della
+Bottega, avvisa quando uno ti aspetta e muove il cruscotto mentre ti risponde («fammi vedere le ore di Woofmap questa
+settimana»). Chi vuole la sfera sullo schermo, come prima, imposta `bottega.voice.sfera` su `schermo`. Il Nucleo espone anche i Comandi rapidi
 («Chiedi a Melissa», «Avvia un lavoro», «Briefing», «Stato delle regole», anche con Siri), un widget da scrivania
 con il semaforo delle regole e il briefing, e mette progetti e ricordi in Spotlight (se l'indicizzazione di Spotlight è
 accesa sul Mac).

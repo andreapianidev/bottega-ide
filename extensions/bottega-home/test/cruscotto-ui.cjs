@@ -347,6 +347,20 @@ const finale = (t, k) => t.$(`.cifra[data-k="${k}"] dd > .sr`).textContent;
 		}
 	});
 
+	await test('comando vocale: focus cambia periodo e accende il progetto; arrivato prima dei dati, si applica all\'arrivo', async () => {
+		const t = ambiente();
+		t.api.show();
+		t.api.focus({ path: `/Users/prova/prototipi/${NOMI[0]}`, period: '7' });
+		t.api.setStats(fintiStats());
+		await pausa(30);
+		assert.ok(t.$('#crus-filtri [data-c="periodo"][data-id="7"][aria-pressed="true"]') || t.$('#crus-filtri [data-c="periodo"][data-id="7"][aria-checked="true"]'), 'periodo di 7 giorni scelto');
+		assert.ok(t.$('#carta-svg .acceso'), 'stella del progetto accesa');
+		t.api.focus({ path: '/Users/prova/prototipi/non-esiste' });
+		await pausa(80);
+		assert.ok(/non ha ore nel periodo/.test(t.w.document.body.textContent), 'detto chiaramente se il progetto non ha ore');
+		assert.deepStrictEqual(t.errori, []);
+	});
+
 	await test('WebGPU finto: si accende, disegna a stanza visibile, si ferma in pausa e nascosta', async () => {
 		const t = ambiente({ gpu: {} });
 		t.api.show();

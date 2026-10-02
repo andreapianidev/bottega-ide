@@ -12,8 +12,11 @@ import { Memoria } from './memoria';
 import { Assistant, AssistantState } from './assistant';
 import { StatsEngine } from './stats';
 import { Idee, IdeeDynamic } from './idee';
-import { SferaView } from './sfera';
 import { handleConnettori, registerConnettori } from './connettori-host';
+import { BarraView } from './barra';
+import { brainName } from './assistant';
+import { Cervelli, Effort, FAMILIES, Provider, spokenChoice } from './cervelli';
+import { digest, digestText } from './mani';
 
 export interface Snapshot {
 	projects: Project[];
@@ -56,7 +59,12 @@ let assistant: Assistant | undefined;
 let panelHost: PlanciaPanel | undefined;
 let statsEngine: StatsEngine | undefined;
 let idee: Idee | undefined;
-let sferaView: SferaView | undefined;
+let barraView: BarraView | undefined;
+let cervelli: Cervelli | undefined;
+/** Apple Intelligence attiva sul Mac (capabilities del Nucleo). */
+let appleOk = false;
+/** I lavori che aspettavano al giro prima: Melissa avvisa a voce solo dei nuovi. */
+let waitingBefore = new Set<string>();
 let paintStatus: (() => void) | undefined;
 /** Il cruscotto si calcola solo dopo che la plancia l'ha chiesto almeno una volta. */
 let statsWanted = false;
@@ -139,6 +147,81 @@ function refreshDynamic(): void {
 	snapshot = withDynamic(snapshot);
 	panelHost?.pushSnapshot(snapshot);
 	paintStatus?.();
+	barraView?.update();
+	announceWaiting();
+}
+
+/** In conversazione Melissa dice, una volta, quando un lavoro comincia ad aspettare Andrea. */
+function announceWaiting(): void {
+	const now = new Set(snapshot.work.filter(w => w.status === 'ti aspetta').map(w => w.key));
+	const fresh = snapshot.work.filter(w => w.status === 'ti aspetta' && !waitingBefore.has(w.key));
+	const first = waitingBefore.size === 0 && !snapshot.scannedAt;
+	waitingBefore = now;
+	const a = assistant?.getState();
+	if (first || !fresh.length || !a?.conversing || a.state === 'speaking' || a.state === 'thinking') return;
+	const names = [...new Set(fresh.map(w => w.project))];
+	void assistant?.announce(names.length === 1 ? `${names[0]} ti aspetta.` : `${names.join(' e ')} ti aspettano.`);
+}
+
+// ---------- la barra di Melissa: cervello, sessioni, cruscotto a voce ----------
+
+async function switchBrain(cervello?: string, impegno?: string): Promise<string> {
+	if (!cervelli) return 'I cervelli non sono pronti.';
+	const out: string[] = [];
+	const asked = spokenChoice(`${cervello ?? ''} ${impegno ?? ''}`);
+	const effort = (['rapido', 'normale', 'profondo'] as Effort[]).find(e => e === impegno) ?? asked.effort;
+	if (effort) {
+		await cervelli.setEffort(effort);
+		out.push(`impegno ${effort}`);
+	}
+	if (asked.provider) {
+		const opts = await cervelli.options();
+		let model: string | undefined;
+		if (asked.provider === 'openrouter') {
+			const fam = FAMILIES[asked.family ?? 0];
+			model = opts.find(o => o.provider === 'openrouter' && fam.re.test(o.model))?.model;
+			if (!model) return `Non trovo ${fam.fallback} tra i modelli di OpenRouter.`;
+		}
+		try {
+			const c = await cervelli.set(asked.provider as Provider, model);
+			out.push(c.provider === 'agnes' ? 'torno ad Agnes' : `penso con ${brainName(c.model)} per questa conversazione, poi torno ad Agnes`);
+		} catch (e: any) {
+			return `${e?.message ?? e} Resto con Agnes.`;
+		}
+	}
+	barraView?.update();
+	return out.length ? cap(out.join(', ')) + '.' : 'Non ho capito quale cervello vuoi.';
+}
+
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+
+function readSession(project: string): string {
+	const k = project.toLowerCase();
+	const items = snapshot.work.filter(w => w.sessionId && (w.project.toLowerCase() === k || w.project.toLowerCase().includes(k)));
+	if (!items.length) {
+		const p = resolveProject(project);
+		const past = p ? projectFor(p.path)?.sessions?.[0] : undefined;
+		const d = past ? digest(past.sessionId) : undefined;
+		return d ? `Nessuna sessione viva su ${p!.name}; l'ultima:\n${digestText(d, p!.name)}` : `Non trovo sessioni su "${project}".`;
+	}
+	return items
+		.slice(0, 3)
+		.map(w => {
+			const d = digest(w.sessionId!);
+			const where = w.source === 'altrove' ? ' (aperta fuori dalla Bottega: sola lettura)' : '';
+			return d ? digestText(d, w.project) + where : `Sessione su ${w.project}: ${w.status}, non trovo la sua trascrizione.`;
+		})
+		.join('\n\n');
+}
+
+function showCruscotto(project?: string, period?: number): string {
+	const p = project ? resolveProject(project) : undefined;
+	const days = period && period <= 7 ? 7 : period && period > 30 ? 90 : period ? 30 : undefined;
+	panelHost?.show();
+	panelHost?.send({ type: 'view', view: 'cruscotto' });
+	panelHost?.send({ type: 'crus.focus', ...(p ? { path: p.path } : {}), ...(days ? { period: days } : {}) });
+	if (project && !p) return `Ho aperto il cruscotto, ma non trovo il progetto "${project}".`;
+	return `Cruscotto aperto${p ? ` su ${p.name}` : ''}${days ? `, ultimi ${days} giorni` : ''}. Le cifre le vedi tu: se te le devo dire, chiedimele.`;
 }
 
 /** Statistiche di sistema ogni 10 s se servono (Home davanti, o lavori in corso o in coda che dipendono dalla
@@ -428,6 +511,11 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		onChange: () => refreshDynamic(),
 	});
 
+	cervelli = new Cervelli({ memento: ctx.globalState, appleAvailable: () => appleOk, log: s => console.warn(s) });
+	nucleo.on('available', () => {
+		void nucleo!.request<{ foundationModels?: boolean }>('capabilities', {}, 8000).then(c => (appleOk = !!c?.foundationModels)).catch(() => undefined);
+	});
+
 	assistant = new Assistant({
 		nucleo: nucleo!,
 		actions: {
@@ -452,10 +540,14 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			whereSolved: async q => (idee ? idee.whereSolvedText(q) : 'La ricerca non è pronta.'),
 			storeSummary: () => idee?.storeSummary() ?? 'Il radar non è pronto.',
 			queueNight: (p, task) => idee?.queueNight(p, task) ?? 'La coda della notte non è pronta.',
+			switchBrain,
+			readSession,
+			showCruscotto,
 		},
 		liveSessions: () => snapshot.live,
 		jobs: () => (jobManager ? jobManager.list() : []),
 		work: () => snapshot.work,
+		cervelli,
 		systemStats: () => nucleo?.lastStats,
 		projectCount: () => snapshot.projects.length,
 		bacheca: async project => (memoria ? (await memoria.bacheca(project)).map(r => ({ title: r.project, text: r.summary, project: r.project })) : []),
@@ -465,9 +557,9 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		onState: state => {
 			snapshot.assistant = state;
 			panelHost?.send({ type: 'assistant', state });
-			sferaView?.send(state);
+			barraView?.update();
 		},
-		onConverse: () => sferaView?.reveal(),
+		onConverse: () => barraView?.reveal(),
 	});
 
 	panelHost = new PlanciaPanel(ctx.extensionUri, () => snapshot, changed.event, m => void onPlanciaMessage(m));
@@ -585,15 +677,48 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	);
 	vscode.window.onDidChangeWindowState(s => s.focused && Date.now() - snapshot.scannedAt > 30_000 && void fullScan(), null, ctx.subscriptions);
 
-	// Melissa ha la sua icona nella barra laterale: li' vive la sua sfera, dentro l'IDE.
-	sferaView = new SferaView(ctx.extensionUri, () => assistant?.getState(), {
-		converse: () => assistant?.toggleConversation(),
-		ask: text => void assistant?.ask(text),
-		open: () => showPlancia('melissa'),
-		toggle: () => void assistant?.toggle(),
-	});
+	// Melissa vive nella barra laterale destra: sfera, conversazione, tutte le sessioni, cervello e conti.
+	barraView = new BarraView(
+		ctx.extensionUri,
+		{
+			assistant: () => assistant?.getState(),
+			work: () => snapshot.work,
+			workCounts: () => snapshot.workCounts,
+			board: async () => (memoria ? memoria.bacheca(undefined, 180) : []),
+			brain: async () => cervelli!.state(),
+		},
+		{
+			converse: () => assistant?.toggleConversation(),
+			ask: text => void assistant?.ask(text),
+			toggleVoice: () => void assistant?.toggle(),
+			setBrain: async (p, m) => void (await cervelli!.set(p, m)),
+			setEffort: async e => void (await cervelli!.setEffort(e)),
+			focusJob: id => jobManager?.focus(id),
+			writeJob: (id, text) => {
+				if (!jobManager?.write(id, text)) void vscode.window.showWarningMessage('Quel lavoro non ha più un terminale aperto.');
+			},
+			open: p => openProject(p),
+			resume: (p, id) => claudeIn(p, id),
+			home: view => showPlancia(view ?? 'plancia'),
+			command: id => {
+				const map: Record<string, () => unknown> = {
+					briefing: () => vscode.commands.executeCommand('bottega.briefing'),
+					regole: () => showPlancia('vedetta'),
+					lavori: () => showPlancia('lavori'),
+					cruscotto: () => showPlancia('cruscotto'),
+					continua: () => vscode.commands.executeCommand('bottega.continua'),
+					cerca: () => vscode.commands.executeCommand('bottega.cerca'),
+				};
+				void map[id]?.();
+			},
+			sessionBoard: async sid => (memoria ? (await memoria.bacheca(undefined, 180)).filter(r => r.sessionId === sid).slice(0, 12) : []),
+		},
+	);
 	ctx.subscriptions.push(
-		vscode.window.registerWebviewViewProvider(SferaView.id, sferaView),
+		vscode.window.registerWebviewViewProvider(BarraView.id, barraView),
+		{ dispose: () => barraView?.dispose() },
+		changed.event(() => barraView?.update()),
+		vscode.commands.registerCommand('bottega.barra.apri', () => barraView?.reveal()),
 		vscode.commands.registerCommand('bottega.openVedetta', () => showPlancia('vedetta')),
 		vscode.commands.registerCommand('bottega.openClienti', () => showPlancia('clienti')),
 		vscode.commands.registerCommand('bottega.briefing', () => {
@@ -632,6 +757,12 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	}
 	// Senza await: l'attivazione finisce subito e la scansione (ormai asincrona) riempie la Home quando e' pronta.
 	void fullScan();
+	// La prima volta la barra di Melissa si apre da sola, poi il fuoco torna all'editor; dopo decide Andrea.
+	if (!ctx.globalState.get('bottega.barraAperta')) {
+		await ctx.globalState.update('bottega.barraAperta', true);
+		await vscode.commands.executeCommand(`workbench.view.extension.${BarraView.container}`).then(undefined, () => undefined);
+		await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup').then(undefined, () => undefined);
+	}
 	ensureClaudeExtension(ctx);
 	ensureItalian(ctx);
 }

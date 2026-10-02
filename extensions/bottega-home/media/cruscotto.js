@@ -1762,6 +1762,8 @@ struct VG {
 		};
 
 		let stelle = []; // stelle disegnate, per evidenziarle dalla classifica
+		/** Un comando vocale arrivato prima dei dati. */
+		let attesaFocus = null;
 
 		function renderCarta() {
 			const p = P();
@@ -3406,6 +3408,42 @@ struct VG {
 				} else error = err || 'Non riesco a leggere le sessioni di Claude Code.';
 				lastKey = '';
 				render(false);
+				if (attesaFocus && stats) {
+					const f = attesaFocus;
+					attesaFocus = null;
+					this.focus(f);
+				}
+			},
+			/** Comando vocale di Melissa («fammi vedere le ore di Woofmap questa settimana»): cambia periodo e
+			 *  accende il progetto sul cielo e in classifica, mentre lei risponde. Senza dati, aspetta che arrivino. */
+			focus(o) {
+				if (!o) return;
+				if (!stats) {
+					attesaFocus = o;
+					return;
+				}
+				const per = String(o.period || '');
+				if (['7', '30', '90'].includes(per) && ui.period !== per) {
+					ui.period = per;
+					if (!GRUPPI_OK[per].includes(ui.group)) ui.group = 'giorno';
+					save();
+					anim.migra = anim.conta = anim.grafici = true;
+					render(true);
+					say(`Ultimi ${per} giorni.`);
+				}
+				if (!o.path) return;
+				const i = stelle.findIndex(x => x && x.row && x.row.path === o.path);
+				if (i < 0) {
+					say('Questo progetto non ha ore nel periodo.');
+					return;
+				}
+				const st = stelle[i];
+				accendi(i, true);
+				const svg = $('carta-svg').querySelector('svg');
+				if (svg) tipStella(st, svg, st.x, st.y);
+				const row = $('classifica').querySelector(`.riga-progetto[data-i="${i}"]`);
+				if (row && row.scrollIntoView) row.scrollIntoView({ block: 'center', behavior: reduced.matches ? 'auto' : 'smooth' });
+				say(`${st.row.name} acceso sul cielo.`);
 			},
 			render() {
 				render(false);

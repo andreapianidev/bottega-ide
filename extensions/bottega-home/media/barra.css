@@ -1,0 +1,752 @@
+/* La barra di Melissa, a destra. Stessa palette "Roque" della Home (media/plancia.css): il cielo di
+   La Palma e le lampade al sodio. Una lampada accesa vuol dire una cosa sola: qui serve Andrea, o
+   qui qualcuno lavora. L'unico posto dove i colori escono dalla palette e' la sfera di Melissa, su
+   un pezzo di notte che resta notte anche nel tema chiaro.
+   Forme degli stati (mai il colore da solo, e il gruppo ha sempre il suo nome):
+   ti aspetta = lampada piena con la sua pozza di luce, in corso = lampada piena che respira,
+   nel terminale = punto spento, in coda = anello, stanotte = anello freddo. */
+
+:root {
+	--cielo: #121a2e;
+	--basalto: #192238;
+	--linea: #263150;
+	--calima: #e8e2d0;
+	--tinta: #8f98ad;
+	--sodio: #f4ab3c;
+	--sodio-velo: rgba(244, 171, 60, 0.13);
+	--sodio-luce: rgba(244, 171, 60, 0.2);
+	--sodio-alone: rgba(244, 171, 60, 0.45);
+	--su-sodio: #1a1306;
+	--brace: #f2607a;
+	--focus: #9cc2ff;
+	--stella: #6683e6;
+	--ombra: rgba(4, 7, 16, 0.5);
+
+	/* la notte di Melissa resta notte anche nel tema chiaro */
+	--notte: #121a2e;
+	--notte-bordo: #263150;
+	--notte-testo: #e8e2d0;
+	--notte-tinta: #8f98ad;
+	--notte-focus: #9cc2ff;
+
+	--serif: ui-serif, 'New York', 'Iowan Old Style', Georgia, serif;
+	--sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+
+	--sfera: 104px;
+	--bordo: 12px;
+}
+
+body.vscode-light {
+	--cielo: #eef1f6;
+	--basalto: #e2e7f0;
+	--linea: #cbd3e1;
+	--calima: #18213a;
+	--tinta: #59627a;
+	--sodio: #a85f00;
+	--sodio-velo: rgba(168, 95, 0, 0.1);
+	--sodio-luce: rgba(214, 130, 20, 0.16);
+	--sodio-alone: rgba(214, 130, 20, 0.4);
+	--su-sodio: #ffffff;
+	--brace: #b42a5c;
+	--focus: #2a62c9;
+	--stella: #3557c0;
+	--ombra: rgba(24, 33, 58, 0.16);
+}
+
+body.vscode-high-contrast,
+body.vscode-high-contrast-light {
+	--linea: var(--vscode-contrastBorder, #6fc3df);
+	--notte-bordo: var(--vscode-contrastBorder, #6fc3df);
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+	margin: 0;
+	padding: 0;
+	height: 100%;
+	background: var(--cielo);
+	color: var(--calima);
+	font: 13px/1.45 var(--sans);
+	-webkit-font-smoothing: antialiased;
+	overflow: hidden;
+}
+
+button, input { font: inherit; color: inherit; }
+
+:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: 2px;
+	border-radius: 4px;
+}
+
+.sr {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+
+/* A vista nascosta nessuna animazione gira, nemmeno quelle dei CSS. */
+body.ferma *,
+body.ferma *::before,
+body.ferma *::after { animation-play-state: paused !important; }
+
+/* ---------- l'impianto: tutto in una colonna alta quanto la vista ---------- */
+
+#barra {
+	height: 100vh;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	overflow-x: hidden;
+	overflow-y: auto; /* solo se la vista e' bassissima: di norma non scorre l'insieme ma le sue parti */
+}
+
+.testa, .notte, .comandi { flex: none; }
+
+/* la conversazione prende quel che resta; le sessioni quanto serve, fino a due terzi */
+.dialogo {
+	flex: 1 1 0;
+	min-height: 112px;
+	display: flex;
+	flex-direction: column;
+}
+
+.sessioni {
+	flex: 0 1 auto;
+	max-height: 66%;
+	display: flex;
+	flex-direction: column;
+	border-top: 1px solid var(--linea);
+	outline: none;
+}
+
+/* chi aspetta Andrea non scorre mai via: sta fuori dalla parte che scorre */
+.aspettano {
+	flex: 0 0 auto;
+	max-height: 75%;
+	overflow-y: auto;
+	padding: 0 var(--bordo);
+}
+
+.scorre {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 0 var(--bordo) 8px;
+}
+
+/* ---------- testata: il cervello e l'impegno ---------- */
+
+.testa {
+	padding: 10px var(--bordo) 8px;
+	display: grid;
+	gap: 6px;
+	position: relative;
+	z-index: 2;
+}
+
+.cervello { position: relative; }
+
+.cervello-tasto {
+	width: 100%;
+	display: grid;
+	grid-template-columns: minmax(0, auto) minmax(0, 1fr) 10px;
+	align-items: baseline;
+	gap: 8px;
+	padding: 6px 10px;
+	border: 1px solid var(--linea);
+	border-radius: 8px;
+	background: var(--basalto);
+	text-align: left;
+	cursor: pointer;
+}
+
+.cervello-tasto:hover { border-color: var(--tinta); }
+
+.cervello-nome {
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.cervello-nota {
+	color: var(--tinta);
+	font-size: 12px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.cervello-freccia {
+	align-self: center;
+	width: 0;
+	height: 0;
+	border-left: 4px solid transparent;
+	border-right: 4px solid transparent;
+	border-top: 5px solid var(--tinta);
+}
+
+.cervello-tasto[aria-expanded='true'] .cervello-freccia { transform: rotate(180deg); }
+
+.cervelli {
+	position: absolute;
+	top: calc(100% + 4px);
+	left: 0;
+	right: 0;
+	margin: 0;
+	padding: 4px;
+	list-style: none;
+	max-height: 60vh;
+	overflow-y: auto;
+	border: 1px solid var(--linea);
+	border-radius: 10px;
+	background: var(--basalto);
+	box-shadow: 0 12px 32px var(--ombra);
+}
+
+.opzione {
+	display: grid;
+	gap: 1px;
+	padding: 6px 8px 6px 22px;
+	border-radius: 6px;
+	cursor: pointer;
+	position: relative;
+}
+
+.opzione.attiva { background: var(--cielo); outline: 1px solid var(--linea); }
+.cervelli:focus-visible .opzione.attiva { outline: 2px solid var(--focus); outline-offset: -2px; }
+.cervelli:focus-visible { outline: none; }
+
+/* il cervello in uso: un segno di spunta disegnato, non un colore */
+.opzione[aria-selected='true']::before {
+	content: '';
+	position: absolute;
+	left: 8px;
+	top: 11px;
+	width: 7px;
+	height: 4px;
+	border-left: 2px solid var(--calima);
+	border-bottom: 2px solid var(--calima);
+	transform: rotate(-45deg);
+}
+
+.opzione-nome { font-weight: 600; }
+.opzione-nota { font-size: 12px; color: var(--tinta); }
+
+.opzione.spenta { cursor: not-allowed; }
+.opzione.spenta .opzione-nome { color: var(--tinta); font-weight: 500; text-decoration: line-through; text-decoration-thickness: 1px; }
+
+.testa-riga {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 10px;
+}
+
+.impegno {
+	flex: 1 1 180px;
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	margin: 0;
+	padding: 2px;
+	border: 1px solid var(--linea);
+	border-radius: 8px;
+	min-width: 0;
+}
+
+.impegno label { position: relative; display: block; cursor: pointer; }
+
+.impegno input {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	opacity: 0;
+	cursor: pointer;
+}
+
+.impegno span {
+	display: block;
+	padding: 3px 4px;
+	border-radius: 6px;
+	text-align: center;
+	font-size: 12px;
+	color: var(--tinta);
+}
+
+.impegno label:hover span { color: var(--calima); }
+.impegno input:checked + span { background: var(--basalto); color: var(--calima); font-weight: 600; box-shadow: inset 0 0 0 1px var(--linea); }
+.impegno input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+.credito {
+	margin: 0;
+	font-size: 12px;
+	color: var(--tinta);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.credito.poco { color: var(--brace); }
+
+/* i conti dei servizi: riassunto in una riga, elenco a richiesta */
+.conti { margin: 6px 0 0; font-size: 12px; color: var(--tinta); }
+.conti summary { cursor: pointer; display: flex; align-items: center; gap: 6px; list-style: none; overflow: hidden; }
+.conti summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conti summary::-webkit-details-marker { display: none; }
+.conti summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+.conti[open] summary span { white-space: normal; }
+.conti-lista { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.conto { display: grid; grid-template-columns: auto auto 1fr; gap: 6px; align-items: baseline; }
+.conto b { color: var(--calima); font-weight: 600; }
+.conto-punto { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; background: var(--laurisilva); }
+.conto-punto.t-attesa { background: var(--sodio); }
+.conto-punto.t-male { background: var(--brace); box-shadow: 0 0 0 2px var(--brace-velo); }
+
+/* ---------- la notte: la sfera e lo stato ---------- */
+
+.notte {
+	margin: 0 var(--bordo) 8px;
+	padding: 10px 12px 10px 8px;
+	display: grid;
+	grid-template-columns: var(--sfera) minmax(0, 1fr);
+	align-items: center;
+	gap: 10px;
+	border-radius: 14px;
+	border: 1px solid var(--notte-bordo);
+	background: radial-gradient(120% 140% at 15% 50%, #1b2744 0%, var(--notte) 62%);
+	color: var(--notte-testo);
+}
+
+.notte :focus-visible { outline-color: var(--notte-focus); }
+
+.sfera-tasto {
+	appearance: none;
+	border: 0;
+	padding: 0;
+	background: none;
+	cursor: pointer;
+	border-radius: 50%;
+	width: var(--sfera);
+	aspect-ratio: 1;
+}
+
+.sfera-tasto canvas { width: 100%; height: 100%; display: block; }
+
+.notte-testo { min-width: 0; display: grid; gap: 2px; justify-items: start; }
+
+.stato {
+	margin: 0;
+	font: 500 17px/1.25 var(--serif);
+	letter-spacing: 0.005em;
+}
+
+.parziale {
+	margin: 0;
+	min-height: 2.8em;
+	color: var(--notte-tinta);
+	font-size: 12.5px;
+	line-height: 1.4;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+}
+
+.voce {
+	appearance: none;
+	border: 0;
+	background: none;
+	padding: 1px 0;
+	color: var(--notte-tinta);
+	font-size: 11.5px;
+	text-decoration: underline;
+	text-underline-offset: 3px;
+	cursor: pointer;
+}
+
+.voce:hover { color: var(--notte-testo); }
+
+/* ---------- la conversazione ---------- */
+
+.dialogo { padding: 0 var(--bordo) 10px; }
+
+.registro {
+	flex: 1 1 auto;
+	min-height: 0;
+	margin: 0;
+	padding: 4px 2px 8px 0;
+	list-style: none;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	overflow-wrap: anywhere;
+}
+
+/* la voce di Melissa e' quella della pagina: serif, libera */
+.riga.melissa {
+	font: 14px/1.42 var(--serif);
+	color: var(--calima);
+}
+
+/* le parole di Andrea: citate, con il filo a margine */
+.riga.tu {
+	padding-left: 9px;
+	border-left: 2px solid var(--linea);
+	color: var(--tinta);
+	font-size: 12.5px;
+}
+
+/* quello che Melissa ha fatto: un evento sul registro, non una battuta */
+.riga.azione {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	gap: 8px;
+	align-items: baseline;
+	padding: 4px 8px;
+	border-radius: 6px;
+	background: var(--basalto);
+	font-size: 12px;
+	color: var(--calima);
+}
+
+.riga.azione time { color: var(--tinta); font-variant-numeric: tabular-nums; font-size: 11px; }
+
+.dialogo .vuoto {
+	flex: 1 1 auto;
+	margin: 6px 0;
+	color: var(--tinta);
+	font: 13.5px/1.4 var(--serif);
+}
+
+.chiedi {
+	display: flex;
+	gap: 6px;
+	margin-top: 4px;
+}
+
+.chiedi input,
+.scrivi .campo {
+	flex: 1 1 auto;
+	min-width: 0;
+	padding: 6px 10px;
+	border: 1px solid var(--linea);
+	border-radius: 8px;
+	background: var(--basalto);
+}
+
+.chiedi input::placeholder,
+.scrivi .campo::placeholder { color: var(--tinta); }
+
+.chiedi input:focus-visible,
+.scrivi .campo:focus-visible { outline-offset: 0; border-color: var(--focus); }
+
+.manda, .act {
+	flex: none;
+	padding: 4px 10px;
+	border: 1px solid var(--linea);
+	border-radius: 7px;
+	background: none;
+	font-size: 12px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.manda:hover, .act:hover { border-color: var(--tinta); }
+
+.act.main {
+	background: var(--sodio);
+	border-color: var(--sodio);
+	color: var(--su-sodio);
+	font-weight: 600;
+}
+
+/* ---------- le sessioni ---------- */
+
+.sessioni-testa {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 10px var(--bordo) 4px;
+}
+
+.sessioni-testa h2 {
+	margin: 0;
+	font: 500 15px/1.3 var(--serif);
+}
+
+.sessioni-conto { color: var(--tinta); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.gruppo-titolo {
+	margin: 6px 0 2px;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--tinta);
+}
+
+.gruppo-titolo .conta {
+	margin-left: 6px;
+	font-weight: 500;
+	font-variant-numeric: tabular-nums;
+}
+
+.gruppo-tasto {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 100%;
+	padding: 3px 0;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.gruppo-tasto:hover { color: var(--calima); }
+
+.gruppo-tasto .freccia {
+	width: 0;
+	height: 0;
+	border-top: 4px solid transparent;
+	border-bottom: 4px solid transparent;
+	border-left: 5px solid currentColor;
+	transition: transform 120ms ease;
+}
+
+.gruppo-tasto[aria-expanded='true'] .freccia { transform: rotate(90deg); }
+.gruppo-tasto .conta { margin-left: auto; }
+
+.lista { list-style: none; margin: 0; padding: 0; }
+
+.lavoro {
+	padding: 8px 0;
+	border-bottom: 1px solid var(--linea);
+	display: grid;
+	gap: 3px;
+	min-width: 0;
+}
+
+.lista .lavoro:last-child { border-bottom: 0; }
+
+.lavoro-testa {
+	display: grid;
+	grid-template-columns: 10px minmax(0, auto) auto minmax(0, 1fr);
+	align-items: center;
+	gap: 8px;
+}
+
+.progetto {
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tempo {
+	justify-self: end;
+	color: var(--tinta);
+	font-size: 11.5px;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.di-notte {
+	font-size: 11px;
+	color: var(--stella);
+	border: 1px solid currentColor;
+	border-radius: 999px;
+	padding: 0 6px;
+	white-space: nowrap;
+}
+
+.titolo {
+	margin: 0 0 0 18px;
+	color: var(--calima);
+	font-size: 12.5px;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+}
+
+.titolo.muto { color: var(--tinta); font-style: italic; }
+
+.bacheca {
+	list-style: none;
+	margin: 2px 0 0 18px;
+	padding: 0 0 0 8px;
+	border-left: 1px solid var(--linea);
+	display: grid;
+	gap: 1px;
+}
+
+.traccia {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	gap: 8px;
+	align-items: baseline;
+	font-size: 11.5px;
+	color: var(--tinta);
+}
+
+.traccia time { font-variant-numeric: tabular-nums; font-size: 11px; opacity: 0.8; }
+.traccia .cosa { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.link {
+	justify-self: start;
+	margin-left: 26px;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--tinta);
+	font-size: 11.5px;
+	text-decoration: underline;
+	text-underline-offset: 3px;
+	cursor: pointer;
+}
+
+.link:hover { color: var(--calima); }
+
+.azioni {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin: 4px 0 0 18px;
+}
+
+.scrivi {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin: 2px 0 0 18px;
+}
+
+.scrivi .campo { flex: 1 1 140px; padding: 4px 8px; font-size: 12px; }
+.esito { flex-basis: 100%; font-size: 11.5px; color: var(--tinta); }
+.esito:empty { display: none; }
+
+/* i punti: la forma dice lo stato, il gruppo lo dice a parole */
+.dot {
+	width: 8px;
+	height: 8px;
+	margin-left: 1px;
+	border-radius: 50%;
+	background: var(--tinta);
+}
+
+.s-corso .dot {
+	background: var(--sodio);
+	animation: respiro 2.4s ease-in-out infinite;
+}
+
+.s-terminale .dot { background: var(--linea); box-shadow: inset 0 0 0 2px var(--tinta); }
+.s-coda .dot { background: none; border: 2px solid var(--tinta); }
+.s-stanotte .dot { background: none; border: 2px solid var(--stella); }
+
+@keyframes respiro {
+	0%, 100% { box-shadow: 0 0 0 0 rgba(244, 171, 60, 0); }
+	50% { box-shadow: 0 0 0 5px rgba(244, 171, 60, 0.18); }
+}
+
+/* chi ti aspetta: una lampada accesa, ferma, con la sua pozza di luce. L'unico oggetto in rilievo. */
+.g-aspetta .gruppo-titolo { color: var(--sodio); margin-top: 4px; }
+
+.lavoro.s-aspetta {
+	margin-bottom: 8px;
+	padding: 10px 12px 12px 10px;
+	border: 1px solid color-mix(in srgb, var(--sodio) 55%, var(--linea));
+	border-radius: 12px;
+	background: radial-gradient(90% 120% at 0% 0%, var(--sodio-luce), transparent 62%), var(--basalto);
+}
+
+.lista .lavoro.s-aspetta:last-child { border-bottom: 1px solid color-mix(in srgb, var(--sodio) 55%, var(--linea)); }
+
+.s-aspetta .dot {
+	width: 10px;
+	height: 10px;
+	margin-left: 0;
+	background: var(--sodio);
+	box-shadow: 0 0 0 4px var(--sodio-velo), 0 0 14px 2px var(--sodio-alone);
+}
+
+.s-aspetta .progetto { font-size: 15px; }
+.s-aspetta .tempo { color: var(--sodio); }
+.s-aspetta .titolo { font-size: 13px; -webkit-line-clamp: 4; }
+
+.scorre .vuoto {
+	margin: 4px 0 10px;
+	color: var(--tinta);
+	font: 13px/1.4 var(--serif);
+}
+
+/* ---------- i comandi rapidi ---------- */
+
+.comandi {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 2px 4px;
+	padding: 6px calc(var(--bordo) - 6px) 8px;
+	border-top: 1px solid var(--linea);
+}
+
+.comandi button {
+	padding: 3px 6px;
+	border: 0;
+	border-radius: 6px;
+	background: none;
+	color: var(--tinta);
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.comandi button:hover { color: var(--calima); background: var(--basalto); }
+.comandi .casa { margin-left: auto; color: var(--calima); }
+
+/* ---------- altezze: la vista e' alta quanto la barra, e la barra cambia ---------- */
+
+/* molto spazio: la sfera torna grande, al centro */
+@media (min-height: 860px) {
+	:root { --sfera: 148px; }
+	.notte {
+		grid-template-columns: minmax(0, 1fr);
+		justify-items: center;
+		padding: 14px 12px 12px;
+		background: radial-gradient(120% 90% at 50% 20%, #1b2744 0%, var(--notte) 60%);
+	}
+	.notte-testo { justify-items: center; text-align: center; }
+}
+
+/* poco spazio: sfera piccola, una riga di frase */
+@media (max-height: 560px) {
+	:root { --sfera: 60px; }
+	.notte { padding: 6px 10px 6px 6px; margin-bottom: 6px; }
+	.stato { font-size: 15px; }
+	.parziale { min-height: 0; -webkit-line-clamp: 1; }
+	.dialogo { min-height: 72px; }
+	.sessioni { max-height: 72%; }
+}
+
+/* pochissimo: resta il campo per scriverle, il registro si apre dalla Home */
+@media (max-height: 420px) {
+	.registro, .dialogo .vuoto { display: none; }
+	.dialogo { flex: none; min-height: 0; }
+	.sessioni { flex: 1 1 auto; max-height: none; }
+	.comandi { flex-wrap: nowrap; overflow-x: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.s-corso .dot { animation: none; box-shadow: 0 0 0 3px var(--sodio-velo); }
+	.gruppo-tasto .freccia { transition: none; }
+}

@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as vscode from 'vscode';
 import type { Snapshot } from './extension';
 
@@ -107,6 +108,12 @@ export class PlanciaPanel {
 		const rooms = ['cruscotto', 'vedetta', 'clienti', 'connettori'];
 		const css2 = rooms.map(r => `<link rel="stylesheet" href="${panel.webview.asWebviewUri(vscode.Uri.joinPath(media, r + '.css'))}">`).join('\n');
 		const nonce = Array.from({ length: 24 }, () => Math.floor(Math.random() * 36).toString(36)).join('');
+		// i componenti condivisi in WebGPU (sfera, cielo), se ci sono: prima delle stanze, che li montano
+		const motore = ['sfera-gpu', 'cielo-gpu']
+			.map(n => vscode.Uri.joinPath(media, 'motore', n + '.js'))
+			.filter(u => fs.existsSync(u.fsPath))
+			.map(u => `<script nonce="${nonce}" src="${panel.webview.asWebviewUri(u)}"></script>`)
+			.join('\n');
 		panel.webview.html = `<!doctype html>
 <html lang="it">
 <head>
@@ -119,6 +126,7 @@ ${css2}
 </head>
 <body>
 <main id="app"></main>
+${motore}
 ${rooms.map(r => `<script nonce="${nonce}" src="${panel.webview.asWebviewUri(vscode.Uri.joinPath(media, r + '.js'))}"></script>`).join('\n')}
 <script nonce="${nonce}" src="${js}"></script>
 </body>

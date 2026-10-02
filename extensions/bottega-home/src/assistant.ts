@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { LiveSession } from './claude';
 import { Job, WorkItem } from './jobs';
+import type { Cervelli } from './cervelli';
 import { SystemStats } from './nucleo';
 
 // Melissa: il cervello della Bottega. Parla via Agnes AI (OpenAI-compatibile, in streaming),
@@ -85,6 +86,10 @@ export interface AssistantActions {
 	whereSolved?(query: string): Promise<string>;
 	storeSummary?(): string;
 	queueNight?(projectPath: string, task: string): string;
+	// La barra di Melissa (docs/CONTRATTI.md, sezione 6).
+	switchBrain?(cervello?: string, impegno?: string): Promise<string>;
+	readSession?(project: string): string;
+	showCruscotto?(project?: string, period?: number): string;
 }
 
 export interface NucleoLike {
@@ -112,6 +117,8 @@ export interface AssistantDeps {
 	onConverse?(): void;
 	/** Solo per i test: uno stream finto al posto di Agnes. */
 	stream?: LlmStreamFn;
+	/** I cervelli: Agnes primaria, gli altri solo se Andrea li sceglie (src/cervelli.ts). */
+	cervelli?: Cervelli;
 }
 
 // ---------- utilita' ----------
@@ -447,6 +454,30 @@ export const TOOLS: Record<string, ToolDef> = {
 			return r;
 		},
 	},
+	cervello_cambia: {
+		spec: { type: 'function', function: { name: 'cervello_cambia', description: 'Cambia il cervello con cui Melissa pensa, per questa conversazione (poi si torna ad Agnes), e/o l\'impegno. Usalo quando Andrea dice "usa Claude", "passa a Gemini", "torna ad Agnes", "pensa piu\' a fondo", "rispondi veloce".', parameters: obj({ cervello: { type: 'string', description: 'agnes, claude, opus, gemini, gpt, apple, deepseek' }, impegno: { type: 'string', description: 'rapido, normale o profondo' } }) } },
+		async run(a, ctx) {
+			if (!ctx.deps.actions.switchBrain) return 'Non posso cambiare cervello da qui.';
+			const r = await ctx.deps.actions.switchBrain(a.cervello, a.impegno);
+			ctx.azione(r);
+			return r;
+		},
+	},
+	sessione_leggi: {
+		spec: { type: 'function', function: { name: 'sessione_leggi', description: 'Cosa sta facendo o ha fatto una sessione di Claude Code su un progetto: ultima richiesta di Andrea, ultima risposta di Claude, strumenti e file. Funziona anche per le sessioni aperte fuori dalla Bottega (sola lettura).', parameters: obj({ progetto: { type: 'string' } }, ['progetto']) } },
+		run(a, ctx) {
+			return ctx.deps.actions.readSession ? ctx.deps.actions.readSession(a.progetto) : 'Non so leggere le sessioni da qui.';
+		},
+	},
+	cruscotto_mostra: {
+		spec: { type: 'function', function: { name: 'cruscotto_mostra', description: 'Mostra il cruscotto delle ore e dei token, eventualmente su un progetto e un periodo (7, 30 o 90 giorni). Usalo per "fammi vedere le ore di Woofmap questa settimana".', parameters: obj({ progetto: { type: 'string' }, giorni: { type: 'number' } }) } },
+		run(a, ctx) {
+			if (!ctx.deps.actions.showCruscotto) return 'Il cruscotto non e\' disponibile.';
+			const r = ctx.deps.actions.showCruscotto(a.progetto, a.giorni);
+			ctx.azione('Ho aperto il cruscotto');
+			return r;
+		},
+	},
 	plancia_mostra: {
 		spec: { type: 'function', function: { name: 'plancia_mostra', description: 'Mostra la plancia, eventualmente su una sezione (progetti, lavori, sessioni, memoria).', parameters: obj({ sezione: { type: 'string' } }) } },
 		run(a, ctx) {
@@ -720,6 +751,7 @@ export class Assistant {
 	private stopConversation(): void {
 		if (!this.state.conversing) return;
 		this.state.conversing = false;
+		this.deps.cervelli?.endConversation();
 		clearTimeout(this.silenceTimer);
 		// Chiusa vuol dire chiusa: si ferma anche la risposta in corso e la sua voce.
 		this.currentAbort?.abort();
@@ -821,6 +853,21 @@ export class Assistant {
 		this.setState('thinking');
 		this.deps.nucleo.fireAndForget('orb.state', { state: 'thinking' });
 		if (speak) this.beginSpeech();
+
+		const choice = this.deps.cervelli?.choice();
+		if (choice && choice.provider !== 'agnes') this.deps.cervelli!.touch();
+		if (choice?.provider === 'apple') {
+			const text = (await this.appleFallback(userText, true)) ?? 'Apple Intelligence non risponde. Torno ad Agnes: ridimmelo.';
+			if (!text.startsWith('Apple Intelligence non risponde')) this.state.brain = 'apple';
+			else this.deps.cervelli!.endConversation();
+			if (speak) {
+				this.feedSpeak(text);
+				this.finalizeSpeech(true);
+			}
+			this.recordAnswer(text);
+			this.afterTurn(speak);
+			return text;
+		}
 
 		try {
 			const answer = await this.runAgent(userText, speak, ac.signal);
@@ -965,7 +1012,11 @@ export class Assistant {
 		this.history.push({ role: 'user', content: userText });
 		this.trimHistory();
 
-		const stream = this.deps.stream ?? ((m, t, cb, sig) => this.callAgnesStream(m, t, cb, sig));
+		const agnes: LlmStreamFn = this.deps.stream ?? ((m, t, cb, sig) => this.callAgnesStream(m, t, cb, sig));
+		const choice = this.deps.cervelli?.choice();
+		let stream: LlmStreamFn = (choice && choice.provider !== 'agnes' && choice.provider !== 'apple' && this.deps.cervelli!.streamFor(choice)) || agnes;
+		const chosen = stream !== agnes;
+		const chosenName = choice ? brainName(choice.model) : '';
 
 		// Stesso strumento con gli stessi argomenti nello stesso turno: non si riesegue (niente progetto aperto due
 		// volte, niente lavoro avviato due volte) e al terzo tentativo il giro si chiude.
@@ -976,7 +1027,9 @@ export class Assistant {
 			let content = '';
 			const calls = new Map<number, { id: string; name: string; args: string }>();
 
-			await stream(messages, this.specs, (d: LlmDelta) => {
+			let got = false;
+			const run = (fn: LlmStreamFn) => fn(messages, this.specs, (d: LlmDelta) => {
+				got = true;
 				if (d.content) {
 					content += d.content;
 					this.turnText += d.content;
@@ -991,6 +1044,16 @@ export class Assistant {
 					calls.set(i, cur);
 				}
 			}, signal);
+			try {
+				await run(stream);
+			} catch (e: any) {
+				// il cervello scelto non risponde (402, rete): stessa domanda ad Agnes, e lo si dice
+				if (!chosen || stream === agnes || got || signal.aborted) throw e;
+				this.azione(`${chosenName} non risponde (${e?.message ?? e}): torno ad Agnes`);
+				this.deps.cervelli?.endConversation();
+				stream = agnes;
+				await run(stream);
+			}
 
 			if (calls.size) {
 				const toolCalls: LlmToolCall[] = [...calls.entries()]
@@ -1104,7 +1167,9 @@ export class Assistant {
 	private async callAgnesStream(messages: LlmMessage[], tools: ToolSpec[], onDelta: (d: LlmDelta) => void, signal: AbortSignal): Promise<void> {
 		const key = await this.apiKey();
 		if (!key) throw new Error('Nessuna chiave Agnes.');
-		const body = JSON.stringify({ model: AGNES_MODEL, messages, tools, tool_choice: 'auto', reasoning_effort: 'none', stream: true });
+		const effort = this.deps.cervelli?.choice().effort;
+		const reasoning = effort === 'profondo' ? 'high' : effort === 'normale' ? 'low' : 'none';
+		const body = JSON.stringify({ model: AGNES_MODEL, messages, tools, tool_choice: 'auto', reasoning_effort: this.deps.cervelli ? reasoning : 'none', stream: true });
 		let wait = 2000;
 		for (let attempt = 0; attempt < 4; attempt++) {
 			if (signal.aborted) throw abortError();
@@ -1118,8 +1183,10 @@ export class Assistant {
 				});
 			} catch (e: any) {
 				if (e?.name === 'AbortError') throw e;
+				this.deps.cervelli?.noteAgnes(0);
 				throw new Error('Rete giu\' verso Agnes.');
 			}
+			this.deps.cervelli?.noteAgnes(res.status);
 			if (res.status === 429) {
 				await sleep(wait, signal);
 				wait = Math.min(wait * 2, 16_000);
@@ -1181,21 +1248,30 @@ export class Assistant {
 
 	// ----- ripiego su Apple Intelligence (senza tool) -----
 
-	private async appleFallback(userText: string): Promise<string | null> {
+	/** Apple Intelligence sul Mac, senza strumenti: riserva quando Agnes non risponde, oppure scelta da Andrea. */
+	private async appleFallback(userText: string, chosen = false): Promise<string | null> {
 		if (!this.deps.nucleo.available) return null;
 		try {
 			const r = await this.deps.nucleo.request<{ text: string }>('ai.generate', {
 				prompt: userText,
-				instructions: MELISSA_CORE + '\n\nAgnes e\' a terra: rispondi col cervello di riserva sul dispositivo, senza strumenti, e dillo in mezza frase. Massimo tre frasi.',
+				instructions: MELISSA_CORE + (chosen
+					? '\n\nAndrea ti ha chiesto di pensare con Apple Intelligence, sul Mac: non hai strumenti, quindi non puoi aprire progetti ne\' leggere lo stato; se servono, diglielo. Massimo tre frasi.'
+					: '\n\nAgnes e\' a terra: rispondi col cervello di riserva sul dispositivo, senza strumenti, e dillo in mezza frase. Massimo tre frasi.'),
 				maxTokens: 300,
 			}, 20_000);
 			const text = (r?.text || '').trim();
 			if (!text) return null;
-			return 'Agnes e\' a terra, rispondo col cervello di riserva. ' + text;
+			return chosen ? text : 'Agnes e\' a terra, rispondo col cervello di riserva. ' + text;
 		} catch {
 			return null;
 		}
 	}
+}
+
+/** "anthropic/claude-sonnet-5.5" -> "Claude Sonnet 5.5": come lo dice Melissa. */
+export function brainName(model: string): string {
+	const m = (model || '').split('/').pop() ?? '';
+	return m.split('-').map(w => (/^\d/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1))).join(' ').replace(/^Gpt/, 'GPT') || 'Il cervello scelto';
 }
 
 function abortError(): Error {
