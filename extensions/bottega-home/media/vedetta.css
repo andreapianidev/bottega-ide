@@ -375,6 +375,35 @@ body.vscode-high-contrast .ved, body.vscode-high-contrast-light .ved { --ved-col
 .ved-ieri span { color: var(--tinta); font-size: 12px; }
 .ved-app-soldi .w { display: block; margin-bottom: 8px; }
 
+/* ---------- i siti su Vercel ---------- */
+
+.ved-siti { margin-top: 56px; }
+.ved-siti-lista { list-style: none; margin: 0; padding: 0; }
+
+.ved-sito {
+	display: grid;
+	grid-template-columns: minmax(150px, 1fr) minmax(170px, 1fr) minmax(240px, 1.8fr);
+	gap: 6px 28px;
+	align-items: baseline;
+	padding: 14px 0;
+	border-bottom: 1px solid var(--linea);
+}
+
+.ved-sito:first-child { border-top: 1px solid var(--linea); }
+.ved-sito > * { min-width: 0; }
+.ved-sito-rosso { background: linear-gradient(90deg, var(--ved-rosso-velo), transparent 55%); }
+
+.ved-sito-nome { margin: 0 0 2px; font-family: var(--serif); font-size: 18px; font-weight: 500; line-height: 1.25; }
+.ved-sito-nome a { color: var(--calima); text-decoration: none; overflow-wrap: anywhere; }
+.ved-sito-nome a:hover, .ved-sito-nome a:focus-visible { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.ved-sito-dominio { margin: 0; font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.ved-sito-stato .ved-stato { flex-wrap: wrap; gap: 0 8px; }
+.ved-sito-stato .ved-stato .w { font-weight: 400; }
+.ved-sito-stato p { margin: 2px 0 0; }
+.ved-sito-errore { color: var(--ved-rosso); font-size: 13px; line-height: 1.45; max-width: 70ch; overflow-wrap: anywhere; }
+.ved-sito-commit { max-width: 70ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ved-sito-commit code { font-family: var(--mono); font-size: 11.5px; }
+
 /* ---------- movimento ---------- */
 
 .ved.ved-fermo *, .ved.ved-fermo *::before { animation-play-state: paused !important; }
@@ -400,6 +429,8 @@ body.vscode-high-contrast .ved, body.vscode-high-contrast-light .ved { --ved-col
 	.ved-app-riga { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 	.ved-app-chi { grid-column: 1 / -1; }
 	.ved-app-recensioni { grid-row: auto; }
+	.ved-sito { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+	.ved-sito-stato { grid-column: 1 / -1; }
 	.ved-prog { padding-left: 14px; }
 	.ved-prog-livello { min-width: 0; }
 }

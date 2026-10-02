@@ -1,6 +1,6 @@
-/* Bottega, la Vedetta: una stanza della plancia che guarda due cose, le regole di Andrea su ogni
-   progetto e lo Store con i soldi delle app. I dati arrivano nello snapshot (rules: RulesState,
-   radar: RadarState), la forma e' in docs/CONTRATTI.md, sezione 4.1.
+/* Bottega, la Vedetta: una stanza della plancia che guarda tre cose, le regole di Andrea su ogni
+   progetto, lo Store con i soldi delle app e i siti su Vercel. I dati arrivano nello snapshot (rules:
+   RulesState, radar: RadarState, con i siti in radar.vercel), la forma e' in docs/CONTRATTI.md, sezione 4.1.
 
    Idea: una vedetta notturna sul crinale della Caldera. Ogni progetto e' una luce sul profilo dei
    monti: i rossi sono le luci d'ostacolo in cima alle torri (lampeggiano piano, sono sulle creste
@@ -109,6 +109,7 @@
 		let dirty = true;
 		let askedRules = 0; // quando Andrea ha chiesto di ricontrollare (finche' non arriva running)
 		let askedRadar = 0;
+		let askedSiti = 0;
 		/** azioni appena mandate: chiave -> istante, il pulsante resta in attesa per qualche secondo */
 		const sent = new Map();
 
@@ -145,6 +146,16 @@
 				<div class="ved-errori" id="ved-errori"></div>
 				<div class="ved-totali" id="ved-totali"></div>
 				<ul class="ved-app" id="ved-app" aria-label="App sullo Store"></ul>
+			</section>
+
+			<section class="ved-siti" aria-labelledby="ved-siti-titolo">
+				<div class="ved-sez-testa">
+					<h2 class="ved-h2 ved-h2-grande" id="ved-siti-titolo">Siti</h2>
+					<p class="ved-timbro" id="ved-timbro-siti"><span id="ved-siti-letto"></span><button type="button" class="ghost" data-v="siti" data-fk="v:siti">Rileggi</button></p>
+				</div>
+				<div class="ved-errori" id="ved-siti-errori"></div>
+				<p class="ved-nota" id="ved-siti-vuoto" hidden></p>
+				<ul class="ved-siti-lista" id="ved-siti" aria-label="Siti su Vercel"></ul>
 			</section>
 			<div class="ved-tip" id="ved-tip" hidden></div>
 			<p class="sr" id="ved-voce" aria-live="polite"></p>
@@ -714,6 +725,70 @@
 			sync(lista, list, a => a.ascId || a.bundleId, a => appHTML(a, cur, r.admobAt));
 		}
 
+		// ---------- i siti su Vercel ----------
+
+		const vercel = () => {
+			const r = radar();
+			return r && r.vercel ? r.vercel : null;
+		};
+		/** Il semaforo di un sito: pronta verde, in costruzione o in coda ambra, fallita rossa. */
+		const TONO_SITO = { ok: 'verde', attesa: 'giallo', male: 'rosso' };
+		/** Solo indirizzi di vercel.com: il link apre il dettaglio della pubblicazione nel browser. */
+		const linkVercel = u => (typeof u === 'string' && /^https:\/\/vercel\.com\//.test(u) ? u : 'https://vercel.com/dashboard');
+
+		function sitoHTML(s) {
+			const t = now();
+			const liv = TONO_SITO[s.tone] || 'giallo';
+			const href = esc(linkVercel(s.url));
+			const quando = s.at ? `<time class="w" title="${esc(giornoLungo(s.at))}, alle ${esc(ora(s.at))}">${esc(fa(s.at, t))}</time>` : '';
+			const prog =
+				s.projectPath && nameOf(s.projectPath).toLowerCase() !== String(s.name).toLowerCase()
+					? `<button type="button" class="link ved-app-prog" data-v="progetto" data-path="${esc(s.projectPath)}" data-fk="v:sp:${esc(s.projectId)}" title="Mostra il progetto nella plancia">${esc(nameOf(s.projectPath))}</button>`
+					: '';
+			const commit = s.commit && s.commit.message ? `<p class="w ved-sito-commit"><code>${esc(String(s.commit.sha || '').slice(0, 7))}</code> ${esc(s.commit.message)}</p>` : '';
+			const errore = s.error ? `<p class="ved-sito-errore">${esc(s.error)}</p>` : '';
+			const online = s.lastReady && s.lastReady.at ? `<p class="w">Online resta quella di ${esc(fa(s.lastReady.at, t))}.</p>` : '';
+			return `<li class="ved-sito ved-sito-${liv}">
+				<div class="ved-sito-chi">
+					<h3 class="ved-sito-nome"><a href="${href}" target="_blank" rel="noopener noreferrer" data-fk="v:s:${esc(s.projectId)}" title="Apri il dettaglio della pubblicazione su vercel.com">${esc(s.name)}</a></h3>
+					${prog}
+				</div>
+				<p class="ved-sito-dominio">${s.domain ? esc(s.domain) : '<span class="ved-nd">n/d</span>'}</p>
+				<div class="ved-sito-stato">
+					<p class="ved-stato ved-stato-${liv}">${segno(liv)}${esc(s.label || s.state || '')}${quando ? ' ' + quando : ''}</p>
+					${errore}${online}${commit}
+				</div>
+			</li>`;
+		}
+
+		function renderSiti() {
+			const v = vercel();
+			const t = now();
+			const refreshing = !!(v && v.refreshing) || (askedSiti && t - askedSiti < 10_000);
+			if (v && v.refreshing) askedSiti = 0;
+			const timbro = $('ved-timbro-siti');
+			timbro.setAttribute('aria-busy', refreshing ? 'true' : 'false');
+			timbro.querySelector('button').disabled = refreshing;
+			let letto;
+			if (refreshing) letto = 'Sto rileggendo Vercel…';
+			else if (!v || !v.at) letto = 'Mai letto';
+			else letto = v.error ? `Vercel senza rete: ultimo dato ${di(v.at, t)}` : `Vercel letto ${fa(v.at, t)}`;
+			const l = $('ved-siti-letto');
+			if (l.textContent !== letto) l.textContent = letto;
+			put($('ved-siti-errori'), v && v.error ? `<p>${segno('rosso')}<span><b>Vercel</b>: ${esc(v.error)}</span></p>` : '');
+
+			const sites = v && Array.isArray(v.sites) ? v.sites : [];
+			const rank = { male: 0, attesa: 1, ok: 2 };
+			const list = [...sites].sort((a, b) => (rank[a.tone] ?? 1) - (rank[b.tone] ?? 1) || (b.at || 0) - (a.at || 0));
+			const vuoto = $('ved-siti-vuoto');
+			if (!list.length) {
+				vuoto.hidden = false;
+				const txt = !v ? 'Vercel non viene letto in questa versione della Bottega.' : v.at ? 'Nessun progetto è collegato a un progetto su Vercel.' : 'Vercel non è ancora stato letto.';
+				if (vuoto.textContent !== txt) vuoto.textContent = txt;
+			} else vuoto.hidden = true;
+			sync($('ved-siti'), list, s => s.projectId, sitoHTML);
+		}
+
 		function render() {
 			if (!visible) {
 				dirty = true;
@@ -722,6 +797,7 @@
 			dirty = false;
 			renderRegole();
 			renderRadar();
+			renderSiti();
 		}
 
 		// ---------- eventi ----------
@@ -741,6 +817,12 @@
 					post({ type: 'radar.refresh' });
 					say('Rileggo App Store Connect e AdMob.');
 					return renderRadar();
+				case 'siti':
+					// radar.refresh forzato rilegge anche Vercel (al massimo una volta al minuto)
+					askedSiti = now();
+					post({ type: 'radar.refresh' });
+					say('Rileggo Vercel.');
+					return renderSiti();
 				case 'progetto': {
 					const p = b.getAttribute('data-path');
 					if (p && host && host.focusProject) host.focusProject(p);
@@ -830,6 +912,7 @@
 				// la risposta a rules.refresh e radar.refresh e' uno snapshot: da qui decide lui (running, refreshing)
 				askedRules = 0;
 				askedRadar = 0;
+				askedSiti = 0;
 				render();
 			},
 			/** Messaggi diretti alla Vedetta: per ora nessuno oltre allo snapshot. */

@@ -1,4 +1,4 @@
-/* Tipi condivisi della sezione 4 del contratto (docs/CONTRATTI.md): regole e radar. Una sola definizione,
+/* Tipi condivisi della sezione 4 del contratto (docs/CONTRATTI.md): regole, radar e siti su Vercel. Una sola definizione,
    importata da regole.ts, radar.ts, briefing.ts ed extension.ts. */
 
 export type Livello = 'rosso' | 'giallo' | 'verde';
@@ -53,5 +53,32 @@ export interface RadarState {
 	admobAt: number;
 	ascError?: string;
 	admobError?: string;
+	refreshing: boolean;
+	/** I siti su Vercel (src/vercel.ts); assente se il radar non legge Vercel. */
+	vercel?: VercelState;
+}
+
+/** Un sito su Vercel collegato a un progetto: l'ultima pubblicazione di produzione (src/vercel.ts). */
+export interface VercelSito {
+	projectId: string;
+	name: string; // nome del progetto su Vercel
+	projectPath: string; // progetto collegato
+	via: 'project.json' | 'repo.json' | 'github' | 'nome';
+	state: string; // READY, ERROR, BUILDING, INITIALIZING, QUEUED, CANCELED
+	label: string; // "pubblicata", "fallita", "in costruzione", "in coda", "annullata"
+	tone: 'ok' | 'attesa' | 'male';
+	at: number; // quando e' partita
+	readyAt?: number;
+	domain?: string;
+	url: string; // il dettaglio della pubblicazione su vercel.com
+	commit?: { sha: string; message: string; ref?: string };
+	error?: string; // solo per le fallite
+	lastReady?: { at: number; url: string }; // se l'ultima non e' pronta: quella che resta online
+}
+
+export interface VercelState {
+	sites: VercelSito[];
+	at: number; // ultima lettura riuscita, 0 = mai
+	error?: string;
 	refreshing: boolean;
 }
