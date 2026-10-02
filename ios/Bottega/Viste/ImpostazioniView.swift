@@ -3,19 +3,41 @@
 //  Bottega per iPhone
 //
 
+import ActivityKit
 import SwiftUI
+import UIKit
 
 struct ImpostazioniView: View {
     let ponte: Ponte
     @Bindable var melissa: Melissa
     @Environment(\.dismiss) private var chiudi
     @State private var scollego = false
+    @AppStorage(Avvisi.chiaveLive, store: Condiviso.preferenze) private var liveAccese = true
+    /// Il permesso di sistema (Impostazioni di iOS, Bottega, Live Activity): senza, l'interruttore qui non basta.
+    @State private var permessoLive = ActivityAuthorizationInfo().areActivitiesEnabled
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Melissa") {
                     Toggle("Risponde a voce", isOn: $melissa.voceAccesa)
+                }
+                Section {
+                    Toggle("Live Activity e Dynamic Island", isOn: $liveAccese)
+                        .onChange(of: liveAccese) { _, accese in
+                            Task { await Avvisi.shared.cambiaLive(accese) }
+                        }
+                    if !permessoLive {
+                        Button("Apri le impostazioni di iOS") {
+                            if let u = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(u) }
+                        }
+                    }
+                } header: {
+                    Text("Sessioni sulla schermata di blocco")
+                } footer: {
+                    Text(permessoLive
+                         ? "Mentre una sessione Claude lavora sul Mac, la vedi sulla schermata di blocco e nella Dynamic Island."
+                         : "Sono spente nelle impostazioni di iOS: accendile in Impostazioni, Bottega, Live Activity.")
                 }
                 Section {
                     LabeledContent("Mac", value: ponte.collegamento?.nomeMac ?? "nessuno")
@@ -41,6 +63,7 @@ struct ImpostazioniView: View {
                 }
             }
             .navigationTitle("Impostazioni")
+            .onAppear { permessoLive = ActivityAuthorizationInfo().areActivitiesEnabled }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Fatto") { chiudi() } }

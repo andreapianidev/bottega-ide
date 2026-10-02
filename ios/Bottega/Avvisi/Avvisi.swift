@@ -71,6 +71,12 @@ final class Avvisi {
     /// Il token di ogni Live Activity (per id): alla fine di una si toglie dal Mac solo se e' ancora il suo.
     private var tokenAttivita: [String: String] = [:]
     private var seguite: Set<String> = []
+    /// L'ultimo token per far partire la Live Activity dal Mac, anche quando sono spente: riaccese, si rimanda.
+    private var ultimoAvvio = ""
+
+    /// Live Activity e Dynamic Island, dalle impostazioni dell'app (accese se non si e' mai scelto).
+    static let chiaveLive = "liveActivityAccese"
+    var liveAccese: Bool { Condiviso.preferenze.object(forKey: Self.chiaveLive) as? Bool ?? true }
 
     #if DEBUG
     private let ambiente = "sviluppo"
@@ -141,8 +147,35 @@ final class Avvisi {
     }
 
     func token(_ campo: String, _ dati: Data) {
-        inAttesa[campo] = dati.map { String(format: "%02x", $0) }.joined()
+        let t = dati.map { String(format: "%02x", $0) }.joined()
+        if campo == "avvio" {
+            ultimoAvvio = t
+            // spente dalle impostazioni: il Mac non deve poterle far partire
+            if !liveAccese { return }
+        }
+        inAttesa[campo] = t
         Task { await manda() }
+    }
+
+    /// L'interruttore delle impostazioni. Spente: il Mac perde i token di avvio e dell'attivita' (non ne fa
+    /// partire altre) e quelle aperte si chiudono. Riaccese: il token di avvio torna al Mac, che la fa ripartire
+    /// al prossimo lavoro in corso.
+    func cambiaLive(_ accese: Bool) async {
+        Condiviso.preferenze.set(accese, forKey: Self.chiaveLive)
+        if accese {
+            let t = ultimoAvvio.isEmpty
+                ? (Activity<BottegaAttivita>.pushToStartToken.map { $0.map { String(format: "%02x", $0) }.joined() } ?? "")
+                : ultimoAvvio
+            if !t.isEmpty { inAttesa["avvio"] = t }
+        } else {
+            inAttesa["avvio"] = ""
+            inAttesa["attivita"] = ""
+            tokenAttivita = [:]
+            for a in Activity<BottegaAttivita>.activities {
+                await a.end(nil, dismissalPolicy: .immediate)
+            }
+        }
+        await manda()
     }
 
     private func manda() async {
@@ -168,6 +201,13 @@ final class Avvisi {
             for await t in Activity<BottegaAttivita>.pushToStartTokenUpdates { self.token("avvio", t) }
         }
         for a in Activity<BottegaAttivita>.activities { seguiUna(a) }
+        // App reinstallata o aggiornata, o attivita' chiusa mentre l'app era spenta: iOS l'ha tolta senza dircelo.
+        // Il Mac ne ha ancora il token e la aggiornerebbe per sempre (APNs risponde 200 lo stesso) invece di farne
+        // partire una nuova: glielo si toglie.
+        if Activity<BottegaAttivita>.activities.isEmpty, let vecchio = mandati["attivita"], !vecchio.isEmpty {
+            inAttesa["attivita"] = ""
+            await manda()
+        }
         for await a in Activity<BottegaAttivita>.activityUpdates { seguiUna(a) }
     }
 

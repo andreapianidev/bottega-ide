@@ -1387,6 +1387,15 @@ prima chi ti aspetta; `da` e `aggiornato` in ms dal 1970).
 - Chiusa a mano sull'iPhone mentre ci sono sessioni: non riparte finche' non passano 2 minuti senza sessioni. Un
   avvio rifiutato da APNs si riprova dopo 2 minuti. Dopo `end` il Mac toglie il token `attivita` dal registro.
 - Fine dopo 2 minuti senza sessioni: `{aps: {timestamp, event: "end", "content-state", "dismissal-date": ora + 5 min}}`.
+- Token di un'attivita' che non c'e' piu' (build 43). APNs risponde 200 anche al token di un'attivita' chiusa, quindi il
+  Mac non se ne accorge dagli errori. Due difese: (1) l'app, a ogni avvio, se non ha Live Activity aperte ma il Mac ha
+  ancora un suo token `attivita`, manda `attivita: ""` (app reinstallata o aggiornata, attivita' chiusa ad app spenta);
+  il Mac, se quel token non era di un'attivita' fatta partire da lui (push-to-start nei 10 minuti prima), riparte
+  subito con `avvio`. (2) Oltre le 8 ore (limite di iOS) il token si toglie e si riparte con `avvio`.
+- Interruttore «Live Activity e Dynamic Island» nelle impostazioni dell'app (preferenza condivisa
+  `liveActivityAccese`, accese se mai scelto). Spente: l'app manda `avvio: ""` e `attivita: ""` e chiude quelle aperte,
+  e i nuovi token di avvio restano sull'iPhone. Riaccese: rimanda il token di avvio. Sotto, se servono, il rimando alle
+  impostazioni di iOS (`ActivityAuthorizationInfo().areActivitiesEnabled`).
 
 **Widget** (`apns-push-type: widgets`, `{aps: {"content-changed": true}}`, priorita' 5) a ogni cambio di `tiAspetta`
 o `inCorso`, al massimo uno ogni 5 minuti (salvo `tiAspetta` che sale). Il widget rilegge `GET /v1/stato` dal ponte

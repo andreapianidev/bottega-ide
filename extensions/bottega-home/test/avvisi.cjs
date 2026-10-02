@@ -372,6 +372,54 @@ function banco(opz = {}) {
 		assert.strictEqual(la[0].payload.aps.alert.body, '1 sessione Claude al lavoro');
 		ok('Live Activity: avvio, aggiornamenti ogni 15 s al massimo, fine dopo 2 minuti, nuovo avvio');
 	}
+
+	// ---------- Live Activity: il token di un'attivita' che non c'e' piu' ----------
+	{
+		// app reinstallata: iOS ha chiuso l'attivita', il Mac ha ancora il suo token (ereditato dal file) e lo
+		// aggiornava per sempre. Quando l'app lo toglie si riparte subito con il token di avvio.
+		const b = banco();
+		const avvio = hex(80), vecchio = hex(80);
+		fondiDispositivo(b.dir, { ambiente: 'sviluppo', avvio, attivita: vecchio });
+		b.inattivo = 0;
+		b.lavori = [lavoro('sess:s1', 'in corso')];
+		await b.giro(1000);
+		let la = b.presi('liveactivity');
+		assert.strictEqual(la[0].token, vecchio, 'prima aggiorna quella che crede viva');
+		fondiDispositivo(b.dir, { ambiente: 'sviluppo', attivita: '' });
+		await b.giro(1000);
+		la = b.presi('liveactivity');
+		assert.strictEqual(la.length, 1, 'tolto dall\'app: riparte');
+		assert.strictEqual(la[0].payload.aps.event, 'start');
+		assert.strictEqual(la[0].token, avvio);
+
+		// partita da qui e chiusa a mano da Andrea: non riparte finche' il lavoro continua
+		const nuovo = hex(80);
+		fondiDispositivo(b.dir, { ambiente: 'sviluppo', attivita: nuovo });
+		await b.giro(20_000);
+		assert.ok(!b.presi('liveactivity').some(p => p.payload.aps.event === 'start'), 'col token nuovo aggiorna, non riparte');
+		fondiDispositivo(b.dir, { ambiente: 'sviluppo', attivita: '' });
+		await b.giro(3 * MIN);
+		assert.strictEqual(b.presi('liveactivity').length, 0, 'chiusa a mano: non riparte');
+		ok('Live Activity: il token tolto dall\'app fa ripartire un\'attivita\' ereditata, non una chiusa a mano');
+	}
+	{
+		// oltre le 8 ore iOS l'ha chiusa e APNs risponde 200 lo stesso: il token si toglie e si riparte
+		const b = banco();
+		const avvio = hex(80), att = hex(80);
+		fondiDispositivo(b.dir, { ambiente: 'sviluppo', avvio, attivita: att });
+		b.inattivo = 0;
+		b.lavori = [lavoro('sess:s1', 'in corso')];
+		await b.giro(1000);
+		assert.strictEqual(b.presi('liveactivity')[0].token, att);
+		await b.giro(8 * 60 * MIN);
+		assert.strictEqual(leggiDispositivo(b.dir).attivita, undefined, 'dopo 8 ore il token si toglie');
+		await b.giro(1000);
+		const la = b.presi('liveactivity');
+		assert.strictEqual(la.length, 1);
+		assert.strictEqual(la[0].payload.aps.event, 'start', 'e ne parte una nuova');
+		assert.strictEqual(la[0].token, avvio);
+		ok('Live Activity: oltre le 8 ore il token si toglie e ne parte una nuova');
+	}
 	{
 		// «segui questo lavoro»: la sessione seguita tiene viva l'attivita' anche quando aspetta
 		const b = banco();

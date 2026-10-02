@@ -65,6 +65,11 @@ export const LA_RINFRESCO_MS = 10 * 60_000;
 export const LA_STALE_MS = 15 * 60_000;
 export const LA_FINE_MS = 2 * 60_000;
 export const LA_CONGEDO_MS = 5 * 60_000;
+/** iOS chiude una Live Activity dopo 8 ore. APNs risponde 200 anche al token di un'attivita' chiusa: oltre questo
+ *  tempo il token si considera morto e si riparte con quello di avvio. */
+export const LA_VITA_MS = 8 * 60 * 60_000;
+/** Un token di attivita' arrivato entro questo tempo da un nostro push-to-start e' di un'attivita' partita da qui. */
+const LA_NOSTRA_MS = 10 * 60_000;
 export const WIDGET_OGNI_MS = 5 * 60_000;
 
 /** Testo per una notifica: niente lineette lunghe o medie, niente apici del codice, spazi raccolti, corto. */
@@ -90,7 +95,7 @@ export class Avvisi {
 	/** Dopo un invio fallito (non per un token morto) le notifiche si riprovano, ma non prima di un minuto. */
 	private pausaFino = -Infinity;
 	private livelli?: Map<string, Livello>;
-	private la = { avviata: false, tentata: -Infinity, ultimoInvio: -Infinity, firma: '', tiAspetta: -1, vuotoDal: undefined as number | undefined };
+	private la = { avviata: false, tentata: -Infinity, ultimoInvio: -Infinity, firma: '', tiAspetta: -1, vuotoDal: undefined as number | undefined, token: '', da: 0, nostra: false };
 	private wg = { ultimo: -Infinity, inCorso: 0, tiAspetta: 0 };
 	private corsa?: Promise<void>;
 	private ancora = false;
@@ -243,6 +248,24 @@ export class Avvisi {
 		const sec = Math.floor(now / 1000);
 		const stato = this.contenuto(ist, now);
 		const firma = JSON.stringify({ ...stato, aggiornato: 0 });
+
+		// Il token dell'attivita' e' cambiato. Se l'iPhone toglie quello di un'attivita' che non abbiamo fatto partire
+		// noi (ereditata dal file: app reinstallata, Bottega riaperta) si puo' ripartire subito; solo un'attivita'
+		// partita da qui e chiusa a mano da Andrea aspetta un giro senza sessioni.
+		const tok = disp.attivita ?? '';
+		if (tok !== this.la.token) {
+			if (this.la.token && !tok && !this.la.nostra) this.la.avviata = false;
+			this.la.nostra = !!tok && now - this.la.tentata < LA_NOSTRA_MS;
+			this.la.token = tok;
+			this.la.da = now;
+		}
+		if (disp.attivita && now - this.la.da >= LA_VITA_MS) {
+			// oltre le 8 ore iOS l'ha gia' chiusa: il token non serve piu', si riparte con quello di avvio
+			this.log(`avvisi: la Live Activity ha passato le 8 ore, ne faccio partire una nuova`);
+			this.d.togliToken('attivita', disp.attivita);
+			this.la = { ...this.la, avviata: false, firma: '', tiAspetta: -1, ultimoInvio: -Infinity, token: '', nostra: false };
+			return;
+		}
 
 		if (disp.attivita) {
 			this.la.avviata = true;
