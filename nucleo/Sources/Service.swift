@@ -149,6 +149,8 @@ enum Service {
                 }
                 // tone: absent = keep, null = no dot, "rosso" / "giallo" = dot.
                 let tone: String?? = r.args["tone"] == nil ? .none : .some(r.string("tone"))
+                // The orb breathes faster with the sessions at work.
+                MetalEngine.shared.setLoad(busy: r.int("busy") ?? 0, waiting: r.int("waiting") ?? 0)
                 MenuBar.shared.update(busy: r.int("busy") ?? 0, waiting: r.int("waiting") ?? 0,
                                       queued: r.int("queued") ?? 0, title: r.string("title"),
                                       items: items, visible: r.bool("visible"), lines: lines, tone: tone)
@@ -207,6 +209,8 @@ enum Service {
                 shutdown(reason: "richiesta quit")
 
             default:
+                // Apple Intelligence with tools, live board, Osservatorio, Metal (Nativo.swift).
+                if try await Nativo.handle(r) { return }
                 throw NucleoError("Comando sconosciuto: \(r.cmd)")
             }
         } catch {

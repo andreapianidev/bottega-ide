@@ -62,8 +62,12 @@ export class BarraView implements vscode.WebviewViewProvider {
 		const js = view.webview.asWebviewUri(vscode.Uri.joinPath(media, 'barra.js'));
 		const nonce = Array.from({ length: 24 }, () => Math.floor(Math.random() * 36).toString(36)).join('');
 		// la sfera unica in WebGPU, se c'e': si carica prima della barra, che la monta (vedi barra.js)
-		const gpuFile = vscode.Uri.joinPath(media, 'motore', 'sfera-gpu.js');
-		const gpu = fs.existsSync(gpuFile.fsPath) ? `<script nonce="${nonce}" src="${view.webview.asWebviewUri(gpuFile)}"></script>` : '';
+		// (motore/gpu.js e' il dispositivo condiviso e va caricato per primo)
+		const gpu = ['gpu', 'sfera-gpu']
+			.map(n => vscode.Uri.joinPath(media, 'motore', n + '.js'))
+			.filter(u => fs.existsSync(u.fsPath))
+			.map(u => `<script nonce="${nonce}" src="${view.webview.asWebviewUri(u)}"></script>`)
+			.join('');
 		view.webview.html = `<!doctype html>
 <html lang="it">
 <head>

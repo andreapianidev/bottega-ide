@@ -41,6 +41,8 @@ export interface IdeeHost {
 	live(): { pid: number; sessionId: string; cwd: string; status: string; statusSince: number; startedAt: number; title?: string; name?: string }[];
 	/** I conteggi del lavoro in giro (jobs.ts, workCounts): la stessa fonte della Home e di Melissa. */
 	workCounts(): import('./jobs').WorkCounts;
+	/** Tutto il lavoro in giro, prima chi ti aspetta (jobs.ts, workItems): per il widget e per Siri. */
+	work?(): import('./jobs').WorkItem[];
 	nucleo: Nucleo;
 	memoria: Memoria;
 	jobs: JobManager;
@@ -219,6 +221,17 @@ export class Idee {
 	}
 
 	private writeStato(): void {
+		// Le ore del giorno vengono dal cruscotto: ricalcolate al massimo ogni 5 minuti (solo i file cambiati).
+		if (!this.lastStats || Date.now() - this.lastStats.computedAt > 5 * 60_000) {
+			this.h.stats.compute({ projects: this.h.projects(), live: this.h.live() })
+				.then(st => (this.lastStats = st), () => undefined)
+				.finally(() => this.writeStatoNow());
+			return;
+		}
+		this.writeStatoNow();
+	}
+
+	private writeStatoNow(): void {
 		const r = this.rules.state();
 		const voci: { progetto: string; livello: string; frase: string }[] = [];
 		for (const pr of Object.values(r.projects)) {
@@ -227,12 +240,28 @@ export class Idee {
 		voci.sort((a, b) => (a.livello === b.livello ? 0 : a.livello === 'rosso' ? -1 : 1));
 		const rad = this.radar.state();
 		const w = this.h.workCounts();
+		const st = this.lastStats;
+		const round = (n: number | undefined) => Math.round(n ?? 0);
 		const data = {
 			aggiornato: Date.now(),
 			briefing: this.briefing ? { date: this.briefing.date, text: this.briefing.text } : null,
 			regole: { ...r.counts, voci: voci.slice(0, 12) },
 			soldi: rad.totals ? { ieri: rad.totals.yesterday, sette: rad.totals.last7, valuta: rad.totals.currency, aggiornato: rad.admobAt } : null,
-			lavori: { inCorso: w.inCorso, tiAspetta: w.tiAspetta, inCoda: w.inCoda, stanotte: w.stanotte, vive: w.vive },
+			lavori: {
+				inCorso: w.inCorso, tiAspetta: w.tiAspetta, nelTerminale: w.nelTerminale, inCoda: w.inCoda, stanotte: w.stanotte, vive: w.vive,
+				// Widget "Oggi" e Siri (CosaMiAspetta, LavoroEntity): docs/CONTRATTI.md, 7.5.
+				voci: (this.h.work?.() ?? []).slice(0, 20).map(x => ({ key: x.key, progetto: x.project, path: x.path, titolo: x.title, stato: x.status, da: x.since })),
+			},
+			ore: st ? {
+				oggi: round(st.today.you),
+				ieri: round(st.days[st.days.length - 2]?.you),
+				settimana: round(st.week.now.you),
+				giorni: st.days.slice(-7).map(d => ({ date: d.date, minuti: round(d.you) })),
+			} : null,
+			progetti: this.h.projects().filter(p => p.git).map(p => ({
+				nome: p.name, path: p.path, ramo: p.git!.branch, daSpingere: p.git!.ahead, modifiche: p.git!.changes,
+				livello: r.projects[p.path]?.livello ?? null, ultima: p.touchedAt,
+			})),
 		};
 		try {
 			fs.mkdirSync(path.dirname(STATO_FILE), { recursive: true, mode: 0o700 });
@@ -558,6 +587,12 @@ export class Idee {
 				// Un link non avvia mai un lavoro da solo: lo si mostra e si chiede.
 				const p = find(q.get('progetto'));
 				const task = (q.get('compito') ?? '').trim().slice(0, 4000);
+				if (!q.get('progetto')) {
+					// "Nuovo lavoro" dal widget o dal Centro di Controllo: il compositore vuoto.
+					this.h.showHome('lavori');
+					this.h.send({ type: 'composer', path: '', task: '' });
+					return;
+				}
 				if (!p) {
 					vscode.window.showWarningMessage(`Non trovo il progetto "${q.get('progetto') ?? ''}".`);
 					return;
@@ -578,6 +613,17 @@ export class Idee {
 				return;
 			case 'vedetta':
 				this.h.showHome('vedetta');
+				return;
+			// Dal widget, dal Centro di Controllo e da Siri (docs/CONTRATTI.md, 7.5).
+			case 'melissa':
+				this.h.showHome('melissa');
+				if (!this.h.assistant()?.getState().conversing) void vscode.commands.executeCommand('bottega.voice.converse');
+				return;
+			case 'plancia':
+				this.h.showHome('plancia');
+				return;
+			case 'osservatorio':
+				void vscode.commands.executeCommand('bottega.openOsservatorio');
 				return;
 			case 'continua': {
 				const p = find(q.get('progetto'));

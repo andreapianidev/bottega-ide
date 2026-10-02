@@ -16,7 +16,9 @@
 //    p2 = (onset, cinematic 0/1, impulse, reveal 0..1)
 //    p3 = (lightDir.xyz, warmth)
 //    p4 = (ambientColor.rgb, nightFactor)
-//    p5 = (zoom, docked, _, _)   docked mini orb: zoom 0.6, the sphere fills ~78% of the view
+//    p5 = (zoom, docked, breath phase, 1 if the phase is set)   docked mini orb: zoom 0.6,
+//         the sphere fills ~78% of the view; the breath phase comes from MetalEngine (it
+//         speeds up with the Claude sessions at work)
 //    spectrum[4] = 16 audio bands (0..1), low to high
 //  Output is LINEAR EXTENDED for an EDR rgba16Float target, premultiplied alpha.
 //
@@ -33,7 +35,7 @@ struct OrbUniforms {
     float4 p2;
     float4 p3;
     float4 p4;
-    float4 p5;            // (zoom, docked 0/1, _, _): zoom < 1 makes the sphere fill more of the view
+    float4 p5;            // (zoom, docked 0/1, breath phase, phase set 0/1): zoom < 1 makes the sphere fill more of the view
     float4 spectrum[4];
 };
 
@@ -240,7 +242,7 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
     float heart = pow(0.5 + 0.5 * sin(time * 6.3), 6.0) * 0.6
                 + pow(0.5 + 0.5 * sin(time * 6.3 - 0.7), 6.0) * 0.3;
 
-    float breath = 0.5 + 0.5 * sin(time * 1.1);
+    float breath = 0.5 + 0.5 * sin(u.p5.w > 0.5 ? u.p5.z : time * 1.1);
     OrbDrive d;
     d.time = time; d.bass = bass; d.mid = mid;
     d.baseR = 0.46; d.amp = 0.05; d.swirl = 0.10; d.flowSign = 1.0;

@@ -84,7 +84,22 @@ Un'app Swift nativa nascosta dentro la Bottega (`nucleo/`), per tutto quello che
 fare: audio, sfera Metal, scorciatoia globale, notifiche, icona nella barra dei menu, pressione di
 memoria e temperatura del Mac, Apple Intelligence (FoundationModels) ed embedding di frase
 (NaturalLanguage). Solo framework Apple, nessuna dipendenza esterna. Da fermo: 0% di CPU, circa
-30 MB di memoria, nessuna connessione aperta.
+40 MB di memoria, nessuna connessione aperta.
+
+Apple Intelligence fa solo lavori brevi e strutturati, tutti sul Mac: è il cervello di riserva di Melissa, **con gli
+strumenti** (apre progetti, legge lavori e regole, cerca nella memoria, chiede conferma per push e stop), e prende il
+turno all'istante quando Agnes non risponde; classifica ogni sessione in correzione, funzione, rilascio, ricerca,
+manutenzione o documentazione, e il cruscotto ne ricava frasi come «questa settimana 60% correzioni». Un solo motore
+Metal disegna la sfera di Melissa, che respira più in fretta quando più sessioni Claude lavorano, e il cielo
+dell'Osservatorio, sempre e solo quando è visibile.
+
+### L'Osservatorio
+
+Una finestra nativa, SwiftUI e Metal con il vetro di macOS 27: il cielo dei progetti, una stella per progetto che
+cresce e si scalda con le ore e pulsa quando Claude ci scrive, e sopra i pannelli con oggi, la settimana, quando lavori
+(una superficie 3D di Swift Charts da girare col mouse), i token per progetto e che lavoro è stato. Pensata anche per un
+secondo schermo. Si apre dalla Bottega (comando «Apri l'Osservatorio»), dalla barra dei menu, da Siri e dal Centro di
+Controllo.
 
 ### La Home
 
@@ -151,9 +166,11 @@ vere: il saldo di OpenRouter e DeepSeek letto dai servizi, le richieste di oggi 
 caratteri di voce contati dalla Bottega. Melissa legge cosa hanno fatto le sessioni, passa istruzioni ai lavori della
 Bottega, avvisa quando uno ti aspetta e muove il cruscotto mentre ti risponde («fammi vedere le ore di Woofmap questa
 settimana»). Chi vuole la sfera sullo schermo, come prima, imposta `bottega.voice.sfera` su `schermo`. Il Nucleo espone anche i Comandi rapidi
-(«Chiedi a Melissa», «Avvia un lavoro», «Briefing», «Stato delle regole», anche con Siri), un widget da scrivania
-con il semaforo delle regole e il briefing, e mette progetti e ricordi in Spotlight (se l'indicizzazione di Spotlight è
-accesa sul Mac).
+(«Chiedi a Melissa», «Avvia un lavoro», «Briefing», «Stato delle regole», anche con Siri), due widget da scrivania
+(il semaforo con il briefing, e «Oggi» con le ore, il grafico della settimana, chi ti aspetta e tre pulsanti), quattro
+controlli per il Centro di Controllo (Melissa, plancia, nuovo lavoro, Osservatorio), e mette progetti e ricordi in
+Spotlight (se l'indicizzazione di Spotlight è accesa sul Mac). Siri conosce i progetti per nome: «Apri Woofmap nella
+Bottega», «Che progetti aspettano un push su Bottega», «Cosa mi aspetta su Bottega».
 
 ### L'aspetto
 
@@ -207,8 +224,8 @@ niente; Melissa e i riassunti della memoria hanno bisogno di due servizi esterni
   gratuito basta: circa 20 richieste al minuto, che Melissa e la memoria si dividono (la memoria ne
   usa al massimo 6).
 - Modello usato: `agnes-3.0-flash`, sull'API compatibile OpenAI `https://apihub.agnes-ai.com/v1`.
-- Senza Agnes: Melissa risponde con Apple Intelligence del Mac, ma senza poter agire sull'IDE, e la
-  memoria riassume con Apple Intelligence.
+- Senza Agnes: Melissa risponde con Apple Intelligence del Mac, con gli strumenti ma più lenta e meno
+  brillante, e la memoria riassume con Apple Intelligence.
 
 **2. ElevenLabs, orecchie e voce** (Melissa che ti ascolta e ti risponde a voce)
 

@@ -207,5 +207,10 @@ struct BottegaStatoWidget: Widget {
 struct BottegaWidgets: WidgetBundle {
     var body: some Widget {
         BottegaStatoWidget()
+        BottegaOggiWidget()
+        ControlloMelissa()
+        ControlloPlancia()
+        ControlloNuovoLavoro()
+        ControlloOsservatorio()
     }
 }

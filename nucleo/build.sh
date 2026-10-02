@@ -39,7 +39,7 @@ fi
 rm -rf "$APP" "$TMP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$TMP"
 
-SOURCES=("$HERE"/Sources/**/*.swift(N))
+SOURCES=("$HERE"/Sources/**/*.swift(N) "$HERE"/Shared/**/*.swift(N))
 TRIPLE="arm64-apple-macos27.0"
 BUNDLE_ID="com.andreapiani.bottega.nucleo"
 # The protocols whose conformances the compiler records for the App Intents extractor
@@ -61,7 +61,7 @@ xcrun -sdk macosx swiftc \
   -framework FoundationModels -framework NaturalLanguage \
   -framework Accelerate -framework UserNotifications -framework Carbon \
   -framework IOKit -framework CoreSpotlight -framework UniformTypeIdentifiers -framework AppIntents \
-  -framework WidgetKit \
+  -framework WidgetKit -framework SwiftUI -framework Charts \
   -Xlinker -dependency_info -Xlinker "$TMP/BottegaNucleo_dependency_info.dat" \
   -o "$EXE" \
   "${SOURCES[@]}"
@@ -96,7 +96,7 @@ xcrun -sdk macosx appintentsmetadataprocessor \
   > "$TMP/appintents.log" 2>&1 || { cat "$TMP/appintents.log" >&2; echo "nucleo: appintentsmetadataprocessor fallito" >&2; exit 1; }
 grep -E "warning|error" "$TMP/appintents.log" | sed 's/^/nucleo: appintents: /' >&2 || true
 ACTIONS="$APP/Contents/Resources/Metadata.appintents/extract.actionsdata"
-if [[ ! -f "$ACTIONS" ]] || ! grep -q '"ChiediAMelissa"' "$ACTIONS"; then
+if [[ ! -f "$ACTIONS" ]] || ! grep -q '"ChiediAMelissa"' "$ACTIONS" || ! grep -q '"ProgettoEntity"' "$ACTIONS"; then
   cat "$TMP/appintents.log" >&2
   echo "nucleo: Metadata.appintents manca o non contiene le intents: Comandi rapidi non le vedrebbe" >&2
   exit 1
@@ -106,31 +106,78 @@ echo "nucleo: Metadata.appintents pronto ($(/usr/bin/python3 -c 'import json,sys
 # Desktop widget: an app extension in Contents/PlugIns, sandboxed (it reads only
 # ~/.bottega/stato.json through a read-only exception) and signed before the app.
 # Linked the way Xcode links app extensions: entry point _NSExtensionMain.
+# It carries the Control Center controls too, whose intents (Shared/AzioniRapide.swift)
+# need their own Metadata.appintents inside the appex, built the same way as the app's.
 WIDGET="$APP/Contents/PlugIns/BottegaWidget.appex"
-mkdir -p "$WIDGET/Contents/MacOS"
-echo "nucleo: compilo il widget"
+WEXE="$WIDGET/Contents/MacOS/BottegaWidget"
+WSOURCES=("$HERE"/Widget/*.swift "$HERE/Sources/Stato.swift" "$HERE"/Shared/**/*.swift(N))
+mkdir -p "$WIDGET/Contents/MacOS" "$WIDGET/Contents/Resources"
+echo "nucleo: compilo il widget (${#WSOURCES} file)"
 xcrun -sdk macosx swiftc \
   -target $TRIPLE \
   -swift-version 5 \
   ${=OPT} \
   -wmo -parse-as-library -application-extension \
   -module-name BottegaWidget \
-  -framework SwiftUI -framework WidgetKit \
+  -emit-const-values-path "$TMP/BottegaWidget.swiftconstvalues" \
+  -const-gather-protocols-list "$TMP/const_extract_protocols.json" \
+  -framework SwiftUI -framework WidgetKit -framework AppIntents -framework Charts \
   -Xlinker -e -Xlinker _NSExtensionMain \
-  -o "$WIDGET/Contents/MacOS/BottegaWidget" \
-  "$HERE/Widget/BottegaWidget.swift" "$HERE/Sources/Stato.swift"
+  -Xlinker -dependency_info -Xlinker "$TMP/BottegaWidget_dependency_info.dat" \
+  -o "$WEXE" \
+  "${WSOURCES[@]}"
+print -rl -- "${WSOURCES[@]}" > "$TMP/BottegaWidget.SwiftFileList"
+print -r -- "$TMP/BottegaWidget.swiftconstvalues" > "$TMP/BottegaWidget.SwiftConstValuesFileList"
+xcrun -sdk macosx appintentsmetadataprocessor \
+  --toolchain-dir "$TOOLCHAIN" \
+  --module-name BottegaWidget \
+  --sdk-root "$SDKROOT_PATH" \
+  --xcode-version "${XCODE_BUILD:-27A0000}" \
+  --platform-family macOS \
+  --deployment-target 27.0 \
+  --bundle-identifier "$BUNDLE_ID.widget" \
+  --output "$WIDGET/Contents/Resources" \
+  --target-triple $TRIPLE \
+  --binary-file "$WEXE" \
+  --dependency-file "$TMP/BottegaWidget_dependency_info.dat" \
+  --stringsdata-file "$TMP/BottegaWidget.stringsdata" \
+  --source-file-list "$TMP/BottegaWidget.SwiftFileList" \
+  --metadata-file-list "$TMP/DependencyMetadataFileList" \
+  --static-metadata-file-list "$TMP/DependencyStaticMetadataFileList" \
+  --swift-const-vals-list "$TMP/BottegaWidget.SwiftConstValuesFileList" \
+  --force --compile-time-extraction --deployment-aware-processing --no-app-shortcuts-localization \
+  > "$TMP/appintents-widget.log" 2>&1 || { cat "$TMP/appintents-widget.log" >&2; echo "nucleo: metadata del widget fallito" >&2; exit 1; }
+if ! grep -q '"ParlaConMelissa"' "$WIDGET/Contents/Resources/Metadata.appintents/extract.actionsdata" 2>/dev/null; then
+  cat "$TMP/appintents-widget.log" >&2
+  echo "nucleo: il widget non ha le intents dei controlli: il Centro di Controllo non li eseguirebbe" >&2
+  exit 1
+fi
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" "$HERE/Widget/Info.plist" > "$WIDGET/Contents/Info.plist"
 plutil -lint -s "$WIDGET/Contents/Info.plist"
 codesign --force --sign - --timestamp=none --entitlements "$HERE/Widget/Widget.entitlements" "$WIDGET"
 
-# Shader: precompiled if possible, source always (runtime fallback).
-cp "$HERE/Sources/Orb/OrbShaders.metal" "$APP/Contents/Resources/OrbShaders.metal"
-if xcrun -sdk macosx -f metal >/dev/null 2>&1 && \
-   xcrun -sdk macosx metal -c -O3 "$HERE/Sources/Orb/OrbShaders.metal" -o "$TMP/orb.air" 2>"$TMP/metal.log" && \
-   xcrun -sdk macosx metallib "$TMP/orb.air" -o "$APP/Contents/Resources/default.metallib" 2>>"$TMP/metal.log"; then
-  echo "nucleo: shader precompilato (default.metallib)"
+# Shaders: every .metal in Sources (orb, sky) precompiled into ONE default.metallib (the
+# shared MetalEngine loads it once); the sources always ship too (runtime fallback, one
+# library per file).
+METALS=("$HERE"/Sources/**/*.metal(N))
+for m in $METALS; do cp "$m" "$APP/Contents/Resources/${m:t}"; done
+AIRS=()
+metal_ok=0
+if xcrun -sdk macosx -f metal >/dev/null 2>&1; then
+  metal_ok=1
+  : > "$TMP/metal.log"
+  for m in $METALS; do
+    a="$TMP/${m:t:r}.air"
+    xcrun -sdk macosx metal -c -O3 "$m" -o "$a" 2>>"$TMP/metal.log" || { metal_ok=0; break; }
+    AIRS+=("$a")
+  done
+  (( metal_ok )) && xcrun -sdk macosx metallib "${AIRS[@]}" -o "$APP/Contents/Resources/default.metallib" 2>>"$TMP/metal.log" || metal_ok=0
+fi
+if (( metal_ok )); then
+  echo "nucleo: shader precompilati (default.metallib, ${#METALS} file)"
 else
-  echo "nucleo: toolchain Metal assente, lo shader sara' compilato al primo avvio della sfera"
+  rm -f "$APP/Contents/Resources/default.metallib"
+  echo "nucleo: toolchain Metal assente o shader in errore, compilati al primo uso (vedi $TMP/metal.log)"
 fi
 
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" "$HERE/Info.plist" > "$APP/Contents/Info.plist"

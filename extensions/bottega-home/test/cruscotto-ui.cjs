@@ -15,6 +15,10 @@ const { JSDOM } = require('jsdom');
 
 const MEDIA = path.join(__dirname, '..', 'media');
 const JS = fs.readFileSync(path.join(MEDIA, 'cruscotto.js'), 'utf8');
+// il motore condiviso: nella webview e' caricato prima della stanza (src/panel.ts)
+const GPU_JS = fs.readFileSync(path.join(MEDIA, 'motore', 'gpu.js'), 'utf8');
+const CIELO_JS = fs.readFileSync(path.join(MEDIA, 'motore', 'cielo-gpu.js'), 'utf8');
+const SFERA_JS = fs.readFileSync(path.join(MEDIA, 'motore', 'sfera-gpu.js'), 'utf8');
 
 let passed = 0, failed = 0;
 async function test(name, fn) {
@@ -178,29 +182,62 @@ function fintaGpu(w, opts = {}) {
 		conto.devices++;
 		let perdi;
 		const lost = new Promise(r => (perdi = r));
+		const scope = [];
+		const ascolta = [];
 		const d = {
 			lost,
 			perdi: info => perdi(info),
+			// scope di errori come in WebGPU: un errore fuori scope arriva a uncapturederror
+			pushErrorScope() {
+				scope.push(null);
+			},
+			popErrorScope: async () => scope.pop() || null,
+			errore(msg) {
+				if (scope.length) scope[scope.length - 1] = scope[scope.length - 1] || { message: msg };
+				else for (const f of ascolta) f({ error: { message: msg } });
+			},
 			createShaderModule: ({ code }) => {
 				const cielo = code.includes('@vertex fn vs_luce') && code.includes('@fragment fn fs_fondo');
 				const fiume = code.includes('@fragment fn fs_fiume') && code.includes('@vertex fn vs_goccia');
-				assert.ok(cielo || fiume, 'il modulo WGSL contiene i punti di ingresso');
-				conto.moduli.push(cielo ? 'cielo' : 'corrente');
-				return { getCompilationInfo: async () => ({ messages: opts.wgslRotto ? [{ type: 'error', lineNum: 12, message: 'finto errore' }] : [] }) };
+				const sfera = code.includes('@fragment fn fs_sfera');
+				const rumore = code.includes('@compute @workgroup_size(4, 4, 4) fn cs_rumore');
+				assert.ok(cielo || fiume || sfera || rumore, 'il modulo WGSL contiene i punti di ingresso');
+				const chi = cielo ? 'cielo' : fiume ? 'corrente' : sfera ? 'sfera' : 'rumore';
+				conto.moduli.push(chi);
+				const rotto = opts.wgslRotto === true || opts.wgslRotto === chi;
+				// come Dawn: lo shader rotto e' un errore di convalida (nello scope, se c'e') e un messaggio
+				if (rotto && opts.senzaScope) {
+					for (const f of ascolta) f({ error: { message: `finto errore in ${chi}` } });
+				} else if (rotto) d.errore(`finto errore in ${chi}`);
+				return { getCompilationInfo: async () => ({ messages: rotto && !opts.soloNonCatturato ? [{ type: 'error', lineNum: 12, message: 'finto errore' }] : [] }) };
 			},
 			createRenderPipelineAsync: async desc => {
 				assert.strictEqual(desc.layout, 'auto');
 				return { getBindGroupLayout: () => ({}) };
 			},
+			createComputePipelineAsync: async desc => {
+				assert.strictEqual(desc.layout, 'auto');
+				return { getBindGroupLayout: () => ({}) };
+			},
 			createBuffer: desc => ({ size: desc.size, destroy() {} }),
 			createTexture: () => ({ createView: () => ({}), destroy() {} }),
+			createSampler: () => ({}),
 			createBindGroup: () => ({}),
 			createCommandEncoder: () => ({
 				beginRenderPass: () => ({ setPipeline() {}, setBindGroup() {}, setVertexBuffer() {}, draw() {}, end() {} }),
+				beginComputePass: () => ({
+					setPipeline() {},
+					setBindGroup() {},
+					dispatchWorkgroups() {
+						conto.calcoli = (conto.calcoli || 0) + 1;
+					},
+					end() {},
+				}),
 				finish: () => ({}),
 			}),
 			queue: {
 				writeBuffer() {},
+				writeTexture() {},
 				submit() {
 					conto.submit++;
 				},
@@ -209,7 +246,9 @@ function fintaGpu(w, opts = {}) {
 				conto.destroyed++;
 				perdi({ reason: 'destroyed', message: '' });
 			},
-			addEventListener() {},
+			addEventListener(tipo, f) {
+				if (tipo === 'uncapturederror') ascolta.push(f);
+			},
 		};
 		conto.ultimo = d;
 		return d;
@@ -223,25 +262,44 @@ function fintaGpu(w, opts = {}) {
 		getPreferredCanvasFormat: () => 'bgra8unorm',
 	};
 	Object.defineProperty(w.navigator, 'gpu', { value: gpu, configurable: true });
-	w.HTMLCanvasElement.prototype.getContext = function (k) {
-		return k === 'webgpu'
-			? {
-					configure() {
-						conto.configure++;
-					},
-					unconfigure() {
-						conto.unconfigure++;
-					},
-					getCurrentTexture: () => ({ createView: () => ({}) }),
-				}
-			: null;
-	};
+	conto.contesto = () => ({
+		configure() {
+			conto.configure++;
+		},
+		unconfigure() {
+			conto.unconfigure++;
+		},
+		getCurrentTexture: () => ({ createView: () => ({}) }),
+	});
 	return conto;
+}
+
+// ---------- Canvas 2D finto ----------
+
+/** Un contesto 2D che non disegna niente ma conta i fotogrammi (un clearRect a fotogramma sulla tela vera). */
+function finto2d(conto, tela) {
+	const o = {};
+	return new Proxy(o, {
+		get(_, k) {
+			if (k in o) return o[k];
+			if (k === 'createRadialGradient' || k === 'createLinearGradient' || k === 'createConicGradient') return () => ({ addColorStop() {} });
+			if (k === 'createImageData' || k === 'getImageData') return (w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h });
+			if (k === 'measureText') return () => ({ width: 10 });
+			return () => {
+				conto.chiamate++;
+				if (k === 'clearRect' && tela.id === 'carta-tela') conto.fotogrammi++;
+			};
+		},
+		set(_, k, v) {
+			o[k] = v;
+			return true;
+		},
+	});
 }
 
 // ---------- ambiente ----------
 
-function ambiente({ gpu = null, ridotto = false, tema = 'vscode-dark', rilascio = 60, adesso = 0, larghezza = 0, alti = null } = {}) {
+function ambiente({ gpu = null, ridotto = false, tema = 'vscode-dark', rilascio = 60, adesso = 0, larghezza = 0, alti = null, tela = true, motore = true } = {}) {
 	const dom = new JSDOM(`<!doctype html><html lang="it"><body class="${tema}"><main id="app"></main></body></html>`, {
 		runScripts: 'outside-only',
 		pretendToBeVisual: true,
@@ -253,10 +311,28 @@ function ambiente({ gpu = null, ridotto = false, tema = 'vscode-dark', rilascio 
 	w.console.error = (...a) => errori.push(a.map(String).join(' '));
 	w.console.warn = (...a) => avvisi.push(a.map(String).join(' '));
 	const conto = gpu ? fintaGpu(w, gpu) : null;
+	// la tela: webgpu dal WebGPU finto, 2d dal contesto finto (o niente, con tela: false)
+	const conto2d = { chiamate: 0, fotogrammi: 0 };
+	w.HTMLCanvasElement.prototype.getContext = function (k) {
+		if (k === 'webgpu') return conto ? conto.contesto() : null;
+		if (k === '2d') return tela ? finto2d(conto2d, this) : null;
+		return null;
+	};
+	// chi chiede fotogrammi
+	const raf = { n: 0 };
+	const raf0 = w.requestAnimationFrame.bind(w);
+	w.requestAnimationFrame = f => {
+		raf.n++;
+		return raf0(f);
+	};
 	if (adesso) w.Date.now = () => adesso;
 	// misure finte: jsdom non impagina. `larghezza` e' quella del banco, `alti` le altezze per id
 	if (larghezza) Object.defineProperty(w.HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return this.id === 'banco' ? larghezza : 0; } });
 	if (alti) Object.defineProperty(w.HTMLElement.prototype, 'offsetHeight', { configurable: true, get() { const v = alti[this.id] ?? (this.tagName === 'LI' && this.closest('#classifica') ? alti['riga'] : 0); return typeof v === 'function' ? v() : v || 0; } });
+	if (motore) {
+		w.eval(GPU_JS);
+		w.eval(CIELO_JS);
+	}
 	w.eval(JS);
 	const posts = [];
 	const salvati = [];
@@ -274,7 +350,7 @@ function ambiente({ gpu = null, ridotto = false, tema = 'vscode-dark', rilascio 
 	});
 	const $ = s => root.querySelector(s);
 	const click = el => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
-	return { dom, w, root, api, posts, salvati, focused, $, click, conto, errori, avvisi, reduced, ascoltatori };
+	return { dom, w, root, api, posts, salvati, focused, $, click, conto, conto2d, raf, errori, avvisi, reduced, ascoltatori };
 }
 
 /** Testo e attributi del DOM: nessuna lineetta lunga U+2014 o media U+2013. */
@@ -312,8 +388,8 @@ const finale = (t, k) => t.$(`.cifra[data-k="${k}"] dd > .sr`).textContent;
 		assert.deepStrictEqual(t.errori, []);
 	});
 
-	await test('senza WebGPU: motore SVG, luci dell\'SVG al loro posto, nessun errore', async () => {
-		const t = ambiente({ ridotto: true });
+	await test('senza WebGPU e senza tela 2D: motore SVG, luci dell\'SVG al loro posto, nessun errore', async () => {
+		const t = ambiente({ ridotto: true, tela: false });
 		t.api.show();
 		t.api.setStats(fintiStats());
 		await pausa(30);
@@ -328,7 +404,7 @@ const finale = (t, k) => t.$(`.cifra[data-k="${k}"] dd > .sr`).textContent;
 
 	await test('adattatore negato, richiesta rifiutata o WGSL rotto: ripiego sull\'SVG, una sola volta', async () => {
 		for (const gpu of [{ senzaAdattatore: true }, { rifiuta: true }, { wgslRotto: true }]) {
-			const t = ambiente({ gpu, ridotto: true });
+			const t = ambiente({ gpu, ridotto: true, tela: false });
 			t.api.show();
 			t.api.setStats(fintiStats());
 			await pausa(40);
@@ -368,7 +444,7 @@ const finale = (t, k) => t.$(`.cifra[data-k="${k}"] dd > .sr`).textContent;
 		await pausa(120);
 		assert.strictEqual(t.$('#carta').getAttribute('data-motore'), 'gpu');
 		assert.ok(t.$('#carta').classList.contains('gpu'));
-		assert.strictEqual(t.$('#carta-motore').textContent, 'WebGPU su Metal');
+		assert.strictEqual(t.$('#carta-motore').textContent, 'WebGPU');
 		assert.ok(t.conto.submit >= 2, `frame inviati: ${t.conto.submit}`);
 		assert.strictEqual(t.conto.devices, 1, 'un solo dispositivo per cielo e corrente');
 		assert.deepStrictEqual(t.conto.moduli.slice().sort(), ['cielo', 'corrente']);
@@ -421,7 +497,7 @@ const finale = (t, k) => t.$(`.cifra[data-k="${k}"] dd > .sr`).textContent;
 	});
 
 	await test('dispositivo perso: ripiego sull\'SVG, frame fermi', async () => {
-		const t = ambiente({ gpu: {} });
+		const t = ambiente({ gpu: {}, tela: false });
 		t.api.show();
 		t.api.setStats(fintiStats());
 		await pausa(80);
@@ -540,7 +616,7 @@ const finale = (t, k) => t.$(`.cifra[data-k="${k}"] dd > .sr`).textContent;
 			t.$('#crus-corpo').innerHTML
 				.replace(/ data-motore="[^"]*"/g, '')
 				.replace(/<span class="motore"[^>]*>[^<]*<\/span>/g, '')
-				.replace(/ class="(carta|corrente)( gpu)?"/g, '')
+				.replace(/ class="(carta|corrente)( gpu| tela)?"/g, '')
 				.replace(/<canvas[^>]*>/g, '');
 		assert.strictEqual(pulito(a), pulito(b));
 		a.api.hide();
@@ -661,7 +737,7 @@ const finale = (t, k) => t.$(`.cifra[data-k="${k}"] dd > .sr`).textContent;
 		assert.ok(svg.querySelectorAll('.giorno').length >= 6, 'un filo per mezzanotte');
 		assert.match(t.$('#parallelo-nota').textContent, /Nelle ore in cui lavori girano in media \d+,\d sessioni insieme\. Al massimo ne hai avute (quattro|tre|due) insieme/);
 		assert.match(t.$('#corrente-conto').textContent, /ore con sessioni, \d+ con almeno due/);
-		assert.strictEqual(t.$('#corrente-motore').textContent, 'WebGPU su Metal');
+		assert.strictEqual(t.$('#corrente-motore').textContent, 'WebGPU');
 		const el = t.$('#parallelo');
 		el.dispatchEvent(new t.w.FocusEvent('focus'));
 		assert.ok(!svg.querySelector('.mirino').hasAttribute('hidden'));
@@ -846,6 +922,367 @@ const finale = (t, k) => t.$(`.cifra[data-k="${k}"] dd > .sr`).textContent;
 		}
 		const src = JS + fs.readFileSync(path.join(MEDIA, 'cruscotto.css'), 'utf8');
 		assert.ok(!/[\u2013\u2014]/.test(src), 'nessuna lineetta nei sorgenti della stanza');
+	});
+
+	// ---------- il cielo animato: motori, diagnosi, fotogrammi ----------
+
+	const diagDi = t => t.posts.filter(m => m.type === 'cielo.diag');
+	const nascondi = (t, si) => {
+		Object.defineProperty(t.w.document, 'visibilityState', { configurable: true, get: () => (si ? 'hidden' : 'visible') });
+		t.w.document.dispatchEvent(new t.w.Event('visibilitychange'));
+	};
+
+	await test('senza navigator.gpu: la tela 2D anima il cielo, indicatore Canvas, cielo.diag col motivo', async () => {
+		const t = ambiente();
+		t.api.show();
+		t.api.setStats(fintiStats());
+		await pausa(150);
+		assert.strictEqual(t.$('#carta').getAttribute('data-motore'), 'canvas');
+		assert.ok(t.$('#carta').classList.contains('tela'));
+		assert.ok(!t.$('#carta').classList.contains('gpu'));
+		assert.strictEqual(t.$('#carta-motore').textContent, 'Canvas');
+		assert.match(t.$('#carta-motore').title, /WebGPU non è partito: questa finestra non offre WebGPU/);
+		assert.ok(t.conto2d.fotogrammi >= 2, `fotogrammi della tela: ${t.conto2d.fotogrammi}`);
+		const d = diagDi(t);
+		assert.strictEqual(d.length, 1, 'una riga di diagnosi per montaggio');
+		assert.strictEqual(d[0].motore, 'canvas');
+		assert.strictEqual(d[0].motivo, 'questa finestra non offre WebGPU');
+		assert.strictEqual(d[0].gpu, false);
+		for (const k of ['isSecureContext', 'crossOriginIsolated']) assert.strictEqual(typeof d[0][k], 'boolean', k);
+		assert.strictEqual(typeof d[0].userAgent, 'string');
+		// il costo del fotogramma finisce nel titolo dell'indicatore
+		t.$('#carta-motore').dispatchEvent(new t.w.Event('pointerenter'));
+		assert.match(t.$('#carta-motore').title, /Un fotogramma costa in media [\d,]+ ms/);
+		t.api.hide();
+		assert.deepStrictEqual(t.errori, []);
+	});
+
+	await test('cielo.diag: WebGPU che parte, adattatore negato (tela 2D), shader rotto senza tela (SVG)', async () => {
+		let t = ambiente({ gpu: {} });
+		t.api.show();
+		t.api.setStats(fintiStats());
+		await pausa(80);
+		assert.deepStrictEqual(diagDi(t).map(m => [m.motore, m.motivo, m.gpu]), [['webgpu', '', true]]);
+		t.api.hide();
+		t = ambiente({ gpu: { senzaAdattatore: true } });
+		t.api.show();
+		t.api.setStats(fintiStats());
+		await pausa(80);
+		assert.strictEqual(t.$('#carta').getAttribute('data-motore'), 'canvas');
+		assert.deepStrictEqual(diagDi(t).map(m => [m.motore, m.motivo, m.gpu]), [['canvas', 'nessun adattatore WebGPU', true]]);
+		t.api.hide();
+		t = ambiente({ gpu: { wgslRotto: true }, tela: false });
+		t.api.show();
+		t.api.setStats(fintiStats());
+		await pausa(80);
+		assert.strictEqual(t.$('#carta').getAttribute('data-motore'), 'svg');
+		const d = diagDi(t);
+		assert.strictEqual(d.length, 1);
+		assert.strictEqual(d[0].motore, 'svg');
+		assert.match(d[0].motivo, /WGSL/);
+		t.api.hide();
+	});
+
+	await test('build 15: uno shader rotto della corrente non spegne il cielo (scope di errori)', async () => {
+		// l'errore arriva solo come uncapturederror se nessuno scope lo prende, come in Dawn
+		const t = ambiente({ gpu: { wgslRotto: 'corrente', soloNonCatturato: true } });
+		t.api.show();
+		t.api.setStats(fintiStats());
+		await pausa(120);
+		assert.strictEqual(t.$('#corrente').getAttribute('data-motore'), 'svg', 'la corrente torna all\'SVG');
+		assert.strictEqual(t.$('#carta').getAttribute('data-motore'), 'gpu', 'il cielo resta su WebGPU');
+		assert.deepStrictEqual(diagDi(t).map(m => m.motore), ['webgpu']);
+		t.api.hide();
+	});
+
+	await test('senza i file del motore (motore/*.js non caricati): tela 2D, il motivo lo dice', async () => {
+		const t = ambiente({ gpu: {}, motore: false });
+		t.api.show();
+		t.api.setStats(fintiStats());
+		await pausa(80);
+		assert.strictEqual(t.$('#carta').getAttribute('data-motore'), 'canvas');
+		assert.strictEqual(t.$('#corrente').getAttribute('data-motore'), 'svg');
+		assert.match(diagDi(t)[0].motivo, /motore\/cielo-gpu\.js/);
+		assert.strictEqual(t.conto.devices, 0, 'nessun dispositivo aperto');
+		t.api.hide();
+	});
+
+	await test('riduci movimento sulla tela 2D: un fotogramma, poi nessun requestAnimationFrame', async () => {
+		const t = ambiente({ ridotto: true });
+		t.api.show();
+		t.api.setStats(fintiStats());
+		await pausa(150);
+		const f = t.conto2d.fotogrammi;
+		const n = t.raf.n;
+		assert.ok(f >= 1 && f <= 2, `un fotogramma fermo: ${f}`);
+		await pausa(250);
+		assert.strictEqual(t.raf.n, n, 'nessun requestAnimationFrame');
+		assert.strictEqual(t.conto2d.fotogrammi, f);
+		// cambio di periodo: un fotogramma nuovo, niente animazione
+		t.click(t.$('[data-c="periodo"][data-id="7"]'));
+		await pausa(80);
+		assert.ok(t.conto2d.fotogrammi - f <= 1);
+		t.api.hide();
+	});
+
+	await test('documento nascosto e stanza nascosta: nessun fotogramma, poi si riparte', async () => {
+		const t = ambiente();
+		t.api.show();
+		t.api.setStats(fintiStats());
+		await pausa(1700); // le letture finiscono di contare (anche loro usano requestAnimationFrame)
+		let f = t.conto2d.fotogrammi;
+		await pausa(120);
+		assert.ok(t.conto2d.fotogrammi > f, 'a stanza visibile il cielo si muove');
+		nascondi(t, true);
+		await pausa(60);
+		f = t.conto2d.fotogrammi;
+		let n = t.raf.n;
+		await pausa(250);
+		assert.strictEqual(t.raf.n, n, 'documento nascosto: nessun requestAnimationFrame');
+		assert.strictEqual(t.conto2d.fotogrammi, f);
+		nascondi(t, false);
+		await pausa(150);
+		assert.ok(t.conto2d.fotogrammi > f, 'documento di nuovo visibile: si riparte');
+		t.api.hide();
+		await pausa(60);
+		f = t.conto2d.fotogrammi;
+		n = t.raf.n;
+		await pausa(250);
+		assert.strictEqual(t.raf.n, n, 'stanza nascosta: nessun requestAnimationFrame');
+		assert.strictEqual(t.conto2d.fotogrammi, f);
+		assert.deepStrictEqual(t.errori, []);
+	});
+
+	await test('WebGPU con documento nascosto: nessun fotogramma inviato', async () => {
+		const t = ambiente({ gpu: {} });
+		t.api.show();
+		t.api.setStats(fintiStats());
+		await pausa(1700);
+		nascondi(t, true);
+		await pausa(60);
+		const n = t.conto.submit;
+		const r = t.raf.n;
+		await pausa(200);
+		assert.strictEqual(t.conto.submit, n);
+		assert.strictEqual(t.raf.n, r);
+		nascondi(t, false);
+		await pausa(120);
+		assert.ok(t.conto.submit > n);
+		t.api.hide();
+	});
+
+	await test('accensione dal centro: le stelle vicine al centro si accendono prima', () => {
+		const t = ambiente();
+		t.api.show();
+		t.api.setStats(fintiStats());
+		const st = [...t.root.querySelectorAll('#carta-svg .stella')].map(g => {
+			const c = g.querySelector('.nucleo');
+			const S = +t.$('#carta-svg svg').getAttribute('width');
+			const r = Math.hypot(+c.getAttribute('cx') - S / 2, +c.getAttribute('cy') - S / 2);
+			return [r, parseInt(g.style.animationDelay, 10)];
+		});
+		st.sort((a, b) => a[0] - b[0]);
+		for (let i = 1; i < st.length; i++) assert.ok(st[i][1] >= st[i - 1][1], `ritardo crescente col raggio: ${JSON.stringify(st)}`);
+		t.api.hide();
+	});
+
+	await test('Apri nell\'Osservatorio: un pulsante nel cielo, manda osservatorio.open', () => {
+		const t = ambiente({ ridotto: true });
+		t.api.show();
+		t.api.setStats(fintiStats());
+		const b = t.$('#carta [data-c="osservatorio"]');
+		assert.ok(b, 'il pulsante c\'e\'');
+		assert.strictEqual(b.textContent, 'Apri nell\'Osservatorio');
+		assert.strictEqual(b.getAttribute('type'), 'button');
+		assert.ok(b.classList.contains('ghost'), 'stesso stile di Aggiorna');
+		t.click(b);
+		assert.deepStrictEqual(t.posts.at(-1), { type: 'osservatorio.open' });
+		t.api.hide();
+	});
+
+	await test('che lavoro è stato: barre ordinate per il periodo, frase sopra; senza il campo la sezione non c\'è', () => {
+		let t = ambiente({ ridotto: true });
+		t.api.show();
+		t.api.setStats(fintiStats());
+		assert.ok(t.$('#categorie-sez').hidden, 'senza categorie nessuna sezione');
+		assert.strictEqual(t.root.querySelectorAll('.riga-categoria').length, 0);
+		t.api.hide();
+		const categorie = {
+			7: { correzione: 300, funzione: 120, documentazione: 20, altro: 90, rilascio: 0 },
+			30: { funzione: 900, correzione: 600, ricerca: 240, manutenzione: 60, altro: 30 },
+			90: {},
+		};
+		t = ambiente({ ridotto: true });
+		t.api.show();
+		t.api.setStats(fintiStats({ extra: { categorie, categorieFrase: 'Questa settimana 68% correzioni.' } }));
+		assert.ok(!t.$('#categorie-sez').hidden);
+		const nomi = () => [...t.root.querySelectorAll('.riga-categoria .chi')].map(e => e.textContent);
+		assert.deepStrictEqual(nomi(), ['Funzioni nuove', 'Correzioni', 'Ricerca', 'Manutenzione', 'Non ancora classificate'], '30 giorni, per minuti, le non classificate in fondo');
+		assert.strictEqual(t.$('#categorie-frase').textContent, 'Negli ultimi 30 giorni 50% funzioni nuove.');
+		const w = [...t.root.querySelectorAll('.riga-categoria .misura i')].map(e => parseFloat(e.style.width));
+		assert.strictEqual(w[0], 100);
+		assert.ok(w.every((x, i) => i === 0 || i === w.length - 1 || x <= w[i - 1]), 'barre ordinate');
+		assert.ok([...t.root.querySelectorAll('.riga-categoria .misura i')].every(e => e.classList.contains('b-tu')), 'un solo colore, il sodio');
+		assert.strictEqual(t.$('.riga-categoria .valore').textContent, '15 h');
+		t.click(t.$('[data-c="periodo"][data-id="7"]'));
+		assert.strictEqual(t.$('#categorie-frase').textContent, 'Questa settimana 68% correzioni.', 'la frase dell\'estensione vale per la settimana');
+		assert.deepStrictEqual(nomi(), ['Correzioni', 'Funzioni nuove', 'Documentazione', 'Non ancora classificate']);
+		t.click(t.$('[data-c="periodo"][data-id="90"]'));
+		assert.ok(t.$('#categorie-sez').hidden, 'periodo senza minuti: la sezione sparisce');
+		senzaLineette(t.root);
+		t.api.hide();
+		assert.deepStrictEqual(t.errori, []);
+	});
+
+	await test('WGSL: nessuna parola riservata nei nomi (la build 15 aveva `meta`)', async () => {
+		const RISERVATE = 'NULL Self abstract active alignas alignof as asm asm_fragment async attribute auto await become cast catch class co_await co_return co_yield coherent column_major common compile compile_fragment concept const_cast consteval constexpr constinit crate debugger decltype delete demote demote_to_helper do dynamic_cast enum explicit export extends extern external fallthrough filter final finally friend from fxgroup get goto groupshared highp impl implements import inline instanceof interface layout lowp macro macro_rules match mediump meta mod module move mut mutable namespace new nil noexcept noinline nointerpolation non_coherent noncoherent noperspective null nullptr of operator package packoffset partition pass patch pixelfragment precise precision premerge priv protected pub public readonly ref regardless register reinterpret_cast require resource restrict self set shared sizeof smooth snorm static static_assert static_cast std subroutine super target template this thread_local throw trait try type typedef typeid typename typeof union unless unorm unsafe unsized use using varying virtual volatile wgsl where with writeonly yield'.split(' ');
+		const sorgenti = [JS, CIELO_JS, SFERA_JS];
+		const shader = [];
+		for (const src of sorgenti) for (const m of src.matchAll(/\/\* wgsl \*\/ `([\s\S]*?)`;/g)) shader.push(m[1]);
+		assert.ok(shader.length >= 4, `shader trovati: ${shader.length}`);
+		for (const code of shader) {
+			const nomi = [...code.matchAll(/\b(?:let|var|const|fn|struct)\s+([A-Za-z_]\w*)/g), ...code.matchAll(/[(,]\s*([A-Za-z_]\w*)\s*:/g), ...code.matchAll(/^\s*([A-Za-z_]\w*)\s*:/gm)].map(m => m[1]);
+			const male = nomi.filter(n => RISERVATE.includes(n));
+			assert.deepStrictEqual(male, [], `parole riservate in WGSL: ${male.join(', ')}`);
+		}
+		// con un WebGPU vero (pacchetto "webgpu", Dawn) si compila davvero: BOTTEGA_WEBGPU=<cartella del pacchetto>
+		if (process.env.BOTTEGA_WEBGPU) {
+			const { create, globals } = require(process.env.BOTTEGA_WEBGPU);
+			Object.assign(globalThis, globals);
+			const ad = await create([]).requestAdapter();
+			const dev = await ad.requestDevice();
+			for (const code of shader) {
+				const info = await dev.createShaderModule({ code: code.replace(/\$\{DIM\}/g, '96') }).getCompilationInfo();
+				const err = info.messages.filter(m => m.type === 'error');
+				assert.deepStrictEqual(err.map(m => `${m.lineNum}: ${m.message}`), []);
+			}
+		}
+	});
+
+	await test('tela 2D e WebGPU usano le stesse luci e gli stessi tempi', () => {
+		for (const nome of ['LUCE', 'GIRO', 'TACCHE', 'SCIA_PX']) {
+			const re = new RegExp(`const ${nome} = ([\\s\\S]*?);\\n`);
+			assert.strictEqual(JS.match(re)[1], CIELO_JS.match(re)[1], nome);
+		}
+		assert.ok(CIELO_JS.includes('return 1.0 + 0.13 * sin(tempo * (0.38 + 0.22 * fract(i * 0.618)) + i * 2.399);'), 'respiro nello shader');
+		assert.ok(JS.includes('1 + 0.13 * Math.sin(tempo * (0.38 + 0.22 * ((i * 0.618) % 1)) + i * 2.399)'), 'respiro nella tela');
+	});
+
+	// ---------- la sfera di Melissa su WebGPU ----------
+
+	function ambienteSfera({ gpu = null, ridotto = false } = {}) {
+		const dom = new JSDOM('<!doctype html><html><body><canvas id="sfera"></canvas></body></html>', { runScripts: 'outside-only', pretendToBeVisual: true, url: 'https://sfera.invalid/' });
+		const w = dom.window;
+		const avvisi = [];
+		w.console.warn = (...a) => avvisi.push(a.map(String).join(' '));
+		const conto = gpu ? fintaGpu(w, gpu) : null;
+		w.HTMLCanvasElement.prototype.getContext = function (k) {
+			return k === 'webgpu' && conto ? conto.contesto() : null;
+		};
+		const raf = { n: 0 };
+		const raf0 = w.requestAnimationFrame.bind(w);
+		w.requestAnimationFrame = f => {
+			raf.n++;
+			return raf0(f);
+		};
+		w.eval(GPU_JS);
+		w.eval(SFERA_JS);
+		const posts = [];
+		const falliti = [];
+		const monta = () => w.BottegaSferaGPU.mount(w.document.getElementById('sfera'), { reduced: { matches: ridotto }, post: m => posts.push(m), onFail: m => falliti.push(m) });
+		return { w, conto, raf, posts, falliti, avvisi, monta };
+	}
+
+	await test('sfera: senza WebGPU mount lancia (la vista resta sul Canvas 2D) e lo dice', () => {
+		const t = ambienteSfera();
+		assert.throws(() => t.monta(), /non offre WebGPU/);
+		assert.strictEqual(t.posts[0].type, 'sfera.diag');
+		assert.strictEqual(t.posts[0].motore, 'canvas');
+		assert.ok(t.avvisi.some(a => /Canvas 2D/.test(a)));
+	});
+
+	await test('sfera: WebGPU finto, rumore calcolato una volta, fotogrammi solo da sveglia e visibile', async () => {
+		const t = ambienteSfera({ gpu: {} });
+		const s = t.monta();
+		assert.strictEqual(s.motore, 'webgpu');
+		for (const m of ['set', 'wake', 'sleep', 'redraw']) assert.strictEqual(typeof s[m], 'function', m);
+		s.set('idle', false, 0);
+		await pausa(60);
+		assert.strictEqual(t.conto.devices, 0, 'addormentata non apre la GPU');
+		s.wake();
+		await pausa(150);
+		assert.strictEqual(s.stato, 'gpu', JSON.stringify(t.falliti));
+		assert.deepStrictEqual(t.conto.moduli.slice().sort(), ['rumore', 'sfera'], 'rumore e sfera');
+		assert.strictEqual(t.conto.calcoli, 1, 'il volume di rumore si calcola una volta');
+		assert.ok(t.conto.submit >= 3, `fotogrammi: ${t.conto.submit}`);
+		assert.deepStrictEqual(t.posts.map(m => [m.type, m.motore]), [['sfera.diag', 'webgpu']]);
+		s.set('speaking', false, 0.6);
+		await pausa(80);
+		// addormentata: nessun requestAnimationFrame
+		s.sleep();
+		await pausa(40);
+		let n = t.raf.n, f = t.conto.submit;
+		await pausa(200);
+		assert.strictEqual(t.raf.n, n, 'sleep: nessun requestAnimationFrame');
+		assert.strictEqual(t.conto.submit, f);
+		// set non la sveglia
+		s.set('thinking', false, 0);
+		await pausa(80);
+		assert.strictEqual(t.conto.submit, f, 'set non sveglia la sfera');
+		// documento nascosto: niente fotogrammi anche da sveglia
+		s.wake();
+		await pausa(60);
+		Object.defineProperty(t.w.document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+		t.w.document.dispatchEvent(new t.w.Event('visibilitychange'));
+		await pausa(40);
+		n = t.raf.n;
+		f = t.conto.submit;
+		await pausa(200);
+		assert.strictEqual(t.raf.n, n, 'documento nascosto: nessun requestAnimationFrame');
+		assert.strictEqual(t.conto.submit, f);
+		s.smonta();
+		assert.strictEqual(t.conto.destroyed, 1, 'smontata, la GPU si libera');
+	});
+
+	await test('sfera: riduci movimento, un fotogramma per cambio; spenta si ferma dopo aver sbiadito', async () => {
+		let t = ambienteSfera({ gpu: {}, ridotto: true });
+		let s = t.monta();
+		s.wake();
+		await pausa(150);
+		const f = t.conto.submit;
+		assert.ok(f >= 1 && f <= 2, `un fotogramma: ${f}`);
+		await pausa(150);
+		assert.strictEqual(t.conto.submit, f, 'fermo');
+		s.set('speaking', false, 0.5);
+		await pausa(80);
+		assert.strictEqual(t.conto.submit, f + 1, 'un fotogramma per il cambio');
+		s.smonta();
+		t = ambienteSfera({ gpu: {} });
+		s = t.monta();
+		s.set('idle', true, 0);
+		s.wake();
+		await pausa(1600);
+		const n = t.raf.n;
+		await pausa(200);
+		assert.strictEqual(t.raf.n, n, 'spenta e sbiadita: nessun requestAnimationFrame');
+		s.smonta();
+	});
+
+	await test('sfera: adattatore negato o shader rotto, onFail col motivo e diagnosi', async () => {
+		for (const [gpu, re] of [[{ senzaAdattatore: true }, /nessun adattatore/], [{ wgslRotto: 'sfera' }, /WGSL/]]) {
+			const t = ambienteSfera({ gpu });
+			const s = t.monta();
+			s.wake();
+			await pausa(80);
+			assert.strictEqual(t.falliti.length, 1, JSON.stringify(gpu));
+			assert.match(t.falliti[0], re);
+			assert.strictEqual(s.stato, 'rotto');
+			assert.deepStrictEqual(t.posts.map(m => m.motore), ['canvas']);
+			assert.match(t.posts[0].motivo, re);
+			s.wake();
+			await pausa(40);
+			assert.strictEqual(t.falliti.length, 1, 'non riprova');
+		}
 	});
 
 	console.log(`\n${passed} ok, ${failed} falliti`);

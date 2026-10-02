@@ -14,7 +14,7 @@ const SRC = path.join(__dirname, '..', 'src');
 const OUT = path.join(__dirname, 'test-out');
 
 esbuild.buildSync({
-	entryPoints: ['jobs', 'assistant', 'nucleo', 'memoria', 'claude', 'scan'].map(n => path.join(SRC, n + '.ts')),
+	entryPoints: ['jobs', 'assistant', 'cervello', 'nucleo', 'memoria', 'claude', 'scan'].map(n => path.join(SRC, n + '.ts')),
 	outdir: OUT,
 	format: 'cjs',
 	platform: 'node',
@@ -162,6 +162,8 @@ function scriptedStream(steps) {
 
 function makeAssistant(over = {}) {
 	const nucleo = over.nucleo || makeNucleo(true);
+	// Di default il Mac non ha Apple Intelligence: i test di prima parlano solo con Agnes finta.
+	if (!('capabilities' in nucleo)) nucleo.capabilities = { foundationModels: !!over.apple };
 	const rec = { gitPush: [], stopJob: [], searchProjects: [], startJob: [], writeToJob: [] };
 	const actions = Object.assign(
 		{
@@ -204,6 +206,7 @@ function makeAssistant(over = {}) {
 		secrets: { get: async () => undefined, store: async () => {} },
 		onState: () => {},
 		stream: over.stream,
+		appleStream: over.appleStream,
 	};
 	const a = new asst.Assistant(deps);
 	return { a, nucleo, rec, deps };
@@ -451,6 +454,39 @@ function makeAssistant(over = {}) {
 		assert.strictEqual(a.getState().brain, 'apple');
 	});
 
+
+	// ---- i due cervelli: Agnes per tutto, Apple per le cose semplici e quando Agnes cade ----
+	await test('auto: tutto ad Agnes finche\' risponde, anche le liste', async () => {
+		const brains = [];
+		const { a } = makeAssistant({
+			apple: true,
+			stream: async (m, t, onDelta) => (brains.push('agnes'), onDelta({ content: 'Agnes.' })),
+			appleStream: async (m, t, onDelta) => (brains.push('apple'), onDelta({ content: 'Mac.' })),
+		});
+		await a.turn('annota: provare il widget', false);
+		await a.turn('ciao', false);
+		assert.deepStrictEqual(brains, ['agnes', 'agnes']);
+		assert.strictEqual(a.getState().brain, 'agnes');
+	});
+
+	await test('Agnes da 429: lo stesso turno passa al Mac con gli strumenti, lo dice una volta', async () => {
+		const toolsSeen = [];
+		const steps = scriptedStream([
+			[{ tool_call: { index: 0, id: 'c1', name: 'progetto_stato', arguments: '{"progetto":"Peak"}' } }],
+			[{ content: 'Peak e\' pulito.' }],
+		]);
+		const { a } = makeAssistant({
+			apple: true,
+			stream: async () => { throw new Error('Agnes ha risposto 429.'); },
+			appleStream: (m, t, onDelta, sig) => (toolsSeen.push(t.length), steps(m, t, onDelta, sig)),
+		});
+		const out = await a.turn('com\'e\' messo il progetto Peak', false);
+		assert.ok(toolsSeen[0] > 5 && toolsSeen[0] < 20, `Apple riceve il sottoinsieme degli strumenti: ${toolsSeen}`);
+		assert.match(out, /Agnes non risponde, ti rispondo dal Mac\. Peak e' pulito\./);
+		assert.strictEqual(a.getState().brain, 'apple');
+		assert.ok(a.router.breakerOpen, 'interruttore aperto: i prossimi turni vanno subito al Mac');
+	});
+
 	// ---- collaudo reale contro Agnes: consuma la quota condivisa, quindi solo su richiesta ----
 	// ---- il loop di Melissa: risposta detta due volte, strumenti richiamati in tondo, eco della sua voce ----
 	await test('una frase gia\' detta in un passo con strumenti non si ridice al passo dopo', async () => {
@@ -527,14 +563,32 @@ function makeAssistant(over = {}) {
 		assert.strictEqual(cv.rec.touched, 1);
 	});
 
-	await test('Apple scelto a mano: risponde il Mac, senza dire che Agnes e\' a terra', async () => {
+	await test('Apple scelto a mano: risponde il Mac CON gli strumenti, senza dire che Agnes e\' a terra', async () => {
 		const cv = fakeCervelli({ provider: 'apple', model: 'apple-on-device', effort: 'normale' });
-		const { a, nucleo } = makeAssistant({ stream: scriptedStream([[{ content: 'non dovrei parlare io' }]]) });
+		const seen = [];
+		const { a } = makeAssistant({
+			apple: true,
+			stream: scriptedStream([[{ content: 'non dovrei parlare io' }]]),
+			appleStream: async (m, t, onDelta) => (seen.push(t.length), onDelta({ content: 'Dal Mac.' })),
+		});
 		a.deps.cervelli = cv;
 		const answer = await a.turn('dimmi una cosa', false);
-		assert.strictEqual(answer, 'risposta dal cervello di riserva');
-		const req = nucleo.reqs.find(r => r.cmd === 'ai.generate');
-		assert.ok(/Andrea ti ha chiesto di pensare con Apple Intelligence/.test(req.args.instructions));
+		assert.strictEqual(answer, 'Dal Mac.');
+		assert.ok(seen[0] > 5, 'Apple riceve gli strumenti');
+		assert.strictEqual(a.getState().brain, 'apple');
+	});
+
+	await test('Apple scelto a mano che non risponde: si torna ad Agnes e lo si dice', async () => {
+		const cv = fakeCervelli({ provider: 'apple', model: 'apple-on-device', effort: 'normale' });
+		const { a } = makeAssistant({
+			apple: true,
+			stream: scriptedStream([[{ content: 'non dovrei parlare io' }]]),
+			appleStream: async () => { throw new Error('Apple Intelligence non ha risposto in tempo.'); },
+		});
+		a.deps.cervelli = cv;
+		const answer = await a.turn('dimmi una cosa', false);
+		assert.match(answer, /Apple Intelligence non risponde\. Torno ad Agnes/);
+		assert.strictEqual(cv.rec.ended, 1);
 	});
 
 	await test('chiudere la conversazione riporta ad Agnes', async () => {

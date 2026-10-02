@@ -699,6 +699,27 @@ export class StatsEngine {
 		return this.running;
 	}
 
+	/** Intervalli di lavoro per sessione dell'ultimo calcolo (sessione principale e sottoagenti fusi):
+	 *  servono a pesare le categorie del lavoro con i minuti veri (docs/CONTRATTI.md, 7.3). */
+	sessionSpans(): { sid: string; spans: number[] }[] {
+		const by = new Map<string, [number, number][]>();
+		for (const f of Object.values(this.cache?.files ?? {})) {
+			if (!f.sid || !f.spans.length) continue;
+			const list = by.get(f.sid) ?? [];
+			for (let i = 0; i + 1 < f.spans.length; i += 2) list.push([f.spans[i], f.spans[i + 1]]);
+			by.set(f.sid, list);
+		}
+		return [...by].map(([sid, pairs]) => {
+			pairs.sort((a, b) => a[0] - b[0]);
+			const spans: number[] = [];
+			for (const [a, b] of pairs) {
+				if (spans.length && a <= spans[spans.length - 1]) spans[spans.length - 1] = Math.max(spans[spans.length - 1], b);
+				else spans.push(a, b);
+			}
+			return { sid, spans };
+		});
+	}
+
 	/** Firma per capire se vale la pena rimandare i dati alla plancia. */
 	static signature(s: Stats): string {
 		const { computedAt, ms, files, ...rest } = s;

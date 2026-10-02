@@ -71,6 +71,8 @@ enum Spotlight {
                 a.contentModificationDate = date
                 a.lastUsedDate = date
             }
+            // One result per project for Spotlight and Siri: the item carries its entity.
+            if it.kind == "progetto" { Entita.associa(a, progettoPath: it.id, nome: it.title) }
             let item = CSSearchableItem(uniqueIdentifier: it.uniqueIdentifier, domainIdentifier: it.kind,
                                         attributeSet: a)
             item.expirationDate = .distantFuture
@@ -82,6 +84,8 @@ enum Spotlight {
         if replace { map = map.filter { !kinds.contains(kindOf($0.key)) } }
         for it in items { map[it.uniqueIdentifier] = it.url }
         saveMap(map)
+        // Siri learns the project names it can hear ("Apri Woofmap nella Bottega").
+        if kinds.contains("progetto") { BottegaScorciatoie.updateAppShortcutParameters() }
         return items.count
     }
 

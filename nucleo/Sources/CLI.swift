@@ -14,6 +14,9 @@
 //    BottegaNucleo --cli power
 //    BottegaNucleo --cli stato [--file stato.json]   the sentences the App Intents would say
 //    BottegaNucleo --cli spotlight-find <testo>      our own items in the Spotlight index
+//    BottegaNucleo --cli metal-bench [--frames N]    frame cost of sky and orb, offscreen
+//    BottegaNucleo --cli osservatorio-prova --dati f the Osservatorio's panels, no window
+//    BottegaNucleo --cli classify | agent-prova | bacheca-viva   Cervello (CervelloComandi.swift)
 //
 //  Exit codes: 0 ok, 1 error (message on stderr), 2 Apple Intelligence unavailable,
 //  64 usage error.
@@ -24,6 +27,7 @@ import Foundation
 enum CLI {
     static func run(_ argv: [String]) -> Never {
         Out.enabled = false
+        if let code = NativoCLI.run(argv) { exit(code) }
         guard let command = argv.first else { usage() }
         var options: [String: String] = [:]
         var i = 1
@@ -142,6 +146,11 @@ enum CLI {
           power
           stato [--file stato.json]
           spotlight-find <testo>
+          metal-bench [--frames N] [--width W --height H]   costo per fotogramma, fuori schermo
+          osservatorio-prova --dati stats.json                i numeri dei pannelli, senza finestra
+          classify                  < righe JSON {id, text}     categoria delle sessioni
+          agent-prova --prompt "..."                            un turno di Apple Intelligence con strumenti finti
+          bacheca-viva [--secondi N]                            eventi della bacheca viva
 
         """.utf8))
         exit(64)

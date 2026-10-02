@@ -155,44 +155,10 @@ enum Intelligence {
         return chunks
     }
 
+    /// One translation of FoundationModels errors for the whole Nucleo (Cervello/AppleBrain.swift),
+    /// on the current API: LanguageModelError (GenerationError is deprecated in macOS 27).
     private static func translate(_ error: Error) -> NucleoError {
-        if let e = error as? NucleoError { return e }
-        if let e = error as? LanguageModelError {
-            switch e {
-            case .contextSizeExceeded:
-                return NucleoError("Il testo e' troppo lungo per il modello sul dispositivo. Accorcialo o dividilo in parti.")
-            case .guardrailViolation:
-                return NucleoError("Apple Intelligence si e' rifiutata di elaborare questo testo per le sue regole di sicurezza.")
-            case .refusal:
-                return NucleoError("Apple Intelligence ha rifiutato la richiesta.")
-            case .unsupportedLanguageOrLocale:
-                return NucleoError("Apple Intelligence non supporta la lingua di questo testo.")
-            case .rateLimited:
-                return NucleoError("Apple Intelligence e' occupata da troppe richieste: riprova tra qualche secondo.")
-            case .timeout:
-                return NucleoError("Apple Intelligence non ha risposto in tempo.")
-            default:
-                return NucleoError("Apple Intelligence non ha potuto rispondere: \(e.localizedDescription)")
-            }
-        }
-        if let e = error as? LanguageModelSession.GenerationError {
-            switch e {
-            case .exceededContextWindowSize:
-                return NucleoError("Il testo e' troppo lungo per il modello sul dispositivo. Accorcialo o dividilo in parti.")
-            case .guardrailViolation:
-                return NucleoError("Apple Intelligence si e' rifiutata di elaborare questo testo per le sue regole di sicurezza.")
-            case .assetsUnavailable:
-                return NucleoError("Il modello di Apple Intelligence non e' disponibile in questo momento.", unavailable: true)
-            case .unsupportedLanguageOrLocale:
-                return NucleoError("Apple Intelligence non supporta la lingua di questo testo.")
-            case .rateLimited:
-                return NucleoError("Apple Intelligence e' occupata da troppe richieste: riprova tra qualche secondo.")
-            default:
-                return NucleoError("Apple Intelligence non ha potuto rispondere: \(e.localizedDescription)")
-            }
-        }
-        if error is CancellationError { return NucleoError("Richiesta annullata.") }
-        return NucleoError("Apple Intelligence non ha potuto rispondere: \(error.localizedDescription)")
+        CervelloErrori.translate(error)
     }
 
     // MARK: - Embeddings

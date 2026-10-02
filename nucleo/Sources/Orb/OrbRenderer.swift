@@ -48,6 +48,10 @@ enum OrbLibrary {
     /// runtime path is slow the first time; macOS keeps compiled pipelines in its own
     /// shader cache, keyed by bundle id, so later launches are fast.
     static func load(device: MTLDevice) -> MTLLibrary? {
+        // The shared engine holds the one default.metallib (orb and sky shaders).
+        if device === MetalEngine.shared.device, let lib = MetalEngine.shared.library(containing: "orb_vertex") {
+            return lib
+        }
         if let url = Nucleo.bundle.url(forResource: "default", withExtension: "metallib"),
            let lib = try? device.makeLibrary(URL: url) {
             return lib
@@ -121,7 +125,8 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
     private var spectrumS = [Float](repeating: 0, count: AudioLevels.bandCount)
 
     init?(device: MTLDevice, library lib: MTLLibrary, pixelFormat: MTLPixelFormat) {
-        guard let q = device.makeCommandQueue(),
+        // One command queue for the whole Nucleo (MetalEngine), when we are on its device.
+        guard let q = (device === MetalEngine.shared.device ? MetalEngine.shared.queue : nil) ?? device.makeCommandQueue(),
               let vfn = lib.makeFunction(name: "orb_vertex"),
               let ffn = lib.makeFunction(name: "orb_fragment") else { return nil }
         let desc = MTLRenderPipelineDescriptor()
@@ -224,7 +229,9 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
               let rpd = view.currentRenderPassDescriptor,
               let drawable = view.currentDrawable,
               let cmd = queue.makeCommandBuffer() else { return }
+        let token = MetalEngine.shared.beginFrame(docked ? .orbDocked : .orb)
         encodeFrame(cmd: cmd, target: rpd, width: Int(size.width), height: Int(size.height))
+        MetalEngine.shared.endFrame(token, commandBuffer: cmd)
         cmd.present(drawable)
         cmd.commit()
     }
@@ -294,9 +301,13 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
         onsetEnv = max(onsetEnv * (1.0 - min(1.0, dt * 7.0)), onset)
 
         let tSec = Float(now - startTime)
-        let pulse = 0.5 + 0.5 * sinf(tSec * (state == 3 ? 4.2 : 1.4)) * (0.4 + loud)
+        // The breath comes from the engine: 1.4 rad/s at rest, faster with the Claude
+        // sessions at work (MetalEngine.setLoad), continuous when the rate changes.
+        let breath = Float(MetalEngine.shared.breathPhase(now: now))
+        let pulse = 0.5 + 0.5 * sinf(state == 3 ? tSec * 4.2 : breath) * (0.4 + loud)
 
-        if noiseIsRich { reveal = min(1.0, reveal + dt * 1.25) }
+        // With Reduce motion frames are rare: the rich noise shows at once, no fade.
+        if noiseIsRich { reveal = MetalEngine.shared.reduceMotion ? 1 : min(1.0, reveal + dt * 1.25) }
         let revealS = reveal * reveal * (3.0 - 2.0 * reveal)
 
         func band(_ j: Int) -> Float { j < spectrumS.count ? spectrumS[j] : 0 }
@@ -308,7 +319,7 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
             p2: SIMD4(onsetEnv, 0, impulsePos, revealS),
             p3: SIMD4(ld.x, ld.y, ld.z, 0.35),
             p4: SIMD4(0.10, 0.16, 0.26, 0.5),
-            p5: SIMD4(docked ? Self.dockedZoom : 1, docked ? 1 : 0, 0, 0),
+            p5: SIMD4(docked ? Self.dockedZoom : 1, docked ? 1 : 0, breath * (1.1 / 1.4), 1),
             spectrum: (vec(0), vec(1), vec(2), vec(3)))
         var pu = ParticleUniforms(q0: SIMD4(dt, tSec, Float(state), loud),
                                   q1: SIMD4(1, Float(Self.particleCount), pulse, 0))
@@ -448,6 +459,8 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
                 self?.noiseTexture = tex
                 self?.noiseIsRich = true
             }
+            // A view drawing on demand (Reduce motion) shows the rich orb at once.
+            MetalEngine.notifyChange()
         }
     }
 

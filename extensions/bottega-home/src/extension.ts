@@ -17,6 +17,7 @@ import { BarraView } from './barra';
 import { brainName } from './assistant';
 import { Cervelli, Effort, FAMILIES, Provider, spokenChoice } from './cervelli';
 import { digest, digestText } from './mani';
+import { CategorieMinuti, Osservatorio, categorieMinuti, fraseCategorie } from './osservatorio';
 
 export interface Snapshot {
 	projects: Project[];
@@ -65,6 +66,8 @@ let cervelli: Cervelli | undefined;
 let appleOk = false;
 /** I lavori che aspettavano al giro prima: Melissa avvisa a voce solo dei nuovi. */
 let waitingBefore = new Set<string>();
+let osservatorio: Osservatorio | undefined;
+let categorieCache: { at: number; value: CategorieMinuti | null } = { at: 0, value: null };
 let paintStatus: (() => void) | undefined;
 /** Il cruscotto si calcola solo dopo che la plancia l'ha chiesto almeno una volta. */
 let statsWanted = false;
@@ -406,14 +409,36 @@ async function sendStats(force: boolean): Promise<void> {
 	if (!statsEngine || !panelHost?.isOpen) return;
 	if (!snapshot.scannedAt) await fullScan();
 	try {
-		const stats = await statsEngine.compute({ projects: snapshot.projects, live: snapshot.live });
-		const sig = StatsEngine.signature(stats);
+		const computed = await statsEngine.compute({ projects: snapshot.projects, live: snapshot.live });
+		const categorie = await categorieDelLavoro();
+		const stats = categorie ? { ...computed, categorie, categorieFrase: fraseCategorie(categorie) } : computed;
+		const sig = StatsEngine.signature(stats as typeof computed);
 		if (!force && sig === statsSent) return;
 		statsSent = sig;
 		panelHost.send({ type: 'stats', stats });
+		void osservatorio?.push();
 	} catch (e: any) {
 		panelHost.send({ type: 'stats', stats: null, error: `Non riesco a leggere le sessioni di Claude Code: ${e?.message ?? e}` });
 	}
+}
+
+/** Minuti per categoria (correzione, funzione, ...): categorie decise sul Mac sessione per sessione
+ *  (memoria/lib/categorie.mjs), pesate con gli intervalli del cruscotto. Rilette al massimo ogni 5 minuti. */
+async function categorieDelLavoro(): Promise<CategorieMinuti | null> {
+	if (!memoria || !statsEngine) return null;
+	if (Date.now() - categorieCache.at < 5 * 60_000) return categorieCache.value;
+	const map = await memoria.categorie(90).catch(() => ({} as Record<string, string>));
+	const value = Object.keys(map).length ? categorieMinuti(statsEngine.sessionSpans(), map) : null;
+	categorieCache = { at: Date.now(), value };
+	return value;
+}
+
+/** I numeri dell'Osservatorio nativo: lo Stats del cruscotto, le sessioni vive, le categorie. */
+async function datiOsservatorio(): Promise<Record<string, any> | null> {
+	if (!statsEngine) return null;
+	if (!snapshot.scannedAt) await fullScan();
+	const stats = await statsEngine.compute({ projects: snapshot.projects, live: snapshot.live });
+	return { stats, live: stats.live, categorie: await categorieDelLavoro() };
 }
 
 // ---------- messaggi dalla plancia ----------
@@ -475,6 +500,15 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 		case 'assistant.ask':
 			if (m.text) await assistant?.ask(m.text);
 			return;
+		case 'osservatorio.open':
+			return void vscode.commands.executeCommand('bottega.openOsservatorio');
+		case 'cielo.diag':
+		case 'sfera.diag': {
+			// Perche' il cielo del cruscotto o la sfera non usano WebGPU (docs/CONTRATTI.md, 7.7): una riga nel registro.
+			const d = m as any;
+			console.warn(`Bottega: ${m.type === 'cielo.diag' ? 'cielo del cruscotto' : 'sfera di Melissa'} su ${d.motore}${d.motivo ? `, motivo: ${d.motivo}` : ''} (gpu ${!!d.gpu}, secure ${!!d.isSecureContext}, coi ${!!d.crossOriginIsolated})`);
+			return;
+		}
 		default:
 			if (await handleConnettori(m)) return;
 			await idee?.handle(m);
@@ -569,6 +603,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		projects: () => snapshot.projects,
 		live: () => snapshot.live,
 		workCounts: () => snapshot.workCounts,
+		work: () => snapshot.work,
 		nucleo: nucleo!,
 		memoria: memoria!,
 		jobs: jobManager!,
@@ -583,6 +618,17 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	});
 	idee.start(ctx);
 	registerConnettori(ctx, { projects: () => snapshot.projects, send: msg => panelHost?.send(msg), showHome: view => showHome(view, undefined, true), log: s => console.warn(s) });
+
+	// La parte nativa (docs/CONTRATTI.md, 7): Osservatorio, bacheca viva scritta sul Mac, categorie del lavoro.
+	osservatorio = new Osservatorio(nucleo!, datiOsservatorio, s => console.warn(s));
+	const nativo = () => {
+		if (nucleo?.capabilities?.foundationModels === false) return;
+		nucleo?.fireAndForget('bacheca.live', { on: true });
+		memoria?.classificaInFondo();
+	};
+	nucleo!.on('capabilities', nativo);
+	const classifica = setInterval(() => memoria?.classificaInFondo(), 30 * 60_000);
+	ctx.subscriptions.push({ dispose: () => clearInterval(classifica) });
 
 	const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 1000);
 	status.command = 'bottega.openPlancia';
@@ -741,6 +787,13 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		}),
 		vscode.commands.registerCommand('bottega.openMelissa', () => showPlancia('melissa')),
 		vscode.commands.registerCommand('bottega.openCruscotto', () => showPlancia('cruscotto')),
+		vscode.commands.registerCommand('bottega.openOsservatorio', async () => {
+			try {
+				await osservatorio?.show();
+			} catch (e: any) {
+				vscode.window.showWarningMessage(e?.message ?? String(e));
+			}
+		}),
 		vscode.commands.registerCommand('bottega.voice.converse', () => assistant?.toggleConversation()),
 	);
 

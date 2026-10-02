@@ -40,7 +40,7 @@ struct AvviaLavoro: AppIntent {
     static let supportedModes: IntentModes = .background
 
     @Parameter(title: "Progetto", requestValueDialog: "Su quale progetto?")
-    var progetto: String
+    var progetto: ProgettoEntity
 
     @Parameter(title: "Compito", requestValueDialog: "Cosa deve fare Claude?")
     var compito: String
@@ -52,7 +52,7 @@ struct AvviaLavoro: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         Quiet.begin(); defer { Quiet.end() }
-        try BottegaLink.open("lavoro", ["progetto": progetto, "compito": compito])
+        try BottegaLink.open("lavoro", ["progetto": progetto.id, "compito": compito])
         return .result()
     }
 }
@@ -95,6 +95,7 @@ struct BottegaScorciatoie: AppShortcutsProvider {
         AppShortcut(intent: AvviaLavoro(), phrases: [
             "Avvia un lavoro con \(.applicationName)",
             "Nuovo lavoro con \(.applicationName)",
+            "Avvia un lavoro su \(\.$progetto) con \(.applicationName)",
         ], shortTitle: "Avvia un lavoro", systemImageName: "hammer")
         AppShortcut(intent: LeggiBriefing(), phrases: [
             "Briefing di \(.applicationName)",
@@ -104,6 +105,23 @@ struct BottegaScorciatoie: AppShortcutsProvider {
             "Stato delle regole di \(.applicationName)",
             "Come stanno le regole su \(.applicationName)",
         ], shortTitle: "Stato delle regole", systemImageName: "checklist")
+        AppShortcut(intent: ApriProgetto(), phrases: [
+            "Apri \(\.$progetto) con \(.applicationName)",
+            "Apri \(\.$progetto) nella \(.applicationName)",
+            "Apri un progetto con \(.applicationName)",
+        ], shortTitle: "Apri un progetto", systemImageName: "folder")
+        AppShortcut(intent: ProgettiDaSpingere(), phrases: [
+            "Che progetti aspettano un push su \(.applicationName)",
+            "Cosa devo spingere su \(.applicationName)",
+        ], shortTitle: "Progetti da spingere", systemImageName: "arrow.up.circle")
+        AppShortcut(intent: CosaMiAspetta(), phrases: [
+            "Cosa mi aspetta su \(.applicationName)",
+            "Chi mi aspetta su \(.applicationName)",
+        ], shortTitle: "Cosa mi aspetta", systemImageName: "hourglass")
+        AppShortcut(intent: ApriOsservatorio(), phrases: [
+            "Apri l'Osservatorio di \(.applicationName)",
+            "Mostrami il cielo di \(.applicationName)",
+        ], shortTitle: "Osservatorio", systemImageName: "moon.stars")
     }
 }
 

@@ -236,6 +236,10 @@ final class OrbPanel: NSObject, NSWindowDelegate {
         p.animationBehavior = .none
         p.title = "Melissa"
         p.delegate = self
+        // Reduce motion, the load: the engine says when the rhythm may have changed.
+        NotificationCenter.default.addObserver(forName: MetalEngine.didChange, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { OrbPanel.shared.updateRendering() }
+        }
 
         let root = NSView(frame: NSRect(origin: .zero, size: size))
         root.wantsLayer = true
@@ -282,11 +286,11 @@ final class OrbPanel: NSObject, NSWindowDelegate {
     }
 
     private func buildOrbView() {
-        guard !buildingView, let root = container, let device = MTLCreateSystemDefaultDevice() else { return }
+        guard !buildingView, let root = container, let device = MetalEngine.shared.device else { return }
         buildingView = true
         // Library loading can mean a runtime shader compile: keep it off main.
         Task.detached(priority: .userInitiated) {
-            let lib = OrbLibrary.load(device: device)
+            let lib = MetalEngine.shared.library(containing: "orb_vertex") ?? OrbLibrary.load(device: device)
             await MainActor.run {
                 let me = OrbPanel.shared
                 me.buildingView = false
@@ -333,23 +337,30 @@ final class OrbPanel: NSObject, NSWindowDelegate {
         Log.info("sfera rilasciata dalla memoria")
     }
 
-    /// 60 fps when the orb reacts to a voice, 30 when it only breathes, 0 when nobody
-    /// can see it or when it rests in the dock.
+    /// The rhythm comes from the shared engine: 60 fps when the orb reacts to a voice,
+    /// 30 when it only breathes, 0 when nobody can see it. Docked and at rest it stays
+    /// still on its last frame (the Nucleo at rest must stay at 0% CPU): it moves while it
+    /// listens, speaks, thinks or shows an error. With Reduce motion a resting orb draws
+    /// one frame when something changes.
     private func updateRendering() {
         guard let v = orbView else { return }
+        let engine = MetalEngine.shared
         let onScreen = isVisible && (panel?.occlusionState.contains(.visible) ?? false)
         let lively = state == .listening || state == .speaking
-        // Nel dock, a riposo, la sfera resta ferma sull'ultimo fotogramma: il Nucleo da fermo deve stare a 0% di CPU.
-        // Si muove mentre ascolta, parla, pensa o segnala un errore.
-        let restingInDock = presentation == .docked && (state == .idle)
-        if presentation == .docked {
-            v.preferredFramesPerSecond = lively ? 30 : Self.dockedIdleFPS
+        let client: MetalEngine.Client = presentation == .docked ? .orbDocked : .orb
+        // In the dock "lively" is anything but idle (thinking and error move too).
+        let moving = presentation == .docked ? state != .idle : lively
+        let fps = engine.fps(for: client, visible: onScreen, lively: moving)
+        engine.noteRhythm(client, fps: fps, visible: onScreen)
+        if fps > 0 {
+            v.enableSetNeedsDisplay = false
+            v.preferredFramesPerSecond = fps
+            v.isPaused = false
         } else {
-            v.preferredFramesPerSecond = lively ? 60 : 30
+            v.isPaused = true
+            v.enableSetNeedsDisplay = onScreen
+            if onScreen { v.needsDisplay = true }
         }
-        v.isPaused = !onScreen || restingInDock
-        // Ferma si', vuota no: un fotogramma disegnato a mano quando si mette a riposo o compare gia' a riposo.
-        if restingInDock && onScreen { v.draw() }
     }
 
     func windowDidChangeOcclusionState(_ notification: Notification) {

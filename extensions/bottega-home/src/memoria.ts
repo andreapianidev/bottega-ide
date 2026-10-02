@@ -166,6 +166,16 @@ export class Memoria {
 			.map(r => ({ at: Number(r.at) || 0, sessionId: String(r.sessionId ?? ''), project: String(r.project ?? ''), kind: String(r.kind ?? ''), summary: String(r.summary), file: r.file ? String(r.file) : undefined }));
 	}
 
+	/** Sessione -> categoria (correzione, funzione, ...), decisa da Apple Intelligence: memoria/lib/categorie.mjs. */
+	async categorie(giorni = 90): Promise<Record<string, string>> {
+		return this.runJson<Record<string, string>>(['categorie', '--giorni', String(giorni)], {});
+	}
+
+	/** Classifica in fondo, a bassa priorita', le sessioni riassunte che non hanno ancora una categoria. */
+	classificaInFondo(): void {
+		this.run(['classifica', '--json', '--limite', '8'], 300_000).catch(() => undefined);
+	}
+
 	async remember(text: string, project?: string): Promise<boolean> {
 		if (!this.available) return false;
 		const args = ['remember', text];

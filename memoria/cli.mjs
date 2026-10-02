@@ -34,6 +34,9 @@ const HELP = `Memoria della Bottega
   bacheca [--progetto P] [--minuti N] [--json]
                                       cosa stanno facendo adesso le sessioni Claude
   sessione <id> [--json]              dettaglio di una sessione
+  classifica [--tutte] [--limite N] [--json]
+                                      categoria delle sessioni riassunte (Apple Intelligence, in fondo)
+  categorie [--giorni N] [--json]     sessione -> categoria
   install [--app-dir D] [--no-mcp] [--prova]
   uninstall [--no-mcp] [--prova]
   status [--json]`;
@@ -157,8 +160,14 @@ async function main() {
 		case '--help':
 			process.stdout.write(HELP + '\n');
 			return;
-		default:
+		default: {
+			const { NATIVO_COMANDI, nativoComando } = await import('./lib/nativo-cli.mjs');
+			if (NATIVO_COMANDI.includes(cmd)) {
+				process.exitCode = nativoComando(cmd, argv.slice(1), print) ?? 0;
+				return;
+			}
 			throw new Error(`comando sconosciuto: ${cmd}\n\n${HELP}`);
+		}
 	}
 }
 

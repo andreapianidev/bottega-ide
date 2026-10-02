@@ -134,6 +134,12 @@
         "command": "bottega.barra.apri",
         "title": "Apri la barra di Melissa",
         "category": "Bottega"
+      },
+      {
+        "command": "bottega.openOsservatorio",
+        "title": "Apri l'Osservatorio",
+        "category": "Bottega",
+        "icon": "$(star-empty)"
       }
     ],
     "viewsContainers": {
@@ -439,7 +445,7 @@
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=out/extension.js",
     "typecheck": "tsc --noEmit",
-    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/barra.cjs && node test/cervelli.cjs"
+    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

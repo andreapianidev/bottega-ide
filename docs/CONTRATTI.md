@@ -467,7 +467,8 @@ copia in modo macOS, che convive con il servizio.
 ### 4.5 Schema URL `bottega://andreapiani.bottega-home/<via>`
 
 `progetto?path=`, `ricordo?id=&q=`, `chiedi?testo=`, `lavoro?progetto=&compito=` (sempre con conferma modale: un link
-non avvia mai un lavoro da solo), `briefing`, `vedetta`, `continua?progetto=`, `cerca?q=`.
+non avvia mai un lavoro da solo; `lavoro` senza `progetto` apre il compositore vuoto), `briefing`, `vedetta`,
+`continua?progetto=`, `cerca?q=`, e (sezione 7) `melissa` (apre Melissa e la conversazione), `plancia`, `osservatorio`.
 
 ### 4.6 App Intents, Comandi rapidi e widget
 
@@ -795,3 +796,141 @@ sessioni aperte altrove e' sola lettura), `cruscotto_mostra {progetto?, giorni?}
 `{type:'crus.focus', path?, period?}`: il cruscotto cambia periodo e accende il progetto sul cielo e in classifica
 mentre Melissa risponde; un comando arrivato prima dei dati si applica al loro arrivo). In conversazione, quando un
 lavoro comincia ad aspettare, Melissa lo dice una volta («Peak ti aspetta»).
+
+## 7. La Bottega nativa: Apple Intelligence, Metal, macOS 27
+
+Tutto sul Mac, solo framework Apple. Apple Intelligence (FoundationModels) solo per compiti brevi e strutturati,
+con generazione guidata (`@Generable`) dove serve un dato, sessioni preparate prima dell'uso (`prewarm`), finestra di
+contesto misurata con `tokenCount` prima dell'invio (su macOS 27.0 `contextSize` = **8192** token), errori tradotti
+da `LanguageModelError` (un solo punto: `CervelloErrori.translate`, anche per `Intelligence.swift`; il vecchio
+`GenerationError` e' deprecato e non si usa piu'). I riassunti lunghi delle sessioni restano ad Agnes.
+Comandi del Nucleo smistati da `Nativo.handle` (Service.swift) e `NativoCLI.run` (CLI.swift).
+
+### 7.1 Apple Intelligence come cervello, con gli strumenti
+
+`src/cervello.ts`, dentro il selettore dei cervelli della sezione 6. Agnes risponde sempre finche' risponde (scelta di
+Andrea, 2 ottobre 2026); Apple Intelligence entra come riserva quando Agnes da' 429, errore di rete o 5xx: lo stesso
+turno passa subito al Mac CON gli strumenti (nessuna attesa cieca sul 429) e per 2 minuti i turni vanno diretti al Mac
+(interruttore, `BrainRouter`). Melissa dice il cambio solo quando succede ("Agnes non risponde, ti rispondo dal Mac.",
+"Agnes e' tornata."). Scelto a mano nella barra, Apple risponde sempre lui, con gli strumenti; se non risponde si torna ad
+Agnes. Se anche Apple fallisce resta il vecchio ripiego `ai.generate` senza strumenti.
+
+Apple ha la stessa forma degli altri cervelli: `appleOpenAiStream(nucleo, {effort})` ha la firma di `LlmStreamFn`
+(messaggi e strumenti OpenAI dentro, `{content}` e `{tool_call:{index,id,name,arguments}}` fuori, un passo per
+chiamata). Dietro c'e' una sola sessione FoundationModels per turno: il passo finisce con la tool_call, il messaggio
+`tool` successivo con lo stesso `tool_call_id` diventa `tool.result` e la sessione riprende. Strumenti per Apple:
+sottoinsieme ordinato `APPLE_TOOLS` (14), con le stesse conferme di Melissa per push e stop; l'impegno (`rapido`,
+`normale`, `profondo`) e' quello della barra.
+
+| cmd | argomenti | risposta |
+|---|---|---|
+| `ai.agent` | `req?`, `messages` (OpenAI) oppure `instructions` + `prompt` + `history?`, `tools` (ToolSpec OpenAI), `effort?` (`rapido` 200 token e temperatura 0,3, `normale` 400 e 0,6, `profondo` 800 e 0,7), `maxTokens?` | `text`, `toolCalls [{name,args}]`, `ms`, `dropped` (strumenti tolti), `droppedHistory`, `tokens {instructions, prompt, history, tools, total, budget, context, output}`, `finish` (`stop`, `length`, `cancelled`) |
+| `tool.result` | `call`, `result` | |
+| `ai.cancel` | `req` | `cancelled` |
+
+Eventi: `ai.delta {req, text, reset?}` (testo nuovo; `reset` = testo intero riscritto), `tool.call {req, call, id,
+name, args}`. Ogni ToolSpec diventa un `Tool` con schema dinamico (`DynamicGenerationSchema` dal JSON Schema); uno
+strumento che non risponde in 20 s torna come testo d'errore. Se il contesto non basta si toglie prima la storia, poi
+gli strumenti in coda alla lista. Misure (2/10/2026, Mac carico): 10 strumenti tipici = 886 token, tutti i 22 = 1658;
+domanda con strumento: `tool.call` a 1,3 s, risposta a 1,9 s; saluto 1,5 s. Agnes sulla stessa rete: primo byte
+0,75-0,80 s. Per questo Apple resta di riserva.
+
+### 7.2 Bacheca viva
+
+`bacheca.live {on}` -> `{on, dir}`: il Nucleo guarda `~/.bottega/memoria/bacheca/*.jsonl` con FSEvents (nessun polling)
+ed emette `bacheca.attivita {project, key, sessionId, kind, at}` per ogni riga nuova; la stella del progetto
+nell'Osservatorio pulsa. L'estensione la accende quando Apple Intelligence c'e'. CPU misurata a riposo, con le
+sessioni vere che scrivono: 0,05%.
+Le frasi scritte sul Mac ("Claude sta sistemando il login di Peak") sono state misurate su sessioni vere e uscivano
+vaghe o sbagliate ("sta cercando informazioni sui dispositivi di Bottega"): NON si generano, la bacheca degli hook
+resta quella di prima.
+
+### 7.3 Categorie del lavoro
+
+`@Generable enum Categoria { correzione, funzione, rilascio, ricerca, manutenzione, documentazione }`.
+Nucleo: `ai.classify {text}` -> `{categoria, motivo}`; `--cli classify` (righe JSON `{id, text}` dentro,
+`{id, categoria, motivo, ms}` fuori; exit 2 senza Apple Intelligence). Memoria (`memoria/lib/categorie.mjs`): tabella
+`categorie(sessionId PK, categoria, motivo, engine, at)`, `node memoria/cli.mjs classifica [--tutte] [--limite N]`
+(riassunti senza categoria, titolo + riassunto, a pezzi da 8, Nucleo sotto `taskpolicy -b` e `nice -n 19`),
+`categorie [--giorni N] --json` (sessione -> categoria). L'estensione classifica in fondo all'avvio e ogni 30 minuti.
+Pesatura: minuti di Claude di ogni sessione (`StatsEngine.sessionSpans()`, sessione e sottoagenti fusi), finestre 7/30/90
+giorni (`categorieMinuti` in `src/osservatorio.ts`); le sessioni non classificate vanno in `altro`. Il messaggio `stats`
+alla plancia porta `categorie` e `categorieFrase` ("Questa settimana 60% correzioni.", solo con almeno 30 minuti
+classificati). Misura su 16 sessioni etichettate a mano (`~/.bottega/valutazione-categorie.json`, fuori dal
+repository): 13 giuste su 16 (81%), 3,5 s a sessione.
+
+### 7.4 Ricerca per significato: misurata, non adottata
+
+Provate il 2/10/2026 su 21 domande vere (successo@1 / @5 / MRR): ricerca di oggi 33% / 57% / 0,44; bm25 + embedding
+contestuale (`NLContextualEmbedding`, media dei token) fusi con RRF k=60: 24% / 38% / 0,33; + espansione guidata della
+domanda: 24% / 43% / 0,36 (1,2 s); + riordino guidato dei primi 20 entro 1,5 s: mai in tempo. Tetto senza limite di
+tempo: riordino "migliori" 48% / 62% / 0,53 (3,6 s), "punteggi" 38% / 48% (6 s). Obiettivo 60% / 85% non raggiunto:
+la ricerca resta quella della sezione 2. Il lavoro sta nel ramo `nativo-ricerca-misurata` (non spinto).
+
+### 7.5 Widget, controlli, Siri e Spotlight
+
+`stato.json` (4.6) si allarga:
+```json
+"ore": { "oggi": 135, "ieri": 220, "settimana": 1180, "giorni": [{ "date": "YYYY-MM-DD", "minuti": 80 }] },
+"lavori": { "...": "campi di 4.6", "nelTerminale": 0,
+            "voci": [{ "key": "job:<id>|sess:<sid>", "progetto": "", "path": "", "titolo": "", "stato": "ti aspetta", "da": 0 }] },
+"progetti": [{ "nome": "", "path": "", "ramo": "main", "daSpingere": 2, "modifiche": 3, "livello": "rosso|giallo|verde|null", "ultima": 0 }]
+```
+Minuti interi, `da` e `ultima` in millisecondi, `giorni` gli ultimi 7 dal piu' vecchio. Letto da `nucleo/Shared/StatoNativo.swift`.
+Widget `com.andreapiani.bottega.oggi` (piccolo, medio, grande): ore di oggi, barre Swift Charts dei 7 giorni, chi ti
+aspetta, semaforo, soldi di ieri; nei formati medio e grande tre link (Parla con Melissa, Apri la plancia, Nuovo lavoro).
+Controlli del Centro di Controllo (`com.andreapiani.bottega.controllo.melissa|plancia|lavoro|osservatorio`) con le
+intents condivise `ParlaConMelissa`, `ApriPlancia`, `NuovoLavoro`, `ApriOsservatorio` (`nucleo/Shared/AzioniRapide.swift`,
+`allowedExecutionTargets .main`: le esegue il Nucleo). L'appex ha il suo `Metadata.appintents` (build.sh si ferma se manca).
+Entita': `ProgettoEntity` (IndexedEntity, id = path; query per nome senza maiuscole, accenti, spazi), `LavoroEntity`
+(id = key). Intents nuovi: `ApriProgetto(progetto)`, `ProgettiDaSpingere`, `CosaMiAspetta`; `AvviaLavoro` prende il
+progetto come entita' (le scorciatoie salvate col progetto scritto a mano vanno rifatte). Frasi nel provider unico
+`BottegaScorciatoie` (8 scorciatoie, 18 frasi), per esempio "Apri <progetto> nella Bottega", "Che progetti aspettano un
+push su Bottega", "Cosa mi aspetta su Bottega", "Apri l'Osservatorio di Bottega". Spotlight: gli elementi `progetto`
+di `spotlight.index` sono associati all'entita' (`associateAppEntity`), niente doppioni.
+
+### 7.6 Un solo motore Metal
+
+`MetalEngine.shared` (`nucleo/Sources/Motore/`): un device, una coda, un `default.metallib` con tutti gli shader
+(sfera e cielo; build.sh compila ogni `.metal` di `Sources`). Ritmo: 0 fps se non visibile; sfera grande 60/30, sfera
+agganciata 30/12, cielo 30/15; con Riduci movimento un fotogramma quando cambia qualcosa. Il respiro della sfera
+accelera con le sessioni al lavoro (da `menubar.update`: `busy` 0 = 1,4 rad/s, 1 circa 1,9, 3 circa 2,5, massimo 3).
+Comandi: `metal.stats` (costi per fotogramma per cliente, fps, carico), `metal.load {busy, waiting}`, `metal.pulse {key,
+project}`; `--cli metal-bench [--frames N] [--width W --height H]`. Misure fuori schermo (M2): cielo 1920x1230 11-47 µs
+di CPU e 0,3-0,6 ms di GPU per fotogramma, 4K 0,64 ms; sfera grande 2,4-3,1 ms di GPU, agganciata 0,9 ms. Il widget non
+usa Metal (WidgetKit archivia viste statiche).
+
+### 7.7 L'Osservatorio
+
+Finestra nativa (SwiftUI + Metal, Liquid Glass) del Nucleo: il cielo dei progetti in Metal, pannelli di vetro con oggi,
+settimana, "Quando lavori" (superficie Chart3D giorno x ora x minuti), progetti, token per progetto, categorie; modalita'
+"Secondo schermo". Comandi: `osservatorio.open {data?, secondoSchermo?}` -> `{open, hasData, stars}` (senza dati emette
+`osservatorio.ready`), `osservatorio.data {data}` (`data` = `{stats, live?, categorie?}` o lo `Stats` da solo),
+`osservatorio.close`; evento `osservatorio.closed`. Ultimi dati in `~/.bottega/nucleo/osservatorio.json` (600).
+Si apre con il comando `bottega.openOsservatorio`, il link `bottega://.../osservatorio`, la voce "Apri l'Osservatorio"
+della barra dei menu del Nucleo (apre subito con gli ultimi numeri e chiede quelli nuovi) e l'intent `ApriOsservatorio`.
+L'estensione (`src/osservatorio.ts`) risponde a `osservatorio.ready` e rimanda i dati dopo ogni calcolo del cruscotto
+solo se la finestra e' aperta e i numeri sono cambiati. Plancia -> estensione: `osservatorio.open` (pulsante «Apri nell'Osservatorio» sotto il cielo del cruscotto),
+`cielo.diag` e `sfera.diag {motore: 'webgpu'|'canvas'|'svg', motivo, gpu, isSecureContext, crossOriginIsolated,
+userAgent}` (con quale motore gira e perche', scritto nel registro).
+
+### 7.8 WebGPU nelle webview: un solo motore per sfera e cielo
+
+`media/motore/gpu.js` (`window.BottegaGPU`: un dispositivo per webview, ogni shader compilato in uno scope di errori,
+giro dei fotogrammi a 30 fps se succede qualcosa, 20 a riposo, 15 se un fotogramma costa piu' di 8 ms, fermo a vista
+nascosta, documento nascosto o tela fuori schermo, un fotogramma solo con Riduci movimento), `cielo-gpu.js`
+(`window.BottegaCieloGPU.mount(canvas, {reduced, rilascio, onStato, onFail})`) e `sfera-gpu.js`
+(`window.BottegaSferaGPU.mount(canvas, {reduced, zoom?, post?, onFail?})` -> `{set(stato, spenta, livello), wake(),
+sleep(), redraw(), smonta(), motore, costo}`: la sfera del Nucleo portata in WGSL, stessi stati e tavolozza, senza
+particelle ne' bloom). `mount` lancia se WebGPU manca; se cade dopo chiama `onFail(motivo)` e la vista passa al
+Canvas 2D. Caricati da `panel.ts` (tutti e tre, `gpu.js` per primo) e da `barra.ts` (`gpu.js`, `sfera-gpu.js`).
+Il cielo del cruscotto: WebGPU, poi Canvas 2D animato, poi SVG fermo; l'indicatore in alto a destra dice quale.
+Perche' fino alla build 17 il cielo era in SVG (2/10/2026): non VS Code (WebGPU nelle webview funziona, la cache Dawn in
+`~/Library/Application Support/Bottega/DawnWebGPUCache` lo prova) ma lo shader della corrente, che usava `meta`,
+parola riservata del WGSL: l'errore arrivava al dispositivo condiviso e spegneva anche il cielo. Corretto, e uno
+shader rotto ora ferma solo il suo motore. Costo misurato con Dawn su Metal (M2): cielo 1120x1120 0,5 ms per
+fotogramma, sfera 480x480 da 2,3 ms (riposo) a 4,4 ms (parla); ripiego Canvas 2D del cielo 1,5 ms.
+
+Lo `Stats` del messaggio `stats` (sezione 3) porta in piu', facoltativi: `categorie: {'7'|'30'|'90': {categoria:
+minuti}}` e `categorieFrase` (7.3); il cruscotto mostra «Che lavoro e' stato» solo se ci sono.
+

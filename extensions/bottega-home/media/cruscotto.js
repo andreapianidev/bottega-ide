@@ -13,24 +13,29 @@
 
    La sala di controllo (build 12): la notte dell'osservatorio diventa un banco strumenti. Due luci:
    l'ambra del sodio per le ore tue (i dati principali), il ciano per Claude e per la strumentazione
-   (lancetta, reticoli, mirino). Il cielo ha due motori:
-   - WebGPU, che in Electron su Mac passa da Metal: nebulosa, corona delle ore, stelle con le punte
-     di diffrazione, scintille lungo i legami, l'anello che respira sulle sessioni vive. Disegna
-     solo decorazione e luce: tutti i dati restano nell'SVG sopra (nomi, prese, tabella).
-   - SVG, sempre presente: e' il ripiego (niente WebGPU, adattatore negato, dispositivo perso) e ha
-     gli stessi contenuti, solo con luci piu' semplici.
-   Animazioni con un perche': arrivo dei dati (scansione che accende le stelle, cifre che contano,
-   tracce che si disegnano), cambio di periodo (le stelle migrano), passaggio del mouse (mirino),
-   sessione viva (anello che respira). Una volta per arrivo, mai a ogni aggiornamento periodico.
-   Con "riduci movimento" solo stati finali, stessi contenuti. Stanza nascosta: niente frame, e la
-   GPU si libera dopo RILASCIO_MS.
+   (lancetta, reticoli, mirino). Il cielo ha tre motori, in ordine:
+   - WebGPU (motore/cielo-gpu.js), che in Electron su Mac passa da Metal: nebulosa, corona delle ore,
+     stelle con le punte di diffrazione che respirano, onde e scie delle sessioni vive, impulsi di
+     luce lungo i legami, una ghiera che gira lentissima. Stesso dispositivo della sfera di Melissa
+     (motore/gpu.js). Disegna solo decorazione e luce: i dati restano nell'SVG sopra.
+   - Canvas 2D (creaCielo2d, qui sotto), quando WebGPU non parte: le stesse animazioni, disegnate
+     dal processore con sprite fatti una volta.
+   - SVG, sempre presente: dati, nomi, prese e tabella; da solo e' l'ultimo ripiego, fermo.
+   L'indicatore in alto a destra dice quale motore disegna (WebGPU, Canvas, SVG), il suo titolo
+   perche' e quanto costa un fotogramma; l'estensione riceve lo stesso motivo (cielo.diag).
+   Animazioni con un perche': arrivo dei dati (un'onda parte dal centro e accende le stelle in
+   sequenza, prima le recenti; cifre che contano, tracce che si disegnano), cambio di periodo (le
+   stelle migrano), passaggio del mouse (mirino), sessione viva (onda e scia). Una volta per arrivo,
+   mai a ogni aggiornamento periodico. Con "riduci movimento" un fotogramma solo, stessi contenuti.
+   Stanza o documento nascosti, tela fuori schermo: nessun fotogramma; la GPU si libera dopo
+   RILASCIO_MS.
 
    Il banco (sotto i token): sette blocchi (oggi sessione per sessione, adesso, lavoro in parallelo,
    la settimana ora per ora, chi sale e chi scende, quanto dura una sessione, registro) in due
    colonne che finiscono alla stessa altezza. Dopo ogni disegno si misurano i blocchi e `dividi`
    prova tutte le divisioni possibili (2^7) tenendo quella con lo scarto minore; sotto DUE_COLONNE
    px una colonna sola, nell'ordine di lettura. La corrente del lavoro in parallelo e' il secondo
-   strumento su WebGPU: stesso dispositivo del cielo (l'officina), stesse regole di vita. */
+   strumento su WebGPU: stesso dispositivo del cielo (l'officina di motore/gpu.js), stesse regole. */
 (function () {
 	'use strict';
 
@@ -184,211 +189,11 @@
 
 	const facile = k => 1 - Math.pow(1 - k, 3);
 
-	// ---------- il cielo su WebGPU (Metal) ----------
+	// ---------- luci e tempi del cielo ----------
 
-	/* Un solo modulo WGSL, tre passaggi:
-	   - fondo: cupola, nebulosa (fbm), corona delle ore lungo il bordo, l'ultima ora alle spalle della
-	     lancetta. Cambia solo coi dati, con la misura o col minuto: si disegna in una texture e poi si
-	     copia, cosi' il frame normale costa una copia e poche centinaia di quadratini;
-	   - copia: la texture del fondo sulla tela;
-	   - luce: quadratini in istanza, sommati (additivi): stelle di fondo che scintillano, stelle dei
-	     progetti con alone e punte di diffrazione, anelli delle sessioni vive, scintille lungo i
-	     legami, la lancetta di adesso.
-	   Coordinate in px CSS della carta; la tela ha i px veri (dpr al massimo 2). */
-	const WGSL = /* wgsl */ `
-struct U {
-	a: vec4f,
-	b: vec4f,
-	c: vec4f,
-	hours: array<vec4f, 6>,
-};
-@group(0) @binding(0) var<uniform> u: U;
-@group(0) @binding(1) var fondo: texture_2d<f32>;
-
-fn wrap24(x: f32) -> f32 { return x - 24.0 * floor(x / 24.0); }
-
-fn hash(p: vec2f) -> f32 {
-	var q = fract(p * vec2f(123.34, 456.21));
-	q += dot(q, q + 45.32);
-	return fract(q.x * q.y);
-}
-
-fn noise(p: vec2f) -> f32 {
-	let i = floor(p);
-	let f = fract(p);
-	let w = f * f * (3.0 - 2.0 * f);
-	let a = hash(i);
-	let b = hash(i + vec2f(1.0, 0.0));
-	let c = hash(i + vec2f(0.0, 1.0));
-	let d = hash(i + vec2f(1.0, 1.0));
-	return mix(mix(a, b, w.x), mix(c, d, w.x), w.y);
-}
-
-fn fbm(p0: vec2f) -> f32 {
-	var p = p0;
-	var s = 0.0;
-	var amp = 0.5;
-	for (var k = 0; k < 5; k++) {
-		s += amp * noise(p);
-		p = p * 2.03 + vec2f(17.1, 9.2);
-		amp *= 0.5;
-	}
-	return s;
-}
-
-fn ora(i: u32) -> f32 {
-	let v = u.hours[i / 4u];
-	return v[i % 4u];
-}
-
-fn oraLiscia(h: f32) -> f32 {
-	let x = wrap24(h - 0.5);
-	let i0 = u32(floor(x)) % 24u;
-	let i1 = (i0 + 1u) % 24u;
-	let f = x - floor(x);
-	return mix(ora(i0), ora(i1), f * f * (3.0 - 2.0 * f));
-}
-
-struct VF { @builtin(position) pos: vec4f };
-
-@vertex fn vs_pieno(@builtin(vertex_index) i: u32) -> VF {
-	var p = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
-	var o: VF;
-	o.pos = vec4f(p[i], 0.0, 1.0);
-	return o;
-}
-
-@fragment fn fs_fondo(v: VF) -> @location(0) vec4f {
-	let p = v.pos.xy / u.b.w;
-	let d = p - u.b.xy;
-	let R = u.b.z;
-	let r = length(d);
-	let cupola = R + 8.0;
-	let dentro = 1.0 - smoothstep(cupola - 1.0, cupola + 0.5, r);
-	let t = clamp(r / cupola, 0.0, 1.0);
-	var col = mix(vec3f(0.114, 0.157, 0.275), vec3f(0.078, 0.110, 0.200), smoothstep(0.0, 0.7, t));
-	col = mix(col, vec3f(0.059, 0.086, 0.157), smoothstep(0.7, 1.0, t));
-	let q = d / cupola * 2.4;
-	let n1 = fbm(q + vec2f(3.1, 1.7));
-	let n2 = fbm(q * 1.6 + vec2f(n1 * 1.4, 5.2));
-	col += vec3f(0.09, 0.10, 0.27) * smoothstep(0.42, 0.92, n2) * (1.0 - 0.5 * t) * 0.7;
-	col += vec3f(0.02, 0.15, 0.17) * smoothstep(0.55, 0.95, n1) * 0.45;
-	let ang = atan2(d.x, -d.y);
-	let h = wrap24(ang / 6.2831853 * 24.0 + 12.0);
-	let fascia = smoothstep(R - 36.0, R - 2.0, r) * (1.0 - smoothstep(R + 1.0, R + 7.0, r));
-	col += vec3f(0.957, 0.671, 0.235) * fascia * oraLiscia(h) * 0.42;
-	let dietro = wrap24(u.c.y - h);
-	let scia = (1.0 - smoothstep(0.0, 1.0, dietro)) * smoothstep(u.c.w, R * 0.6, r) * (1.0 - smoothstep(R, cupola, r));
-	col += vec3f(0.39, 0.90, 0.86) * scia * 0.07;
-	col *= 1.0 - 0.28 * smoothstep(0.78, 1.0, t);
-	return vec4f(col * dentro, dentro);
-}
-
-@fragment fn fs_copia(v: VF) -> @location(0) vec4f {
-	return textureLoad(fondo, vec2i(v.pos.xy), 0);
-}
-
-struct VI {
-	@location(0) a: vec4f,
-	@location(1) col: vec4f,
-	@location(2) c: vec4f,
-	@location(3) d: vec4f,
-};
-
-struct VS {
-	@builtin(position) pos: vec4f,
-	@location(0) uv: vec2f,
-	@location(1) col: vec4f,
-	@location(2) @interpolate(flat) tipo: f32,
-	@location(3) @interpolate(flat) x: f32,
-};
-
-@vertex fn vs_luce(@builtin(vertex_index) vi: u32, i: VI) -> VS {
-	var angoli = array<vec2f, 4>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0), vec2f(1.0, 1.0));
-	let k = angoli[vi];
-	let tempo = u.a.z;
-	let riv = u.a.w;
-	let acceso = u.c.x;
-	let tipo = i.a.w;
-	var centro = i.a.xy;
-	var lato = i.a.z;
-	var col = i.col;
-	var x = 0.0;
-	var p = vec2f(0.0, 0.0);
-	if (tipo < 0.5) {
-		col.a *= 0.7 + 0.3 * sin(tempo * i.c.z + i.c.w);
-	} else if (tipo < 1.5 || tipo > 4.5) {
-		let on = smoothstep(i.d.z, i.d.z + 0.7, riv);
-		col.a *= on;
-		lato *= mix(0.3, 1.0, on);
-		if (acceso >= 0.0) {
-			if (abs(i.d.x - acceso) < 0.5) { lato *= 1.2; } else { col.a *= 0.32; }
-		}
-	} else if (tipo < 2.5) {
-		let f = fract(tempo / 2.8 + i.c.w);
-		x = f;
-		lato *= 0.85 + 0.4 * f;
-		col.a *= (1.0 - f) * smoothstep(i.d.z, i.d.z + 0.7, riv);
-		if (acceso >= 0.0 && abs(i.d.x - acceso) > 0.5) { col.a *= 0.32; }
-	} else if (tipo < 3.5) {
-		let f = fract(tempo * i.c.z + i.c.w);
-		centro = mix(i.a.xy, i.c.xy, f);
-		col.a *= sin(f * 3.14159265) * smoothstep(i.d.z, i.d.z + 0.8, riv);
-		if (acceso >= 0.0) {
-			if (abs(i.d.x - acceso) < 0.5 || abs(i.d.y - acceso) < 0.5) { col.a = min(1.0, col.a * 1.5); } else { col.a *= 0.15; }
-		}
-	}
-	if (tipo > 3.5 && tipo < 4.5) {
-		let A = i.a.xy;
-		let B = i.c.xy;
-		let dir = normalize(B - A);
-		let nor = vec2f(-dir.y, dir.x);
-		p = A + dir * ((k.x * 0.5 + 0.5) * length(B - A)) + nor * (k.y * lato);
-		x = select(-1.0, fract(tempo / 4.0), u.c.z > 0.5);
-	} else {
-		p = centro + k * lato;
-	}
-	var o: VS;
-	o.pos = vec4f(p.x / u.a.x * 2.0 - 1.0, 1.0 - p.y / u.a.y * 2.0, 0.0, 1.0);
-	o.uv = k;
-	o.col = col;
-	o.tipo = tipo;
-	o.x = x;
-	return o;
-}
-
-@fragment fn fs_luce(v: VS) -> @location(0) vec4f {
-	let r = length(v.uv);
-	var a = 0.0;
-	var rgb = v.col.rgb;
-	if (v.tipo < 0.5) {
-		a = exp(-r * r * 6.0);
-	} else if (v.tipo < 1.5) {
-		let nucleo = exp(-r * r * 34.0);
-		let alone = exp(-r * r * 7.0) * 0.42 + exp(-r * 5.0) * 0.1;
-		let raggi = (exp(-abs(v.uv.y) * 70.0) + exp(-abs(v.uv.x) * 70.0)) * pow(max(0.0, 1.0 - r), 2.5) * 0.5;
-		a = nucleo + alone + raggi;
-		rgb = mix(rgb, vec3f(1.0, 0.98, 0.93), clamp(nucleo * 1.3 + raggi * 0.4, 0.0, 1.0));
-	} else if (v.tipo < 2.5) {
-		let d = (r - 0.82) * 12.0;
-		a = exp(-d * d);
-	} else if (v.tipo < 3.5) {
-		a = exp(-r * r * 9.0);
-	} else if (v.tipo < 4.5) {
-		let lungo = v.uv.x * 0.5 + 0.5;
-		a = exp(-v.uv.y * v.uv.y * 9.0) * (0.25 + 0.75 * lungo);
-		if (v.x >= 0.0) {
-			let s = lungo - v.x;
-			a += exp(-s * s * 400.0) * exp(-v.uv.y * v.uv.y * 4.0) * 0.9;
-		}
-	} else {
-		let d = (r - 0.32) * 16.0;
-		a = exp(-d * d) * 0.9;
-	}
-	let al = clamp(a * v.col.a, 0.0, 1.0);
-	return vec4f(rgb * al, al);
-}
-`;
+	/* Il cielo su WebGPU vive in motore/cielo-gpu.js (stesso dispositivo della sfera di Melissa,
+	   motore/gpu.js). Qui restano i valori che servono alla tela 2D di ripiego: devono restare uguali
+	   a quelli di motore/cielo-gpu.js (il banco di prova li confronta). */
 
 	/** Colori della luce (rgb lineari 0..1, la cupola resta notte anche nel tema chiaro). */
 	const LUCE = {
@@ -398,124 +203,91 @@ struct VS {
 		sodio: [0.957, 0.671, 0.235],
 		ciano: [0.39, 0.9, 0.86],
 	};
-	/** Dopo quanto la GPU si libera a stanza nascosta: tornarci subito non riaccende tutto. */
+	/** La ghiera fuori dal quadrante fa un giro ogni quarto d'ora (il campo di fondo a meta' velocita'). */
+	const GIRO = (2 * Math.PI) / 900;
+	/** Tacche della ghiera: una ogni 3,75 gradi, una lunga ogni otto. */
+	const TACCHE = 96;
+	/** Quanto e' lunga la scia di una sessione viva, in px lungo la sua orbita. */
+	const SCIA_PX = 95;
+	/** Respiro di una stella (lo stesso calcolo dello shader). */
+	const respiro = (i, tempo) => 1 + 0.13 * Math.sin(tempo * (0.38 + 0.22 * ((i * 0.618) % 1)) + i * 2.399);
+	/** Fotogrammi al secondo: 30 mentre succede qualcosa, 20 a riposo, 15 se un fotogramma costa troppo. */
+	const fpsPer = (vivace, costo) => (costo > 8 ? 15 : vivace ? 30 : 20);
+	const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+	/** Dopo quanto la GPU della corrente si libera a stanza nascosta. */
 	const RILASCIO_MS = 15_000;
-	const FLOAT_ISTANZA = 16; // 4 vec4f per quadratino
-
 	const G0 = /** @type {any} */ (globalThis);
 	const USO = {
 		UNIFORM: G0.GPUBufferUsage ? G0.GPUBufferUsage.UNIFORM : 0x40,
 		COPY_DST: G0.GPUBufferUsage ? G0.GPUBufferUsage.COPY_DST : 0x08,
-		VERTEX: G0.GPUBufferUsage ? G0.GPUBufferUsage.VERTEX : 0x20,
-		RENDER: G0.GPUTextureUsage ? G0.GPUTextureUsage.RENDER_ATTACHMENT : 0x10,
-		TEXTURE: G0.GPUTextureUsage ? G0.GPUTextureUsage.TEXTURE_BINDING : 0x04,
 	};
-	const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+	/** Quando motore/gpu.js manca: un'officina chiusa, la corrente resta in SVG. */
+	const OFFICINA_CHIUSA = {
+		disponibile: false,
+		motivo: "il motore condiviso (motore/gpu.js) non e' caricato",
+		async prendi() {
+			throw new Error(this.motivo);
+		},
+		lascia() {},
+		ascolta() {},
+	};
 
-	/**
-	 * L'officina: un solo dispositivo WebGPU (su Mac passa da Metal) per tutta la stanza, condiviso dal
-	 * cielo e dalla corrente del lavoro in parallelo. Si apre col primo che lo chiede e si chiude
-	 * quando l'ultimo lo lascia: a stanza nascosta la GPU resta libera. Se l'adattatore manca, o il
-	 * dispositivo si perde, l'officina resta chiusa per questo montaggio e chi ascolta torna all'SVG.
-	 */
-	function creaOfficina() {
-		const gpu = typeof navigator !== 'undefined' && /** @type {any} */ (navigator).gpu;
-		/** @type {any} */ let dev = null;
-		/** @type {Promise<any> | null} */ let attesa = null;
-		let format = '';
-		let utenti = 0;
-		let rotta = gpu ? '' : 'questa finestra non offre WebGPU';
-		/** @type {Set<(motivo: string) => void>} */ const ascoltatori = new Set();
+	// ---------- il cielo su Canvas 2D, quando WebGPU non c'e' ----------
 
-		function rompi(motivo) {
-			if (rotta) return;
-			rotta = motivo;
-			const d = dev;
-			dev = null;
-			attesa = null;
-			utenti = 0;
-			try {
-				d && d.destroy();
-			} catch {}
-			for (const f of [...ascoltatori]) {
-				try {
-					f(motivo);
-				} catch (e) {
-					console.error('Bottega: cruscotto, officina', e);
-				}
-			}
-		}
+	/* Il ripiego animato: stesse luci e stessi movimenti del cielo WebGPU, disegnati dal processore.
+	   - fondo: cupola, nebulosa (fbm su una griglia piccola, allargata), corona delle ore, l'ultima ora
+	     alle spalle della lancetta. Cambia solo coi dati, con la misura o col minuto: sta in una tela
+	     fuori schermo e a ogni fotogramma si copia;
+	   - luce, sommata ('lighter'): ghiera che gira, campo che scintilla, impulsi lungo i legami, scie e
+	     onde delle sessioni vive, stelle che respirano (sprite disegnati una volta), lancetta.
+	   L'SVG sopra resta quello di sempre: nomi, prese, tabella. Stati: 'attesa' (decide WebGPU),
+	   'canvas', 'svg' (nemmeno il contesto 2D: resta l'SVG fermo). */
 
-		async function apri() {
-			const adapter = await gpu.requestAdapter({ powerPreference: 'low-power' });
-			if (!adapter) throw new Error('nessun adattatore WebGPU');
-			const d = await adapter.requestDevice();
-			d.lost.then(info => {
-				if (dev === d) rompi(`dispositivo perso${info && info.message ? ': ' + info.message : ''}`);
-			});
-			if (d.addEventListener) d.addEventListener('uncapturederror', e => dev === d && rompi(String((e && e.error && e.error.message) || 'errore della GPU')));
-			format = gpu.getPreferredCanvasFormat();
-			dev = d;
-			return d;
-		}
+	/** Un colore della luce (rgb 0..1) come stringa CSS. */
+	const css = (c, a) => `rgba(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)}, ${a})`;
+	const liscio = (a, b, x) => {
+		const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+		return t * t * (3 - 2 * t);
+	};
 
-		return {
-			get disponibile() {
-				return !rotta;
-			},
-			/** @returns {Promise<{ device: any, format: string }>} */
-			async prendi() {
-				if (rotta) throw new Error(rotta);
-				utenti++;
-				try {
-					if (!dev) await (attesa = attesa || apri());
-					if (rotta || !dev) throw new Error(rotta || 'WebGPU spento');
-					return { device: dev, format };
-				} catch (e) {
-					utenti = Math.max(0, utenti - 1);
-					attesa = null;
-					if (!rotta) rotta = String((e && /** @type {any} */ (e).message) || e);
-					throw e;
-				}
-			},
-			lascia() {
-				utenti = Math.max(0, utenti - 1);
-				if (utenti || !dev) return;
-				const d = dev;
-				dev = null;
-				attesa = null;
-				try {
-					d.destroy();
-				} catch {}
-			},
-			/** @param {(motivo: string) => void} f */
-			ascolta(f) {
-				ascoltatori.add(f);
-			},
+	/** Lo stesso rumore dello shader, in JS: serve solo alla nebulosa, una volta per misura. */
+	function fbm2(x, y) {
+		const h = (a, b) => {
+			let qx = (a * 123.34) % 1, qy = (b * 456.21) % 1;
+			if (qx < 0) qx += 1;
+			if (qy < 0) qy += 1;
+			const d = qx * (qx + 45.32) + qy * (qy + 45.32);
+			qx += d;
+			qy += d;
+			const v = (qx * qy) % 1;
+			return v < 0 ? v + 1 : v;
 		};
+		const n = (px, py) => {
+			const ix = Math.floor(px), iy = Math.floor(py);
+			const fx = px - ix, fy = py - iy;
+			const wx = fx * fx * (3 - 2 * fx), wy = fy * fy * (3 - 2 * fy);
+			const a = h(ix, iy), b = h(ix + 1, iy), c = h(ix, iy + 1), d = h(ix + 1, iy + 1);
+			return (a + (b - a) * wx) * (1 - wy) + (c + (d - c) * wx) * wy;
+		};
+		let s = 0, amp = 0.5;
+		for (let k = 0; k < 5; k++) {
+			s += amp * n(x, y);
+			x = x * 2.03 + 17.1;
+			y = y * 2.03 + 9.2;
+			amp *= 0.5;
+		}
+		return s;
 	}
 
 	/**
-	 * Il motore WebGPU del cielo. Restituisce sempre un oggetto: se WebGPU manca, lo stato e' 'svg'
-	 * subito e tutti i metodi non fanno niente. Stati: 'spento' (GPU libera), 'avvio', 'gpu', 'svg'
-	 * (ripiego definitivo per questo montaggio).
-	 * @param {HTMLCanvasElement} canvas
-	 * @param {ReturnType<typeof creaOfficina>} officina
-	 * @param {{ reduced: () => boolean, onStato: (stato: string, motivo: string) => void, rilascio?: number }} opt
+	 * @param {HTMLCanvasElement} canvas la tela delle luci, ridisegnata a ogni fotogramma
+	 * @param {HTMLCanvasElement} telaFondo la tela del fondo, sotto: si ridisegna solo quando cambia
+	 * @param {{ reduced: () => boolean, onStato: (stato: string, motivo: string) => void }} opt
 	 */
-	function creaCielo(canvas, officina, opt) {
-		const rilascio = opt.rilascio ?? RILASCIO_MS;
-
-		let stato = officina.disponibile ? 'spento' : 'svg';
-		let gen = 0;
-		/** @type {any} */ let dev = null;
+	function creaCielo2d(canvas, telaFondo, opt) {
+		let stato = 'attesa';
 		/** @type {any} */ let ctx = null;
-		/** @type {any} */ let r = null; // risorse: pipeline, buffer, texture, gruppi
 		/** @type {any} */ let scena = null;
-		let ist = new Float32Array(0);
-		let nIst = 0;
-		let fondoSporco = true;
-		let istSporche = true;
 		let attivo = false;
 		let inVista = true;
 		let raf = 0;
@@ -525,142 +297,197 @@ struct VS {
 		let migraDa = -1e9;
 		let acceso = -1;
 		let minuto = -1;
-		let rilascioT = 0;
 		let frames = 0;
-		const U = new Float32Array(40);
+		let costo = 0;
+		let fondoSporco = true;
+		/** @type {any} */ let fondo = null; // il contesto della tela del fondo
+		/** @type {any} */ let nebbia = null; // la nebulosa, per misura
+		let nebbiaS = 0;
+		/** @type {any} */ let sprite = null;
 
 		function cambia(s, motivo) {
 			stato = s;
 			try {
 				opt.onStato(s, motivo || '');
 			} catch (e) {
-				console.error('Bottega: cruscotto, stato del cielo', e);
+				console.error('Bottega: cruscotto, stato della tela', e);
 			}
 		}
 
-		function liberaRisorse() {
-			if (!r) return;
-			for (const b of [r.ubuf, r.ibuf, r.tex]) {
-				try {
-					b && b.destroy && b.destroy();
-				} catch {}
-			}
-			r = null;
+		function fuori(w, h) {
+			const c = canvas.ownerDocument.createElement('canvas');
+			c.width = w;
+			c.height = h;
+			const x = c.getContext('2d');
+			if (!x) throw new Error('la tela fuori schermo non da un contesto 2D');
+			return [c, x];
 		}
 
-		function spegni() {
-			gen++;
+		/** Gli sprite della luce, disegnati una volta: 64 px, si scalano col drawImage. */
+		function creaSprite() {
+			const N = 64, m = N / 2;
+			const macchia = (col, stops) => {
+				const [c, x] = fuori(N, N);
+				const g = x.createRadialGradient(m, m, 0, m, m, m);
+				for (const [o, a] of stops) g.addColorStop(o, css(col, a));
+				x.fillStyle = g;
+				x.fillRect(0, 0, N, N);
+				return c;
+			};
+			// una gaussiana, come exp(-r^2 * 6) dello shader
+			const gauss = [[0, 1], [0.2, 0.79], [0.4, 0.38], [0.6, 0.12], [0.8, 0.02], [1, 0]];
+			const stella = (() => {
+				const [c, x] = fuori(N, N);
+				let g = x.createRadialGradient(m, m, 0, m, m, m);
+				g.addColorStop(0, 'rgba(255, 250, 237, 1)');
+				g.addColorStop(0.12, 'rgba(252, 226, 170, 0.95)');
+				g.addColorStop(0.3, css(LUCE.stella, 0.38));
+				g.addColorStop(0.6, css(LUCE.stella, 0.1));
+				g.addColorStop(1, css(LUCE.stella, 0));
+				x.fillStyle = g;
+				x.fillRect(0, 0, N, N);
+				// le punte di diffrazione
+				for (const [w, h] of [[N, 1.4], [1.4, N]]) {
+					g = w > h ? x.createLinearGradient(0, 0, N, 0) : x.createLinearGradient(0, 0, 0, N);
+					g.addColorStop(0, 'rgba(255, 246, 222, 0)');
+					g.addColorStop(0.5, 'rgba(255, 246, 222, 0.55)');
+					g.addColorStop(1, 'rgba(255, 246, 222, 0)');
+					x.fillStyle = g;
+					x.fillRect(m - w / 2, m - h / 2, w, h);
+				}
+				return c;
+			})();
+			const altrove = (() => {
+				const [c, x] = fuori(N, N);
+				x.strokeStyle = css(LUCE.calima, 0.9);
+				x.lineWidth = 3.2;
+				x.beginPath();
+				x.arc(m, m, m * 0.32, 0, 2 * Math.PI);
+				x.stroke();
+				return c;
+			})();
+			return { campo: macchia(LUCE.campo, gauss), scintilla: macchia([0.86, 1, 0.98], gauss), stella, altrove };
+		}
+
+		/** La nebulosa su una griglia di 112 px, una volta per misura (pochi ms). */
+		function creaNebbia(s) {
+			const N = 112;
+			const [c, x] = fuori(N, N);
+			const img = x.createImageData(N, N);
+			const cup = s.R + 8;
+			for (let j = 0; j < N; j++) {
+				for (let i = 0; i < N; i++) {
+					const dx = ((i + 0.5) / N) * s.S - s.c, dy = ((j + 0.5) / N) * s.S - s.c;
+					const t = Math.min(1, Math.hypot(dx, dy) / cup);
+					const qx = (dx / cup) * 2.4, qy = (dy / cup) * 2.4;
+					const n1 = fbm2(qx + 3.1, qy + 1.7);
+					const n2 = fbm2(qx * 1.6 + n1 * 1.4, qy * 1.6 + 5.2);
+					const a = liscio(0.42, 0.92, n2) * (1 - 0.5 * t) * 0.7;
+					const b = liscio(0.55, 0.95, n1) * 0.45;
+					const o = (j * N + i) * 4;
+					img.data[o] = (0.09 * a + 0.02 * b) * 255;
+					img.data[o + 1] = (0.1 * a + 0.15 * b) * 255;
+					img.data[o + 2] = (0.27 * a + 0.17 * b) * 255;
+					img.data[o + 3] = 255;
+				}
+			}
+			x.putImageData(img, 0, 0);
+			return c;
+		}
+
+		/** Il fondo, sulla sua tela sotto le luci: cambia coi dati, con la misura e col minuto. */
+		function disegnaFondo(s, W, dpr) {
+			if (telaFondo.width !== W || telaFondo.height !== W) {
+				telaFondo.width = W;
+				telaFondo.height = W;
+			}
+			if (!nebbia || nebbiaS !== s.S) {
+				nebbia = creaNebbia(s);
+				nebbiaS = s.S;
+			}
+			const x = fondo;
+			const { c, R } = s;
+			const cup = R + 8;
+			x.setTransform(1, 0, 0, 1, 0, 0);
+			x.clearRect(0, 0, W, W);
+			x.setTransform(dpr, 0, 0, dpr, 0, 0);
+			x.save();
+			x.beginPath();
+			x.arc(c, c, cup, 0, 2 * Math.PI);
+			x.clip();
+			let g = x.createRadialGradient(c, c, 0, c, c, cup);
+			g.addColorStop(0, '#1d2846');
+			g.addColorStop(0.7, '#141c33');
+			g.addColorStop(1, '#0f1628');
+			x.fillStyle = g;
+			x.fillRect(0, 0, s.S, s.S);
+			x.globalCompositeOperation = 'lighter';
+			x.imageSmoothingEnabled = true;
+			x.drawImage(nebbia, 0, 0, s.S, s.S);
+			// corona delle ore e ultima ora alle spalle della lancetta. Si disegnano come luce che si somma:
+			// spicchi opachi del colore gia' moltiplicato per l'intensita' (sovrapposti di un soffio, cosi'
+			// tra uno spicchio e l'altro non restano fili), poi una maschera radiale, poi 'lighter' sul fondo.
+			const ang = h => ((h - 12) / 24) * 2 * Math.PI - Math.PI / 2;
+			const strato = (spicchi, r0, r1, stops) => {
+				const [cc, cx] = fuori(Math.round(s.S * dpr), Math.round(s.S * dpr));
+				cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+				for (const [h0, h1, col] of spicchi) {
+					cx.fillStyle = col;
+					cx.beginPath();
+					cx.moveTo(c, c);
+					cx.arc(c, c, r1 + 2, ang(h0) - 0.004, ang(h1) + 0.004);
+					cx.closePath();
+					cx.fill();
+				}
+				cx.globalCompositeOperation = 'destination-in';
+				const m = cx.createRadialGradient(c, c, r0, c, c, r1);
+				for (const [o, a] of stops) m.addColorStop(o, `rgba(0, 0, 0, ${a})`);
+				cx.fillStyle = m;
+				cx.fillRect(0, 0, s.S, s.S);
+				x.drawImage(cc, 0, 0, s.S, s.S);
+			};
+			const luce = (k, v) => `rgb(${Math.round(LUCE[k][0] * v * 255)}, ${Math.round(LUCE[k][1] * v * 255)}, ${Math.round(LUCE[k][2] * v * 255)})`;
+			// quattro spicchi per ora, raccordati come nello shader (oraLiscia)
+			const corona = [];
+			for (let q = 0; q < 96; q++) {
+				const h = q / 4 + 0.125;
+				const i0 = Math.floor(h - 0.5 + 24) % 24, i1 = (i0 + 1) % 24;
+				const f = liscio(0, 1, (h - 0.5 + 24) % 1);
+				const v = (s.ore[i0] || 0) * (1 - f) + (s.ore[i1] || 0) * f;
+				if (v >= 0.01) corona.push([q / 4, (q + 1) / 4, luce('sodio', 0.42 * v)]);
+			}
+			if (corona.length) strato(corona, R - 36, R + 7, [[0, 0], [34 / 43, 1], [37 / 43, 1], [1, 0]]);
+			const h = oraAdesso();
+			const ultima = [];
+			for (let q = 0; q < 12; q++) ultima.push([h - (q + 1) / 12, h - q / 12, luce('ciano', 0.07 * (1 - liscio(0, 1, (q + 0.5) / 12)))]);
+			strato(ultima, s.R0, cup, [[0, 0], [Math.max(0, (R * 0.6 - s.R0) / (cup - s.R0)), 1], [(R - s.R0) / (cup - s.R0), 1], [1, 0]]);
+			x.globalAlpha = 1;
+			x.globalCompositeOperation = 'source-over';
+			g = x.createRadialGradient(c, c, cup * 0.78, c, c, cup);
+			g.addColorStop(0, 'rgba(0, 0, 0, 0)');
+			g.addColorStop(1, 'rgba(0, 0, 0, 0.28)');
+			x.fillStyle = g;
+			x.fillRect(0, 0, s.S, s.S);
+			x.restore();
+		}
+
+		function chiedi() {
+			if (raf || !ctx || stato !== 'canvas' || !attivo || !inVista || !scena) return;
+			raf = requestAnimationFrame(passo);
+		}
+
+		function ferma() {
 			if (raf) cancelAnimationFrame(raf);
 			raf = 0;
-			const avevo = !!dev;
-			dev = null;
-			liberaRisorse();
-			try {
-				ctx && ctx.unconfigure && ctx.unconfigure();
-			} catch {}
-			if (avevo) officina.lascia();
-		}
-
-		/** Qualcosa e' andato storto: si torna all'SVG e non si riprova in questo montaggio. */
-		function ripiego(motivo) {
-			if (stato === 'svg') return;
-			console.warn('Bottega: cruscotto senza WebGPU, ripiego sull\'SVG:', motivo);
-			spegni();
-			cambia('svg', motivo);
-		}
-
-		async function avvia() {
-			if (stato === 'svg' || stato === 'avvio' || dev) return;
-			const g = ++gen;
-			cambia('avvio', '');
-			let preso = false;
-			try {
-				const { device: d, format } = await officina.prendi();
-				preso = true;
-				if (g !== gen) {
-					officina.lascia();
-					return;
-				}
-				const c = canvas.getContext('webgpu');
-				if (!c) throw new Error('la tela non da un contesto webgpu');
-				c.configure({ device: d, format, alphaMode: 'premultiplied' });
-				const mod = d.createShaderModule({ code: WGSL });
-				if (mod.getCompilationInfo) {
-					const info = await mod.getCompilationInfo();
-					const err = (info.messages || []).find(m => m.type === 'error');
-					if (err) throw new Error(`WGSL, riga ${err.lineNum}: ${err.message}`);
-				}
-				const target = [{ format }];
-				const additivo = [
-					{
-						format,
-						blend: {
-							color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
-							alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-						},
-					},
-				];
-				const [pFondo, pCopia, pLuce] = await Promise.all([
-					d.createRenderPipelineAsync({ layout: 'auto', vertex: { module: mod, entryPoint: 'vs_pieno' }, fragment: { module: mod, entryPoint: 'fs_fondo', targets: target }, primitive: { topology: 'triangle-list' } }),
-					d.createRenderPipelineAsync({ layout: 'auto', vertex: { module: mod, entryPoint: 'vs_pieno' }, fragment: { module: mod, entryPoint: 'fs_copia', targets: target }, primitive: { topology: 'triangle-list' } }),
-					d.createRenderPipelineAsync({
-						layout: 'auto',
-						vertex: {
-							module: mod,
-							entryPoint: 'vs_luce',
-							buffers: [
-								{
-									arrayStride: FLOAT_ISTANZA * 4,
-									stepMode: 'instance',
-									attributes: [0, 1, 2, 3].map(n => ({ shaderLocation: n, offset: n * 16, format: 'float32x4' })),
-								},
-							],
-						},
-						fragment: { module: mod, entryPoint: 'fs_luce', targets: additivo },
-						primitive: { topology: 'triangle-strip' },
-					}),
-				]);
-				if (g !== gen) {
-					officina.lascia();
-					return;
-				}
-				const ubuf = d.createBuffer({ size: U.byteLength, usage: USO.UNIFORM | USO.COPY_DST });
-				r = { format, pFondo, pCopia, pLuce, ubuf, ibuf: null, icap: 0, tex: null, texW: 0, texH: 0, bgFondo: null, bgCopia: null, bgLuce: null };
-				r.bgFondo = d.createBindGroup({ layout: pFondo.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] });
-				r.bgLuce = d.createBindGroup({ layout: pLuce.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] });
-				dev = d;
-				ctx = c;
-				fondoSporco = true;
-				istSporche = true;
-				cambia('gpu', '');
-				chiedi();
-			} catch (e) {
-				if (preso && !dev) officina.lascia();
-				if (g !== gen) return;
-				ripiego(String((e && /** @type {any} */ (e).message) || e));
-			}
-		}
-		officina.ascolta(motivo => ripiego(motivo));
-
-		function animato() {
-			return !opt.reduced();
-		}
-
-		/** Chiede un frame se c'e' qualcosa da disegnare e qualcuno che guarda. */
-		function chiedi() {
-			if (raf || !dev || !r || !attivo || !inVista || !scena) return;
-			raf = requestAnimationFrame(passo);
 		}
 
 		function passo(ts) {
 			raf = 0;
-			if (!dev || !r || !attivo || !inVista || !scena) return;
-			const mosso = animato();
+			if (!ctx || stato !== 'canvas' || !attivo || !inVista || !scena) return;
+			const mosso = !opt.reduced();
 			const t = clock();
-			// 30 fotogrammi al secondo mentre succede qualcosa, 20 a riposo
 			const vivace = t - rivelaDa < 3500 || t - migraDa < 1000 || acceso >= 0;
-			const fps = vivace ? 30 : 20;
-			if (mosso && ultimo && ts - ultimo < 1000 / fps - 2) {
+			if (mosso && ultimo && ts - ultimo < 1000 / fpsPer(vivace, costo) - 2) {
 				raf = requestAnimationFrame(passo);
 				return;
 			}
@@ -668,55 +495,14 @@ struct VS {
 			try {
 				disegna(t, mosso);
 			} catch (e) {
-				return ripiego(String((e && /** @type {any} */ (e).message) || e));
+				ferma();
+				ctx = null;
+				console.warn('Bottega: cruscotto, la tela 2D si ferma, resta l\'SVG:', e);
+				return cambia('svg', String((e && /** @type {any} */ (e).message) || e));
 			}
+			const ms = clock() - t;
+			costo = costo ? costo * 0.9 + ms * 0.1 : ms;
 			if (mosso) raf = requestAnimationFrame(passo);
-		}
-
-		/** Prepara i quadratini in istanza; k e' l'avanzamento della migrazione (0..1). */
-		function costruisci(k) {
-			const s = scena;
-			const e = facile(k);
-			const pos = s.stelle.map(st => (st.da ? [st.da[0] + (st.x - st.da[0]) * e, st.da[1] + (st.y - st.da[1]) * e] : [st.x, st.y]));
-			const parti = [];
-			for (const l of s.legami) {
-				const n = Math.max(1, Math.min(4, Math.round(l.minuti / 40)));
-				for (let j = 0; j < n; j++) parti.push([l, j / n]);
-			}
-			const vive = s.stelle.filter(st => st.vivo).length;
-			const tot = s.campo.length + s.stelle.length + vive + parti.length + 1;
-			if (ist.length < tot * FLOAT_ISTANZA) ist = new Float32Array(Math.ceil(tot * 1.5) * FLOAT_ISTANZA);
-			let o = 0;
-			const metti = (x, y, lato, tipo, c, a, cx, cy, cz, cw, d0, d1, d2, d3) => {
-				ist.set([x, y, lato, tipo, c[0], c[1], c[2], a, cx, cy, cz, cw, d0, d1, d2, d3], o);
-				o += FLOAT_ISTANZA;
-			};
-			for (const [x, y, rr, op, ph, w] of s.campo) metti(x, y, rr * 3.2, 0, LUCE.campo, Math.min(0.9, op * 2.2), 0, 0, w, ph, -1, -1, -1, 0);
-			s.stelle.forEach((st, j) => {
-				const [x, y] = pos[j];
-				if (st.altrove) metti(x, y, st.size * 1.75, 5, LUCE.calima, 0.95, 0, 0, 0, 0, st.i, -1, st.ritardo, 0);
-				else metti(x, y, st.size * 3.2, 1, LUCE.stella, 1, 0, 0, 0, 0, st.i, -1, st.ritardo, 0);
-			});
-			s.stelle.forEach((st, j) => {
-				if (!st.vivo) return;
-				const [x, y] = pos[j];
-				metti(x, y, (st.size + 6) / 0.82, 2, LUCE.sodio, 0.95, 0, 0, 0, (j * 0.37) % 1, st.i, -1, st.ritardo, 0);
-			});
-			const idx = new Map(s.stelle.map((st, j) => [st.i, j]));
-			for (const [l, ph] of parti) {
-				const a = pos[idx.get(l.a)];
-				const b = pos[idx.get(l.b)];
-				if (!a || !b) continue;
-				const forte = l.minuti >= 60;
-				metti(a[0], a[1], forte ? 3.8 : 3.2, 3, LUCE.ciano, forte ? 0.95 : 0.7, b[0], b[1], forte ? 0.16 : 0.11, ph, l.a, l.b, s.ritardoLegami, 0);
-			}
-			// la lancetta di adesso: dal bordo dell'anello interno al quadrante
-			const h = oraAdesso();
-			const ang = ((h - 12) / 24) * 2 * Math.PI;
-			const ax = s.c + s.R0 * Math.sin(ang), ay = s.c - s.R0 * Math.cos(ang);
-			const bx = s.c + (s.R + 8) * Math.sin(ang), by = s.c - (s.R + 8) * Math.cos(ang);
-			metti(ax, ay, 3, 4, LUCE.ciano, 0.6, bx, by, 0, 0, -1, -1, -1, 0);
-			nIst = o / FLOAT_ISTANZA;
 		}
 
 		function disegna(t, mosso) {
@@ -728,68 +514,169 @@ struct VS {
 				canvas.height = W;
 				fondoSporco = true;
 			}
-			const h = oraAdesso();
-			const m = Math.floor(h * 60);
+			const m = Math.floor(oraAdesso() * 60);
 			if (m !== minuto) {
 				minuto = m;
 				fondoSporco = true;
-				istSporche = true;
 			}
-			const k = mosso ? Math.min(1, (t - migraDa) / 900) : 1;
-			if (k < 1 || istSporche) {
-				costruisci(k);
-				istSporche = k < 1; // durante la migrazione si ricostruisce a ogni frame, poi una volta in piu'
-				if (k >= 1) istSporche = false;
-				const bytes = nIst * FLOAT_ISTANZA * 4;
-				if (!r.ibuf || r.icap < bytes) {
-					if (r.ibuf) r.ibuf.destroy();
-					r.icap = Math.max(bytes, 32 * 1024);
-					r.ibuf = dev.createBuffer({ size: r.icap, usage: USO.VERTEX | USO.COPY_DST });
-				}
-				if (bytes) dev.queue.writeBuffer(r.ibuf, 0, ist.buffer, 0, bytes);
-			}
-			if (!r.tex || r.texW !== W) {
-				if (r.tex) r.tex.destroy();
-				r.tex = dev.createTexture({ size: [W, W], format: r.format, usage: USO.RENDER | USO.TEXTURE });
-				r.texW = W;
-				r.bgCopia = dev.createBindGroup({ layout: r.pCopia.getBindGroupLayout(0), entries: [{ binding: 1, resource: r.tex.createView() }] });
-				fondoSporco = true;
-			}
-			U[0] = s.S;
-			U[1] = s.S;
-			U[2] = mosso ? (t - t0) / 1000 : 0;
-			U[3] = mosso ? (t - rivelaDa) / 1000 : 99;
-			U[4] = s.c;
-			U[5] = s.c;
-			U[6] = s.R;
-			U[7] = dpr;
-			U[8] = acceso;
-			U[9] = h;
-			U[10] = mosso && s.stelle.some(st => st.vivo) ? 1 : 0;
-			U[11] = s.R0;
-			for (let i = 0; i < 24; i++) U[12 + i] = s.ore[i] || 0;
-			dev.queue.writeBuffer(r.ubuf, 0, U.buffer, 0, U.byteLength);
-			const enc = dev.createCommandEncoder();
+			if (!sprite) sprite = creaSprite();
 			if (fondoSporco) {
-				const p = enc.beginRenderPass({ colorAttachments: [{ view: r.tex.createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }] });
-				p.setPipeline(r.pFondo);
-				p.setBindGroup(0, r.bgFondo);
-				p.draw(3);
-				p.end();
+				disegnaFondo(s, W, dpr);
 				fondoSporco = false;
 			}
-			const p = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }] });
-			p.setPipeline(r.pCopia);
-			p.setBindGroup(0, r.bgCopia);
-			p.draw(3);
-			if (nIst) {
-				p.setPipeline(r.pLuce);
-				p.setBindGroup(0, r.bgLuce);
-				p.setVertexBuffer(0, r.ibuf);
-				p.draw(4, nIst);
+			const tempo = mosso ? (t - t0) / 1000 : 0;
+			const riv = mosso ? (t - rivelaDa) / 1000 : 99;
+			const giro = mosso ? tempo * GIRO : 0;
+			const e = facile(mosso ? Math.min(1, (t - migraDa) / 900) : 1);
+			const { c, R } = s;
+			const on = rit => (rit < 0 ? 1 : liscio(rit, rit + 0.7, riv));
+			const x = ctx;
+
+			x.setTransform(1, 0, 0, 1, 0, 0);
+			x.globalCompositeOperation = 'source-over';
+			x.globalAlpha = 1;
+			x.clearRect(0, 0, W, W);
+			x.setTransform(dpr, 0, 0, dpr, 0, 0);
+			x.globalCompositeOperation = 'lighter';
+
+			// la ghiera, che gira lentissima
+			x.lineCap = 'round';
+			for (const lunga of [false, true]) {
+				x.globalAlpha = (lunga ? 0.42 : 0.2) * (s.rivela ? liscio(0.2, 1, riv) : 1);
+				x.strokeStyle = css(LUCE.ciano, 1);
+				x.lineWidth = 1;
+				x.beginPath();
+				for (let j = lunga ? 0 : 1; j < TACCHE; j += lunga ? 8 : 1) {
+					if (!lunga && j % 8 === 0) continue;
+					const a = (j / TACCHE) * 2 * Math.PI + giro;
+					const sn = Math.sin(a), cs = -Math.cos(a), l = lunga ? 3.6 : 2;
+					x.moveTo(c + sn * (R + 35 - l), c + cs * (R + 35 - l));
+					x.lineTo(c + sn * (R + 35 + l), c + cs * (R + 35 + l));
+				}
+				x.stroke();
 			}
-			p.end();
-			dev.queue.submit([enc.finish()]);
+
+			// il campo: scintilla e gira a meta' velocita' della ghiera
+			const ca = Math.cos(giro * 0.5), sa = Math.sin(giro * 0.5);
+			for (const [px, py, rr, op, ph, w] of s.campo) {
+				const dx = px - c, dy = py - c;
+				const a = Math.min(0.9, op * 2.2) * (0.7 + 0.3 * Math.sin(tempo * w + ph)) * (s.rivela ? liscio(0.05 + (Math.hypot(dx, dy) / R) * 1.1, 0.55 + (Math.hypot(dx, dy) / R) * 1.1, riv) : 1);
+				if (a < 0.01) continue;
+				const l = rr * 3.2;
+				x.globalAlpha = a;
+				x.drawImage(sprite.campo, c + dx * ca - dy * sa - l, c + dx * sa + dy * ca - l, l * 2, l * 2);
+			}
+
+			const pos = s.stelle.map(st => (st.da ? [st.da[0] + (st.x - st.da[0]) * e, st.da[1] + (st.y - st.da[1]) * e] : [st.x, st.y]));
+			const idx = new Map(s.stelle.map((st, j) => [st.i, j]));
+			const spento = i => acceso >= 0 && i !== acceso;
+
+			// impulsi di luce lungo i legami: testa chiara, coda che sfuma all'indietro
+			const onL = on(s.ritardoLegami);
+			x.lineWidth = 1.6;
+			for (const l of s.legami) {
+				const a0 = pos[idx.get(l.a)], b0 = pos[idx.get(l.b)];
+				if (!a0 || !b0) continue;
+				const n = Math.max(1, Math.min(4, Math.round(l.minuti / 40)));
+				const forte = l.minuti >= 60;
+				const vel = forte ? 0.16 : 0.11;
+				const lit = acceso >= 0 ? (l.a === acceso || l.b === acceso ? 1.5 : 0.15) : 1;
+				const dx = b0[0] - a0[0], dy = b0[1] - a0[1];
+				const len = Math.hypot(dx, dy) || 1;
+				for (let j = 0; j < n; j++) {
+					const f = (((tempo * vel + j / n) % 1) + 1) % 1;
+					const a = Math.min(1, (forte ? 0.95 : 0.7) * Math.sin(f * Math.PI) * onL * lit);
+					if (a < 0.01) continue;
+					const hx = a0[0] + dx * f, hy = a0[1] + dy * f;
+					const coda = Math.min(len * f, 26);
+					const g = x.createLinearGradient(hx - (dx / len) * coda, hy - (dy / len) * coda, hx, hy);
+					g.addColorStop(0, css(LUCE.ciano, 0));
+					g.addColorStop(1, css(LUCE.ciano, 0.55 * a));
+					x.globalAlpha = 1;
+					x.strokeStyle = g;
+					x.beginPath();
+					x.moveTo(hx - (dx / len) * coda, hy - (dy / len) * coda);
+					x.lineTo(hx, hy);
+					x.stroke();
+					const q = forte ? 4.4 : 3.6;
+					x.globalAlpha = a;
+					x.drawImage(sprite.scintilla, hx - q, hy - q, q * 2, q * 2);
+				}
+			}
+
+			// le scie delle sessioni vive: un arco sull'orbita, alle spalle della stella
+			s.stelle.forEach((st, j) => {
+				if (!st.vivo) return;
+				const [px, py] = pos[j];
+				const rs = Math.max(1, Math.hypot(px - c, py - c));
+				const L = Math.max(0.2, Math.min(1.1, SCIA_PX / rs));
+				const th = Math.atan2(py - c, px - c);
+				const k = on(st.ritardo) * (spento(st.i) ? 0.32 : 1);
+				const N = 14;
+				for (let q = 0; q < N; q++) {
+					const f = (q + 0.5) / N;
+					const onda = 0.72 + 0.28 * Math.sin(f * 16 - tempo * 3.2);
+					const a = 0.6 * k * Math.exp(-f * 2.4) * liscio(0, 0.05, f) * (1 - liscio(0.8, 1, f)) * onda;
+					if (a < 0.01) continue;
+					x.globalAlpha = a;
+					x.strokeStyle = css(LUCE.sodio, 1);
+					x.lineWidth = 1.6 + 2.6 * f;
+					x.beginPath();
+					x.arc(c, c, rs, th - (L * q) / N, th - (L * (q + 1)) / N, true);
+					x.stroke();
+				}
+			});
+
+			// le stelle: si accendono dal centro, respirano piano, sfasate
+			s.stelle.forEach((st, j) => {
+				const [px, py] = pos[j];
+				const o = on(st.ritardo);
+				if (o < 0.01) return;
+				const r = mosso ? respiro(st.i, tempo) : 1;
+				let a = (st.altrove ? 0.95 : 1) * o * r;
+				let l = (st.altrove ? st.size * 1.75 : st.size * 3.2) * (0.3 + 0.7 * o) * (1 + (r - 1) * 0.6);
+				if (acceso >= 0) {
+					if (st.i === acceso) l *= 1.2;
+					else a *= 0.32;
+				}
+				x.globalAlpha = Math.min(1, a);
+				x.drawImage(st.altrove ? sprite.altrove : sprite.stella, px - l, py - l, l * 2, l * 2);
+			});
+
+			// l'onda delle sessioni vive: si allarga e si spegne ogni 2,8 secondi
+			x.strokeStyle = css(LUCE.sodio, 1);
+			x.lineWidth = 1.4;
+			s.stelle.forEach((st, j) => {
+				if (!st.vivo) return;
+				const [px, py] = pos[j];
+				const f = (((tempo / 2.8 + ((j * 0.37) % 1)) % 1) + 1) % 1;
+				const a = 0.95 * (1 - f) * on(st.ritardo) * (spento(st.i) ? 0.32 : 1);
+				if (a < 0.01) return;
+				x.globalAlpha = a;
+				x.beginPath();
+				x.arc(px, py, (st.size + 6) * (0.85 + 0.6 * f), 0, 2 * Math.PI);
+				x.stroke();
+			});
+
+			// la lancetta di adesso, con un lampo che la percorre se c'e' una sessione viva
+			const h = oraAdesso();
+			const an = ((h - 12) / 24) * 2 * Math.PI;
+			const sn = Math.sin(an), cs = -Math.cos(an);
+			x.globalAlpha = 0.5;
+			x.strokeStyle = css(LUCE.ciano, 1);
+			x.lineWidth = 1.2;
+			x.beginPath();
+			x.moveTo(c + sn * s.R0, c + cs * s.R0);
+			x.lineTo(c + sn * (R + 8), c + cs * (R + 8));
+			x.stroke();
+			if (mosso && s.stelle.some(st => st.vivo)) {
+				const f = (tempo / 4) % 1;
+				const d = s.R0 + (R + 8 - s.R0) * f;
+				x.globalAlpha = 0.8;
+				x.drawImage(sprite.scintilla, c + sn * d - 3, c + cs * d - 3, 6, 6);
+			}
+			x.globalAlpha = 1;
+			x.globalCompositeOperation = 'source-over';
 			frames++;
 		}
 
@@ -803,34 +690,35 @@ struct VS {
 			get inCorsa() {
 				return !!raf;
 			},
-			/** Stanza visibile (e finestra davanti) oppure no. */
-			attiva(on) {
-				if (stato === 'svg') return;
-				attivo = !!on;
-				clearTimeout(rilascioT);
-				if (attivo) {
-					if (!dev) avvia();
-					else chiedi();
-					return;
-				}
-				if (raf) cancelAnimationFrame(raf);
-				raf = 0;
-				rilascioT = setTimeout(() => {
-					if (attivo || !dev) return;
-					spegni();
-					cambia('spento', '');
-				}, rilascio);
+			get costo() {
+				return costo;
 			},
-			/** La carta e' sullo schermo o fuori, scorrendo la pagina. */
+			/** WebGPU non c'e': la tela prende il cielo. Senza contesto 2D resta l'SVG. */
+			abilita() {
+				if (stato !== 'attesa') return;
+				try {
+					ctx = canvas.getContext('2d');
+					fondo = telaFondo.getContext('2d');
+				} catch {
+					ctx = null;
+				}
+				if (!ctx || !fondo) {
+					ctx = null;
+					return cambia('svg', 'la tela non da un contesto 2D');
+				}
+				cambia('canvas', '');
+				chiedi();
+			},
+			attiva(on) {
+				attivo = !!on;
+				if (attivo) chiedi();
+				else ferma();
+			},
 			inVista(on) {
 				inVista = !!on;
 				if (inVista) chiedi();
-				else if (raf) {
-					cancelAnimationFrame(raf);
-					raf = 0;
-				}
+				else ferma();
 			},
-			/** Dati nuovi o misura nuova. s.rivela e s.migra fanno partire l'orologio delle animazioni. */
 			scena(s) {
 				scena = s;
 				const t = clock();
@@ -840,21 +728,17 @@ struct VS {
 					rivelaDa = t;
 				}
 				fondoSporco = true;
-				istSporche = true;
 				chiedi();
 			},
 			accendi(i) {
 				acceso = i;
 				chiedi();
 			},
-			/** Riduci movimento cambiato, o qualcosa da ridisegnare una volta. */
 			ridisegna() {
-				istSporche = true;
 				chiedi();
 			},
 			chiudi() {
-				clearTimeout(rilascioT);
-				spegni();
+				ferma();
 			},
 		};
 	}
@@ -947,12 +831,12 @@ struct VF { @builtin(position) pos: vec4f };
 	let s = campiona(p.x);
 	let fuori = step(p.x, u.b.z - 1.0) + step(u.b.w + 1.0, p.x);
 	if (fuori > 0.5 || s.x < 0.01) { return vec4f(0.0); }
-	let meta = s.x * u.b.y;
+	let mezza = s.x * u.b.y;
 	let d = abs(p.y - u.b.x);
-	let dentro = 1.0 - smoothstep(meta - 0.8, meta + 0.8, d);
-	let alone = exp(-max(0.0, d - meta) / 6.0) * 0.28;
+	let dentro = 1.0 - smoothstep(mezza - 0.8, mezza + 0.8, d);
+	let alone = exp(-max(0.0, d - mezza) / 6.0) * 0.28;
 	let corrente = fbm(vec2f(p.x * 0.028 - u.a.z * 0.85, p.y * 0.1 + sin(p.x * 0.012) * 0.6));
-	let cuore = exp(-(d * d) / max(1.0, meta * meta) * 1.8);
+	let cuore = exp(-(d * d) / max(1.0, mezza * mezza) * 1.8);
 	let piena = 0.3 + 0.7 * s.y;
 	let luce = (dentro * (0.2 + 0.55 * corrente + 0.4 * cuore) + alone) * piena * rivela(p.x);
 	let bianca = clamp((s.x - 1.0) / 3.0, 0.0, 1.0) * cuore * 0.7;
@@ -1000,7 +884,7 @@ struct VG {
 	 * stesso dispositivo (l'officina). 20 fotogrammi al secondo al massimo, solo con la stanza
 	 * visibile e la corrente sullo schermo; con "riduci movimento" un fotogramma fermo.
 	 * @param {HTMLCanvasElement} canvas
-	 * @param {ReturnType<typeof creaOfficina>} officina
+	 * @param {any} officina window.BottegaGPU.officina(), oppure OFFICINA_CHIUSA
 	 * @param {{ reduced: () => boolean, onStato: (stato: string, motivo: string) => void, rilascio?: number }} opt
 	 */
 	function creaCorrente(canvas, officina, opt) {
@@ -1071,12 +955,7 @@ struct VG {
 				const c = canvas.getContext('webgpu');
 				if (!c) throw new Error('la tela non da un contesto webgpu');
 				c.configure({ device: d, format, alphaMode: 'premultiplied' });
-				const mod = d.createShaderModule({ code: WGSL_CORRENTE });
-				if (mod.getCompilationInfo) {
-					const info = await mod.getCompilationInfo();
-					const err = (info.messages || []).find(m => m.type === 'error');
-					if (err) throw new Error(`WGSL della corrente, riga ${err.lineNum}: ${err.message}`);
-				}
+				const mod = await opt.modulo(d, WGSL_CORRENTE, 'WGSL della corrente');
 				const [pFiume, pGocce] = await Promise.all([
 					d.createRenderPipelineAsync({ layout: 'auto', vertex: { module: mod, entryPoint: 'vs_pieno' }, fragment: { module: mod, entryPoint: 'fs_fiume', targets: [{ format }] }, primitive: { topology: 'triangle-list' } }),
 					d.createRenderPipelineAsync({
@@ -1342,9 +1221,12 @@ struct VG {
 						<div class="carta-testa" id="carta-testa"><h2 id="carta-titolo">Il cielo dei progetti</h2><p class="telemetria"><span id="carta-conto"></span><span class="motore" id="carta-motore"></span></p></div>
 						<div class="carta-palco" id="carta-palco">
 							<canvas class="carta-gpu" id="carta-gpu" aria-hidden="true"></canvas>
+							<canvas class="carta-tela" id="carta-tela-fondo" aria-hidden="true"></canvas>
+							<canvas class="carta-tela" id="carta-tela" aria-hidden="true"></canvas>
 							<div class="carta-svg" id="carta-svg" aria-hidden="true"></div>
 							<div class="scansione" aria-hidden="true"></div>
 						</div>
+						<p class="carta-piede"><button type="button" class="ghost" data-c="osservatorio" data-fk="c:osservatorio" title="Lo stesso cielo in una finestra del Mac, disegnato con Metal">Apri nell'Osservatorio</button></p>
 						<figcaption id="carta-legenda" class="carta-legenda"></figcaption>
 						<div class="tabella-blocco" id="carta-tabella"></div>
 					</figure>
@@ -1361,6 +1243,12 @@ struct VG {
 					<p class="nota" id="curva-nota"></p>
 					<div class="grafico" id="curva" tabindex="0" role="group" aria-roledescription="grafico" data-fk="c:curva"></div>
 					<div class="tabella-blocco" id="curva-tabella"></div>
+				</section>
+
+				<section class="crus-sez categorie" id="categorie-sez" aria-labelledby="categorie-titolo" hidden>
+					<div class="sez-testa"><h2 id="categorie-titolo">Che lavoro è stato</h2></div>
+					<p class="nota" id="categorie-frase"></p>
+					<ol class="righe-categorie" id="categorie" aria-labelledby="categorie-titolo"></ol>
 				</section>
 
 				<section class="crus-due" aria-labelledby="token-titolo">
@@ -1554,32 +1442,113 @@ struct VG {
 		// ---------- il motore del cielo ----------
 
 		const MOTORE = {
-			gpu: ['WebGPU su Metal', 'Il cielo lo disegna la scheda grafica con WebGPU, che sul Mac passa da Metal. I dati sono gli stessi della versione in SVG.'],
+			gpu: ['WebGPU', 'Il cielo lo disegna la scheda grafica con WebGPU, che sul Mac passa da Metal. I dati sono gli stessi della versione in SVG.'],
 			avvio: ['accendo WebGPU', 'Sto accendendo la scheda grafica; intanto il cielo è in SVG.'],
-			spento: ['SVG', 'La scheda grafica è stata liberata mentre la stanza era nascosta; torna quando il cielo si vede.'],
-			svg: ['SVG', 'Il cielo è disegnato in SVG, con gli stessi dati.'],
+			spento: ['WebGPU', 'La scheda grafica è stata liberata mentre la stanza era nascosta; torna quando il cielo si vede.'],
+			canvas: ['Canvas', 'Il cielo lo disegna il processore con Canvas 2D: stesse animazioni, luci più semplici. I dati sono gli stessi della versione in SVG.'],
+			svg: ['SVG', 'Il cielo è disegnato in SVG, fermo, con gli stessi dati.'],
 		};
-		const officina = creaOfficina();
-		const cielo = creaCielo(/** @type {any} */ ($('carta-gpu')), officina, {
+		/* Il motore condiviso (motore/gpu.js): un solo dispositivo WebGPU per la webview, lo stesso della
+		   sfera di Melissa. Senza quel file la corrente resta in SVG e il cielo passa alla tela 2D. */
+		const GPU = /** @type {any} */ (window).BottegaGPU || null;
+		const officina = GPU ? GPU.officina() : OFFICINA_CHIUSA;
+		/* Il cielo ha tre motori, in ordine: WebGPU (motore/cielo-gpu.js), Canvas 2D (quando WebGPU non
+		   parte), SVG fermo (quando manca anche il contesto 2D). L'SVG c'e' sempre sopra, con i dati. */
+		let motivoGpu = '';
+		/** Il motore che disegna adesso e perche' (per l'indicatore e per cielo.diag). */
+		const motore = { stato: '', motivo: '' };
+		/** @type {Set<string>} */ const diagInviati = new Set();
+		/** Una riga all'estensione: quale motore disegna il cielo e perche'. Una per motore, per montaggio. */
+		function diag(m, motivo) {
+			if (diagInviati.has(m)) return;
+			diagInviati.add(m);
+			const nav = /** @type {any} */ (typeof navigator !== 'undefined' ? navigator : {});
+			const g = /** @type {any} */ (globalThis);
+			host.post({ type: 'cielo.diag', motore: m, motivo: motivo || '', gpu: !!nav.gpu, isSecureContext: !!g.isSecureContext, crossOriginIsolated: !!g.crossOriginIsolated, userAgent: String(nav.userAgent || '') });
+		}
+		const it1 = n => it(n, n < 10 ? 1 : 0);
+		function titoloMotore() {
+			const [, why] = MOTORE[motore.stato] || MOTORE.svg;
+			let t = why;
+			if (motore.stato === 'canvas' || motore.stato === 'svg') t += motivoGpu ? ` WebGPU non è partito: ${motivoGpu}.` : '';
+			if (motore.stato === 'svg' && motore.motivo && motore.motivo !== motivoGpu) t += ` La tela 2D non è partita: ${motore.motivo}.`;
+			const ms = motore.stato === 'gpu' ? cieloGpu.costo : motore.stato === 'canvas' ? cielo2d.costo : 0;
+			if (ms > 0) t += ` Un fotogramma costa in media ${it1(ms)} ms.`;
+			return t;
+		}
+		function mostraMotore(s, motivo) {
+			motore.stato = s;
+			motore.motivo = motivo || '';
+			const carta = $('carta');
+			carta.classList.toggle('gpu', s === 'gpu');
+			carta.classList.toggle('tela', s === 'canvas');
+			carta.setAttribute('data-motore', s);
+			const m = $('carta-motore');
+			m.textContent = (MOTORE[s] || MOTORE.svg)[0];
+			m.title = titoloMotore();
+			if (s === 'gpu') diag('webgpu', '');
+			else if (s === 'canvas') diag('canvas', motivoGpu);
+			else if (s === 'svg') diag('svg', [motivoGpu, motivo && motivo !== motivoGpu ? `tela 2D: ${motivo}` : ''].filter(Boolean).join('; '));
+		}
+		let gpuCaduto = false;
+		const cielo2d = creaCielo2d(/** @type {any} */ ($('carta-tela')), /** @type {any} */ ($('carta-tela-fondo')), {
 			reduced: () => !!reduced.matches,
-			rilascio: host.rilascioGpu,
 			onStato(s, motivo) {
-				$('carta').classList.toggle('gpu', s === 'gpu');
-				const [txt, why] = MOTORE[s] || MOTORE.svg;
-				const m = $('carta-motore');
-				m.textContent = txt;
-				m.title = s === 'svg' && motivo ? `${why} WebGPU non è partito: ${motivo}.` : why;
-				$('carta').setAttribute('data-motore', s);
+				if (gpuCaduto) mostraMotore(s, motivo);
 			},
 		});
-		{
-			const [txt, why] = MOTORE[cielo.stato] || MOTORE.svg;
-			$('carta-motore').textContent = txt;
-			$('carta-motore').title = cielo.stato === 'svg' ? `${why} Questa finestra non offre WebGPU.` : why;
-			$('carta').setAttribute('data-motore', cielo.stato);
+		/** WebGPU non c'e' o e' caduto: la tela 2D prende il cielo (o resta l'SVG). */
+		function passaAllaTela(motivo) {
+			if (gpuCaduto) return;
+			gpuCaduto = true;
+			motivoGpu = motivo || officina.motivo || 'WebGPU spento';
+			console.warn('Bottega: cruscotto, il cielo passa alla tela 2D:', motivoGpu);
+			if (cielo2d.stato === 'attesa') cielo2d.abilita();
+			else mostraMotore(cielo2d.stato === 'canvas' ? 'canvas' : 'svg', '');
 		}
+		/** Il motore WebGPU che non c'e': tiene le chiamate e non fa niente. */
+		const SENZA = { stato: 'rotto', costo: 0, frames: 0, attiva() {}, inVista() {}, scena() {}, accendi() {}, ridisegna() {}, chiudi() {} };
+		/** @type {any} */ let cieloGpu = SENZA;
+		try {
+			const CG = /** @type {any} */ (window).BottegaCieloGPU;
+			if (!CG || !CG.mount) throw new Error("il cielo su WebGPU (motore/cielo-gpu.js) non e' caricato");
+			cieloGpu = CG.mount($('carta-gpu'), {
+				reduced,
+				rilascio: host.rilascioGpu,
+				onStato: s => !gpuCaduto && mostraMotore(s, ''),
+				onFail: passaAllaTela,
+			});
+			mostraMotore(cieloGpu.stato, '');
+		} catch (e) {
+			cieloGpu = SENZA;
+			passaAllaTela(String((e && /** @type {any} */ (e).message) || e));
+		}
+		$('carta-motore').addEventListener('pointerenter', () => ($('carta-motore').title = titoloMotore()));
+		/** Le stesse chiamate ai due motori: chi non disegna le tiene da parte e basta. */
+		const cielo = {
+			attiva(on) {
+				cieloGpu.attiva(on);
+				cielo2d.attiva(on);
+			},
+			inVista(on) {
+				cieloGpu.inVista(on);
+				cielo2d.inVista(on);
+			},
+			scena(sc) {
+				cieloGpu.scena(sc);
+				cielo2d.scena(sc);
+			},
+			accendi(i) {
+				cieloGpu.accendi(i);
+				cielo2d.accendi(i);
+			},
+			ridisegna() {
+				cieloGpu.ridisegna();
+				cielo2d.ridisegna();
+			},
+		};
 		const MOTORE_CORRENTE = {
-			gpu: ['WebGPU su Metal', 'La corrente la disegna la scheda grafica con WebGPU, che sul Mac passa da Metal: le particelle scorrono dentro le ore con più sessioni. I numeri sono gli stessi della versione in SVG.'],
+			gpu: ['WebGPU', 'La corrente la disegna la scheda grafica con WebGPU, che sul Mac passa da Metal: le particelle scorrono dentro le ore con più sessioni. I numeri sono gli stessi della versione in SVG.'],
 			avvio: ['accendo WebGPU', 'Sto accendendo la scheda grafica; intanto la corrente è in SVG.'],
 			spento: ['SVG', 'La scheda grafica è stata liberata mentre la stanza era nascosta; torna quando la corrente si vede.'],
 			svg: ['SVG', 'La corrente è disegnata in SVG, con gli stessi dati.'],
@@ -1596,12 +1565,17 @@ struct VG {
 			reduced: () => !!reduced.matches,
 			rilascio: host.rilascioGpu,
 			onStato: statoCorrente,
+			modulo: GPU ? GPU.modulo : null,
 		});
-		statoCorrente(corrente.stato, officina.disponibile ? '' : 'questa finestra non offre WebGPU');
+		statoCorrente(corrente.stato, officina.disponibile ? '' : officina.motivo || 'questa finestra non offre WebGPU');
+		/** Documento nascosto (finestra coperta, altra scheda): niente fotogrammi, come in pausa. */
+		const docNascosto = () => typeof document !== 'undefined' && document.visibilityState === 'hidden';
 		const attivaCielo = () => {
-			cielo.attiva(visible && !paused);
-			corrente.attiva(visible && !paused);
+			const on = visible && !paused && !docNascosto();
+			cielo.attiva(on);
+			corrente.attiva(on);
 		};
+		if (typeof document !== 'undefined') document.addEventListener('visibilitychange', attivaCielo);
 		if (typeof IntersectionObserver === 'function') {
 			try {
 				new IntersectionObserver(es => cielo.inVista(es.some(e => e.isIntersecting)), { rootMargin: '80px' }).observe($('carta-palco'));
@@ -1794,8 +1768,8 @@ struct VG {
 				return { i, row: x, o, r, x: sx, y: sy, S, size: 2.6 + 10 * Math.sqrt(x.you / maxYou) };
 			});
 			const byName = new Map(stelle.map(s => [s.row.name, s]));
-			// la scansione accende le stelle mentre passa: ritardo in base all'altezza
-			const ritardo = s => 0.1 + (s.y / S) * 1.2;
+			// l'onda dell'arrivo parte dal centro e accende le stelle al suo passaggio: prima le recenti
+			const ritardo = s => 0.1 + (s.r / R) * 1.2;
 
 			// la corona: in quali ore del giorno lavori, da tutte le tue ore del periodo (la mappa di calore)
 			const ore = Array.from({ length: 24 }, (_, h) => p.heat.reduce((a, r) => a + r[h], 0));
@@ -2310,6 +2284,70 @@ struct VG {
 		// ---------- token ----------
 
 		let token = null;
+
+		// ---------- che lavoro e' stato ----------
+
+		/* Minuti delle sessioni per tipo di lavoro (stats.categorie, facoltativo: le categorie le decide
+		   Apple Intelligence sessione per sessione, src/osservatorio.ts). Una sola serie, quindi un solo
+		   colore e nessuna legenda: barre ordinate, ogni riga col suo valore. Senza il campo la sezione
+		   non c'e'. */
+		const CATEGORIE = {
+			correzione: ['Correzioni', 'correzioni'],
+			funzione: ['Funzioni nuove', 'funzioni nuove'],
+			rilascio: ['Rilasci', 'rilasci'],
+			ricerca: ['Ricerca', 'ricerca'],
+			manutenzione: ['Manutenzione', 'manutenzione'],
+			documentazione: ['Documentazione', 'documentazione'],
+			altro: ['Non ancora classificate', 'sessioni non classificate'],
+		};
+
+		function renderCategorie() {
+			const sez = $('categorie-sez');
+			const tutte = stats && stats.categorie && typeof stats.categorie === 'object' ? stats.categorie : null;
+			const per = tutte && tutte[ui.period] && typeof tutte[ui.period] === 'object' ? tutte[ui.period] : null;
+			const righe = per
+				? Object.entries(per)
+						.map(([k, v]) => ({ k, nome: (CATEGORIE[k] || [k])[0], min: Number(v) || 0 }))
+						.filter(r => r.min >= 1)
+				: [];
+			if (!righe.length) {
+				sez.hidden = true;
+				put($('categorie'), '');
+				$('categorie-frase').textContent = '';
+				return;
+			}
+			// le categorie vere per minuti, le non classificate sempre in fondo
+			righe.sort((a, b) => Number(a.k === 'altro') - Number(b.k === 'altro') || b.min - a.min);
+			const tot = righe.reduce((a, r) => a + r.min, 0);
+			const max = Math.max(...righe.map(r => r.min));
+			sez.hidden = false;
+			// la frase: quella dell'estensione (dice la settimana), oppure la si fa qui per il periodo
+			const f = stats.categorieFrase;
+			let frase = typeof f === 'string' && ui.period === '7' ? f : f && typeof f === 'object' && typeof f[ui.period] === 'string' ? f[ui.period] : '';
+			if (!frase) {
+				const note = righe.filter(r => r.k !== 'altro');
+				const totNote = note.reduce((a, r) => a + r.min, 0);
+				if (note.length && totNote >= 30) {
+					const k = note[0].k;
+					frase = `${ui.period === '7' ? 'Questa settimana' : `Negli ultimi ${ui.period} giorni`} ${it(Math.round((note[0].min / totNote) * 100))}% ${(CATEGORIE[k] || [k, k])[1]}.`;
+				}
+			}
+			$('categorie-frase').textContent = frase;
+			put(
+				$('categorie'),
+				righe
+					.map(
+						r => `<li class="riga-categoria${r.k === 'altro' ? ' altro' : ''}">
+							<span class="chi">${esc(r.nome)}</span>
+							<span class="misura" aria-hidden="true"><i class="b-tu" data-w="${Math.max(0.5, (r.min / max) * 100).toFixed(1)}"></i></span>
+							<span class="valore">${hm(r.min)}</span>
+							<span class="quota">${pctTxt(pct(r.min, tot))}</span>
+						</li>`,
+					)
+					.join(''),
+			);
+			$('categorie').querySelectorAll('[data-w]').forEach(el => (el.style.width = el.getAttribute('data-w') + '%'));
+		}
 
 		function renderToken() {
 			const { g, list } = bins();
@@ -3184,6 +3222,7 @@ struct VG {
 			renderCarta();
 			renderClassifica();
 			renderCurva();
+			renderCategorie();
 			renderToken();
 			renderLato();
 			renderOggi();
@@ -3243,6 +3282,9 @@ struct VG {
 					return render(true);
 				case 'progetto':
 					if (host.focusProject) host.focusProject(b.getAttribute('data-path'));
+					return;
+				case 'osservatorio':
+					host.post({ type: 'osservatorio.open' });
 					return;
 				case 'aggiorna':
 				case 'riprova':

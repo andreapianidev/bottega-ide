@@ -154,11 +154,22 @@ final class MenuBar: NSObject, NSMenuDelegate {
             }
         }
         menu.addItem(.separator())
+        let sky = NSMenuItem(title: "Apri l'Osservatorio", action: #selector(openOsservatorio(_:)), keyEquivalent: "")
+        sky.target = self
+        sky.image = NSImage(systemSymbolName: "moon.stars", accessibilityDescription: nil)
+        menu.addItem(sky)
         let open = NSMenuItem(title: "Apri la Bottega", action: #selector(clicked(_:)), keyEquivalent: "")
         open.target = self
         open.representedObject = "open"
         menu.addItem(open)
         return menu
+    }
+
+    /// Opens the native window at once (with the last numbers it saved) and asks the
+    /// extension for fresh ones.
+    @objc private func openOsservatorio(_ sender: NSMenuItem) {
+        MainActor.assumeIsolated { OsservatorioWindow.shared.open() }
+        Out.event("osservatorio.ready", [:])
     }
 
     @objc private func clicked(_ sender: NSMenuItem) {

@@ -5,10 +5,11 @@ import * as vscode from 'vscode';
 import { LiveSession } from './claude';
 import { Job, WorkItem } from './jobs';
 import type { Cervelli } from './cervelli';
+import { BrainName, BrainRouter, OpenAiStreamFn, appleInstructions, appleOpenAiStream, appleToolSpecs } from './cervello';
 import { SystemStats } from './nucleo';
 
-// Melissa: il cervello della Bottega. Parla via Agnes AI (OpenAI-compatibile, in streaming),
-// con ripiego su Apple Intelligence attraverso il Nucleo quando Agnes e' a terra.
+// Melissa: il cervello della Bottega. Parla via Agnes AI (OpenAI-compatibile, in streaming) o il cervello scelto
+// nella barra; quando Agnes e' a terra, via Apple Intelligence sul Mac CON gli strumenti (src/cervello.ts).
 // La conversazione e' sempre in tempo reale: TTS a chunk mentre Agnes genera, barge-in quando
 // Andrea parla sopra.
 
@@ -94,6 +95,7 @@ export interface AssistantActions {
 
 export interface NucleoLike {
 	readonly available: boolean;
+	readonly capabilities?: { foundationModels?: boolean };
 	request<T = any>(cmd: string, args?: Record<string, any>, timeoutMs?: number): Promise<T>;
 	fireAndForget(cmd: string, args?: Record<string, any>): void;
 	on(event: string, handler: (...a: any[]) => void): any;
@@ -119,6 +121,8 @@ export interface AssistantDeps {
 	stream?: LlmStreamFn;
 	/** I cervelli: Agnes primaria, gli altri solo se Andrea li sceglie (src/cervelli.ts). */
 	cervelli?: Cervelli;
+	/** Solo per i test: uno stream finto al posto di Apple Intelligence. */
+	appleStream?: LlmStreamFn;
 }
 
 // ---------- utilita' ----------
@@ -508,6 +512,13 @@ export class Assistant {
 	private cachedKey?: string;
 	private cachedCore?: string; // persona in cache
 	private readonly specs: ToolSpec[] = Object.values(TOOLS).map(t => t.spec);
+	/** Agnes finche' risponde; se cade, lo stesso turno va ad Apple Intelligence CON gli strumenti, e per 2 minuti
+	 *  i turni vanno diretti al Mac (src/cervello.ts). Apple scelto a mano nel selettore: sempre Apple. */
+	readonly router = new BrainRouter({
+		mode: () => (this.deps.cervelli?.choice().provider === 'apple' ? 'apple' : 'auto'),
+		appleAvailable: () => this.appleAvailable(),
+	});
+	private appleStream?: OpenAiStreamFn;
 
 	// stato del turno in corso (serve a barge-in e streaming TTS)
 	private currentAbort?: AbortController;
@@ -856,35 +867,61 @@ export class Assistant {
 
 		const choice = this.deps.cervelli?.choice();
 		if (choice && choice.provider !== 'agnes') this.deps.cervelli!.touch();
-		if (choice?.provider === 'apple') {
-			const text = (await this.appleFallback(userText, true)) ?? 'Apple Intelligence non risponde. Torno ad Agnes: ridimmelo.';
-			if (!text.startsWith('Apple Intelligence non risponde')) this.state.brain = 'apple';
-			else this.deps.cervelli!.endConversation();
-			if (speak) {
-				this.feedSpeak(text);
-				this.finalizeSpeech(true);
-			}
-			this.recordAnswer(text);
+		// Agnes (o il cervello scelto a mano), oppure Apple: scelto a mano, o di riserva con l'interruttore aperto.
+		const viaRouter = !choice || choice.provider === 'agnes' || choice.provider === 'apple';
+		const pick = viaRouter ? this.router.choose(userText) : { brain: 'agnes' as BrainName, why: 'principale' as const };
+		const note = viaRouter && choice?.provider !== 'apple' ? this.router.announce(pick.brain, pick.why) : null;
+		if (note && speak) this.emitClause(note);
+		const done = (answer: string, brain: BrainName, said?: string | null): string => {
+			this.state.brain = brain;
+			if (speak) this.finalizeSpeech(true);
+			const full = said ? `${said} ${answer}` : answer;
+			this.recordAnswer(full);
 			this.afterTurn(speak);
-			return text;
-		}
+			return full;
+		};
+		const interrupted = (): string => {
+			// barge-in: chiudo senza "final" (la voce e' gia' stata fermata dal Nucleo)
+			this.speaking = false;
+			this.markInterrupted(this.turnText);
+			return this.turnText;
+		};
 
 		try {
-			const answer = await this.runAgent(userText, speak, ac.signal);
-			this.state.brain = 'agnes';
-			if (speak) this.finalizeSpeech(true);
-			this.recordAnswer(answer);
-			this.afterTurn(speak);
-			return answer;
+			const answer = await this.runAgent(userText, speak, ac.signal, pick.brain);
+			if (pick.brain === 'agnes' && viaRouter) this.router.agnesOk();
+			return done(answer, pick.brain, note);
 		} catch (e) {
-			if (ac.signal.aborted) {
-				// barge-in: chiudo senza "final" (la voce e' gia' stata fermata dal Nucleo)
-				this.speaking = false;
-				this.markInterrupted(this.turnText);
-				return this.turnText;
+			if (ac.signal.aborted) return interrupted();
+			this.out.warn(`cervello ${pick.brain}: ${(e as any)?.message ?? e}`);
+			if (pick.brain === 'apple' && choice?.provider === 'apple') {
+				// Apple scelto a mano e non risponde: si torna ad Agnes e lo si dice.
+				this.deps.cervelli!.endConversation();
+				const msg = 'Apple Intelligence non risponde. Torno ad Agnes: ridimmelo.';
+				if (speak) {
+					this.feedSpeak(msg);
+					this.finalizeSpeech(true);
+				}
+				this.recordAnswer(msg);
+				this.afterTurn(speak);
+				return msg;
 			}
-			// Agnes a terra: ripiego su Apple Intelligence, senza tool.
-			const fb = await this.appleFallback(userText);
+			// Agnes a terra (429, rete, server): lo stesso turno sul Mac, CON gli strumenti, se non ha ancora detto niente.
+			if (pick.brain === 'agnes' && viaRouter) this.router.agnesFailed(e);
+			if (pick.brain === 'agnes' && this.appleAvailable() && !this.turnText.trim()) {
+				const note2 = this.router.announce('apple', 'interruttore');
+				if (note2 && speak) this.emitClause(note2);
+				try {
+					this.history.pop(); // la domanda la rimette runAgent
+					const answer = await this.runAgent(userText, speak, ac.signal, 'apple');
+					return done(answer, 'apple', note2);
+				} catch (e2) {
+					if (ac.signal.aborted) return interrupted();
+					this.out.warn(`cervello apple: ${(e2 as any)?.message ?? e2}`);
+				}
+			}
+			// Ultima spiaggia: Apple senza strumenti (vecchio ripiego).
+			const fb = !this.turnText.trim() ? await this.appleFallback(userText) : null;
 			if (fb !== null) {
 				this.state.brain = 'apple';
 				if (speak) {
@@ -1003,9 +1040,10 @@ export class Assistant {
 
 	// ----- il giro dei tool con Agnes in streaming (max 8 passi) -----
 
-	async runAgent(userText: string, speak: boolean, signal: AbortSignal): Promise<string> {
+	async runAgent(userText: string, speak: boolean, signal: AbortSignal, brain: BrainName = 'agnes'): Promise<string> {
+		const system = this.systemPrompt();
 		const messages: LlmMessage[] = [
-			{ role: 'system', content: this.systemPrompt() },
+			{ role: 'system', content: brain === 'apple' ? appleInstructions(MELISSA_CORE, system.slice((this.cachedCore ?? '').length).trim()) : system },
 			...this.history,
 			{ role: 'user', content: userText },
 		];
@@ -1014,8 +1052,11 @@ export class Assistant {
 
 		const agnes: LlmStreamFn = this.deps.stream ?? ((m, t, cb, sig) => this.callAgnesStream(m, t, cb, sig));
 		const choice = this.deps.cervelli?.choice();
-		let stream: LlmStreamFn = (choice && choice.provider !== 'agnes' && choice.provider !== 'apple' && this.deps.cervelli!.streamFor(choice)) || agnes;
-		const chosen = stream !== agnes;
+		let stream: LlmStreamFn = brain === 'apple'
+			? (this.deps.appleStream ?? this.appleStreamFn())
+			: (choice && choice.provider !== 'agnes' && choice.provider !== 'apple' && this.deps.cervelli!.streamFor(choice)) || agnes;
+		const tools = brain === 'apple' ? (appleToolSpecs(this.specs) as ToolSpec[]) : this.specs;
+		const chosen = stream !== agnes && brain !== 'apple';
 		const chosenName = choice ? brainName(choice.model) : '';
 
 		// Stesso strumento con gli stessi argomenti nello stesso turno: non si riesegue (niente progetto aperto due
@@ -1028,7 +1069,7 @@ export class Assistant {
 			const calls = new Map<number, { id: string; name: string; args: string }>();
 
 			let got = false;
-			const run = (fn: LlmStreamFn) => fn(messages, this.specs, (d: LlmDelta) => {
+			const run = (fn: LlmStreamFn) => fn(messages, tools, (d: LlmDelta) => {
 				got = true;
 				if (d.content) {
 					content += d.content;
@@ -1188,6 +1229,8 @@ export class Assistant {
 			}
 			this.deps.cervelli?.noteAgnes(res.status);
 			if (res.status === 429) {
+				// Con il Mac a disposizione niente attese cieche: il turno passa subito ad Apple Intelligence.
+				if (this.appleAvailable()) throw new Error('Agnes ha risposto 429.');
 				await sleep(wait, signal);
 				wait = Math.min(wait * 2, 16_000);
 				continue;
@@ -1249,6 +1292,19 @@ export class Assistant {
 	// ----- ripiego su Apple Intelligence (senza tool) -----
 
 	/** Apple Intelligence sul Mac, senza strumenti: riserva quando Agnes non risponde, oppure scelta da Andrea. */
+	// ----- Apple Intelligence sul Mac, con gli strumenti -----
+
+	appleAvailable(): boolean {
+		const n = this.deps.nucleo;
+		return n.available && n.capabilities?.foundationModels !== false;
+	}
+
+	/** Lo stream di Apple con la forma di quello di Agnes (un passo per chiamata, tool_calls OpenAI). */
+	private appleStreamFn(): LlmStreamFn {
+		this.appleStream ??= appleOpenAiStream(this.deps.nucleo, { effort: () => this.deps.cervelli?.choice().effort ?? 'normale' });
+		return this.appleStream as unknown as LlmStreamFn;
+	}
+
 	private async appleFallback(userText: string, chosen = false): Promise<string | null> {
 		if (!this.deps.nucleo.available) return null;
 		try {

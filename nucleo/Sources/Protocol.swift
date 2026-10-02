@@ -64,7 +64,9 @@ enum JSON {
             }
         case let s as String:
             writeString(s, into: &out)
-        case let fs as [Float]:
+        case let fs as [Float] where Swift.type(of: value!) == [Float].self:
+            // Real Float vectors only: an array of NSNumbers out of JSONSerialization also
+            // casts to [Float], and ids like 1238 must not print as 1238.0.
             out += "["
             for (i, f) in fs.enumerated() {
                 if i > 0 { out += "," }
