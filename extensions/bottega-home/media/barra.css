@@ -140,6 +140,15 @@ body.ferma *::after { animation-play-state: paused !important; }
 	padding: 0 var(--bordo) 8px;
 }
 
+/* se tutte le sessioni aspettano Andrea, l'elenco delle altre e' vuoto: sparisce, e chi aspetta prende tutto lo spazio
+   (prima restava una fascia vuota sotto, e l'ultima scheda veniva tagliata) */
+.scorre:not(:has(> :not([hidden]))) { display: none; }
+.sessioni:has(.scorre:not(:has(> :not([hidden])))) .aspettano {
+	flex: 1 1 auto;
+	max-height: none;
+	padding-bottom: 8px;
+}
+
 /* ---------- testata: il cervello e l'impegno ---------- */
 
 .testa {
