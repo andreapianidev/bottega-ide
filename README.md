@@ -68,13 +68,16 @@ mettere le mani su un file che l'altra ha modificato da poco.
 
 Un'assistente vocale con un carattere suo, che agisce sull'IDE: apre progetti, avvia lavori Claude,
 cerca nella memoria, legge lo stato di git e del sistema. Tocca **Opzione+Spazio** per una
-conversazione in tempo reale (la puoi interrompere mentre parla), tienilo premuto per un comando
-solo. Funziona ovunque sul Mac, anche con la Bottega in secondo piano. Le azioni a rischio, come un
+conversazione in tempo reale (mentre parla non ti ascolta, come la Melissa di Avo: la interrompi con un tocco),
+tienilo premuto per un comando solo. Funziona ovunque sul Mac, anche con la Bottega in secondo piano. Le azioni a rischio, come un
 push, chiedono sempre conferma.
 
-- Ascolto: ElevenLabs `scribe_v2_realtime`, in streaming.
+- Ascolto: il riconoscimento vocale di Apple sul Mac (`SFSpeechRecognizer`, italiano), come la Melissa di Avo:
+  testo in diretta mentre parli, frase chiusa dopo 1,8 secondi senza parole nuove. Al primo uso macOS chiede
+  i permessi di microfono e riconoscimento vocale.
 - Ragionamento: Agnes AI (`agnes-3.0-flash`, API compatibile OpenAI) con strumenti, in streaming,
-  cosi' Melissa comincia a parlare mentre la risposta e' ancora in arrivo.
+  cosi' Melissa comincia a parlare mentre la risposta e' ancora in arrivo. A voce senza ragionamento
+  (`reasoning_effort: none`), per rispondere subito; l'impegno scelto nella barra vale per le domande scritte.
 - Voce: ElevenLabs `eleven_v4_turbo` su canale tenuto caldo, circa 0,2 secondi al primo suono.
   Se ElevenLabs non risponde, parla con una voce di sistema di macOS.
 - La sfera vive dentro la Bottega, nella barra laterale e nella barra di stato. Con `bottega.voice.sfera` su
@@ -255,19 +258,19 @@ niente; Melissa e i riassunti della memoria hanno bisogno di due servizi esterni
 - Senza Agnes: Melissa risponde con Apple Intelligence del Mac, con gli strumenti ma più lenta e meno
   brillante, e la memoria riassume con Apple Intelligence.
 
-**2. ElevenLabs, orecchie e voce** (Melissa che ti ascolta e ti risponde a voce)
+**2. ElevenLabs, la voce** (Melissa che ti risponde a voce; ad ascoltare ci pensa il Mac)
 
 - Serve un account [ElevenLabs](https://elevenlabs.io) con una chiave API che abbia almeno i
-  permessi di sintesi vocale (*text to speech*), trascrizione (*speech to text*) e lettura delle
-  voci (*voices read*). Non serve il permesso di lettura dell'account.
-- Modelli usati: `scribe_v2_realtime` per ascoltare, `eleven_v4_turbo` per parlare. Entrambi
-  consumano crediti: una risposta di Melissa e' di solito 100-200 caratteri. Per un uso quotidiano
+  permessi di sintesi vocale (*text to speech*) e lettura delle voci (*voices read*). La trascrizione
+  (*speech to text*) serve solo se scegli di ascoltare con ElevenLabs (`BOTTEGA_STT=elevenlabs`).
+  Non serve il permesso di lettura dell'account.
+- Modello usato: `eleven_v4_turbo` per parlare (`scribe_v2_realtime` solo con `BOTTEGA_STT=elevenlabs`).
+  Consuma crediti: una risposta di Melissa e' di solito 100-200 caratteri. Per un uso quotidiano
   conviene un piano a pagamento; la Bottega conta i caratteri consumati nel mese in
   `~/.bottega/nucleo/usage.json`.
 - Scegli una voce dalla tua libreria ElevenLabs (anche una creata da te) e copia il suo
   *voice ID*: quella di Melissa e' legata all'account dell'autore e non funziona con altri account.
-- Senza ElevenLabs: Melissa non ti sente (le puoi scrivere dalla pagina Melissa) e risponde con una
-  voce di sistema di macOS.
+- Senza ElevenLabs: Melissa ti sente lo stesso e risponde con una voce di sistema di macOS.
 
 **3. Dove mettere le chiavi**
 
@@ -302,8 +305,10 @@ Si toglie con `node ~/.bottega/memoria-app/cli.mjs uninstall`. Dettagli in
 
 - verso Agnes AI: le domande che fai a Melissa e il testo delle sessioni da riassumere (al massimo
   12.000 caratteri per sessione, gia' ripulito dalle chiavi riconoscibili);
-- verso ElevenLabs: l'audio mentre Melissa ti ascolta (solo a conversazione aperta o col tasto
-  premuto) e il testo che deve pronunciare;
+- verso Apple: l'audio mentre Melissa ti ascolta (solo a conversazione aperta o col tasto premuto), per il
+  riconoscimento vocale del Mac, che puo' usare i server di Apple come fa Siri;
+- verso ElevenLabs: il testo che Melissa deve pronunciare (e l'audio dell'ascolto solo con
+  `BOTTEGA_STT=elevenlabs`);
 - verso Open VSX: le ricerche e i download delle estensioni.
 - verso Claude e Anthropic, solo se premi «Cerca anche in Gmail» (o accendi `bottega.posta.gmailOgniMinuti`): la
   richiesta a Gmail e i mittenti, gli oggetti e le anteprime dei fili trovati, come nell'uso normale dei connettori.
