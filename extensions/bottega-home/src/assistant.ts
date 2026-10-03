@@ -488,7 +488,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		},
 	},
 	cervello_cambia: {
-		spec: { type: 'function', function: { name: 'cervello_cambia', description: 'Cambia il cervello con cui Melissa pensa, per questa conversazione (poi si torna ad Agnes), e/o l\'impegno. Usalo quando Andrea dice "usa Claude", "passa a Gemini", "torna ad Agnes", "pensa piu\' a fondo", "rispondi veloce".', parameters: obj({ cervello: { type: 'string', description: 'agnes, claude, opus, gemini, gpt, apple, deepseek' }, impegno: { type: 'string', description: 'rapido, normale o profondo' } }) } },
+		spec: { type: 'function', function: { name: 'cervello_cambia', description: 'Cambia il cervello con cui Melissa pensa, per questa conversazione (poi si torna ad Agnes), e/o l\'impegno. Usalo quando Andrea dice "usa DeepSeek", "torna ad Agnes", "pensa piu\' a fondo", "rispondi veloce". I cervelli sono solo Agnes, DeepSeek e Apple Intelligence: Claude, Gemini e GPT non ci sono piu\'.', parameters: obj({ cervello: { type: 'string', description: 'agnes, deepseek o apple' }, impegno: { type: 'string', description: 'rapido, normale o profondo' } }) } },
 		async run(a, ctx) {
 			if (!ctx.deps.actions.switchBrain) return 'Non posso cambiare cervello da qui.';
 			const r = await ctx.deps.actions.switchBrain(a.cervello, a.impegno);
@@ -1514,9 +1514,12 @@ export class Assistant {
 }
 
 /** "anthropic/claude-sonnet-5.5" -> "Claude Sonnet 5.5": come lo dice Melissa. */
+/** Il nome detto di un cervello scelto a mano: Agnes, DeepSeek, Apple Intelligence (OpenRouter tolto il 3/10/2026). */
 export function brainName(model: string): string {
-	const m = (model || '').split('/').pop() ?? '';
-	return m.split('-').map(w => (/^\d/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1))).join(' ').replace(/^Gpt/, 'GPT') || 'Il cervello scelto';
+	if (/^deepseek/.test(model || '')) return model === 'deepseek-v4-pro' ? 'DeepSeek V4 Pro' : 'DeepSeek V4.1 Flash';
+	if (/^agnes/.test(model || '')) return 'Agnes';
+	if (/^apple/.test(model || '')) return 'Apple Intelligence';
+	return 'Il cervello scelto';
 }
 
 function abortError(): Error {

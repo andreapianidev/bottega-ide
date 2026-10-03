@@ -40,15 +40,11 @@ function brain(over = {}) {
 		effort: 'normale',
 		options: [
 			{ provider: 'agnes', model: 'agnes-3.0-flash', label: 'Agnes 3.0 Flash', note: 'gratis', available: true },
-			{ provider: 'openrouter', model: 'prova/sonetto', label: 'Sonetto di prova', note: 'a consumo', price: { in: 3, out: 15 }, available: true },
-			{ provider: 'openrouter', model: 'prova/lampo', label: 'Lampo di prova', note: 'a consumo', price: { in: 0.3, out: 2.5 }, available: true },
-			{ provider: 'deepseek', model: 'deepseek-chat', label: 'DeepSeek', note: 'a consumo', available: false, why: 'senza credito (402)' },
 			{ provider: 'apple', model: 'foundation', label: 'Apple sul Mac', note: 'sul Mac', available: true },
+			{ provider: 'deepseek', model: 'deepseek-flash', label: 'DeepSeek V4.1 Flash', note: 'a consumo, a fondo V4 Pro', available: false, why: 'senza credito (402)' },
 		],
-		credit: { openrouter: 2.1 },
 		accounts: [
 			{ id: 'agnes', label: 'Agnes', text: 'gratis, nessun saldo da controllare; 12 richieste oggi dalla Bottega', tone: 'ok', local: true },
-			{ id: 'openrouter', label: 'OpenRouter', text: 'restano 2,10 $', tone: 'ok' },
 			{ id: 'deepseek', label: 'DeepSeek', text: 'saldo -0,01 $: senza credito', tone: 'male' },
 			{ id: 'elevenlabs', label: 'ElevenLabs', text: '801 caratteri di voce a ottobre, contati dalla Bottega', tone: 'ok', local: true },
 		],
@@ -234,27 +230,26 @@ function lineette(d) {
 		assert.deepStrictEqual(b.errors, []);
 	});
 
-	await test('testata: cervello, nota, opzioni spente con il motivo, prezzi, credito, impegno', () => {
+	await test('testata: cervello, nota, opzioni spente con il motivo, conti, impegno', () => {
 		const b = mount();
 		b.send(stato());
 		assert.strictEqual(b.$('.testa').hidden, false);
 		assert.strictEqual(b.$('#cervello-nome').textContent, 'Agnes 3.0 Flash');
 		assert.strictEqual(b.$('#cervello-nota').textContent, 'gratis');
 		const opts = b.$$('#cervelli [role=option]');
-		assert.strictEqual(opts.length, 5);
-		const ds = opts[3];
+		assert.strictEqual(opts.length, 3);
+		const ds = opts[2];
 		assert.strictEqual(ds.getAttribute('aria-disabled'), 'true');
 		assert.ok(ds.classList.contains('spenta'));
 		assert.match(ds.textContent, /DeepSeek/);
 		assert.match(ds.textContent, /senza credito \(402\)/);
 		assert.strictEqual(opts[0].getAttribute('aria-selected'), 'true');
-		assert.match(opts[1].textContent, /a consumo, 3 \$ letti e 15 \$ scritti al milione/);
-		assert.match(opts[2].textContent, /0,30 \$ letti e 2,50 \$ scritti/);
-		assert.match(opts[4].textContent, /sul Mac/);
+		assert.match(opts[1].textContent, /sul Mac/);
+		assert.ok(!/openrouter|claude|gemini|gpt/i.test(b.$('#cervelli').textContent), 'niente piu\' OpenRouter');
 		// i conti: riassunto del cervello in uso (o del conto peggiore), elenco completo a richiesta
 		assert.strictEqual(b.$('#conti').hidden, false);
 		assert.strictEqual(b.$('#conti-riassunto').textContent, 'DeepSeek: saldo -0,01 $: senza credito');
-		assert.deepStrictEqual([...b.$$('#conti-lista li')].map(li => li.textContent), ['Agnesgratis, nessun saldo da controllare; 12 richieste oggi dalla Bottega', 'OpenRouterrestano 2,10 $', 'DeepSeeksaldo -0,01 $: senza credito', 'ElevenLabs801 caratteri di voce a ottobre, contati dalla Bottega']);
+		assert.deepStrictEqual([...b.$$('#conti-lista li')].map(li => li.textContent), ['Agnesgratis, nessun saldo da controllare; 12 richieste oggi dalla Bottega', 'DeepSeeksaldo -0,01 $: senza credito', 'ElevenLabs801 caratteri di voce a ottobre, contati dalla Bottega']);
 		assert.strictEqual(b.$('#impegno input[value=normale]').checked, true);
 		assert.strictEqual(b.$('#impegno input[value=rapido]').checked, false);
 	});
@@ -268,26 +263,25 @@ function lineette(d) {
 		assert.strictEqual(b.$('#cervelli').hidden, false);
 		assert.strictEqual(b.d.activeElement, b.$('#cervelli'));
 		// clic su DeepSeek: niente
-		b.click(b.$$('#cervelli [role=option]')[3]);
+		b.click(b.$$('#cervelli [role=option]')[2]);
 		assert.strictEqual(b.last('brain.set'), undefined);
 		assert.strictEqual(b.$('#cervelli').hidden, false, 'resta aperto sulla spenta');
-		// tastiera: giu' fino a DeepSeek, Invio non fa nulla; giu' ancora e Invio sceglie Apple
+		// tastiera: giu' fino a DeepSeek (spento), Invio non fa nulla; su di uno e Invio sceglie Apple
 		const lb = b.$('#cervelli');
 		b.key(lb, 'ArrowDown');
 		b.key(lb, 'ArrowDown');
-		b.key(lb, 'ArrowDown');
-		assert.strictEqual(lb.getAttribute('aria-activedescendant'), 'cervello-3');
+		assert.strictEqual(lb.getAttribute('aria-activedescendant'), 'cervello-2');
 		b.key(lb, 'Enter');
 		assert.strictEqual(b.last('brain.set'), undefined);
-		b.key(lb, 'End');
+		b.key(lb, 'ArrowUp');
 		b.key(lb, 'Enter');
 		assert.deepStrictEqual(b.last('brain.set'), { type: 'brain.set', provider: 'apple', model: 'foundation' });
 		assert.strictEqual(b.$('#cervelli').hidden, true);
 		assert.strictEqual(b.d.activeElement, tasto, 'il fuoco torna al tasto');
 		// clic su un'opzione disponibile
 		b.click(tasto);
-		b.click(b.$$('#cervelli [role=option]')[1]);
-		assert.deepStrictEqual(b.last('brain.set'), { type: 'brain.set', provider: 'openrouter', model: 'prova/sonetto' });
+		b.click(b.$$('#cervelli [role=option]')[0]);
+		assert.deepStrictEqual(b.last('brain.set'), { type: 'brain.set', provider: 'agnes', model: 'agnes-3.0-flash' });
 		// Esc chiude senza scegliere
 		const prima = b.posted.length;
 		b.key(tasto, 'ArrowDown');
@@ -599,6 +593,7 @@ function lineette(d) {
 		assert.match(CSS, /\.notte \{[^}]*var\(--notte\)/);
 		assert.ok(!/min-width:\s*(2[89]\d|[3-9]\d\d)px/.test(CSS), 'nessuna larghezza minima oltre la barra');
 		assert.match(CSS, /\.aspettano \{[^}]*flex: 0 0 auto/, 'chi aspetta non si restringe');
+		assert.match(CSS, /\.cervello \{[^}]*z-index: 3/, 'l\'elenco dei cervelli sta sopra i selettori dell\'impegno');
 		// una sola parte che scorre: le sessioni intere, non chi aspetta e le altre ciascuno per conto suo
 		assert.match(CSS, /\.sessioni \{[^}]*overflow-y: auto/, 'le sessioni scorrono insieme');
 		for (const sel of ['aspettano', 'scorre']) assert.ok(!new RegExp(`\\.${sel} \\{[^}]*overflow-y`).test(CSS), `.${sel} non ha uno scorrimento suo`);

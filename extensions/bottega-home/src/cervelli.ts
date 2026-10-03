@@ -1,7 +1,8 @@
-/* I cervelli di Melissa: Agnes (predefinito, gratis), OpenRouter (a consumo: i modelli piu' recenti per famiglia,
-   letti dall'elenco vero), DeepSeek (se ha credito), Apple Intelligence sul Mac (dal Nucleo). Tre di questi parlano
-   l'API compatibile OpenAI con gli strumenti, in streaming: un solo client, con le differenze di ciascuno (url,
-   chiave, modello, come si chiede l'impegno). La scelta e l'impegno si ricordano e si cambiano anche a voce.
+/* I cervelli di Melissa: Agnes (predefinito, gratis), DeepSeek (a consumo, se ha credito), Apple Intelligence sul Mac
+   (dal Nucleo, la riserva quando Agnes non risponde). Agnes e DeepSeek parlano l'API compatibile OpenAI con gli
+   strumenti, in streaming: un solo client, con le differenze di ciascuno (url, chiave, modello, come si chiede
+   l'impegno). La scelta e l'impegno si ricordano e si cambiano anche a voce.
+   OpenRouter (Claude, Gemini, GPT a consumo) e' stato tolto il 3/10/2026: «Agnes e DeepSeek bastano e avanzano».
    Contratto: docs/CONTRATTI.md, sezione 6. */
 
 import * as fs from 'fs';
@@ -9,7 +10,7 @@ import * as os from 'os';
 import * as path from 'path';
 import type { LlmDelta, LlmMessage, LlmStreamFn, ToolSpec } from './assistant';
 
-export type Provider = 'agnes' | 'openrouter' | 'apple' | 'deepseek';
+export type Provider = 'agnes' | 'apple' | 'deepseek';
 export type Effort = 'rapido' | 'normale' | 'profondo';
 
 export interface BrainOption {
@@ -24,7 +25,7 @@ export interface BrainOption {
 
 /** Un conto da mostrare nella barra: solo dati veri, con la loro fonte. */
 export interface Account {
-	id: 'agnes' | 'openrouter' | 'deepseek' | 'elevenlabs';
+	id: 'agnes' | 'deepseek' | 'elevenlabs';
 	label: string;
 	text: string;
 	tone: 'ok' | 'attesa' | 'male';
@@ -36,7 +37,6 @@ export interface BrainState {
 	current: { provider: Provider; model: string; label: string };
 	effort: Effort;
 	options: BrainOption[];
-	credit?: { openrouter?: number };
 	accounts: Account[];
 	checkedAt: number;
 }
@@ -74,52 +74,16 @@ const AGNES_DAY = 'bottega.agnes.oggi';
 const TEMP_MS = 15 * 60_000;
 const HOUR = 3_600_000;
 const AGNES = { url: 'https://apihub.agnes-ai.com/v1/chat/completions', model: 'agnes-3.0-flash' };
-const OPENROUTER = { url: 'https://openrouter.ai/api/v1/chat/completions', models: 'https://openrouter.ai/api/v1/models', credits: 'https://openrouter.ai/api/v1/credits' };
-const DEEPSEEK = { url: 'https://api.deepseek.com/chat/completions', fast: 'deepseek-chat', deep: 'deepseek-reasoner' };
+/** DeepSeek (GET /models, 3/10/2026): deepseek-flash e' DeepSeek-V4.1-Flash, deepseek-v4-pro il modello grande; tutti e
+ *  due con reasoning_effort. I nomi vecchi deepseek-chat e deepseek-reasoner portano a V4.1 Flash senza e con ragionamento:
+ *  fino alla build 60 rapido e normale erano la stessa cosa e il Pro non si usava mai. */
+const DEEPSEEK = { url: 'https://api.deepseek.com/chat/completions', fast: 'deepseek-flash', deep: 'deepseek-v4-pro' };
 export const DEFAULT_CHOICE: Choice = { provider: 'agnes', model: AGNES.model, effort: 'normale' };
-
-/** Le famiglie che la barra offre su OpenRouter: per ciascuna il modello piu' recente con gli strumenti. */
-export const FAMILIES: { re: RegExp; fallback: string }[] = [
-	{ re: /^anthropic\/claude-sonnet-[\d.]+$/, fallback: 'Claude Sonnet' },
-	{ re: /^anthropic\/claude-opus-[\d.]+$/, fallback: 'Claude Opus' },
-	{ re: /^google\/gemini-[\d.]+-flash$/, fallback: 'Gemini Flash' },
-	{ re: /^openai\/gpt-[\d.]+(-[a-z]+)?$/, fallback: 'GPT' },
-];
 
 export class BrainError extends Error {
 	constructor(readonly provider: Provider, readonly status: number, message: string) {
 		super(message);
 	}
-}
-
-interface OrModel {
-	id: string;
-	name?: string;
-	created?: number;
-	pricing?: { prompt?: string; completion?: string };
-	supported_parameters?: string[];
-}
-
-/** Sceglie per ogni famiglia il modello piu' recente che accetta gli strumenti (niente varianti :batch, -pro, -luna). */
-export function pickOpenRouter(models: OrModel[]): BrainOption[] {
-	const out: BrainOption[] = [];
-	for (const f of FAMILIES) {
-		const m = models
-			.filter(x => f.re.test(x.id) && !/-(pro|luna|mini|nano)$/.test(x.id) && (x.supported_parameters ?? []).includes('tools'))
-			.sort((a, b) => (b.created ?? 0) - (a.created ?? 0))[0];
-		if (!m) continue;
-		const pin = Number(m.pricing?.prompt ?? 0) * 1e6;
-		const pout = Number(m.pricing?.completion ?? 0) * 1e6;
-		out.push({
-			provider: 'openrouter',
-			model: m.id,
-			label: (m.name ?? f.fallback).replace(/^[^:]+:\s*/, ''),
-			note: 'a consumo',
-			price: { in: Math.round(pin * 100) / 100, out: Math.round(pout * 100) / 100 },
-			available: true,
-		});
-	}
-	return out;
 }
 
 /** Il corpo della richiesta per ogni provider, con l'impegno tradotto nel suo parametro. */
@@ -130,25 +94,24 @@ export function requestBody(c: Choice, messages: LlmMessage[], tools: ToolSpec[]
 		body.tool_choice = 'auto';
 	}
 	if (c.provider === 'agnes') body.reasoning_effort = c.effort === 'rapido' ? 'none' : c.effort === 'normale' ? 'low' : 'high';
-	if (c.provider === 'openrouter') body.reasoning = { effort: c.effort === 'rapido' ? 'low' : c.effort === 'normale' ? 'medium' : 'high' };
-	if (c.provider === 'deepseek') body.model = c.effort === 'profondo' ? DEEPSEEK.deep : DEEPSEEK.fast;
+	// DeepSeek: rapido V4.1 Flash senza ragionare, normale Flash con poco ragionamento, profondo V4 Pro a fondo
+	if (c.provider === 'deepseek') {
+		body.model = c.effort === 'profondo' ? DEEPSEEK.deep : DEEPSEEK.fast;
+		body.reasoning_effort = c.effort === 'rapido' ? 'none' : c.effort === 'normale' ? 'low' : 'high';
+	}
 	return body;
 }
 
-/** Riconosce una richiesta a voce: «usa Claude», «pensa piu' a fondo», «torna ad Agnes», «rispondi veloce». */
-export function spokenChoice(text: string): { provider?: Provider; family?: number; effort?: Effort } {
+/** Riconosce una richiesta a voce: «usa DeepSeek», «pensa piu' a fondo», «torna ad Agnes», «rispondi veloce». */
+export function spokenChoice(text: string): { provider?: Provider; effort?: Effort } {
 	const t = (text || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-	const out: { provider?: Provider; family?: number; effort?: Effort } = {};
+	const out: { provider?: Provider; effort?: Effort } = {};
 	if (/\b(piu a fondo|ragiona bene|pensaci bene|profond|con calma)\b/.test(t)) out.effort = 'profondo';
 	else if (/\b(veloce|rapid|in fretta|sbrigati)\b/.test(t)) out.effort = 'rapido';
 	else if (/\b(normale|come prima)\b/.test(t)) out.effort = 'normale';
 	if (/\bagnes\b/.test(t)) out.provider = 'agnes';
 	else if (/\bapple\b|\bsul mac\b|\blocale\b/.test(t)) out.provider = 'apple';
 	else if (/\bdeep ?seek\b/.test(t)) out.provider = 'deepseek';
-	else if (/\bopus\b/.test(t)) (out.provider = 'openrouter'), (out.family = 1);
-	else if (/\bclaude\b|\bsonnet\b/.test(t)) (out.provider = 'openrouter'), (out.family = 0);
-	else if (/\bgemini\b|\bgoogle\b/.test(t)) (out.provider = 'openrouter'), (out.family = 2);
-	else if (/\bgpt\b|\bopenai\b|\bchat ?gpt\b/.test(t)) (out.provider = 'openrouter'), (out.family = 3);
 	return out;
 }
 
@@ -169,8 +132,6 @@ export class Cervelli {
 	private readonly fetchFn: typeof fetch;
 	private readonly now: () => number;
 	private readonly secrets: string;
-	private orModels: { at: number; options: BrainOption[] } | null = null;
-	private credit: { at: number; value?: number } | null = null;
 	private down = new Map<Provider, { until: number; why: string }>();
 	private deepseekChecked = 0;
 	private checkedAt = 0;
@@ -183,30 +144,10 @@ export class Cervelli {
 		this.fetchFn = o.fetch ?? fetch;
 		this.now = o.now ?? Date.now;
 		this.secrets = o.secretsDir ?? path.join(os.homedir(), '.secrets');
-		try {
-			const c = JSON.parse(fs.readFileSync(this.cacheFile(), 'utf8'));
-			if (c?.orModels?.options) this.orModels = c.orModels;
-		} catch {
-			// prima volta
-		}
-	}
-
-	private cacheFile(): string {
-		return this.o.cacheFile ?? path.join(os.homedir(), '.bottega', 'cervelli.json');
-	}
-
-	private saveCache(): void {
-		try {
-			fs.mkdirSync(path.dirname(this.cacheFile()), { recursive: true, mode: 0o700 });
-			fs.writeFileSync(this.cacheFile(), JSON.stringify({ orModels: this.orModels }) + '\n', { mode: 0o600 });
-		} catch {
-			// la cache e' una comodita'
-		}
 	}
 
 	key(p: Provider): string | undefined {
 		if (p === 'agnes') return process.env.AGNES_API_KEY || readEnv(path.join(this.secrets, 'agnes-ai.env')).AGNES_API_KEY;
-		if (p === 'openrouter') return process.env.OPENROUTER_API_KEY || readEnv(path.join(this.secrets, 'openrouter-vision.env')).OPENROUTER_API_KEY;
 		if (p === 'deepseek') return process.env.DEEPSEEK_API_KEY || readEnv(path.join(this.secrets, 'deepseek-harness.env')).DEEPSEEK_API_KEY;
 		return undefined;
 	}
@@ -313,16 +254,11 @@ export class Cervelli {
 		return b;
 	}
 
-	/** I conti nella barra. Melissa pensa con Agnes, gratis (decisione di Andrea, 2 ottobre 2026): i servizi a pagamento
-	 *  (OpenRouter, DeepSeek) si vedono solo mentre una conversazione li sta usando, mai come allarme a riposo. */
-	private async accounts(credit: number | undefined, inUse: Provider): Promise<Account[]> {
+	/** I conti nella barra. Melissa pensa con Agnes, gratis (decisione di Andrea, 2 ottobre 2026): DeepSeek, a pagamento,
+	 *  si vede solo mentre una conversazione lo sta usando; il suo credito sta sempre nel Cruscotto (src/conti.ts). */
+	private async accounts(inUse: Provider): Promise<Account[]> {
 		const out: Account[] = [this.agnesAccount()];
 		const money = (n: number) => `${n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
-		if (credit !== undefined && inUse === 'openrouter') {
-			out.push(credit > 1
-				? { id: 'openrouter', label: 'OpenRouter', text: `restano ${money(credit)}`, tone: 'ok' }
-				: { id: 'openrouter', label: 'OpenRouter', text: credit > 0 ? `restano solo ${money(credit)}` : `saldo ${money(credit)}: va ricaricato`, tone: credit > 0 ? 'attesa' : 'male' });
-		}
 		const b = await this.otherBalances();
 		if (b.deepseek !== undefined && inUse === 'deepseek') out.push({ id: 'deepseek', label: 'DeepSeek', text: b.deepseekOk ? `restano ${money(b.deepseek)}` : `saldo ${money(b.deepseek)}: senza credito`, tone: b.deepseekOk ? 'ok' : 'male' });
 		if (b.elevenlabs !== undefined) {
@@ -347,28 +283,11 @@ export class Cervelli {
 	async options(): Promise<BrainOption[]> {
 		const out: BrainOption[] = [];
 		out.push({ provider: 'agnes', model: AGNES.model, label: 'Agnes 3.0 Flash', note: 'gratis', available: !!this.key('agnes') && !this.isDown('agnes'), why: !this.key('agnes') ? 'manca la chiave' : this.isDown('agnes') });
-		// OpenRouter: elenco vero, una volta al giorno
-		if (this.key('openrouter')) {
-			if (!this.orModels || this.now() - this.orModels.at > 24 * HOUR) {
-				try {
-					const r = await this.fetchFn(OPENROUTER.models);
-					if (r.ok) {
-						const j: any = await r.json();
-						this.orModels = { at: this.now(), options: pickOpenRouter(j.data ?? []) };
-						this.saveCache();
-					}
-				} catch {
-					// senza rete resta l'elenco di ieri
-				}
-			}
-			const why = this.isDown('openrouter');
-			for (const o of this.orModels?.options ?? []) out.push({ ...o, available: !why, ...(why ? { why } : {}) });
-		}
 		out.push({ provider: 'apple', model: 'apple-on-device', label: 'Apple Intelligence', note: 'sul Mac', available: !!this.o.appleAvailable?.(), why: this.o.appleAvailable?.() ? undefined : (this.o.appleReason?.() ?? 'Apple Intelligence non risponde ancora dal Nucleo') });
 		if (this.key('deepseek')) {
 			await this.probeDeepseek();
 			const why = this.isDown('deepseek');
-			out.push({ provider: 'deepseek', model: DEEPSEEK.fast, label: 'DeepSeek', note: 'a consumo', available: !why, ...(why ? { why } : {}) });
+			out.push({ provider: 'deepseek', model: DEEPSEEK.fast, label: 'DeepSeek V4.1 Flash', note: 'a consumo, a fondo V4 Pro', available: !why, ...(why ? { why } : {}) });
 		}
 		this.checkedAt = this.now();
 		return out;
@@ -391,25 +310,7 @@ export class Cervelli {
 		}
 	}
 
-	/** Credito OpenRouter in dollari (crediti meno uso), al massimo ogni 10 minuti. */
-	private async openrouterCredit(): Promise<number | undefined> {
-		if (!this.key('openrouter')) return undefined;
-		if (this.credit && this.now() - this.credit.at < 10 * 60_000) return this.credit.value;
-		try {
-			const r = await this.fetchFn(OPENROUTER.credits, { headers: { authorization: `Bearer ${this.key('openrouter')}` } });
-			const j: any = r.ok ? await r.json() : null;
-			const v = j?.data ? Math.round((Number(j.data.total_credits) - Number(j.data.total_usage)) * 100) / 100 : undefined;
-			// il saldo si mostra e basta: OpenRouter accetta un piccolo scoperto (misurato: 200 con saldo -0,13 $),
-			// quindi il cervello va da parte solo quando una risposta vera e' 402
-			this.credit = { at: this.now(), value: v };
-			return v;
-		} catch {
-			return this.credit?.value;
-		}
-	}
-
 	async state(): Promise<BrainState> {
-		const credit = await this.openrouterCredit();
 		const options = await this.options();
 		let c = this.choice();
 		let cur = options.find(o => o.provider === c.provider && o.model === c.model);
@@ -422,8 +323,7 @@ export class Cervelli {
 			current: { provider: c.provider, model: c.model, label: cur?.label ?? 'Agnes 3.0 Flash' },
 			effort: c.effort,
 			options,
-			...(credit !== undefined ? { credit: { openrouter: credit } } : {}),
-			accounts: await this.accounts(credit, c.provider),
+			accounts: await this.accounts(c.provider),
 			checkedAt: this.checkedAt,
 		};
 	}
@@ -431,15 +331,11 @@ export class Cervelli {
 	/** Lo stream per il cervello scelto (Apple escluso: passa dal Nucleo). Errori 401/402 mettono da parte il cervello. */
 	streamFor(c: Choice = this.choice()): LlmStreamFn | undefined {
 		if (c.provider === 'apple') return undefined;
-		const url = c.provider === 'agnes' ? AGNES.url : c.provider === 'openrouter' ? OPENROUTER.url : DEEPSEEK.url;
+		const url = c.provider === 'agnes' ? AGNES.url : DEEPSEEK.url;
 		return async (messages, tools, onDelta, signal) => {
 			const key = this.key(c.provider);
 			if (!key) throw new BrainError(c.provider, 0, 'Manca la chiave.');
 			const headers: Record<string, string> = { 'content-type': 'application/json', authorization: `Bearer ${key}` };
-			if (c.provider === 'openrouter') {
-				headers['HTTP-Referer'] = 'https://github.com/andreapianidev/bottega-ide';
-				headers['X-Title'] = 'Bottega';
-			}
 			const body = JSON.stringify(requestBody(c, messages, tools));
 			let wait = 2000;
 			for (let attempt = 0; attempt < 4; attempt++) {

@@ -5,7 +5,6 @@
 .conti-attesa b { color: var(--sodio); }
 .conti-male b { color: var(--brace); }
 .cs-deepseek { fill: var(--t-in); background: var(--t-in); }
-.cs-openrouter { fill: var(--t-cw); background: var(--t-cw); }
 .cs-deleghe { fill: var(--c-claude); background: var(--c-claude); }
 .cs-voce { fill: var(--c-tu); }
 .cs-ricarica { fill: var(--laurisilva); }

@@ -15,7 +15,7 @@ import { Idee, IdeeDynamic } from './idee';
 import { handleConnettori, registerConnettori, stanzaConnettori } from './connettori-host';
 import { BarraView } from './barra';
 import { brainName } from './assistant';
-import { Cervelli, Effort, FAMILIES, Provider, spokenChoice } from './cervelli';
+import { Cervelli, Effort, Provider, spokenChoice } from './cervelli';
 import { digest, digestText } from './mani';
 import { CategorieMinuti, Osservatorio, categorieMinuti, fraseCategorie } from './osservatorio';
 import { registerPonte } from './ponte-host';
@@ -202,16 +202,13 @@ async function switchBrain(cervello?: string, impegno?: string): Promise<string>
 		await cervelli.setEffort(effort);
 		out.push(`impegno ${effort}`);
 	}
+	// Claude, Gemini e GPT passavano da OpenRouter, tolto il 3/10/2026
+	if (!asked.provider && /\b(claude|opus|sonnet|gemini|google|gpt|openai|chat ?gpt|openrouter)\b/i.test(cervello ?? '')) {
+		out.push('Claude, Gemini e GPT non ci sono più: penso con Agnes o con DeepSeek');
+	}
 	if (asked.provider) {
-		const opts = await cervelli.options();
-		let model: string | undefined;
-		if (asked.provider === 'openrouter') {
-			const fam = FAMILIES[asked.family ?? 0];
-			model = opts.find(o => o.provider === 'openrouter' && fam.re.test(o.model))?.model;
-			if (!model) return `Non trovo ${fam.fallback} tra i modelli di OpenRouter.`;
-		}
 		try {
-			const c = await cervelli.set(asked.provider as Provider, model);
+			const c = await cervelli.set(asked.provider as Provider);
 			out.push(c.provider === 'agnes' ? 'torno ad Agnes' : `penso con ${brainName(c.model)} per questa conversazione, poi torno ad Agnes`);
 		} catch (e: any) {
 			return `${e?.message ?? e} Resto con Agnes.`;
@@ -431,7 +428,7 @@ function showPlancia(section?: string): void {
 /** Il registro dei conti: una lettura poco dopo l'avvio e poi ogni 30 minuti; gli avvisi di ricarica sul Mac. */
 function registraConti(ctx: vscode.ExtensionContext): Conti {
 	const c = new Conti({
-		chiave: p => cervelli?.key(p),
+		chiave: () => cervelli?.key('deepseek'),
 		agnesOggi: () => cervelli?.agnesOggi() ?? 0,
 		log: s => console.warn(s),
 	});
@@ -883,6 +880,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			sessionBoard: async sid => (memoria ? (await memoria.bacheca(undefined, 180)).filter(r => r.sessionId === sid).slice(0, 12) : []),
 		},
 	);
+	// il Nucleo ha detto cosa sa fare (anche dopo un riavvio): Apple Intelligence si rilegge subito nell'elenco dei cervelli
+	nucleo?.on('capabilities', () => barraView?.refreshBrainNow());
 	ctx.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(BarraView.id, barraView),
 		{ dispose: () => barraView?.dispose() },

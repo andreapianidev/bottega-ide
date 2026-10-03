@@ -169,7 +169,7 @@ export function appleInstructions(core: string, live: string): string {
 
 // ---------- Apple come provider OpenAI (selettore dei cervelli) ----------
 //
-// Stessa forma di Agnes, OpenRouter e DeepSeek: messaggi e strumenti OpenAI dentro, testo in streaming e
+// Stessa forma di Agnes e DeepSeek: messaggi e strumenti OpenAI dentro, testo in streaming e
 // tool_calls fuori, un passo per chiamata. Dietro c'e' UNA sessione FoundationModels per turno: quando il
 // modello chiama uno strumento, il passo finisce con la tool_call (il Nucleo resta in attesa); al passo dopo
 // il messaggio `tool` con lo stesso tool_call_id diventa `tool.result` e la stessa sessione riprende.
