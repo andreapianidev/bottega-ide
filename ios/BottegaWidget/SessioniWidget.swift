@@ -227,17 +227,15 @@ struct VistaSessioni: View {
                     Text(Pezzi.aspetta(voce.tiAspetta))
                         .font(.headline)
                         .widgetAccentable()
-                    Text(voce.inCorso > 0 ? "\(Pezzi.alLavoro(voce.inCorso)), \(progettiInBreve)" : progettiInBreve)
+                    ElencoProgetti(progetti: voce.progetti, prima: voce.inCorso > 0 ? Pezzi.alLavoro(voce.inCorso) : nil)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
                 } else if voce.inCorso > 0 {
                     Text(Pezzi.alLavoro(voce.inCorso))
                         .font(.headline)
-                    Text(progettiInBreve)
+                    ElencoProgetti(progetti: voce.progetti)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
                 } else {
                     Text("Nessuna sessione al lavoro")
                         .font(.footnote)
@@ -256,7 +254,33 @@ struct VistaSessioni: View {
         }
     }
 
-    private var progettiInBreve: String { voce.progetti.prefix(2).joined(separator: ", ") }
+}
+
+/// I progetti su una riga: quanti ne stanno interi, poi «e altri 2». Mai un nome tagliato a meta'.
+/// `prima` va davanti («2 al lavoro, Bottega, Appunti») e resta anche quando i nomi non ci stanno.
+private struct ElencoProgetti: View {
+    let progetti: [String]
+    var prima: String? = nil
+    var massimo = 3
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            ForEach(Array(stride(from: min(massimo, progetti.count), through: 1, by: -1)), id: \.self) { n in
+                riga(n)
+            }
+            if let prima { Text(prima).lineLimit(1).fixedSize() }
+            if progetti.count > 1 { Text("\(progetti.count) progetti").lineLimit(1).fixedSize() }
+            Text(progetti.first ?? "").lineLimit(1).minimumScaleFactor(0.7)
+        }
+    }
+
+    private func riga(_ n: Int) -> some View {
+        let resto = progetti.count - n
+        let nomi = progetti.prefix(n).joined(separator: ", ") + (resto == 1 ? " e un altro" : resto > 1 ? " e altri \(resto)" : "")
+        return Text([prima, nomi].compactMap { $0 }.joined(separator: ", "))
+            .lineLimit(1)
+            .fixedSize()
+    }
 }
 
 enum Riassunto {
@@ -285,7 +309,7 @@ private struct Eta: View {
                 if voce.fonte == .diretta {
                     Text("alle \(Text(q, style: .time))")
                 } else {
-                    Text("\(Image(systemName: "wifi.slash")) \(Pezzi.daQuanto(q)) fa")
+                    Text("\(Image(systemName: "wifi.slash")) \(Pezzi.fa(q))")
                 }
             }
         }
@@ -300,15 +324,22 @@ private struct Testata: View {
     let voce: VoceSessioni
 
     var body: some View {
+        // il nome del Mac intero; se non ci sta, le prime due parole («MacBook Air»), poi la prima
+        let parole = (voce.stato?.mac ?? "Bottega").split(separator: " ").map(String.init)
         HStack(spacing: 6) {
             Sferetta(aspetta: voce.tiAspetta > 0, lavora: voce.inCorso > 0, diametro: 14)
-            Text(voce.stato?.mac ?? "Bottega")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Tinte.tinta)
-                .lineLimit(1)
+            ViewThatFits(in: .horizontal) {
+                nome(parole.joined(separator: " "))
+                if parole.count > 2 { nome(parole.prefix(2).joined(separator: " ")) }
+                Text(parole.first ?? "Bottega").lineLimit(1).minimumScaleFactor(0.75)
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Tinte.tinta)
             Spacer(minLength: 0)
         }
     }
+
+    private func nome(_ s: String) -> some View { Text(s).lineLimit(1).fixedSize() }
 }
 
 /// Il numero grande: chi ti aspetta se c'e' qualcuno, altrimenti chi lavora.
@@ -318,17 +349,33 @@ private struct Numero: View {
     var body: some View {
         let aspetta = voce.tiAspetta > 0
         let n = aspetta ? voce.tiAspetta : voce.inCorso
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Text("\(n)")
-                .font(.system(size: 38, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-            Text(aspetta ? (n == 1 ? "ti aspetta" : "ti aspettano") : "al lavoro")
-                .font(.subheadline.weight(.medium))
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
+        // il numero e la parola accanto; se la parola non ci sta, va sotto il numero
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                cifra(n)
+                parola(aspetta, n)
+            }
+            VStack(alignment: .leading, spacing: -2) {
+                cifra(n)
+                parola(aspetta, n)
+            }
         }
         .foregroundStyle(aspetta ? Tinte.ambra : Tinte.testo)
         .widgetAccentable(aspetta)
+    }
+
+    private func cifra(_ n: Int) -> some View {
+        Text("\(n)")
+            .font(.system(size: 38, weight: .semibold, design: .rounded))
+            .monospacedDigit()
+            .fixedSize()
+    }
+
+    private func parola(_ aspetta: Bool, _ n: Int) -> some View {
+        Text(aspetta ? (n == 1 ? "ti aspetta" : "ti aspettano") : "al lavoro")
+            .font(.subheadline.weight(.medium))
+            .lineLimit(1)
+            .fixedSize()
     }
 }
 
@@ -369,10 +416,9 @@ private struct SessioniPiccolo: View {
                         .font(.caption.weight(.medium))
                         .foregroundStyle(Tinte.testo)
                 }
-                Text(voce.progetti.prefix(3).joined(separator: ", "))
+                ElencoProgetti(progetti: voce.progetti)
                     .font(.caption)
                     .foregroundStyle(Tinte.tinta)
-                    .lineLimit(voce.tiAspetta > 0 && voce.inCorso > 0 ? 1 : 2)
             }
             Spacer(minLength: 0)
             Eta(voce: voce)
@@ -385,44 +431,58 @@ private struct SessioniMedio: View {
     let voce: VoceSessioni
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Testata(voce: voce)
+        // la testata prende tutta la larghezza, cosi' il nome del Mac ci sta; sotto i numeri e le sessioni
+        VStack(alignment: .leading, spacing: 6) {
+            Testata(voce: voce)
+            if Vuoto.serve(voce) {
                 Spacer(minLength: 0)
-                if Vuoto.serve(voce) {
-                    Vuoto(voce: voce)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Tinte.testo)
-                        .lineLimit(3)
-                } else {
-                    Numero(voce: voce)
-                    if voce.tiAspetta > 0, voce.inCorso > 0 {
-                        Text(Pezzi.alLavoro(voce.inCorso))
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(Tinte.testo)
-                    }
-                }
+                Vuoto(voce: voce)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Tinte.testo)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 Eta(voce: voce)
-            }
-            .frame(width: 118, alignment: .leading)
+            } else {
+                HStack(alignment: .top, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Spacer(minLength: 0)
+                        Numero(voce: voce)
+                        if voce.tiAspetta > 0, voce.inCorso > 0 {
+                            Text(Pezzi.alLavoro(voce.inCorso))
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(Tinte.testo)
+                                .fixedSize()
+                        }
+                        Spacer(minLength: 0)
+                        Eta(voce: voce)
+                    }
+                    .frame(width: 112, alignment: .leading)
 
-            if !Vuoto.serve(voce) {
-                VStack(alignment: .leading, spacing: 7) {
-                    ForEach(voce.lavori.prefix(3)) { l in
-                        RigaLavoro(lavoro: l)
+                    // tre sessioni se ci stanno, altrimenti meno, con il conto di quelle che restano fuori
+                    ViewThatFits(in: .vertical) {
+                        righe(3)
+                        righe(2)
+                        righe(1)
                     }
-                    Spacer(minLength: 0)
-                    if voce.lavori.count > 3 {
-                        Text("e altre \(voce.lavori.count - 3)")
-                            .font(.caption2)
-                            .foregroundStyle(Tinte.tinta)
-                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    }
+
+    private func righe(_ n: Int) -> some View {
+        let fuori = voce.lavori.count - n
+        return VStack(alignment: .leading, spacing: 6) {
+            ForEach(voce.lavori.prefix(n)) { l in
+                RigaLavoro(lavoro: l)
+            }
+            if fuori > 0 {
+                Text(fuori == 1 ? "e un'altra" : "e altre \(fuori)")
+                    .font(.caption2)
+                    .foregroundStyle(Tinte.tinta)
+            }
+        }
     }
 }
 
@@ -437,19 +497,29 @@ private struct RigaLavoro: View {
                 .frame(width: 7, height: 7)
                 .widgetAccentable(lavoro.stato == "ti aspetta")
             VStack(alignment: .leading, spacing: 1) {
-                Text(lavoro.progetto)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Tinte.testo)
-                    .lineLimit(1)
-                Text(lavoro.titolo)
-                    .font(.caption2)
-                    .foregroundStyle(Tinte.tinta)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 4)
-            Pezzi.daQuanto(Pezzi.data(lavoro.da))
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(lavoro.progetto)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Tinte.testo)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .layoutPriority(1)
+                    Spacer(minLength: 4)
+                    Pezzi.daQuanto(Pezzi.data(lavoro.da))
+                        .font(.caption2)
+                        .foregroundStyle(lavoro.stato == "ti aspetta" ? Tinte.ambra : Tinte.tinta)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+                // il titolo della sessione solo se ci sta intero: il progetto e il tempo bastano
+                ViewThatFits(in: .horizontal) {
+                    Text(lavoro.titolo).lineLimit(1).fixedSize()
+                    Color.clear.frame(width: 0, height: 0)
+                }
                 .font(.caption2)
-                .foregroundStyle(lavoro.stato == "ti aspetta" ? Tinte.ambra : Tinte.tinta)
+                .foregroundStyle(Tinte.tinta)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 }

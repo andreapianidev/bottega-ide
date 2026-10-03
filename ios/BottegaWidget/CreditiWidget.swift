@@ -124,11 +124,34 @@ private enum Leggi {
         return [saldo, giorni].compactMap { $0 }.joined(separator: ", ")
     }
 
-    /// «12,3 mila car.», «840 car.».
-    static func caratteri(_ v: Double) -> String {
-        if v >= 1_000_000 { return "\((v / 1_000_000).formatted(.number.locale(FormatiWidget.it).precision(.fractionLength(1)))) mln car." }
-        if v >= 1000 { return "\((v / 1000).formatted(.number.locale(FormatiWidget.it).precision(.fractionLength(v < 10_000 ? 1 : 0)))) mila car." }
-        return "\(Int(v)) car."
+    /// L'ultima risorsa quando nemmeno il breve ci sta: «1,2M», «123k», «1,2k $».
+    static func minimo(_ s: DatiServizi.Servizio) -> String {
+        if s.gratis == true { return "gratis" }
+        if let u = s.usati {
+            if let l = s.limite, l > 0 { return "\(Int((u / l * 100).rounded()))%" }
+            if u >= 1_000_000 { return "\((u / 1_000_000).formatted(.number.locale(FormatiWidget.it).precision(.fractionLength(1))))M" }
+            if u >= 1000 { return "\(Int((u / 1000).rounded()))k" }
+            return "\(Int(u))"
+        }
+        if let g = s.giorniRimasti { return g >= 365 ? "1 anno+" : "\(Int(g)) g" }
+        if let v = s.saldo, abs(v) >= 1000 {
+            let k = (v / 1000).formatted(.number.locale(FormatiWidget.it).precision(.fractionLength(1)))
+            return (s.valuta ?? "USD").uppercased() == "EUR" ? "\(k)k €" : "\(k)k $"
+        }
+        return breve(s)
+    }
+
+    /// «12,3 mila car.», «840 car.»; senza unita' «12,3 mila», «840».
+    static func caratteri(_ v: Double, unita: Bool = true) -> String {
+        let car = unita ? " car." : ""
+        if v >= 1_000_000 { return "\((v / 1_000_000).formatted(.number.locale(FormatiWidget.it).precision(.fractionLength(1)))) mln\(car)" }
+        if v >= 1000 { return "\((v / 1000).formatted(.number.locale(FormatiWidget.it).precision(.fractionLength(v < 10_000 ? 1 : 0)))) mila\(car)" }
+        return "\(Int(v))\(car)"
+    }
+
+    /// Per il medio, quando la frase del servizio non ci sta: «DeepSeek da ricaricare», «ElevenLabs finito».
+    static func avviso(_ s: DatiServizi.Servizio) -> String {
+        s.tono == "male" ? "\(s.nome): finito" : "\(s.nome) da ricaricare"
     }
 
     /// Un servizio a posto ha il numero in chiaro; in attesa o male prende il colore del tono.
@@ -140,24 +163,33 @@ private struct Riga: View {
     var lungo = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             Circle()
                 .fill(ColoriWidget.tono(s.tono))
-                .frame(width: 7, height: 7)
+                .frame(width: 6, height: 6)
                 .widgetAccentable(s.tono != "ok")
+            // il nome ha la precedenza; la cifra passa da lunga a breve a minima, intera
             Text(s.nome)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(Tinte.testo)
                 .lineLimit(1)
-            Spacer(minLength: 4)
-            Text(lungo ? Leggi.lungo(s) : Leggi.breve(s))
-                .font(.caption.weight(s.tono == "ok" ? .regular : .semibold))
-                .monospacedDigit()
-                .foregroundStyle(Leggi.colore(s))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .contentTransition(.numericText(value: s.saldo ?? s.usati ?? 0))
+                .fixedSize()
+                .layoutPriority(1)
+            Spacer(minLength: 3)
+            ViewThatFits(in: .horizontal) {
+                if lungo { cifra(Leggi.lungo(s)).lineLimit(1).fixedSize() }
+                cifra(Leggi.breve(s)).lineLimit(1).fixedSize()
+                cifra(Leggi.minimo(s)).lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .contentTransition(.numericText(value: s.saldo ?? s.usati ?? 0))
         }
+    }
+
+    private func cifra(_ t: String) -> Text {
+        Text(t)
+            .font(.caption.weight(s.tono == "ok" ? .regular : .semibold))
+            .monospacedDigit()
+            .foregroundStyle(Leggi.colore(s))
     }
 }
 
@@ -194,10 +226,13 @@ private struct CreditiMedio: View {
                 Spacer(minLength: 0)
                 // la frase del servizio che chiede attenzione, se ce n'e' uno
                 if let s = d.servizi.first(where: { $0.tono != "ok" }), let f = s.frase {
-                    Text(f)
-                        .font(.caption2)
-                        .foregroundStyle(ColoriWidget.tono(s.tono))
-                        .lineLimit(1)
+                    // la frase intera se ci sta (anche su due righe), altrimenti l'avviso corto
+                    ViewThatFits(in: .vertical) {
+                        Text(f).fixedSize(horizontal: false, vertical: true)
+                        Text(Leggi.avviso(s)).lineLimit(1).minimumScaleFactor(0.8)
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(ColoriWidget.tono(s.tono))
                 } else {
                     EtaWidget(visto: voce.letto.visto, fonte: voce.letto.fonte)
                 }
@@ -221,10 +256,13 @@ private struct SpesaDeepSeek: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("DeepSeek, 14 giorni")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(Tinte.tinta)
-                .lineLimit(1)
+            ViewThatFits(in: .horizontal) {
+                Text("DeepSeek, 14 giorni")
+                Text("DeepSeek")
+            }
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(Tinte.tinta)
+            .lineLimit(1)
             Chart {
                 ForEach(spesa.giorni) { g in
                     if let v = g.deepseek {
@@ -243,12 +281,16 @@ private struct SpesaDeepSeek: View {
             .chartYAxis(.hidden)
             .chartXScale(domain: spesa.giorni.map(\.giorno))
             if let m = media, m > 0 {
-                Text("media \(FormatiWidget.soldi(m, valuta: spesa.valuta)) al giorno")
-                    .font(.caption2)
-                    .foregroundStyle(Tinte.tinta)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                let media = FormatiWidget.soldi(m, valuta: spesa.valuta)
+                ViewThatFits(in: .horizontal) {
+                    Text("media \(media) al giorno")
+                    Text("\(media) al giorno")
+                    Text("\(media)/g")
+                }
+                .font(.caption2)
+                .foregroundStyle(Tinte.tinta)
+                .monospacedDigit()
+                .lineLimit(1)
             }
         }
     }

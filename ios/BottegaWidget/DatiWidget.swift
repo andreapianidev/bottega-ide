@@ -256,14 +256,43 @@ struct DatiConsigli: Decodable {
 enum FormatiWidget {
     static let it = Locale(identifier: "it_IT")
 
-    /// «8,40 €», «184 €», «1.240 €».
-    static func euro(_ v: Double) -> String {
-        v.formatted(.currency(code: "EUR").locale(it).precision(.fractionLength(abs(v) < 100 ? 2 : 0)))
+    /// «8,40 €», «184 €», «1.240 €», «12.480 €»: i decimali solo sotto i 100.
+    static func euro(_ v: Double) -> String { "\(numero(v)) €" }
+
+    /// Le stime al mese, sempre senza decimali: «≈ 85 €», non «≈ 85,00 €».
+    static func euroIntero(_ v: Double) -> String { abs(v) < 100 ? "\(Int(v.rounded())) €" : euro(v) }
+
+    /// «12,5k €», «128k €»: solo dove una cifra intera non ci sta (sotto i 10.000 resta intera).
+    static func euroBreve(_ v: Double) -> String {
+        guard abs(v) >= 10_000 else { return euro(v) }
+        let k = v / 1000
+        return "\(k.formatted(.number.locale(it).precision(.fractionLength(abs(k) < 100 ? 1 : 0))))k €"
+    }
+
+    /// Le cifre all'italiana con il punto delle migliaia anche a quattro cifre («1.234», non «1234» come fa il
+    /// formato di sistema): due decimali sotto i 100, nessuno sopra.
+    static func numero(_ v: Double) -> String {
+        if abs(v) < 100 { return v.formatted(.number.locale(it).precision(.fractionLength(2))) }
+        let n = Int(abs(v).rounded())
+        var cifre = String(n)
+        var gruppi: [String] = []
+        while cifre.count > 3 {
+            gruppi.insert(String(cifre.suffix(3)), at: 0)
+            cifre.removeLast(3)
+        }
+        gruppi.insert(cifre, at: 0)
+        return (v < 0 ? "-" : "") + gruppi.joined(separator: ".")
+    }
+
+    /// Le etichette dell'asse: «0 €», «200 €», «4.000 €», senza decimali inutili.
+    static func euroAsse(_ v: Double) -> String {
+        guard v == v.rounded() else { return euro(v) }
+        return abs(v) >= 100 ? euro(v) : "\(Int(v)) €"
     }
 
     /// «12,35 $» (il simbolo dopo, come nella barra di Melissa).
     static func soldi(_ v: Double, valuta: String) -> String {
-        let n = v.formatted(.number.locale(it).precision(.fractionLength(abs(v) < 100 ? 2 : 0)))
+        let n = numero(v)
         switch valuta.uppercased() {
         case "USD": return "\(n) $"
         case "EUR": return "\(n) €"
@@ -280,6 +309,16 @@ enum FormatiWidget {
     static func percento(_ v: Double) -> String {
         let n = Int((abs(v) * 100).rounded())
         return v >= 0 ? "+\(n)%" : "-\(n)%"
+    }
+
+    /// L'errore in poche parole, per la schermata di blocco dove la frase intera del Mac non ci sta.
+    static func erroreBreve(_ fonte: FonteWidget, _ errore: String?) -> String {
+        if fonte == .scollegato { return "Collega il Mac" }
+        guard let e = errore?.lowercased() else { return "Il Mac non risponde" }
+        if e.contains("non risponde") { return "Il Mac non risponde" }
+        if e.contains("rete") { return "Niente rete" }
+        if e.contains("riconosce") { return "Ricollega l'iPhone" }
+        return "Dati non pronti sul Mac"
     }
 
     /// "2026-10-01" -> «1 ott».
@@ -317,10 +356,12 @@ struct TestataWidget<Destra: View>: View {
     var body: some View {
         HStack(spacing: 6) {
             Sferetta(aspetta: acceso, lavora: true, diametro: 12)
+            // un nome d'app lungo si stringe un poco prima di essere tagliato
             Text(titolo)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Tinte.tinta)
                 .lineLimit(1)
+                .minimumScaleFactor(0.75)
             Spacer(minLength: 4)
             destra
         }
@@ -333,7 +374,7 @@ extension TestataWidget where Destra == EmptyView {
     }
 }
 
-/// Quando e' stato visto il dato: l'ora se e' fresco, «2 h fa» se e' l'ultima copia col Mac che non risponde.
+/// Quando e' stato visto il dato: l'ora se e' fresco, «2 ore fa» se e' l'ultima copia col Mac che non risponde.
 struct EtaWidget: View {
     let visto: Date?
     let fonte: FonteWidget
@@ -344,7 +385,7 @@ struct EtaWidget: View {
                 if fonte == .diretta {
                     Text("alle \(Text(v, style: .time))")
                 } else {
-                    Text("\(Image(systemName: "wifi.slash")) \(Pezzi.daQuanto(v)) fa")
+                    Text("\(Image(systemName: "wifi.slash")) \(Pezzi.fa(v))")
                 }
             }
         }
@@ -360,17 +401,34 @@ struct VuotoWidget: View {
     let errore: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Image(systemName: fonte == .scollegato ? "laptopcomputer.slash" : "moon.zzz")
-                .font(.title3)
-                .foregroundStyle(Tinte.tinta)
-            Text(fonte == .scollegato ? "Apri la Bottega e collega il Mac." : (errore ?? "Il Mac non risponde."))
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(Tinte.testo)
-                .lineLimit(4)
-                .minimumScaleFactor(0.85)
+        // la frase del Mac per intero se ci sta (prima con il simbolo, poi senza), altrimenti in poche parole:
+        // mai tagliata a meta'
+        let intera = fonte == .scollegato ? "Apri la Bottega e collega il Mac." : (errore ?? "Il Mac non risponde.")
+        ViewThatFits(in: .vertical) {
+            VStack(alignment: .leading, spacing: 4) {
+                simbolo
+                frase(intera)
+            }
+            frase(intera)
+            VStack(alignment: .leading, spacing: 4) {
+                simbolo
+                frase(FormatiWidget.erroreBreve(fonte, errore) + ".")
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    }
+
+    private var simbolo: some View {
+        Image(systemName: fonte == .scollegato ? "laptopcomputer.slash" : "moon.zzz")
+            .font(.title3)
+            .foregroundStyle(Tinte.tinta)
+    }
+
+    private func frase(_ s: String) -> some View {
+        Text(s)
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(Tinte.testo)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -390,6 +448,8 @@ struct FrecciaWidget: View {
             }
             .font(.caption2.weight(.semibold))
             .foregroundStyle(su ? Tinte.verde : Tinte.rosso)
+            .lineLimit(1)
+            .fixedSize()
         }
     }
 }
