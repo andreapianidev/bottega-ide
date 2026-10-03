@@ -10,7 +10,8 @@
    sono tagliati: una risposta sta sotto qualche decina di KB.
 
    Posta e WhatsApp: solo nome del contatto, progetto, oggetto e un'anteprima breve; mai indirizzi, numeri o corpi
-   delle mail (un mittente senza nome diventa il dominio, un contatto che e' solo un numero diventa «contatto senza nome»).
+   delle mail (un mittente senza nome diventa il dominio, un contatto che e' solo un numero diventa «contatto senza nome»,
+   un indirizzo o un telefono dentro l'oggetto diventa «[indirizzo]» o «[numero]»).
    Niente di quello che passa di qui finisce nei registri del ponte. */
 
 import { splitSummary } from './continua';
@@ -69,6 +70,15 @@ export function anteprimaSicura(s: string, max = 60): string {
 	const t = String(s ?? '')
 		.replace(/\S+@\S+\.\S+/g, '[indirizzo]')
 		.replace(/\+?\d[\d\s().\-/]{6,}\d/g, '[numero]');
+	return testo(t, max);
+}
+
+/** L'oggetto di una mail: senza indirizzi ne' numeri di telefono, ma con date, versioni e numeri d'ordine intatti
+ *  (un oggetto vero puo' contenere un indirizzo: «Inoltro da mario@...»). */
+export function oggettoSicuro(s: string, max = 90): string {
+	const t = String(s ?? '')
+		.replace(/[\w.+%-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}/gi, '[indirizzo]')
+		.replace(/\+\d[\d\s().\-/]{6,}\d|\b\d(?:[ .]?\d){8,}\b/g, '[numero]');
 	return testo(t, max);
 }
 
@@ -424,7 +434,7 @@ function posta(f: FontiStanze, d: Domanda, now: number) {
 			path: x.path,
 			nonLetti: x.nonLetti,
 			chatDaRispondere: x.chatDaRispondere,
-			mail: x.fili.slice(0, 5).map(m => ({ da: mittenteSicuro(m.da), oggetto: testo(m.oggetto, 90) || 'senza oggetto', at: ms(m.data), nonLetto: !!m.nonLetto })),
+			mail: x.fili.slice(0, 5).map(m => ({ da: mittenteSicuro(m.da), oggetto: oggettoSicuro(m.oggetto) || 'senza oggetto', at: ms(m.data), nonLetto: !!m.nonLetto })),
 			mailTotali: x.fili.length,
 			chat: x.chat.slice(0, 5).map(ch => ({ contatto: contattoSicuro(ch.contatto, ch.gruppo), gruppo: !!ch.gruppo, at: ms(ch.data), mio: !!ch.mio, anteprima: ch.mio ? undefined : anteprimaSicura(ch.ultimo) || undefined })),
 			chatTotali: x.chat.length,
