@@ -1592,8 +1592,8 @@ Forme (tempi in ms dal 1970, euro, minuti):
   [{da, oggetto, at, nonLetto}] (5), mailTotali, chat: [{contatto, gruppo, at, mio, anteprima?}] (5), chatTotali}]
   (20, solo quelli con posta o chat)}`. Privacy: `da` e' il nome del mittente, o il solo dominio se manca il nome;
   `contatto` che sia solo un numero diventa «contatto senza nome»; l'anteprima (60 caratteri, solo se l'ultimo
-  messaggio non e' tuo) ha indirizzi e numeri sostituiti da «[indirizzo]» e «[numero]». Mai indirizzi, numeri,
-  corpi delle mail.
+  messaggio non e' tuo) ha indirizzi e numeri sostituiti da «[indirizzo]» e «[numero]»; anche `oggetto` ha indirizzi
+  e telefoni sostituiti (`oggettoSicuro`: date e numeri d'ordine restano). Mai indirizzi, numeri, corpi delle mail.
 - `clienti`: `{mese, mesi, inCorso, arrotondamento, configurati, clienti: [{id, nome, minuti, importo?, tariffa?,
   giorni, progetti: [{nome, path, minuti}] (4)}] (30), fuori: [{nome, path, minuti}] (6), totale: {minuti,
   importo?}}`.

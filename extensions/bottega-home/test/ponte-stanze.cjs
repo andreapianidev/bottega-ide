@@ -14,11 +14,11 @@ const esbuild = require('esbuild');
 const SRC = path.join(__dirname, '..', 'src');
 const OUT = path.join(__dirname, 'test-out', 'ponte-stanze');
 esbuild.buildSync({
-	entryPoints: ['ponte.ts', 'dispositivo.ts', 'ponte-stanze.ts', 'strumenti-stanze.ts', 'continua.ts'].map(f => path.join(SRC, f)),
+	entryPoints: ['ponte.ts', 'dispositivo.ts', 'ponte-stanze.ts', 'strumenti-stanze.ts', 'continua.ts', 'briefing.ts'].map(f => path.join(SRC, f)),
 	outdir: OUT, format: 'cjs', platform: 'node', bundle: false, target: 'node20', logLevel: 'silent',
 });
 const { Ponte } = require(path.join(OUT, 'ponte.js'));
-const { StanzePonte, periodoParam, mittenteSicuro, contattoSicuro, anteprimaSicura, oggettoSicuro } = require(path.join(OUT, 'ponte-stanze.js'));
+const { StanzePonte, periodoParam, mittenteSicuro, contattoSicuro, anteprimaSicura, oggettoSicuro, tonoServizio } = require(path.join(OUT, 'ponte-stanze.js'));
 
 let passed = 0;
 const ok = name => (passed++, console.log('  ok  ' + name));
@@ -150,7 +150,26 @@ const NOTTE = { from: '01:00', to: '06:00', parallel: 1, queued: 1, running: 0, 
 const LAVORI = [
 	{ key: 'job:n1', source: 'bottega', status: 'stanotte', project: 'Bottega', path: '/prove/bottega', title: 'Rifai i test', since: ORA, jobId: 'n1', night: true },
 	{ key: 'job:x', source: 'bottega', status: 'in corso', project: 'Woofmap', path: '/prove/woofmap', title: 'Di giorno', since: ORA, jobId: 'x' },
+	{ key: 'sess:a1', source: 'altrove', status: 'ti aspetta', project: 'CheckIn Facile', path: '/prove/checkin', title: 'Rivedere i prezzi — subito', since: ORA - 10 * 60_000 },
 ];
+// i conti dei servizi (CONTRATTI 14), inventati
+const CONTI = {
+	schema: 1, aggiornato: new Date(ORA - 20 * 60_000).toISOString(),
+	servizi: {
+		deepseek: { nome: 'DeepSeek', valuta: 'USD', saldo: 12.345, letto: ORA - 20 * 60_000, mediaGiorno: 0.4123, giorniRimasti: 29.9, tono: 'ok', frase: 'Basta per un mese — tranquillo.' },
+		openrouter: { nome: 'OpenRouter', valuta: 'usd', saldo: 1.2, letto: ORA - H, mediaGiorno: 0.3, giorniRimasti: 4, tono: 'attesa', frase: 'Ricarica entro la settimana.' },
+		elevenlabs: { nome: 'ElevenLabs', unita: 'caratteri', usatiMese: 62000, limiteMese: 100000, rinnovo: '2026-10-15', tono: 'ok', frase: '62% del mese.' },
+		agnes: { nome: 'Agnes', gratis: true, tono: 'boh', frase: 'Gratis.' },
+		altro: { nome: 'Sconosciuto' },
+	},
+	giorni: {
+		'2026-10-01': { deepseek: { speso: 0.5, ricarica: 0, saldo: 13 }, openrouter: { speso: 0.2 }, elevenlabs: { caratteri: 3000 } },
+		'2026-10-03': { deepseek: { speso: 0.25 } },
+		'2026-09-01': { deepseek: { speso: 9 } },
+	},
+	campioni: { deepseek: { at: 0, saldo: 99 }, openrouter: { at: 0, crediti: 10, uso: 6.8 } },
+};
+let casa = { at: ORA - H, engine: 'apple', items: [{ text: 'Chiudi la pagina dei prezzi — oggi.' }, { text: 'Spingi i commit di Bottega.' }, { text: 'Rispondi a chi aspetta.' }, { text: 'Il quarto non entra.' }] };
 
 let lenta = false;
 const fonti = (extra = {}) => ({
@@ -229,7 +248,7 @@ function call(port, token, method, url) {
 		occupata: () => false, chiedi: async () => '', parla: async () => '', voce: async () => Buffer.alloc(0),
 		scriviLavoro: () => false, registraDispositivo: () => undefined,
 		log: r => registro.push(r),
-		stanze: new StanzePonte({ fonti: () => f, lavori: () => LAVORI, tempoMs: 200 }),
+		stanze: new StanzePonte({ fonti: () => f, lavori: () => LAVORI, tempoMs: 200, contiFile: path.join(dir, 'conti', 'giorni.json'), consigliHome: () => casa }),
 	});
 	await ponte.start();
 	const token = JSON.parse(fs.readFileSync(path.join(dir, 'ponte.json'), 'utf8')).token;
@@ -247,6 +266,7 @@ function call(port, token, method, url) {
 	const ignota = await get('nome=cantina');
 	assert.strictEqual(ignota.status, 400);
 	assert.match(ignota.body.errore, /appstore, cruscotto/);
+	assert.match(ignota.body.errore, /servizi, consigli/);
 	ok('solo GET con il gettone, stanza sconosciuta 400');
 
 	// App Store: mese, ieri, anno, un progetto
@@ -384,6 +404,68 @@ function call(port, token, method, url) {
 	assert.strictEqual(s.progetti[0].regole.length, 3);
 	assert.strictEqual(s.progetti[0].altre, 3);
 	ok(`elenchi lunghi tagliati (${grande.testo.length} byte)`);
+
+	// servizi: prima del file 503, poi i crediti e la spesa degli ultimi 14 giorni
+	const senza = await get('nome=servizi');
+	assert.strictEqual(senza.status, 503);
+	assert.match(senza.body.errore, /non sono ancora stati letti/);
+	fs.mkdirSync(path.join(dir, 'conti'));
+	fs.writeFileSync(path.join(dir, 'conti', 'giorni.json'), '{"schema":1,');
+	assert.strictEqual((await get('nome=servizi')).status, 503, 'file a meta\': 503, non 500');
+	fs.writeFileSync(path.join(dir, 'conti', 'giorni.json'), JSON.stringify(CONTI));
+	s = pulita(await get('nome=servizi'));
+	assert.strictEqual(s.aggiornatoAt, ORA - 20 * 60_000);
+	assert.deepStrictEqual(s.servizi.map(x => x.id), ['deepseek', 'openrouter', 'elevenlabs', 'agnes'], 'nell\'ordine, gli sconosciuti no');
+	assert.strictEqual(s.servizi[0].saldo, 12.35);
+	assert.strictEqual(s.servizi[0].giorniRimasti, 29);
+	assert.strictEqual(s.servizi[0].frase, 'Basta per un mese, tranquillo.');
+	assert.strictEqual(s.servizi[1].valuta, 'USD');
+	assert.strictEqual(s.servizi[1].tono, 'attesa');
+	assert.deepStrictEqual([s.servizi[2].usati, s.servizi[2].limite], [62000, 100000]);
+	assert.ok(s.servizi[2].rinnovo > 0);
+	assert.strictEqual(s.servizi[3].gratis, true);
+	assert.strictEqual(s.servizi[3].tono, 'attesa', 'un tono sconosciuto e\' ambra');
+	assert.strictEqual(s.spesa.valuta, 'USD');
+	assert.strictEqual(s.spesa.giorni.length, 14);
+	assert.strictEqual(s.spesa.giorni[13].giorno, '2026-10-03');
+	assert.strictEqual(s.spesa.giorni[13].deepseek, 0.25);
+	assert.strictEqual(s.spesa.giorni[12].deepseek, null, 'un giorno senza riga non e\' zero');
+	assert.strictEqual(s.spesa.giorni[11].openrouter, 0.2);
+	assert.strictEqual(s.spesa.giorni[11].caratteri, 3000);
+	assert.ok(!('campioni' in s), 'i campioni restano all\'estensione');
+	assert.deepStrictEqual([tonoServizio('rosso'), tonoServizio('ok'), tonoServizio(undefined)], ['male', 'ok', 'attesa']);
+	ok('servizi: crediti, tono e spesa dei 14 giorni dal file dei conti');
+
+	// consigli: buco, regola rossa, chi aspetta, cose da fare, Home; in quest'ordine e al massimo 8
+	f = fonti();
+	s = pulita(await get('nome=consigli'));
+	assert.deepStrictEqual(s.consigli.map(c => c.fonte), ['appstore', 'vedetta', 'lavori', 'dafare', 'home', 'home', 'home']);
+	const [buco, rossa, aspetta, cosa, primoHome] = s.consigli;
+	assert.strictEqual(buco.titolo, 'Manca il consenso UMP');
+	assert.strictEqual(buco.valore, 30);
+	assert.strictEqual(buco.soggetto, 'Woofmap');
+	assert.strictEqual(buco.apri, 'appstore');
+	assert.strictEqual(rossa.titolo, 'app-ads.txt non è uguale sui tre siti.', 'prima la regola di tutti');
+	assert.strictEqual(rossa.apri, 'vedetta');
+	assert.strictEqual(aspetta.titolo, 'CheckIn Facile ti aspetta');
+	assert.strictEqual(aspetta.perche, 'Rivedere i prezzi, subito');
+	assert.strictEqual(aspetta.chiave, 'sess:a1');
+	assert.strictEqual(cosa.titolo, 'provare la voce');
+	assert.match(cosa.perche, /Bottega, con altre 2/);
+	assert.strictEqual(primoHome.etichetta, 'Apple Intelligence');
+	assert.strictEqual(primoHome.titolo, 'Chiudi la pagina dei prezzi, oggi.');
+	assert.ok(new Set(s.consigli.map(c => c.id)).size === s.consigli.length, 'id diversi');
+	assert.deepStrictEqual(s.conti, { buchi: 2, stimaTotale: 42, rossi: 1, tiAspetta: 1 });
+	assert.strictEqual(s.aggiornatoAt, ORA - 10 * 60_000);
+	// senza App Store, regole e Memoria: restano gli altri; una Memoria lenta non blocca
+	casa = null;
+	f = fonti({ appStore: () => undefined, regole: () => undefined, memoria: () => ({ recent: () => new Promise(() => undefined), bacheca: async () => [] }) });
+	const t0 = Date.now();
+	s = pulita(await get('nome=consigli'));
+	assert.ok(Date.now() - t0 < 2000, 'la Memoria lenta si lascia indietro');
+	assert.deepStrictEqual(s.consigli.map(c => c.fonte), ['lavori']);
+	assert.deepStrictEqual(s.conti, { buchi: null, stimaTotale: null, rossi: null, tiAspetta: 1 });
+	ok('consigli: il buco, la regola rossa, chi aspetta, le cose da fare e la Home, nell\'ordine');
 
 	// stanze non pronte
 	f = undefined;

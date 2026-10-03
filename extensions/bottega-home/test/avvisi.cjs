@@ -57,7 +57,7 @@ function banco(opz = {}) {
 		dir: fs.mkdtempSync(path.join(dir, 'b-')),
 	};
 	b.av = new Avvisi({
-		istantanea: () => ({ lavori: b.lavori, conti: conti(b.lavori), conferma: b.conferma, regole: b.regole, ...(b.segui ? { segui: b.segui } : {}) }),
+		istantanea: () => ({ lavori: b.lavori, conti: conti(b.lavori), conferma: b.conferma, regole: b.regole, ...(b.negozio !== undefined ? { negozio: b.negozio } : {}), ...(b.segui ? { segui: b.segui } : {}) }),
 		invio: { manda: async p => (b.inviati.push(p), b.risposta(p)) },
 		dispositivo: () => leggiDispositivo(b.dir),
 		togliToken: (campo, token) => togliToken(b.dir, campo, token),
@@ -472,6 +472,29 @@ function banco(opz = {}) {
 		await b.giro(10 * MIN);
 		assert.strictEqual(b.presi('widgets').length, 0, 'senza cambi niente');
 		ok('widget: uno ogni 5 minuti, subito se tiAspetta sale');
+	}
+	{
+		// un rosso in piu' nel semaforo o un allarme nuovo del negozio svegliano i widget (guadagni, consigli, semaforo)
+		const b = banco();
+		fondiDispositivo(b.dir, { ambiente: 'sviluppo', widget: hex(40) });
+		b.regole = [{ path: '/p/uno', progetto: 'Uno', livello: 'verde' }];
+		b.negozio = [];
+		await b.giro();
+		await b.giro(61_000);
+		assert.strictEqual(b.presi('widgets').length, 0, 'niente cambiato, niente push');
+		b.regole = [{ path: '/p/uno', progetto: 'Uno', livello: 'rosso', frase: 'Chiave nei commit.' }];
+		await b.giro(MIN);
+		assert.strictEqual(b.presi('widgets').length, 1, 'un rosso in piu\'');
+		b.negozio = [{ id: 'a:2026-10-03', app: 'Prova', testo: 'AdMob di ieri al 30% della media' }];
+		await b.giro(MIN);
+		assert.strictEqual(b.presi('widgets').length, 0, 'sempre al massimo uno ogni 5 minuti');
+		await b.giro(5 * MIN);
+		assert.strictEqual(b.presi('widgets').length, 1, 'l\'allarme nuovo arriva dopo i 5 minuti');
+		b.regole = null;
+		b.negozio = null;
+		await b.giro(10 * MIN);
+		assert.strictEqual(b.presi('widgets').length, 0, 'semaforo e negozio non letti: resta tutto com\'era');
+		ok('widget: anche un rosso nuovo nel semaforo o un allarme del negozio, con lo stesso limite');
 	}
 
 	// ---------- token morto ----------
