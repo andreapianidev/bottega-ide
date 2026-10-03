@@ -138,34 +138,21 @@ private struct RigaSeguita: View {
             Image(systemName: "eye")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Pezzi.colore(segui.stato))
-            // il progetto e il passo; se non ci stanno insieme vince il passo, che e' la notizia
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    progetto
-                    passo
-                }
-                passo
-                progetto
-            }
+            // il progetto e il passo; se non ci stanno insieme si accorcia il progetto, il passo e' la notizia.
+            // Niente ViewThatFits qui: questa riga va anche sulla schermata di blocco (vedi SchermataDiBlocco).
+            Text(segui.progetto)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Tinte.testo)
+                .lineLimit(1)
+            Text(segui.passo)
+                .font(.caption)
+                .foregroundStyle(segui.stato == "ti aspetta" ? Tinte.ambra : Tinte.tinta)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
             Spacer(minLength: 0)
         }
         .padding(.leading, 2)
-    }
-
-    private var progetto: some View {
-        Text(segui.progetto)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Tinte.testo)
-            .lineLimit(1)
-            .fixedSize()
-    }
-
-    private var passo: some View {
-        Text(segui.passo)
-            .font(.caption)
-            .foregroundStyle(segui.stato == "ti aspetta" ? Tinte.ambra : Tinte.tinta)
-            .lineLimit(1)
-            .fixedSize()
     }
 }
 
@@ -186,12 +173,12 @@ private struct RigaAttivita: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .layoutPriority(1)
-            ViewThatFits(in: .horizontal) {
-                Text(riga.stato).lineLimit(1).fixedSize()
-                Color.clear.frame(width: 0, height: 0)
-            }
-            .font(.caption)
-            .foregroundStyle(riga.stato == "ti aspetta" ? Tinte.ambra : Tinte.tinta)
+            // lo stato cede per primo (il colore del punto lo dice gia'); niente ViewThatFits, vedi SchermataDiBlocco
+            Text(riga.stato)
+                .font(.caption)
+                .foregroundStyle(riga.stato == "ti aspetta" ? Tinte.ambra : Tinte.tinta)
+                .lineLimit(1)
+                .layoutPriority(-1)
             Spacer(minLength: 6)
             Pezzi.daQuanto(Pezzi.data(riga.da))
                 .font(.caption)
@@ -203,8 +190,10 @@ private struct RigaAttivita: View {
 }
 
 /// La schermata di blocco ha al massimo 160 punti di altezza: tre sessioni, due se c'e' quella seguita.
-/// Una vista sola, mai un ViewThatFits verticale con piu' copie: con quello (build 62-67) la Live Activity sulla
-/// schermata di blocco restava nera e vuota, mentre la Dynamic Island funzionava.
+/// Nessun ViewThatFits, ne' qui ne' nelle righe che usa (RigaSeguita, RigaAttivita): sulla schermata di blocco la
+/// vista passa da un archivio, e con un ViewThatFits verticale (build 62-67) restava nera e vuota; tolto quello, con
+/// gli orizzontali delle righe (fino alla 73) iOS la mostrava «LIVE» ma senza niente dentro. La Dynamic Island
+/// funzionava in tutti e due i casi.
 private struct SchermataDiBlocco: View {
     let stato: BottegaAttivita.ContentState
     let mac: String
