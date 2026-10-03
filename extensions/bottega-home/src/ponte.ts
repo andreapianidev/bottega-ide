@@ -19,7 +19,8 @@ import { CAMPI_TOKEN, DispositivoParziale, TOKEN_HEX } from './dispositivo';
      POST /v1/lavoro {id, testo}  -> {ok}                   scrive in un lavoro della Bottega
      POST /v1/dispositivo {...}   -> {ok}                   i token APNs dell'iPhone (9.4): notifiche, Live Activity, widget
      /v1/sessione...              -> la scheda di una sessione (9.5), in src/ponte-sessioni.ts
-     GET  /v1/stanza?nome=..      -> una stanza della plancia in sola lettura (9.6), in src/ponte-stanze.ts */
+     GET  /v1/stanza?nome=..      -> una stanza della plancia in sola lettura (9.6), in src/ponte-stanze.ts
+     POST /v1/stanza/azione {..}  -> {ok, messaggio}        ignora, ripristina, verifica, lavoro nella stanza App Store (9.7) */
 
 export interface PonteMelissa {
 	stato: string;
@@ -90,6 +91,8 @@ export interface RotteSessioni {
 export interface RotteStanze {
 	/** I parametri della richiesta -> il JSON della stanza; un errore porta `status` e una frase in italiano. */
 	leggi(q: URLSearchParams): Promise<unknown>;
+	/** POST /v1/stanza/azione (9.7): le poche azioni della stanza App Store, da un elenco chiuso. */
+	azione?(corpo: unknown): Promise<unknown>;
 }
 
 export type RigaParla =
@@ -321,6 +324,10 @@ export class Ponte {
 			if (url === '/v1/stanza' && this.deps.stanze) {
 				if (req.method !== 'GET') return json(405, { errore: 'Le stanze si leggono soltanto.' });
 				return json(200, await this.deps.stanze.leggi(new URL(req.url ?? '/', 'http://ponte').searchParams));
+			}
+			if (url === '/v1/stanza/azione' && this.deps.stanze?.azione) {
+				if (req.method !== 'POST') return json(405, { errore: 'Le azioni si mandano con POST.' });
+				return json(200, await this.deps.stanze.azione((await leggiCorpo(req)) ?? {}));
 			}
 			if (req.method === 'GET' && url === '/v1/stato') return json(200, this.stato());
 			if (req.method === 'GET' && url === '/v1/eventi') return this.eventi(req, res);
