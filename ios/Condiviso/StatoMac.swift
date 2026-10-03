@@ -61,6 +61,16 @@ struct StatoMac: Codable, Equatable {
     /// Dov'e' l'iPhone rispetto al Mac (docs/CONTRATTI.md, 9.9): usb (attaccato col cavo), casa (stessa rete,
     /// Tailscale diretto), lontano. Assente con una Bottega sul Mac che non lo manda ancora.
     var vicino: String? = nil
+    /// Le stesse rotte in https (9.1): porta e impronta del certificato del Mac. Assente con una Bottega che non
+    /// lo manda ancora o se l'https sul Mac non e' partito.
+    struct Https: Codable, Equatable {
+        let porta: Int
+        let impronta: String
+    }
+    var https: Https? = nil
+
+    /// Quello che lo stato dice dell'https, da ricordare (Collegamento.ricordaSicuro).
+    var sicuro: Collegamento.Sicuro? { https.map { Collegamento.Sicuro(porta: $0.porta, impronta: $0.impronta) } }
 }
 
 extension StatoMac {

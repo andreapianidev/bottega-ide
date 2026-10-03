@@ -1369,9 +1369,12 @@ nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard,
   indirizzi fuori da 100.64.0.0/10 e fd7a:115c:a1e0::/48 -> 403; 20 gettoni sbagliati in 10 minuti -> quell'indirizzo
   riceve 429 per 10 minuti sui gettoni sbagliati (il gettone giusto passa sempre, cosi' un nuovo QR non resta
   chiuso fuori dai widget col gettone vecchio). Corpo al massimo 16 KB, testo al massimo 2000 caratteri.
-- `GET /v1/stato` -> `{versione, mac, ora, vicino (9.9), melissa: {stato, cervello, parziale?, registro: [{chi: tu|melissa|azione,
+- `GET /v1/stato` -> `{versione, mac, ora, vicino (9.9), https?: {porta, impronta}, melissa: {stato, cervello, parziale?, registro: [{chi: tu|melissa|azione,
   testo, alle}]}, lavori: [{chiave, origine: bottega|altrove, stato, progetto, titolo, da, jobId?}], conti: {inCorso,
-  tiAspetta, inCoda, vive}}`. Registro: gli ultimi 30 della barra di Melissa. Lavori: i primi 40 di `snapshot.work`.
+  tiAspetta, inCoda, vive}}`. `https` (build 71): le stesse rotte cifrate su `porta + 1` (7791), con il
+  certificato fatto dal Mac (`src/ponte-tls.ts`: P-256, SHA-256, 800 giorni, SAN col nome MagicDNS e l'indirizzo,
+  in `~/.bottega/ponte-tls/`, rifatto se scade tra meno di 30 giorni o cambia il nome) e la sua impronta SHA-256
+  del DER in esadecimale minuscolo. Assente se l'https non e' partito: l'http sulla 7790 resta sempre. Registro: gli ultimi 30 della barra di Melissa. Lavori: i primi 40 di `snapshot.work`.
 - `GET /v1/eventi` -> `text/event-stream`: subito una riga `data: <stato>`, poi una a ogni cambio di Melissa o dei
   lavori (al massimo tre al secondo), `: ping` ogni 25 s.
 - `POST /v1/chiedi {testo, conferma?}` -> `{risposta, stato}`. Con `conferma` (il numero arrivato nella notifica
@@ -1427,7 +1430,13 @@ nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard,
   e la risposta si ferma anche sul Mac. Senza audio dal Mac: la voce italiana di iOS con il testo intero. Gettone nel portachiavi (`AfterFirstUnlockThisDeviceOnly`),
   nome e porta nelle preferenze.
 - Rete: prima il nome MagicDNS (eccezione ATS per `ts.net`, HTTP dentro Tailscale), se non si risolve l'indirizzo
-  100.x. Eventi ripresi da soli con attesa crescente fino a 30 s, fermi con l'app dietro.
+  100.x (che pero' ATS blocca in http: provato nella build 70). Dalla build 71 in https quando lo stato ha portato
+  `https`: col nome in http iOS passava prima dal relay privato di iCloud (502) e solo dopo dal tunnel, da 0,7 a
+  5,7 s in piu' a richiesta, e i widget scadevano; il traffico cifrato il relay non lo tocca. Il certificato si
+  accetta solo con l'impronta annunciata (`FiduciaPonte`). Qualunque errore dell'https prima che la richiesta
+  arrivi (connessione, certificato, impronta; per le GET anche tempo scaduto e linea caduta) fa tornare subito
+  all'http e rifare la richiesta, e per due minuti quel processo resta in http (`Collegamento.ripiegaSuHttp`).
+  Porta e impronta stanno nelle preferenze condivise (`ponteHttps`), le aggiorna ogni stato; un nuovo QR le toglie. Eventi ripresi da soli con attesa crescente fino a 30 s, fermi con l'app dietro.
   Un 401 ferma gli eventi (niente tentativi che farebbero bloccare l'indirizzo): si riparte con un nuovo QR o al
   ritorno davanti dell'app. `/v1/parla` tollera 180 s senza dati (strumenti lenti), le altre richieste 90 s.
 - Audio: si guarda sempre `motore.isRunning` (Siri, chiamate e cuffie fermano il motore: suonare su un motore fermo

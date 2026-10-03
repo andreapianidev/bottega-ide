@@ -2,10 +2,12 @@ import * as crypto from 'crypto';
 import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as http from 'http';
+import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
 import type { BrainState, Cervelli, Effort, Provider } from './cervelli';
 import { CAMPI_TOKEN, DispositivoParziale, TOKEN_HEX } from './dispositivo';
+import { certificatoPonte } from './ponte-tls';
 
 /* Il ponte verso l'iPhone (docs/CONTRATTI.md, sezione 9). Un server HTTP che ascolta SOLO sull'indirizzo
    Tailscale del Mac: dal Wi-Fi di casa o da internet non si vede, dall'iPhone nella stessa rete Tailscale si'.
@@ -26,7 +28,8 @@ import { CAMPI_TOKEN, DispositivoParziale, TOKEN_HEX } from './dispositivo';
      POST /v1/cervello {provider?, impegno?, sempre?} -> PonteCervelli   lo cambia, come la barra del Mac
 
    In /v1/stato c'e' anche `vicino` (9.9): usb se l'iPhone e' attaccato al Mac col cavo, casa se Tailscale lo raggiunge
-   dalla rete di casa, lontano altrimenti. */
+   dalla rete di casa, lontano altrimenti. E c'e' `https` (build 71): le stesse rotte anche cifrate sulla porta
+   accanto, con l'impronta del certificato fatto dal Mac (src/ponte-tls.ts), cosi' iOS non passa dal relay di iCloud. */
 
 export interface PonteMelissa {
 	stato: string;
@@ -83,6 +86,8 @@ export interface PonteStato {
 	mac: string;
 	ora: number;
 	vicino: Vicino;
+	/** Le stesse rotte in https: porta e impronta SHA-256 del certificato. Assente se l'https non e' partito. */
+	https?: { porta: number; impronta: string };
 	melissa: PonteMelissa;
 	lavori: PonteLavoro[];
 	conti: { inCorso: number; tiAspetta: number; inCoda: number; vive: number };
@@ -92,7 +97,7 @@ export interface PonteDeps {
 	/** Cartella dei dati della Bottega (~/.bottega): li' sta il gettone. */
 	dir: string;
 	versione: string;
-	stato(): Omit<PonteStato, 'versione' | 'mac' | 'ora' | 'vicino'>;
+	stato(): Omit<PonteStato, 'versione' | 'mac' | 'ora' | 'vicino' | 'https'>;
 	/** Vero se un iPhone e' attaccato al Mac col cavo (evento usb.iphone del Nucleo, 9.9). */
 	cavo?(): boolean;
 	/** Vero mentre Melissa sta gia' rispondendo a qualcuno. */
@@ -241,6 +246,8 @@ function uguali(a: string, b: string): boolean {
 
 export class Ponte {
 	private server?: http.Server;
+	/** Le stesse rotte in https sulla porta accanto (9.1); se non parte resta l'http, che basta. */
+	private sicuro?: { server: https.Server; impronta: string };
 	private rete: Rete | null = null;
 	private errore?: string;
 	private timer?: NodeJS.Timeout;
@@ -297,7 +304,7 @@ export class Ponte {
 	}
 
 	private stato(): PonteStato {
-		return { versione: this.deps.versione, mac: os.hostname().replace(/\.local$/, ''), ora: Date.now(), vicino: this.vicino(), ...this.deps.stato() };
+		return { versione: this.deps.versione, mac: os.hostname().replace(/\.local$/, ''), ora: Date.now(), vicino: this.vicino(), ...(this.sicuro ? { https: { porta: this.porta + 1, impronta: this.sicuro.impronta } } : {}), ...this.deps.stato() };
 	}
 
 	/** usb | casa | lontano (9.9): il cavo dal Nucleo, la casa da Tailscale (ricontrollata ogni minuto). */
@@ -353,6 +360,34 @@ export class Ponte {
 				this.pingTimer = setInterval(() => {
 					for (const r of this.flussi) r.write(': ping\n\n');
 				}, 25_000);
+				void this.apriSicuro(ip, server).then(resolve);
+			});
+		});
+	}
+
+	/** L'https accanto all'http: stesso indirizzo, porta + 1, stesse rotte. Un errore qui non tocca l'http. */
+	private apriSicuro(ip: string, http0: http.Server): Promise<void> {
+		return new Promise(resolve => {
+			let cert;
+			try {
+				cert = certificatoPonte(this.deps.dir, this.rete?.nome || ip, ip);
+			} catch (e: any) {
+				this.deps.log(`ponte: niente https, il certificato non si fa (${e?.message ?? e})`);
+				return resolve();
+			}
+			const server = https.createServer({ key: cert.key, cert: cert.cert, minVersion: 'TLSv1.2' }, (req, res) => void this.gestisci(req, res));
+			server.on('error', (e: any) => {
+				this.deps.log(`ponte: niente https sulla ${this.porta + 1} (${e?.code ?? e?.message ?? e})`);
+				server.close();
+				resolve();
+			});
+			server.listen(this.porta + 1, ip, () => {
+				if (this.fermato || this.server !== http0) {
+					server.close();
+					return resolve();
+				}
+				this.sicuro = { server, impronta: cert.impronta };
+				this.deps.log(`ponte: anche in https su ${ip}:${this.porta + 1}`);
 				resolve();
 			});
 		});
@@ -367,6 +402,9 @@ export class Ponte {
 		this.server?.close();
 		this.server?.closeAllConnections?.();
 		this.server = undefined;
+		this.sicuro?.server.close();
+		this.sicuro?.server.closeAllConnections?.();
+		this.sicuro = undefined;
 	}
 
 	private escluso(addr: string): boolean {

@@ -289,7 +289,7 @@ async function parla(deps: PonteHostDeps, testo: string, emetti: (r: RigaParla) 
 	}
 }
 
-function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora' | 'vicino'> {
+function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora' | 'vicino' | 'https'> {
 	const a = deps.assistant()?.getState();
 	const c = deps.counts();
 	const cv = deps.cervelli?.();

@@ -46,7 +46,7 @@ enum DatiWidget {
         c.timeoutIntervalForRequest = 8
         c.timeoutIntervalForResource = 10
         c.waitsForConnectivity = false
-        return URLSession(configuration: c)
+        return URLSession(configuration: c, delegate: FiduciaPonte.shared, delegateQueue: nil)
     }()
 
     /// Legge una stanza. Con `soloCopia` (il pulsante «poi» dei consigli) non chiede niente al Mac.
@@ -80,10 +80,13 @@ enum DatiWidget {
         case errore(String)
     }
 
-    /// Prima il nome MagicDNS; se non si risolve, l'indirizzo 100.x.
+    /// Prima il nome MagicDNS; se non si risolve, l'indirizzo 100.x. In https se il Mac l'ha annunciato, con il ritorno all'http.
     private static func chiedi(_ c: Collegamento, stanza: String, query: [String: String]) async -> Esito {
         do {
             return try await richiesta(c, host: c.host, stanza: stanza, query: query)
+        } catch let e where c.ripiegaSuHttp(e, ripetibile: true) {
+            // l'https non ha risposto: di nuovo in http, subito
+            return await chiedi(c, stanza: stanza, query: query)
         } catch let e as URLError where [.cannotFindHost, .dnsLookupFailed].contains(e.code) && !c.ip.isEmpty && c.ip != c.host {
             return (try? await richiesta(c, host: c.ip, stanza: stanza, query: query)) ?? .errore(nonRisponde)
         } catch let e as URLError where e.code == .notConnectedToInternet {
@@ -97,9 +100,9 @@ enum DatiWidget {
 
     private static func richiesta(_ c: Collegamento, host: String, stanza: String, query: [String: String]) async throws -> Esito {
         var u = URLComponents()
-        u.scheme = "http"
+        u.scheme = c.schema
         u.host = host
-        u.port = c.porta
+        u.port = c.portaAdesso
         u.path = "/v1/stanza"
         var q = query.filter { !$0.value.isEmpty }
         q["nome"] = stanza

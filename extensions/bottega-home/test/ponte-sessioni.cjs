@@ -15,7 +15,7 @@ const esbuild = require('esbuild');
 const SRC = path.join(__dirname, '..', 'src');
 const OUT = path.join(__dirname, 'test-out', 'ponte-sessioni');
 esbuild.buildSync({
-	entryPoints: ['ponte.ts', 'dispositivo.ts', 'ponte-sessioni.ts', 'mani.ts', 'schermo.ts', 'sessione-lettura.ts', 'avvisi.ts', 'apns.ts'].map(f => path.join(SRC, f)),
+	entryPoints: ['ponte.ts', 'ponte-tls.ts', 'dispositivo.ts', 'ponte-sessioni.ts', 'mani.ts', 'schermo.ts', 'sessione-lettura.ts', 'avvisi.ts', 'apns.ts'].map(f => path.join(SRC, f)),
 	outdir: OUT, format: 'cjs', platform: 'node', bundle: false, target: 'node20', logLevel: 'silent',
 });
 const { Ponte } = require(path.join(OUT, 'ponte.js'));

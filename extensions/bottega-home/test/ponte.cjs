@@ -11,7 +11,7 @@ const esbuild = require('esbuild');
 
 const SRC = path.join(__dirname, '..', 'src');
 const OUT = path.join(__dirname, 'test-out', 'ponte');
-esbuild.buildSync({ entryPoints: ['ponte.ts', 'dispositivo.ts', 'cervelli.ts'].map(f => path.join(SRC, f)), outdir: OUT, format: 'cjs', platform: 'node', bundle: false, target: 'node20', logLevel: 'silent' });
+esbuild.buildSync({ entryPoints: ['ponte.ts', 'ponte-tls.ts', 'dispositivo.ts', 'cervelli.ts'].map(f => path.join(SRC, f)), outdir: OUT, format: 'cjs', platform: 'node', bundle: false, target: 'node20', logLevel: 'silent' });
 const { Ponte, inTailnet, leggiGettone, rotteCervelli, sceltaDi, leggiSceltaCervello, nomeCervello, direttiInCasa, vicinoDi } = require(path.join(OUT, 'ponte.js'));
 const { Cervelli } = require(path.join(OUT, 'cervelli.js'));
 const { fondiDispositivo, leggiDispositivo } = require(path.join(OUT, 'dispositivo.js'));
@@ -278,6 +278,37 @@ function call(port, method, url, { token, body, raw } = {}) {
 	assert.strictEqual((await call(port, 'GET', '/v1/stato', { token: t1 })).body.vicino, 'usb');
 	cavo = false;
 	ok('vicino nello stato: casa da Tailscale, usb col cavo');
+
+	// https (9.1): le stesse rotte sulla porta accanto, col certificato del Mac; l'impronta e' quella dello stato
+	{
+		const https = require('https');
+		const st = (await call(port, 'GET', '/v1/stato', { token: t1 })).body;
+		assert.strictEqual(st.https.porta, port + 1);
+		assert.match(st.https.impronta, /^[0-9a-f]{64}$/);
+		const sicura = token => new Promise((resolve, reject) => {
+			const req = https.request({ host: '127.0.0.1', port: port + 1, path: '/v1/stato', method: 'GET', rejectUnauthorized: false, headers: token ? { authorization: `Bearer ${token}` } : {} }, res => {
+				const cert = res.socket.getPeerCertificate();
+				let d = '';
+				res.on('data', c => (d += c));
+				res.on('end', () => resolve({ status: res.statusCode, body: d ? JSON.parse(d) : null, impronta: cert.fingerprint256.replace(/:/g, '').toLowerCase(), san: cert.subjectaltname }));
+			});
+			req.on('error', reject);
+			req.end();
+		});
+		const r = await sicura(t1);
+		assert.strictEqual(r.status, 200);
+		assert.strictEqual(r.body.versione, '9.9.9');
+		assert.strictEqual(r.impronta, st.https.impronta, 'l\'impronta dello stato e\' quella del certificato servito');
+		assert.ok(r.san.includes('DNS:mac-di-prova.tailnet.ts.net') && r.san.includes('IP Address:127.0.0.1'));
+		assert.strictEqual((await sicura()).status, 401, 'anche in https serve il gettone');
+		const k = path.join(dir, 'ponte-tls', 'chiave.pem');
+		assert.strictEqual(fs.statSync(k).mode & 0o777, 0o600);
+		// riacceso: stesso certificato, stessa impronta (l'iPhone non deve reimpararla)
+		const { certificatoPonte } = require(path.join(OUT, 'ponte-tls.js'));
+		assert.strictEqual(certificatoPonte(dir, 'mac-di-prova.tailnet.ts.net', '127.0.0.1').impronta, st.https.impronta);
+		assert.notStrictEqual(certificatoPonte(dir, 'altro-nome.tailnet.ts.net', '127.0.0.1').impronta, st.https.impronta, 'nome cambiato: certificato nuovo');
+	}
+	ok('https sulla porta accanto: stesse rotte, gettone, impronta nello stato, certificato riusato');
 
 	const statoTs = {
 		Peer: {

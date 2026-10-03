@@ -35,7 +35,7 @@ final class PonteStanze {
         // il cruscotto e le ore dei clienti si ricalcolano sul Mac: al massimo 20 secondi, poi «riprova»
         c.timeoutIntervalForRequest = 45
         c.waitsForConnectivity = false
-        return URLSession(configuration: c)
+        return URLSession(configuration: c, delegate: FiduciaPonte.shared, delegateQueue: nil)
     }()
 
     private lazy var cartella: URL? = {
@@ -120,6 +120,11 @@ final class PonteStanze {
             try controlla(r, corpo: d)
             return d
         } catch {
+            if let c = Ponte.shared.collegamento, c.ripiegaSuHttp(error, ripetibile: req.httpMethod == "GET"), let url = req.url {
+                var nuova = req
+                nuova.url = aHttp(url)
+                return try await dati(nuova)
+            }
             if scambiaSuIP(error), let url = req.url {
                 var nuova = req
                 nuova.url = conIP(url)
@@ -132,9 +137,9 @@ final class PonteStanze {
     private func richiesta(_ percorso: String, _ query: [String: String]) throws -> URLRequest {
         guard let c = Ponte.shared.collegamento else { throw ErrorePonte(messaggio: "L'iPhone non è collegato a nessun Mac.") }
         var u = URLComponents()
-        u.scheme = "http"
+        u.scheme = c.schema
         u.host = usaIP && !c.ip.isEmpty ? c.ip : c.host
-        u.port = c.porta
+        u.port = c.portaAdesso
         u.path = percorso
         if !query.isEmpty { u.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) } }
         u.percentEncodedQuery = u.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
@@ -142,6 +147,14 @@ final class PonteStanze {
         var req = URLRequest(url: url, timeoutInterval: 45)
         req.setValue("Bearer \(c.token)", forHTTPHeaderField: "authorization")
         return req
+    }
+
+    /// La stessa richiesta in http, dopo che l'https non ha risposto (Collegamento.ripiegaSuHttp).
+    private func aHttp(_ url: URL) -> URL {
+        guard let c = Ponte.shared.collegamento, var u = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        u.scheme = "http"
+        u.port = c.porta
+        return u.url ?? url
     }
 
     private func conIP(_ url: URL) -> URL {

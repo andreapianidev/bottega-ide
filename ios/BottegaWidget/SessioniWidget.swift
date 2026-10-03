@@ -95,13 +95,22 @@ struct FornitoreSessioni: TimelineProvider {
         c.timeoutIntervalForRequest = 6
         c.timeoutIntervalForResource = 8
         c.waitsForConnectivity = false
-        return URLSession(configuration: c)
+        return URLSession(configuration: c, delegate: FiduciaPonte.shared, delegateQueue: nil)
     }()
 
-    /// Prima il nome MagicDNS; se non si risolve (MagicDNS spento sull'iPhone) l'indirizzo 100.x.
+    /// Prima il nome MagicDNS; se non si risolve (MagicDNS spento sull'iPhone) l'indirizzo 100.x. In https se il
+    /// Mac l'ha annunciato, e se non risponde subito di nuovo in http (Collegamento.ripiegaSuHttp).
     private static func chiedi(_ c: Collegamento) async -> StatoMac? {
+        let s = await chiediUnaVolta(c) ?? nil
+        if let s { Collegamento.ricordaSicuro(s.sicuro) }
+        return s
+    }
+
+    private static func chiediUnaVolta(_ c: Collegamento) async -> StatoMac?? {
         do {
             return try await stato(c, host: c.host)
+        } catch let e where c.ripiegaSuHttp(e, ripetibile: true) {
+            return await chiediUnaVolta(c)
         } catch let e as URLError where [.cannotFindHost, .dnsLookupFailed].contains(e.code) && !c.ip.isEmpty && c.ip != c.host {
             return try? await stato(c, host: c.ip)
         } catch {
@@ -110,7 +119,7 @@ struct FornitoreSessioni: TimelineProvider {
     }
 
     private static func stato(_ c: Collegamento, host: String) async throws -> StatoMac? {
-        guard let url = URL(string: "http://\(host):\(c.porta)/v1/stato") else { return nil }
+        guard let url = URL(string: "\(c.schema)://\(host):\(c.portaAdesso)/v1/stato") else { return nil }
         var req = URLRequest(url: url, timeoutInterval: 6)
         req.setValue("Bearer \(c.token)", forHTTPHeaderField: "authorization")
         let (d, r) = try await sessione.data(for: req)

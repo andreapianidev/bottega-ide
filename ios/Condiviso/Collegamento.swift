@@ -8,7 +8,9 @@
 //  questo iPhone: li leggono sia l'app sia i widget (Condiviso.swift).
 //
 
+import CryptoKit
 import Foundation
+import os
 import Security
 
 struct Collegamento: Equatable {
@@ -44,6 +46,67 @@ struct Collegamento: Equatable {
         self.token = token
     }
 
+    // MARK: - https (docs/CONTRATTI.md, 9.1)
+
+    /// Le stesse rotte cifrate, sulla porta accanto: porta e impronta SHA-256 del certificato fatto dal Mac,
+    /// imparate da /v1/stato. In http col nome MagicDNS iOS passava prima dal relay privato di iCloud (502) e solo
+    /// dopo dal tunnel di Tailscale: da 0,7 a 5,7 s in piu' a richiesta, e i widget scadevano (log del 3 ottobre
+    /// 2026). Il traffico cifrato il relay non lo tocca.
+    struct Sicuro: Equatable {
+        var porta: Int
+        var impronta: String
+    }
+
+    private static let chiaveSicuro = "ponteHttps"
+    /// Quando l'https e' caduto in questo processo (app o widget): per due minuti si va in http, poi si riprova.
+    private static let sicuroGiu = OSAllocatedUnfairLock<Date?>(initialState: nil)
+    private static let pausaSicuro: TimeInterval = 120
+
+    /// Quello che il Mac ha annunciato, se l'ha annunciato.
+    static var sicuro: Sicuro? {
+        guard let d = Condiviso.preferenze.dictionary(forKey: chiaveSicuro), let porta = d["porta"] as? Int,
+              let impronta = d["impronta"] as? String, impronta.count == 64 else { return nil }
+        return Sicuro(porta: porta, impronta: impronta)
+    }
+
+    /// Lo stato del Mac dice dove sta l'https (o che non c'e'): si ricorda per l'app e per i widget.
+    static func ricordaSicuro(_ s: Sicuro?) {
+        guard s != sicuro else { return }
+        if let s {
+            Condiviso.preferenze.set(["porta": s.porta, "impronta": s.impronta.lowercased()], forKey: chiaveSicuro)
+        } else {
+            Condiviso.preferenze.removeObject(forKey: chiaveSicuro)
+        }
+        sicuroGiu.withLock { $0 = nil }
+    }
+
+    private static var usaSicuro: Bool {
+        guard sicuro != nil else { return false }
+        return sicuroGiu.withLock { giu in giu.map { Date().timeIntervalSince($0) > pausaSicuro } ?? true }
+    }
+
+    /// "https" o "http", e la porta che va con lo schema.
+    var schema: String { Self.usaSicuro ? "https" : "http" }
+    var portaAdesso: Int { Self.usaSicuro ? (Self.sicuro?.porta ?? porta) : porta }
+
+    /// L'https non ha risposto: si torna subito all'http e si rifa' la richiesta. Falso se si era gia' in http, se il
+    /// compito e' stato annullato o se l'errore non dice che la richiesta non e' arrivata. `ripetibile`: una lettura
+    /// si rifa' anche dopo un tempo scaduto o una linea caduta; una scrittura no, il Mac potrebbe averla gia' eseguita.
+    func ripiegaSuHttp(_ error: Error, ripetibile: Bool) -> Bool {
+        guard schema == "https", !Task.isCancelled, let codice = (error as? URLError)?.code else { return false }
+        var nonArrivata: Set<URLError.Code> = [
+            .cannotConnectToHost, .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate,
+            .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid, .clientCertificateRejected,
+            .clientCertificateRequired, .appTransportSecurityRequiresSecureConnection,
+            // il certificato con un'impronta diversa: FiduciaPonte annulla la sfida
+            .cancelled,
+        ]
+        if ripetibile { nonArrivata.formUnion([.timedOut, .networkConnectionLost, .badServerResponse]) }
+        guard nonArrivata.contains(codice) else { return false }
+        Self.sicuroGiu.withLock { $0 = Date() }
+        return true
+    }
+
     // MARK: - dove si conserva
 
     private static let chiave = "collegamento"
@@ -76,6 +139,8 @@ struct Collegamento: Equatable {
 
     func salva() {
         let d: [String: Any] = ["host": host, "ip": ip, "porta": porta]
+        // un Mac nuovo (o un gettone nuovo): l'https si reimpara dal suo stato
+        Condiviso.preferenze.removeObject(forKey: Self.chiaveSicuro)
         Condiviso.preferenze.set(d, forKey: Self.chiave)
         UserDefaults.standard.set(d, forKey: Self.chiave)
         Self.scriviToken(token, .condiviso)
@@ -84,6 +149,7 @@ struct Collegamento: Equatable {
 
     static func dimentica() {
         Condiviso.preferenze.removeObject(forKey: chiave)
+        Condiviso.preferenze.removeObject(forKey: chiaveSicuro)
         UserDefaults.standard.removeObject(forKey: chiave)
         SecItemDelete(query(.condiviso) as CFDictionary)
         SecItemDelete(query(.app) as CFDictionary)
@@ -110,5 +176,23 @@ struct Collegamento: Equatable {
         q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let esito = SecItemAdd(q as CFDictionary, nil)
         if esito != errSecSuccess { NSLog("Bottega: gettone non salvato nel portachiavi (%d)", esito) }
+    }
+}
+
+/// Accetta il certificato del ponte solo se la sua impronta e' quella che il Mac ha annunciato in /v1/stato (9.1).
+/// Nessuna autorita' lo firma: lo fa il Mac per se'. Le sessioni del ponte (app e widget) lo usano come delegato.
+final class FiduciaPonte: NSObject, URLSessionDelegate, @unchecked Sendable {
+    static let shared = FiduciaPonte()
+
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async
+        -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust else { return (.performDefaultHandling, nil) }
+        guard let attesa = Collegamento.sicuro?.impronta,
+              let catena = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let foglia = catena.first else {
+            return (.cancelAuthenticationChallenge, nil)
+        }
+        let impronta = SHA256.hash(data: SecCertificateCopyData(foglia) as Data).map { String(format: "%02x", $0) }.joined()
+        return impronta == attesa ? (.useCredential, URLCredential(trust: trust)) : (.cancelAuthenticationChallenge, nil)
     }
 }

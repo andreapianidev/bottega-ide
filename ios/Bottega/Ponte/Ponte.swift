@@ -41,14 +41,14 @@ final class Ponte {
         let c = URLSessionConfiguration.ephemeral
         c.timeoutIntervalForRequest = 90
         c.waitsForConnectivity = false
-        return URLSession(configuration: c)
+        return URLSession(configuration: c, delegate: FiduciaPonte.shared, delegateQueue: nil)
     }()
     /// Per /v1/parla: con uno strumento lento il Mac puo' restare zitto a lungo prima della frase dopo.
     private let sessioneLunga: URLSession = {
         let c = URLSessionConfiguration.ephemeral
         c.timeoutIntervalForRequest = 180
         c.waitsForConnectivity = false
-        return URLSession(configuration: c)
+        return URLSession(configuration: c, delegate: FiduciaPonte.shared, delegateQueue: nil)
     }()
 
     var collegato: Bool { collegamento != nil }
@@ -128,7 +128,7 @@ final class Ponte {
                 return
             } catch {
                 if Task.isCancelled { return }
-                if scambiaSuIP(error) { continue }
+                if collegamento?.ripiegaSuHttp(error, ripetibile: true) == true || scambiaSuIP(error) { continue }
                 linea = .fuori(spiega(error))
                 if (error as? ErrorePonte)?.codice == 401 {
                     // gettone rifiutato: riprovare farebbe solo chiudere fuori questo iPhone dal Mac. Si riparte con
@@ -146,6 +146,7 @@ final class Ponte {
         let prima = stato
         stato = s
         s.salvaComeUltimo()
+        Collegamento.ricordaSicuro(s.sicuro)
         if prima?.conti != s.conti || prima?.lavori.map(\.chiave) != s.lavori.map(\.chiave) { WidgetCenter.shared.reloadAllTimelines() }
         MetalEngine.shared.setLoad(s.conti.inCorso)
     }
@@ -197,7 +198,9 @@ final class Ponte {
             }
             bytes = b
         } catch {
-            if scambiaSuIP(error) { return try await parla(testo, riga: riga) }
+            if collegamento?.ripiegaSuHttp(error, ripetibile: false) == true || scambiaSuIP(error) {
+                return try await parla(testo, riga: riga)
+            }
             throw (error as? ErrorePonte) ?? ErrorePonte(messaggio: spiega(error))
         }
         let dec = JSONDecoder()
@@ -236,7 +239,11 @@ final class Ponte {
             aggiorna(try JSONDecoder().decode(StatoMac.self, from: d))
             linea = .collegato
         } catch {
-            if scambiaSuIP(error) { await aggiornaStato() } else { linea = .fuori(spiega(error)) }
+            if collegamento?.ripiegaSuHttp(error, ripetibile: true) == true || scambiaSuIP(error) {
+                await aggiornaStato()
+            } else {
+                linea = .fuori(spiega(error))
+            }
         }
     }
 
@@ -264,7 +271,9 @@ final class Ponte {
             try controlla(r, corpo: d)
             return try JSONDecoder().decode(T.self, from: d)
         } catch {
-            if scambiaSuIP(error) { return try await prendi(percorso, timeout: timeout) }
+            if collegamento?.ripiegaSuHttp(error, ripetibile: true) == true || scambiaSuIP(error) {
+                return try await prendi(percorso, timeout: timeout)
+            }
             throw (error as? ErrorePonte) ?? ErrorePonte(messaggio: spiega(error))
         }
     }
@@ -284,7 +293,9 @@ final class Ponte {
             try controlla(r, corpo: d)
             return d
         } catch {
-            if scambiaSuIP(error) { return try await mandaDati(percorso, corpo, timeout: timeout) }
+            if collegamento?.ripiegaSuHttp(error, ripetibile: false) == true || scambiaSuIP(error) {
+                return try await mandaDati(percorso, corpo, timeout: timeout)
+            }
             throw (error as? ErrorePonte) ?? ErrorePonte(messaggio: spiega(error))
         }
     }
@@ -292,7 +303,7 @@ final class Ponte {
     private func richiesta(_ percorso: String, timeout: TimeInterval = 90) throws -> URLRequest {
         guard let c = collegamento else { throw ErrorePonte(messaggio: "L'iPhone non e' collegato a nessun Mac.") }
         let host = usaIP && !c.ip.isEmpty ? c.ip : c.host
-        guard let url = URL(string: "http://\(host):\(c.porta)\(percorso)") else {
+        guard let url = URL(string: "\(c.schema)://\(host):\(c.portaAdesso)\(percorso)") else {
             throw ErrorePonte(messaggio: "Indirizzo del Mac non valido.")
         }
         var req = URLRequest(url: url, timeoutInterval: timeout)
