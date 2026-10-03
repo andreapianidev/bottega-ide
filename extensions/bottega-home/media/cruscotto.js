@@ -1267,6 +1267,8 @@ struct VG {
 					</aside>
 				</section>
 
+				<section class="crus-sez conti-sez" id="conti-sez" aria-labelledby="conti-titolo"></section>
+
 				<div class="banco" id="banco">
 					<div class="banco-col" id="banco-a">
 						<section class="blocco" id="b-oggi" aria-labelledby="oggi-titolo">
@@ -1327,6 +1329,9 @@ struct VG {
 		const $ = id => /** @type {any} */ (root.querySelector('#' + id));
 		const crus = $('crus');
 		const tip = $('crus-tip');
+		// crediti e consumi dei servizi: un file suo (media/conti.js, CONTRATTI 14), qui solo montato
+		const BC = /** @type {any} */ (window).BottegaConti;
+		const contiUI = BC ? BC.mount($('conti-sez'), { post: m => host.post(m), periodo: () => ui.period, claude: () => (stats ? P().cost : null) }) : null;
 
 		// ---------- piccoli attrezzi ----------
 
@@ -3225,6 +3230,7 @@ struct VG {
 			renderCategorie();
 			renderToken();
 			renderLato();
+			if (contiUI) contiUI.render();
 			renderOggi();
 			renderAdesso();
 			renderParallelo();
@@ -3240,6 +3246,7 @@ struct VG {
 
 		function request(daAndrea) {
 			richiesto = !!daAndrea;
+			host.post({ type: 'conti.request', aggiorna: !!daAndrea });
 			host.post({ type: 'stats.request', period: Number(ui.period) });
 			clearTimeout(waitTimer);
 			waitTimer = setTimeout(() => crus.classList.add('in-attesa'), 300);
@@ -3455,6 +3462,14 @@ struct VG {
 					attesaFocus = null;
 					this.focus(f);
 				}
+			},
+			/** Crediti e consumi dei servizi (messaggio "conti"). */
+			setConti(c) {
+				if (contiUI) contiUI.set(c);
+			},
+			/** Dalla barra di Melissa o da un avviso di ricarica: la sezione dei servizi. */
+			mostraConti() {
+				if (contiUI) setTimeout(() => contiUI.mostra(), 50);
 			},
 			/** Comando vocale di Melissa («fammi vedere le ore di Woofmap questa settimana»): cambia periodo e
 			 *  accende il progetto sul cielo e in classifica, mentre lei risponde. Senza dati, aspetta che arrivino. */

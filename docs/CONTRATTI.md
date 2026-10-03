@@ -99,7 +99,8 @@ Voce in uscita: ElevenLabs se c'e' la chiave (`ELEVENLABS_API_KEY` nell'ambiente
 con `ELEVENLABS_VOICE_ID` facoltativo, default Melissa `QITiGyM4owEZrBEf0QV8`), sempre in tempo reale sul socket
 text-to-dialogue, modello `eleven_v4_turbo`, tenuto caldo mentre la voce e' in uso (conversazione, sfera visibile,
 o una risposta negli ultimi 2 minuti). I caratteri mandati si contano in `~/.bottega/nucleo/usage.json` (la chiave
-non ha il permesso di leggere il saldo). Senza chiave o a qualsiasi errore: AVSpeechSynthesizer, voce di sistema
+non ha il permesso di leggere il saldo): `elevenLabsCharsByMonth {"YYYY-MM": n}` e, dal 3/10/2026,
+`elevenLabsCharsByDay {"YYYY-MM-DD": n}` (ora locale, gli ultimi 400 giorni) per la sezione 14. Senza chiave o a qualsiasi errore: AVSpeechSynthesizer, voce di sistema
 `com.apple.voice.premium.it-IT.Emma` (gia' installata, niente download), i tag come `[laughs]` vengono tolti.
 
 Voce in entrata: solo ElevenLabs, nessun modello locale e nessun download (decisione di Andrea).
@@ -2006,3 +2007,74 @@ visite, download nuovi, conversione, fonti, tabella per app), che compaiono solo
 - **Briefing**: `Facts.appstore` (`AppStore.briefing()`, solo con dati di meno di 36 ore) prende il posto della riga di
   AdMob del radar: ieri AdMob e Store (o lo Store dell'altro ieri), la settimana contro quella prima, gli abbonati se
   sono cambiati, il primo allarme, i buchi nuovi di ieri e oggi (non quelli della prima lettura), con «Apri App Store».
+
+## 14. Crediti e consumi dei servizi
+
+Chi lo scrive: l'estensione (`src/conti.ts`, classe `Conti`, montata da `registraConti` in `extension.ts`). Chi lo legge:
+la sezione «Servizi: crediti e consumi» del Cruscotto (`media/conti.js`), gli avvisi del Mac e dell'iPhone, il ponte e i
+widget dell'iPhone (stanza `servizi`). I servizi non danno lo storico con le chiavi che abbiamo, quindi la Bottega lo
+tiene lei: legge i saldi 20 secondi dopo l'avvio e poi ogni 30 minuti, e ogni volta che il Cruscotto lo chiede (al
+massimo una lettura ogni 10 minuti, o subito con «Aggiorna i saldi»). Una lettura alla volta. Lo storico parte dal
+3 ottobre 2026; se la Bottega resta chiusa per giorni, la spesa di quei giorni va sul giorno della lettura dopo.
+
+Fonti:
+- **DeepSeek**: `GET https://api.deepseek.com/user/balance` (`balance_infos` USD, `is_available`). La discesa del saldo
+  fra due letture e' spesa, la salita e' una ricarica.
+- **OpenRouter**: `GET https://openrouter.ai/api/v1/credits`. Spesa = differenza di `total_usage`, ricarica = differenza
+  di `total_credits`, saldo = crediti meno uso.
+- **ElevenLabs**: i caratteri per giorno dal Nucleo (`elevenLabsCharsByDay`, sezione 1). Il mese, il limite e il giorno
+  del rinnovo da `GET /v1/user/subscription` solo se la chiave ha il permesso `user_read` (oggi no: 401
+  `missing_permissions`, e resta il conteggio della Bottega).
+- **Agnes**: gratis; le richieste di oggi contate dalla Bottega (`Cervelli.agnesOggi()`).
+- **Deleghe a Claude** (`claude -p`): `~/.bottega/connettori/spesa.json` (sezione 5.4), spesa vera in dollari.
+- **Claude Code a listino** non e' qui: e' l'abbonamento, non una spesa. La sezione lo cita prendendolo dal Cruscotto.
+
+`~/.bottega/conti/giorni.json` (mode 600, scritto intero: tmp + rename):
+
+```json
+{
+  "schema": 1,
+  "aggiornato": 1759450000000,
+  "servizi": {
+    "deepseek":   { "nome": "DeepSeek", "valuta": "USD", "saldo": 9.98, "letto": 1759450000000,
+                    "mediaGiorno": 0.12, "giorniRimasti": 83, "tono": "ok",
+                    "frase": "restano 9,98 $, circa 83 giorni al ritmo attuale" },
+    "openrouter": { "...": "stessi campi di deepseek" },
+    "elevenlabs": { "nome": "ElevenLabs", "unita": "caratteri", "usatiMese": 12345, "limiteMese": null,
+                    "rinnovo": null, "tono": "ok", "frase": "12.345 caratteri di voce a ottobre, contati dalla Bottega" },
+    "agnes":      { "nome": "Agnes", "gratis": true, "tono": "ok", "frase": "gratis, 15 richieste oggi" }
+  },
+  "giorni": {
+    "2026-10-03": {
+      "deepseek":   { "speso": 0.12, "ricarica": 10.0, "saldo": 9.98 },
+      "openrouter": { "speso": 0.0, "ricarica": 0, "saldo": 3.2 },
+      "elevenlabs": { "caratteri": 1200 },
+      "agnes":      { "richieste": 15 },
+      "deleghe":    { "usd": 0.4 }
+    }
+  },
+  "campioni": { "deepseek": { "at": 0, "saldo": 9.98 }, "openrouter": { "at": 0, "crediti": 10, "uso": 6.8 } }
+}
+```
+
+- `servizi` contiene solo i servizi che hanno una chiave (ElevenLabs anche senza chiave, se il Nucleo ha contato
+  qualcosa). `giorni` usa chiavi in ora locale e tiene gli ultimi 400 giorni; un servizio manca in un giorno senza dati.
+  `campioni` serve solo all'estensione, per contare la differenza alla lettura dopo.
+- `mediaGiorno`: media di `speso` sugli ultimi 7 giorni che hanno dati per quel servizio (oggi compreso), `null` con
+  meno di 2 giorni. `giorniRimasti` = saldo / media, arrotondato in giu'.
+- `tono`: `male` se il saldo e' a zero o sotto, o il servizio dice che non e' disponibile; `attesa` sotto 2 $
+  (`SOGLIA_USD`) o con meno di 5 giorni al ritmo attuale (`SOGLIA_GIORNI`); ElevenLabs `attesa` oltre il 90% del limite
+  del mese, `male` a limite finito (solo con `user_read`). Altrimenti `ok`.
+- `frase`: italiano, senza lineette, pronta per la barra, un widget o una notifica.
+
+Avvisi di ricarica: un servizio in `attesa` o `male` da' un allarme con id `conti:<servizio>:<YYYY-MM-DD>`, quindi uno
+al giorno, anche dopo un riavvio (gli id di oggi gia' nel file non suonano di nuovo). Sul Mac: notifica del Nucleo
+`bottega:conti:...` con «Apri i conti» (comando `bottega.apriConti`, il Cruscotto sulla sezione). Sull'iPhone: lo stesso
+allarme entra in `Istantanea.negozio` (sezione 9.4) insieme a quelli della stanza App Store, con testo «Restano 1,20 $,
+... Si ricarica su platform.deepseek.com.».
+
+Plancia: la webview chiede `{type: "conti.request", aggiorna?: bool}` a ogni richiesta delle statistiche del Cruscotto
+(e con «Aggiorna i saldi»); l'estensione risponde subito con `{type: "conti", conti: ContiFile | null}` e, se i dati
+hanno piu' di 10 minuti o `aggiorna` e' vero, di nuovo dopo la lettura. `{type: "conti.mostra"}` porta la vista sulla
+sezione. Nella barra di Melissa, sotto i conti, «Crediti e consumi, giorno per giorno» manda `comando` `conti`.
+

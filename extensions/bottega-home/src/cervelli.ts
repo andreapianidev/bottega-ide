@@ -262,6 +262,12 @@ export class Cervelli {
 		void this.o.memento.update(AGNES_DAY, { day, n: d?.day === day ? d.n + 1 : 1 });
 	}
 
+	/** Le richieste ad Agnes di oggi dalla Bottega (per il registro dei conti, src/conti.ts). */
+	agnesOggi(): number {
+		const d = this.o.memento.get<{ day: string; n: number }>(AGNES_DAY);
+		return d?.day === new Date(this.now()).toISOString().slice(0, 10) ? d.n : 0;
+	}
+
 	private agnesAccount(): Account {
 		const now = this.now();
 		const day = new Date(now).toISOString().slice(0, 10);

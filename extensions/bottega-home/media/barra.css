@@ -319,6 +319,7 @@ body.sfondo *::after { animation-play-state: paused !important; }
 .conti summary::-webkit-details-marker { display: none; }
 .conti summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
 .conti[open] summary span { white-space: normal; }
+.conti-apri { margin-top: 6px; }
 .conti-lista { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
 .conto { display: grid; grid-template-columns: auto auto 1fr; gap: 6px; align-items: baseline; }
 .conto b { color: var(--calima); font-weight: 600; }

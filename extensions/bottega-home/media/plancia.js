@@ -3172,6 +3172,13 @@
 				room('cruscotto', 'setStats', m.stats || null, m.error);
 				if (state.view === 'plancia' && state.snapshot && state.snapshot.scannedAt) renderQuadro();
 				return;
+			case 'conti':
+				// crediti e consumi dei servizi: una sezione del cruscotto (media/conti.js, CONTRATTI 14)
+				room('cruscotto', 'setConti', m.conti || null);
+				return;
+			case 'conti.mostra':
+				room('cruscotto', 'mostraConti');
+				return;
 			case 'assistant':
 				state.assistant = m.state;
 				state.voiceOptimistic = null;
