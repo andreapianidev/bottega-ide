@@ -11,8 +11,9 @@ const esbuild = require('esbuild');
 
 const SRC = path.join(__dirname, '..', 'src');
 const OUT = path.join(__dirname, 'test-out', 'ponte');
-esbuild.buildSync({ entryPoints: ['ponte.ts', 'dispositivo.ts'].map(f => path.join(SRC, f)), outdir: OUT, format: 'cjs', platform: 'node', bundle: false, target: 'node20', logLevel: 'silent' });
-const { Ponte, inTailnet, leggiGettone } = require(path.join(OUT, 'ponte.js'));
+esbuild.buildSync({ entryPoints: ['ponte.ts', 'dispositivo.ts', 'cervelli.ts'].map(f => path.join(SRC, f)), outdir: OUT, format: 'cjs', platform: 'node', bundle: false, target: 'node20', logLevel: 'silent' });
+const { Ponte, inTailnet, leggiGettone, rotteCervelli, sceltaDi, leggiSceltaCervello, nomeCervello } = require(path.join(OUT, 'ponte.js'));
+const { Cervelli } = require(path.join(OUT, 'cervelli.js'));
 const { fondiDispositivo, leggiDispositivo } = require(path.join(OUT, 'dispositivo.js'));
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bottega-ponte-'));
@@ -59,12 +60,22 @@ function call(port, method, url, { token, body, raw } = {}) {
 	const asked = [];
 	const written = [];
 	const port = 20000 + Math.floor(Math.random() * 20000);
+	// i Cervelli veri, con rete finta e chiavi finte: DeepSeek ha credito, Apple Intelligence no
+	const secrets = path.join(dir, 'secrets');
+	fs.mkdirSync(secrets);
+	fs.writeFileSync(path.join(secrets, 'agnes-ai.env'), 'AGNES_API_KEY=chiave-finta-agnes\n');
+	fs.writeFileSync(path.join(secrets, 'deepseek-harness.env'), 'DEEPSEEK_API_KEY=chiave-finta-ds\n');
+	for (const k of ['AGNES_API_KEY', 'DEEPSEEK_API_KEY']) delete process.env[k];
+	const mem = new Map();
+	const reteFinta = async url => (url.includes('user/balance') ? { ok: true, status: 200, json: async () => ({ is_available: true, balance_infos: [] }) } : { ok: true, status: 200, body: null });
+	const cv = new Cervelli({ memento: { get: k => mem.get(k), update: (k, v) => void mem.set(k, v) }, fetch: reteFinta, secretsDir: secrets, usageFile: path.join(dir, 'nessuno.json'), appleAvailable: () => false, appleReason: () => 'il Nucleo non è acceso' });
 	const ponte = new Ponte({
 		dir,
 		versione: '9.9.9',
 		porta: port,
 		indirizzo: async () => ({ ip: '127.0.0.1', nome: 'mac-di-prova.tailnet.ts.net' }),
-		stato: () => ({ melissa: { stato: busy ? 'thinking' : 'idle', cervello: 'agnes', registro: asked.map(t => ({ chi: 'tu', testo: t, alle: 1 })) }, lavori: [], conti: { inCorso: 0, tiAspetta: 1, inCoda: 0, vive: 1 } }),
+		cervelli: rotteCervelli(() => cv),
+		stato: () => ({ melissa: { stato: busy ? 'thinking' : 'idle', cervello: 'agnes', scelta: sceltaDi(cv), registro: asked.map(t => ({ chi: 'tu', testo: t, alle: 1 })) }, lavori: [], conti: { inCorso: 0, tiAspetta: 1, inCoda: 0, vive: 1 } }),
 		occupata: () => busy,
 		chiedi: async t => (asked.push(t), `Risposta a: ${t}`),
 		confermaAttuale: () => confermaAperta,
@@ -208,6 +219,56 @@ function call(port, method, url, { token, body, raw } = {}) {
 	assert.strictEqual((await call(port, 'POST', '/v1/dispositivo', { body: { ambiente: 'sviluppo', token: tokA } })).status, 401);
 	assert.strictEqual(leggiDispositivo(dir).ambiente, 'sviluppo', 'le richieste rifiutate non toccano il registro');
 	ok('dispositivo: token esadecimali, campi fusi, attivita vuota tolta, errori');
+
+	// il cervello di Melissa (9.8): letto e cambiato con gli stessi metodi della barra
+	assert.deepStrictEqual(s.body.melissa.scelta, { provider: 'agnes', nome: 'Agnes', impegno: 'normale', predefinito: 'agnes', perOra: false });
+	let cb = await call(port, 'GET', '/v1/cervelli', { token: t1 });
+	assert.strictEqual(cb.status, 200);
+	assert.deepStrictEqual(cb.body.opzioni.map(o => [o.provider, o.nome, o.nota, o.disponibile]), [['agnes', 'Agnes', 'gratis', true], ['apple', 'Apple Intelligence', 'gratis, sul Mac', false], ['deepseek', 'DeepSeek', 'a consumo, a fondo V4 Pro', true]]);
+	assert.strictEqual(cb.body.opzioni[1].perche, 'il Nucleo non è acceso');
+	cb = await call(port, 'POST', '/v1/cervello', { token: t1, body: { provider: 'deepseek', impegno: 'profondo' } });
+	assert.strictEqual(cb.status, 200);
+	assert.deepStrictEqual([cb.body.provider, cb.body.nome, cb.body.impegno, cb.body.perOra, cb.body.predefinito], ['deepseek', 'DeepSeek V4 Pro', 'profondo', true, 'agnes']);
+	assert.strictEqual(cv.choice().provider, 'deepseek', 'la barra del Mac vede lo stesso cervello');
+	assert.strictEqual((await call(port, 'GET', '/v1/stato', { token: t1 })).body.melissa.scelta.nome, 'DeepSeek V4 Pro');
+	cb = await call(port, 'POST', '/v1/cervello', { token: t1, body: { provider: 'deepseek', impegno: 'normale', sempre: true } });
+	assert.deepStrictEqual([cb.body.nome, cb.body.perOra, cb.body.predefinito], ['DeepSeek', false, 'deepseek']);
+	assert.strictEqual(mem.get('bottega.cervello.predefinito'), 'deepseek', 'sempre: si ricorda');
+	cv.endConversation();
+	assert.strictEqual(cv.choice().provider, 'deepseek');
+	cb = await call(port, 'POST', '/v1/cervello', { token: t1, body: { provider: 'apple' } });
+	assert.strictEqual(cb.status, 409);
+	assert.ok(/non è disponibile: il Nucleo non è acceso/.test(cb.body.errore), cb.body.errore);
+	for (const corpo of [{ provider: 'claude' }, { impegno: 'massimo' }, {}, { provider: 'agnes', sempre: 'si' }, [1]]) {
+		const r = await call(port, 'POST', '/v1/cervello', { token: t1, body: corpo });
+		assert.strictEqual(r.status, 400, JSON.stringify(corpo));
+		assert.ok(r.body.errore);
+	}
+	assert.strictEqual((await call(port, 'GET', '/v1/cervello', { token: t1 })).status, 405);
+	assert.strictEqual((await call(port, 'POST', '/v1/cervelli', { token: t1, body: {} })).status, 405);
+	assert.strictEqual((await call(port, 'POST', '/v1/cervello', { body: { provider: 'agnes' } })).status, 401);
+	cb = await call(port, 'POST', '/v1/cervello', { token: t1, body: { provider: 'agnes', sempre: true } });
+	assert.deepStrictEqual([cb.body.provider, cb.body.predefinito, cb.body.perOra], ['agnes', 'agnes', false]);
+	assert.strictEqual(nomeCervello('deepseek', 'rapido'), 'DeepSeek');
+	assert.strictEqual(typeof leggiSceltaCervello(null), 'string');
+	assert.ok(![JSON.stringify(cb.body)].some(t => /[—–]/.test(t)));
+	ok('cervello: GET /v1/cervelli, POST /v1/cervello con elenco chiuso, sempre, 409 se non disponibile');
+
+	// un cambio arriva agli eventi
+	const ev = [];
+	await new Promise((resolve, reject) => {
+		const req = http.request({ host: '127.0.0.1', port, path: '/v1/eventi', headers: { authorization: `Bearer ${t1}` } }, res => {
+			res.on('data', c => {
+				for (const l of c.toString().split('\n')) if (l.startsWith('data: ')) ev.push(JSON.parse(l.slice(6)));
+				if (ev.length === 1) void call(port, 'POST', '/v1/cervello', { token: t1, body: { impegno: 'rapido' } });
+				if (ev.length === 2) (req.destroy(), resolve());
+			});
+		});
+		req.on('error', e => (ev.length >= 2 ? resolve() : reject(e)));
+		req.end();
+	});
+	assert.deepStrictEqual([ev[0].melissa.scelta.impegno, ev[1].melissa.scelta.impegno], ['normale', 'rapido']);
+	ok('il cambio di cervello arriva agli eventi');
 
 	// troppi gettoni sbagliati: fuori
 	for (let i = 0; i < 20; i++) await call(port, 'GET', '/v1/stato', { token: 'sbagliato' });

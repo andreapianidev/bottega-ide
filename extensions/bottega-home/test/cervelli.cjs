@@ -130,6 +130,47 @@ function fakeFetch(opts = {}) {
 		assert.strictEqual(dopo.choice().provider, 'agnes', 'al riavvio si riparte da Agnes');
 	});
 
+	await test('«sempre»: il predefinito si ricorda, la fine della conversazione torna li\', Agnes lo toglie, un cervello a terra ripiega su Agnes', async () => {
+		const m = memento();
+		let cambi = 0;
+		let apple = false;
+		const conCredito = { dsStatus: 200, dsBalance: { is_available: true, balance_infos: [{ currency: 'USD', total_balance: '5.00' }] } };
+		const c = new cv.Cervelli({ memento: m, fetch: fakeFetch(conCredito), secretsDir: secrets, appleAvailable: () => apple, onChange: () => cambi++ });
+		assert.strictEqual(c.defaultProvider(), 'agnes');
+		await c.set('deepseek', undefined, true);
+		assert.deepStrictEqual([c.choice().provider, c.temporary(), c.defaultProvider()], ['deepseek', false, 'deepseek']);
+		assert.ok(cambi >= 1, 'chi mostra il cervello lo sa');
+		const dopo = new cv.Cervelli({ memento: m, fetch: fakeFetch(conCredito), secretsDir: secrets });
+		assert.strictEqual(dopo.choice().provider, 'deepseek', 'sopravvive al riavvio');
+		await c.set('agnes');
+		assert.deepStrictEqual([c.choice().provider, c.temporary()], ['agnes', true], 'Agnes per questa conversazione');
+		let st = await c.state();
+		assert.deepStrictEqual([st.current.provider, st.temporary, st.defaultProvider], ['agnes', true, 'deepseek']);
+		c.endConversation();
+		assert.strictEqual(c.choice().provider, 'deepseek', 'a fine conversazione si torna al predefinito');
+		await c.set('deepseek');
+		assert.strictEqual(c.temporary(), false, 'scegliere il predefinito non e\' una scelta a tempo');
+		c.markDown('deepseek', 'senza credito');
+		assert.strictEqual(c.choice().provider, 'agnes', 'predefinito a terra: Agnes');
+		st = await c.state();
+		assert.deepStrictEqual([st.current.provider, st.defaultProvider], ['agnes', 'deepseek']);
+		await c.set('agnes', undefined, true);
+		assert.strictEqual(c.defaultProvider(), 'agnes');
+		assert.strictEqual(m.get('bottega.cervello.predefinito'), undefined, 'Agnes «sempre» toglie la chiave');
+		// Apple come predefinito: solo quando il Nucleo lo dice disponibile
+		await assert.rejects(() => c.set('apple', undefined, true), /non è disponibile/);
+		apple = true;
+		await c.set('apple', undefined, true);
+		assert.strictEqual(c.choice().provider, 'apple');
+		apple = false;
+		assert.strictEqual(c.choice().provider, 'agnes', 'Nucleo spento: Agnes');
+		const n = cambi;
+		await c.setEffort('rapido');
+		assert.strictEqual(cambi, n + 1, 'anche l\'impegno avvisa');
+		await c.setEffort('rapido');
+		assert.strictEqual(cambi, n + 1, 'niente avviso se non cambia niente');
+	});
+
 	await test('conti: Agnes senza saldo ma con richieste e 429, DeepSeek solo mentre si usa, ElevenLabs contato in locale', async () => {
 		let now = Date.UTC(2026, 9, 2, 9);
 		const usage = path.join(tmp, 'usage.json');

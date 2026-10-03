@@ -240,6 +240,35 @@ final class Ponte {
         }
     }
 
+    // MARK: - il cervello di Melissa (9.8)
+
+    /// I cervelli che il Mac dice disponibili, quello di adesso, l'impegno e il predefinito.
+    func cervelli() async throws -> CervelliMac {
+        try await prendi("/v1/cervelli")
+    }
+
+    /// Cambia il cervello e/o l'impegno, con gli stessi metodi della barra del Mac. `sempre`: diventa il predefinito.
+    func scegliCervello(provider: String? = nil, impegno: String? = nil, sempre: Bool = false) async throws -> CervelliMac {
+        var corpo: [String: Any] = ["sempre": sempre]
+        if let provider { corpo["provider"] = provider }
+        if let impegno { corpo["impegno"] = impegno }
+        let r: CervelliMac = try await manda("/v1/cervello", corpo, timeout: 30)
+        // il nome sotto la sfera cambia subito, anche se gli eventi sono caduti
+        Task { await aggiornaStato() }
+        return r
+    }
+
+    private func prendi<T: Decodable>(_ percorso: String, timeout: TimeInterval = 30) async throws -> T {
+        do {
+            let (d, r) = try await sessione.data(for: richiesta(percorso, timeout: timeout))
+            try controlla(r, corpo: d)
+            return try JSONDecoder().decode(T.self, from: d)
+        } catch {
+            if scambiaSuIP(error) { return try await prendi(percorso, timeout: timeout) }
+            throw (error as? ErrorePonte) ?? ErrorePonte(messaggio: spiega(error))
+        }
+    }
+
     private func manda<T: Decodable>(_ percorso: String, _ corpo: [String: Any], timeout: TimeInterval = 90) async throws -> T {
         let d = try await mandaDati(percorso, corpo, timeout: timeout)
         return try JSONDecoder().decode(T.self, from: d)

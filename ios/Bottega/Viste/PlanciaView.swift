@@ -17,6 +17,7 @@ struct PlanciaView: View {
     @Bindable private var nav = Navigazione.shared
     @State private var testo = ""
     @State private var impostazioni = false
+    @State private var cervello = false
     @FocusState private var scrivendo: Bool
 
     var body: some View {
@@ -50,6 +51,10 @@ struct PlanciaView: View {
         }
         .sheet(isPresented: $impostazioni) {
             ImpostazioniView(ponte: ponte, melissa: melissa)
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $cervello) {
+            CervelloFoglio(ponte: ponte)
                 .presentationDetents([.medium, .large])
         }
         .alert("Melissa", isPresented: Binding(get: { melissa.avviso != nil }, set: { if !$0 { melissa.avviso = nil } })) {
@@ -100,9 +105,14 @@ struct PlanciaView: View {
                 }
                 .contentShape(Circle())
                 .onTapGesture { melissa.tocca() }
+                // tocco lungo: il selettore del cervello (CervelloView.swift)
+                .onLongPressGesture(minimumDuration: 0.5) { cervello = true }
                 .accessibilityLabel("Sfera di Melissa")
                 .accessibilityHint(melissa.sfera == .ascolta ? "Tocca per mandare la frase" : "Tocca per parlare con Melissa")
                 .accessibilityAddTraits(.isButton)
+                .accessibilityAction(named: "Scegli il cervello") { cervello = true }
+            CervelloNome(scelta: ponte.stato?.melissa.scelta, acceso: ponte.linea == .collegato) { cervello = true }
+                .padding(.top, -4)
             Text(fraseSfera)
                 .font(.callout)
                 .foregroundStyle(melissa.sfera == .errore ? Tinte.rosso : Tinte.tinta)

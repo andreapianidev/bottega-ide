@@ -10,7 +10,8 @@ import { Dispositivo, fondiDispositivo, leggiDispositivo, togliToken } from './d
 import type { WorkCounts, WorkItem } from './jobs';
 import type { Nucleo } from './nucleo';
 import * as crypto from 'crypto';
-import { Ponte, PonteStato, RigaParla } from './ponte';
+import type { Cervelli } from './cervelli';
+import { Ponte, PonteStato, RigaParla, rotteCervelli, sceltaDi } from './ponte';
 import { creaSessioni } from './ponte-sessioni-host';
 import { StanzePonte } from './ponte-stanze';
 import { fontiStanze } from './strumenti-stanze';
@@ -34,6 +35,8 @@ export interface PonteHostDeps {
 	projects?(): string[];
 	writeJobRaw?(id: string, data: string, invio: boolean): boolean;
 	jobTerminal?(id: string): vscode.Terminal | undefined;
+	/** I cervelli di Melissa: il nome sotto la sfera e il selettore dell'iPhone (9.8). */
+	cervelli?(): Cervelli | undefined;
 }
 
 export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps): { notify(): void } {
@@ -96,6 +99,8 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 		versione: String(ctx.extension.packageJSON.version ?? ''),
 		stato: () => stato(deps),
 		sessioni,
+		// il cervello di Melissa (9.8): gli stessi metodi della barra del Mac
+		cervelli: deps.cervelli ? rotteCervelli(deps.cervelli) : undefined,
 		// le stanze della plancia, dalle stesse fonti di stanza_leggi (CONTRATTI 9.6)
 		stanze: new StanzePonte({
 			fonti: fontiStanze,
@@ -249,10 +254,12 @@ async function parla(deps: PonteHostDeps, testo: string, emetti: (r: RigaParla) 
 function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora'> {
 	const a = deps.assistant()?.getState();
 	const c = deps.counts();
+	const cv = deps.cervelli?.();
 	return {
 		melissa: {
 			stato: a?.state ?? 'idle',
 			cervello: a?.brain ?? 'nessuno',
+			...(cv ? { scelta: sceltaDi(cv) } : {}),
 			parziale: a?.partial,
 			registro: (a?.log ?? []).slice(-30).map(l => ({ chi: l.role, testo: l.text, alle: l.at })),
 		},

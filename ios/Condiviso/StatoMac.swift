@@ -15,11 +15,26 @@ struct StatoMac: Codable, Equatable {
         let alle: Double
         var id: String { "\(alle)-\(chi)-\(testo.prefix(24))" }
     }
+    /// Il cervello scelto adesso sul Mac (docs/CONTRATTI.md, 9.8): il nome sotto la sfera.
+    struct Scelta: Codable, Equatable {
+        /// agnes, deepseek, apple
+        let provider: String
+        /// «Agnes», «DeepSeek», «DeepSeek V4 Pro», «Apple Intelligence»
+        let nome: String
+        /// rapido, normale, profondo
+        let impegno: String
+        /// il cervello a cui si torna a fine conversazione
+        let predefinito: String
+        /// vero se vale solo per questa conversazione
+        let perOra: Bool
+    }
     struct Melissa: Codable, Equatable {
         let stato: String
         let cervello: String
         let parziale: String?
         let registro: [Riga]
+        /// assente con una Bottega sul Mac che non lo manda ancora
+        var scelta: Scelta? = nil
     }
     struct Lavoro: Codable, Equatable, Identifiable {
         let chiave: String

@@ -27,7 +27,8 @@ export interface BarraActions {
 	converse(): void;
 	ask(text: string): void;
 	toggleVoice(): void;
-	setBrain(provider: Provider, model: string): Promise<void>;
+	/** `sempre`: diventa il predefinito (CONTRATTI 9.8), altrimenti vale per questa conversazione */
+	setBrain(provider: Provider, model: string, sempre?: boolean): Promise<void>;
 	setEffort(effort: Effort): Promise<void>;
 	setRacconta(on: boolean): Promise<void>;
 	focusJob(id: string): void;
@@ -116,7 +117,7 @@ export class BarraView implements vscode.WebviewViewProvider {
 				return this.act.toggleVoice();
 			case 'brain.set':
 				try {
-					await this.act.setBrain(m.provider, s(m.model));
+					await this.act.setBrain(m.provider, s(m.model), m.sempre === true);
 				} catch (e: any) {
 					void vscode.window.showWarningMessage(e?.message ?? String(e));
 				}

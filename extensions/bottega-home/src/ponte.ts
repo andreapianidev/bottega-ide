@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
+import type { BrainState, Cervelli, Effort, Provider } from './cervelli';
 import { CAMPI_TOKEN, DispositivoParziale, TOKEN_HEX } from './dispositivo';
 
 /* Il ponte verso l'iPhone (docs/CONTRATTI.md, sezione 9). Un server HTTP che ascolta SOLO sull'indirizzo
@@ -20,13 +21,45 @@ import { CAMPI_TOKEN, DispositivoParziale, TOKEN_HEX } from './dispositivo';
      POST /v1/dispositivo {...}   -> {ok}                   i token APNs dell'iPhone (9.4): notifiche, Live Activity, widget
      /v1/sessione...              -> la scheda di una sessione (9.5), in src/ponte-sessioni.ts
      GET  /v1/stanza?nome=..      -> una stanza della plancia in sola lettura (9.6), in src/ponte-stanze.ts
-     POST /v1/stanza/azione {..}  -> {ok, messaggio}        ignora, ripristina, verifica, lavoro nella stanza App Store (9.7) */
+     POST /v1/stanza/azione {..}  -> {ok, messaggio}        ignora, ripristina, verifica, lavoro nella stanza App Store (9.7)
+     GET  /v1/cervelli            -> PonteCervelli          il cervello di Melissa, l'impegno e le alternative (9.8)
+     POST /v1/cervello {provider?, impegno?, sempre?} -> PonteCervelli   lo cambia, come la barra del Mac */
 
 export interface PonteMelissa {
 	stato: string;
 	cervello: string;
+	/** il cervello scelto adesso, per il nome sotto la sfera (9.8); assente con una Bottega senza cervelli */
+	scelta?: PonteScelta;
 	parziale?: string;
 	registro: { chi: 'tu' | 'melissa' | 'azione'; testo: string; alle: number }[];
+}
+
+/** Il cervello di Melissa come lo vede l'iPhone (docs/CONTRATTI.md, 9.8). */
+export interface PonteScelta {
+	provider: Provider;
+	/** «Agnes», «DeepSeek», «DeepSeek V4 Pro», «Apple Intelligence» */
+	nome: string;
+	impegno: Effort;
+	/** il cervello a cui si torna a fine conversazione */
+	predefinito: Provider;
+	/** vero se vale solo per questa conversazione */
+	perOra: boolean;
+}
+
+export interface PonteCervelli extends PonteScelta {
+	opzioni: { provider: Provider; nome: string; nota: string; disponibile: boolean; perche?: string }[];
+}
+
+export interface SceltaCervello {
+	provider?: Provider;
+	impegno?: Effort;
+	sempre: boolean;
+}
+
+export interface RotteCervelli {
+	leggi(): Promise<PonteCervelli>;
+	/** Un cervello non disponibile -> errore con `status` 409 e la frase del perche'. */
+	scegli(s: SceltaCervello): Promise<PonteCervelli>;
 }
 
 export interface PonteLavoro {
@@ -70,6 +103,8 @@ export interface PonteDeps {
 	sessioni?: RotteSessioni;
 	/** Le stanze della plancia in sola lettura (GET /v1/stanza, docs/CONTRATTI.md 9.6), dopo il gettone. */
 	stanze?: RotteStanze;
+	/** Il cervello di Melissa (GET /v1/cervelli, POST /v1/cervello, docs/CONTRATTI.md 9.8), dopo il gettone. */
+	cervelli?: RotteCervelli;
 	/** Solo per i test: dove ascoltare al posto dell'indirizzo Tailscale. */
 	indirizzo?: () => Promise<Rete | null>;
 	porta?: number;
@@ -329,6 +364,19 @@ export class Ponte {
 				if (req.method !== 'POST') return json(405, { errore: 'Le azioni si mandano con POST.' });
 				return json(200, await this.deps.stanze.azione((await leggiCorpo(req)) ?? {}));
 			}
+			if (url === '/v1/cervelli' && this.deps.cervelli) {
+				if (req.method !== 'GET') return json(405, { errore: 'I cervelli si leggono con GET.' });
+				return json(200, await this.deps.cervelli.leggi());
+			}
+			if (url === '/v1/cervello' && this.deps.cervelli) {
+				if (req.method !== 'POST') return json(405, { errore: 'Il cervello si cambia con POST.' });
+				const scelta = leggiSceltaCervello(await leggiCorpo(req));
+				if (typeof scelta === 'string') return json(400, { errore: scelta });
+				const r = await this.deps.cervelli.scegli(scelta);
+				this.deps.log(`ponte: cervello dall'iPhone: ${[scelta.provider, scelta.impegno, scelta.sempre ? 'sempre' : ''].filter(Boolean).join(', ')}`);
+				this.notify();
+				return json(200, r);
+			}
 			if (req.method === 'GET' && url === '/v1/stato') return json(200, this.stato());
 			if (req.method === 'GET' && url === '/v1/eventi') return this.eventi(req, res);
 			if (req.method !== 'POST') return json(404, { errore: 'Non c\'e\' niente qui.' });
@@ -410,6 +458,79 @@ export class Ponte {
 		this.flussi.add(res);
 		req.on('close', () => this.flussi.delete(res));
 	}
+}
+
+// ---------- il cervello di Melissa (9.8) ----------
+
+const PROVIDER: Provider[] = ['agnes', 'deepseek', 'apple'];
+const IMPEGNI: Effort[] = ['rapido', 'normale', 'profondo'];
+
+/** Il nome breve sotto la sfera: con «profondo» DeepSeek pensa con V4 Pro (src/cervelli.ts, requestBody). */
+export function nomeCervello(provider: Provider, impegno: Effort): string {
+	if (provider === 'deepseek') return impegno === 'profondo' ? 'DeepSeek V4 Pro' : 'DeepSeek';
+	return provider === 'apple' ? 'Apple Intelligence' : 'Agnes';
+}
+
+const NOTA: Record<Provider, string> = { agnes: 'gratis', deepseek: 'a consumo, a fondo V4 Pro', apple: 'gratis, sul Mac' };
+
+/** Il corpo di POST /v1/cervello, da un elenco chiuso; una stringa e' l'errore da mandare con 400. */
+export function leggiSceltaCervello(corpo: any): SceltaCervello | string {
+	if (!corpo || typeof corpo !== 'object' || Array.isArray(corpo)) return 'JSON non valido.';
+	const { provider, impegno, sempre } = corpo;
+	if (provider !== undefined && !PROVIDER.includes(provider)) return 'Cervello sconosciuto: agnes, deepseek o apple.';
+	if (impegno !== undefined && !IMPEGNI.includes(impegno)) return 'Impegno sconosciuto: rapido, normale o profondo.';
+	if (sempre !== undefined && typeof sempre !== 'boolean') return '«sempre» vale vero o falso.';
+	if (provider === undefined && impegno === undefined) return 'Serve un cervello o un impegno.';
+	return { provider, impegno, sempre: sempre === true };
+}
+
+type CervelliPonte = Pick<Cervelli, 'state' | 'set' | 'setEffort' | 'choice' | 'defaultProvider' | 'temporary'>;
+
+/** Il cervello di adesso, senza rete: per /v1/stato e gli eventi. */
+export function sceltaDi(c: CervelliPonte): PonteScelta {
+	const ch = c.choice();
+	return { provider: ch.provider, nome: nomeCervello(ch.provider, ch.effort), impegno: ch.effort, predefinito: c.defaultProvider(), perOra: c.temporary() };
+}
+
+export function cervelliPerIPhone(b: BrainState): PonteCervelli {
+	return {
+		provider: b.current.provider,
+		nome: nomeCervello(b.current.provider, b.effort),
+		impegno: b.effort,
+		predefinito: b.defaultProvider,
+		perOra: b.temporary,
+		opzioni: b.options.map(o => ({
+			provider: o.provider,
+			nome: nomeCervello(o.provider, 'normale'),
+			nota: NOTA[o.provider] ?? o.note,
+			disponibile: o.available,
+			...(o.available || !o.why ? {} : { perche: o.why }),
+		})),
+	};
+}
+
+/** Le rotte del cervello sopra i Cervelli veri: gli stessi metodi della barra del Mac (set, setEffort). */
+export function rotteCervelli(cervelli: () => CervelliPonte | undefined): RotteCervelli {
+	const serve = () => {
+		const c = cervelli();
+		if (!c) throw Object.assign(new Error('I cervelli di Melissa non sono ancora pronti.'), { status: 503 });
+		return c;
+	};
+	return {
+		leggi: async () => cervelliPerIPhone(await serve().state()),
+		scegli: async s => {
+			const c = serve();
+			if (s.impegno) await c.setEffort(s.impegno);
+			if (s.provider) {
+				try {
+					await c.set(s.provider, undefined, s.sempre);
+				} catch (e: any) {
+					throw Object.assign(new Error(String(e?.message ?? e)), { status: 409 });
+				}
+			}
+			return cervelliPerIPhone(await c.state());
+		},
+	};
 }
 
 function leggiCorpo(req: http.IncomingMessage): Promise<any> {

@@ -210,7 +210,9 @@ async function switchBrain(cervello?: string, impegno?: string): Promise<string>
 	if (asked.provider) {
 		try {
 			const c = await cervelli.set(asked.provider as Provider);
-			out.push(c.provider === 'agnes' ? 'torno ad Agnes' : `penso con ${brainName(c.model)} per questa conversazione, poi torno ad Agnes`);
+			// si torna al predefinito: Agnes, salvo una scelta «sempre» (CONTRATTI 9.8)
+			const base = { agnes: 'ad Agnes', deepseek: 'a DeepSeek', apple: 'ad Apple Intelligence' }[cervelli.defaultProvider()];
+			out.push(!cervelli.temporary() ? `torno ${base}` : `penso con ${brainName(c.model)} per questa conversazione, poi torno ${base}`);
 		} catch (e: any) {
 			return `${e?.message ?? e} Resto con Agnes.`;
 		}
@@ -602,6 +604,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		appleAvailable: () => !!nucleo?.available && !!nucleo.capabilities?.foundationModels,
 		appleReason: () => (nucleo?.available ? nucleo.capabilities?.foundationModelsReason : 'il Nucleo non è acceso'),
 		log: s => console.warn(s),
+		// cambiato dalla barra, a voce o dall'iPhone: la barra e l'iPhone lo mostrano subito (CONTRATTI 9.8)
+		onChange: () => setTimeout(() => (barraView?.refreshBrainNow(), ponte?.notify()), 0),
 	});
 	conti = registraConti(ctx);
 	// gli occhi di Melissa sul codice dell'editor (src/occhio-host.ts)
@@ -668,6 +672,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		// la scheda di sessione dall'iPhone (CONTRATTI 9.5)
 		projects: () => snapshot.projects.map(p => p.path),
 		writeJobRaw: (id, data, invio) => !!jobManager?.type(id, data, invio),
+		cervelli: () => cervelli,
 		jobTerminal: id => jobManager?.terminal(id),
 		regole: () => {
 			const r = idee?.rules.state();
@@ -854,7 +859,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			converse: () => assistant?.toggleConversation(),
 			ask: text => void assistant?.ask(text),
 			toggleVoice: () => void assistant?.toggle(),
-			setBrain: async (p, m) => void (await cervelli!.set(p, m)),
+			setBrain: async (p, m, sempre) => void (await cervelli!.set(p, m, sempre)),
 			setEffort: async e => void (await cervelli!.setEffort(e)),
 			setRacconta: async on => void (await cfg().update('voice.racconta', on, vscode.ConfigurationTarget.Global)),
 			focusJob: id => jobManager?.focus(id),

@@ -1,7 +1,8 @@
 /* I cervelli di Melissa: Agnes (predefinito, gratis), DeepSeek (a consumo, se ha credito), Apple Intelligence sul Mac
    (dal Nucleo, la riserva quando Agnes non risponde). Agnes e DeepSeek parlano l'API compatibile OpenAI con gli
    strumenti, in streaming: un solo client, con le differenze di ciascuno (url, chiave, modello, come si chiede
-   l'impegno). La scelta e l'impegno si ricordano e si cambiano anche a voce.
+   l'impegno). L'impegno e il predefinito si ricordano; una scelta «per questa conversazione» no. Si cambia dalla barra,
+   a voce e dall'iPhone (POST /v1/cervello, sezione 9).
    OpenRouter (Claude, Gemini, GPT a consumo) e' stato tolto il 3/10/2026: «Agnes e DeepSeek bastano e avanzano».
    Contratto: docs/CONTRATTI.md, sezione 6. */
 
@@ -36,6 +37,10 @@ export interface Account {
 export interface BrainState {
 	current: { provider: Provider; model: string; label: string };
 	effort: Effort;
+	/** il cervello a cui si torna a fine conversazione: Agnes, salvo una scelta «sempre» */
+	defaultProvider: Provider;
+	/** vero se il cervello di adesso vale solo per questa conversazione */
+	temporary: boolean;
 	options: BrainOption[];
 	accounts: Account[];
 	checkedAt: number;
@@ -64,11 +69,15 @@ export interface CervelliOptions {
 	appleReason?: () => string | undefined;
 	usageFile?: string;
 	log?: (s: string) => void;
+	/** Il cervello o l'impegno sono cambiati (barra, voce, iPhone): chi li mostra si rilegge. */
+	onChange?: () => void;
 }
 
-/** Nel globalState si ricorda solo l'impegno: il cervello no (decisione di Andrea, 2 ottobre 2026: Agnes e' sempre il
- *  primario; un altro cervello vale per la conversazione in cui Andrea lo sceglie e poi si torna ad Agnes). */
+/** Nel globalState l'impegno e il predefinito. Decisione di Andrea, 2 ottobre 2026: Agnes e' il primario e un altro
+ *  cervello vale per la conversazione in cui lo sceglie; dal 3 ottobre 2026 puo' anche dire «sempre» (iPhone, barra):
+ *  allora quel cervello diventa il predefinito, finche' non sceglie «sempre» un altro. */
 const KEY = 'bottega.cervello.impegno';
+const DEFAULT_KEY = 'bottega.cervello.predefinito';
 const AGNES_DAY = 'bottega.agnes.oggi';
 /** Una scelta manuale scade dopo 15 minuti senza domande. */
 const TEMP_MS = 15 * 60_000;
@@ -157,25 +166,64 @@ export class Cervelli {
 		return e === 'rapido' || e === 'profondo' || e === 'normale' ? e : DEFAULT_CHOICE.effort;
 	}
 
-	/** Il cervello di adesso: Agnes, salvo una scelta manuale ancora valida per questa conversazione. */
+	/** Il predefinito scelto con «sempre» (Agnes se non c'e'). */
+	defaultProvider(): Provider {
+		const p = this.o.memento.get<Provider>(DEFAULT_KEY);
+		return p === 'deepseek' || p === 'apple' ? p : 'agnes';
+	}
+
+	/** Il cervello a cui si torna: il predefinito se adesso si puo' usare, altrimenti Agnes. */
+	private base(): Choice {
+		const p = this.defaultProvider();
+		const usable = p === 'apple' ? !!this.o.appleAvailable?.() : p === 'deepseek' ? !!this.key('deepseek') && !this.isDown('deepseek') : false;
+		if (!usable) return { ...DEFAULT_CHOICE, effort: this.effort() };
+		return { provider: p, model: p === 'apple' ? 'apple-on-device' : DEEPSEEK.fast, effort: this.effort() };
+	}
+
+	/** Il cervello di adesso: il predefinito (Agnes), salvo una scelta manuale ancora valida per questa conversazione. */
 	choice(): Choice {
 		if (this.temp && this.temp.until > this.now()) return { provider: this.temp.provider, model: this.temp.model, effort: this.effort() };
 		this.temp = null;
-		return { ...DEFAULT_CHOICE, effort: this.effort() };
+		return this.base();
 	}
 
-	/** Scelta manuale: vale per questa conversazione (15 minuti senza domande al massimo), poi si torna ad Agnes. */
-	async set(provider: Provider, model?: string): Promise<Choice> {
-		if (provider === 'agnes') {
-			this.temp = null;
+	/** Vero se il cervello di adesso vale solo per questa conversazione. */
+	temporary(): boolean {
+		this.choice(); // una scelta scaduta si toglie qui
+		return !!this.temp;
+	}
+
+	/** Scelta manuale: vale per questa conversazione (15 minuti senza domande al massimo), poi si torna al predefinito.
+	 *  Con `always` diventa il nuovo predefinito (Agnes con `always` toglie il predefinito). */
+	async set(provider: Provider, model?: string, always = false): Promise<Choice> {
+		const before = this.signature();
+		try {
+			if (provider === 'agnes') model = AGNES.model;
+			else {
+				const opts = await this.options();
+				const opt = opts.find(o => o.provider === provider && (!model || o.model === model)) ?? opts.find(o => o.provider === provider);
+				if (!opt) throw new Error(`Non conosco il cervello ${provider}.`);
+				if (!opt.available) throw new Error(`${opt.label} adesso non è disponibile: ${opt.why ?? 'motivo sconosciuto'}.`);
+				model = opt.model;
+			}
+			if (always) {
+				await this.o.memento.update(DEFAULT_KEY, provider === 'agnes' ? undefined : provider);
+				this.temp = null;
+			} else if (provider === this.base().provider) this.temp = null;
+			else this.temp = { provider, model: model!, until: this.now() + TEMP_MS };
 			return this.choice();
+		} finally {
+			this.changed(before);
 		}
-		const opts = await this.options();
-		const opt = opts.find(o => o.provider === provider && (!model || o.model === model)) ?? opts.find(o => o.provider === provider);
-		if (!opt) throw new Error(`Non conosco il cervello ${provider}.`);
-		if (!opt.available) throw new Error(`${opt.label} adesso non è disponibile: ${opt.why ?? 'motivo sconosciuto'}.`);
-		this.temp = { provider, model: opt.model, until: this.now() + TEMP_MS };
-		return this.choice();
+	}
+
+	private signature(): string {
+		const c = this.choice();
+		return `${c.provider}|${c.model}|${c.effort}|${this.defaultProvider()}|${!!this.temp}`;
+	}
+
+	private changed(before: string): void {
+		if (this.signature() !== before) this.o.onChange?.();
 	}
 
 	/** Una domanda con il cervello scelto a mano: la scelta dura altri 15 minuti. */
@@ -183,13 +231,17 @@ export class Cervelli {
 		if (this.temp) this.temp.until = this.now() + TEMP_MS;
 	}
 
-	/** Fine della conversazione: si torna ad Agnes. */
+	/** Fine della conversazione: si torna al predefinito (Agnes). */
 	endConversation(): void {
+		const before = this.signature();
 		this.temp = null;
+		this.changed(before);
 	}
 
 	async setEffort(effort: Effort): Promise<Choice> {
+		const before = this.signature();
 		await this.o.memento.update(KEY, effort);
+		this.changed(before);
 		return this.choice();
 	}
 
@@ -270,8 +322,10 @@ export class Cervelli {
 
 	/** Un 401 o un 402 mette il cervello da parte per un'ora; si torna subito ad Agnes. */
 	markDown(p: Provider, why: string): void {
+		const before = this.signature();
 		this.down.set(p, { until: this.now() + HOUR, why });
 		if (this.temp?.provider === p) this.temp = null;
+		this.changed(before);
 	}
 
 	private isDown(p: Provider): string | undefined {
@@ -317,11 +371,17 @@ export class Cervelli {
 		if (!cur || !cur.available) {
 			this.temp = null;
 			c = this.choice();
-			cur = options.find(o => o.provider === 'agnes');
+			cur = options.find(o => o.provider === c.provider && o.model === c.model);
+			if (!cur?.available) {
+				c = { ...DEFAULT_CHOICE, effort: c.effort };
+				cur = options.find(o => o.provider === 'agnes');
+			}
 		}
 		return {
 			current: { provider: c.provider, model: c.model, label: cur?.label ?? 'Agnes 3.0 Flash' },
 			effort: c.effort,
+			defaultProvider: this.defaultProvider(),
+			temporary: !!this.temp,
 			options,
 			accounts: await this.accounts(c.provider),
 			checkedAt: this.checkedAt,

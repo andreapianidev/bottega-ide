@@ -28,7 +28,7 @@
      {type:'visibile', visible}              facoltativo: la vista e' nascosta o di nuovo visibile
                                              (in aggiunta a document.visibilityState)
    Barra -> estensione
-     ready, converse, ask {text}, voice.toggle, brain.set {provider, model}, effort.set {effort},
+     ready, converse, ask {text}, voice.toggle, brain.set {provider, model, sempre?}, effort.set {effort},
      job.focus {id}, job.write {id, text}, open {path}, claude {path, id}, bacheca.sessione {sessionId},
      home {view: 'plancia'}, comando {id: briefing | regole | lavori | cruscotto | continua | cerca}
 
@@ -111,6 +111,7 @@
 					<label title="L'equilibrio di sempre"><input type="radio" name="impegno" value="normale"><span>normale</span></label>
 					<label title="Pensa a fondo, ci mette di più"><input type="radio" name="impegno" value="profondo"><span>profondo</span></label>
 				</fieldset>
+				<label class="racconta" title="Il cervello scelto resta anche dopo questa conversazione, come dall'iPhone; tolto, si torna ad Agnes"><input type="checkbox" id="sempre"><span>sempre</span></label>
 				<label class="racconta" title="Melissa dice cosa sta facendo mentre lavora: legge il file, guarda una stanza, avvia un lavoro"><input type="checkbox" id="racconta"><span>racconta</span></label>
 			</div>
 			<details class="conti" id="conti" hidden>
@@ -466,7 +467,11 @@
 		const cur = b.current || {};
 		const curOpt = (b.options || []).find(o => o.provider === cur.provider && o.model === cur.model);
 		setText($('cervello-nome'), cur.label || 'Nessun cervello');
-		setText($('cervello-nota'), curOpt ? (curOpt.available ? curOpt.note || '' : curOpt.why || 'non disponibile') : '');
+		setText($('cervello-nota'), curOpt ? (curOpt.available ? (curOpt.note || '') + (b.temporary ? ', per questa conversazione' : '') : curOpt.why || 'non disponibile') : '');
+		// «sempre»: il cervello di adesso e' il predefinito (CONTRATTI 9.8); con Agnes predefinita non c'e' niente da togliere
+		const sempre = /** @type {HTMLInputElement} */ ($('sempre'));
+		sempre.checked = !b.temporary;
+		sempre.disabled = !b.temporary && cur.provider === 'agnes';
 		root.querySelectorAll('#impegno input').forEach(i => {
 			const r = /** @type {HTMLInputElement} */ (i);
 			const on = r.value === b.effort;
@@ -581,6 +586,11 @@
 	});
 	// «racconta»: Melissa dice cosa sta facendo mentre lavora (src/racconto.ts)
 	$('racconta').addEventListener('change', ev => post({ type: 'racconta.set', on: /** @type {HTMLInputElement} */ (ev.target).checked }));
+	$('sempre').addEventListener('change', ev => {
+		const cur = (S.brain && S.brain.current) || {};
+		const on = /** @type {HTMLInputElement} */ (ev.target).checked;
+		post(on ? { type: 'brain.set', provider: cur.provider, model: cur.model, sempre: true } : { type: 'brain.set', provider: 'agnes', model: '', sempre: true });
+	});
 	$('impegno').addEventListener('change', ev => {
 		const r = /** @type {HTMLInputElement} */ (ev.target);
 		if (r.checked) post({ type: 'effort.set', effort: r.value });
