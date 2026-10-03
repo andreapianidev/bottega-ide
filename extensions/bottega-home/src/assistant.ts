@@ -521,7 +521,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		},
 	},
 	cervello_cambia: {
-		spec: { type: 'function', function: { name: 'cervello_cambia', description: 'Cambia il cervello con cui Melissa pensa, per questa conversazione (poi si torna ad Agnes), e/o l\'impegno. Usalo quando Andrea dice "usa DeepSeek", "torna ad Agnes", "pensa piu\' a fondo", "rispondi veloce". I cervelli sono solo Agnes, DeepSeek e Apple Intelligence: Claude, Gemini e GPT non ci sono piu\'.', parameters: obj({ cervello: { type: 'string', description: 'agnes, deepseek o apple' }, impegno: { type: 'string', description: 'rapido, normale o profondo' } }) } },
+		spec: { type: 'function', function: { name: 'cervello_cambia', description: 'Cambia il cervello con cui Melissa pensa, per questa conversazione (poi si torna al predefinito, di solito Agnes), e/o l\'impegno. Usalo quando Andrea dice "usa DeepSeek", "torna ad Agnes", "pensa piu\' a fondo", "rispondi veloce". I cervelli sono solo Agnes, DeepSeek e Apple Intelligence: Claude, Gemini e GPT non ci sono piu\'.', parameters: obj({ cervello: { type: 'string', description: 'agnes, deepseek o apple' }, impegno: { type: 'string', description: 'rapido, normale o profondo' } }) } },
 		async run(a, ctx) {
 			if (!ctx.deps.actions.switchBrain) return 'Non posso cambiare cervello da qui.';
 			const r = await ctx.deps.actions.switchBrain(a.cervello, a.impegno);
