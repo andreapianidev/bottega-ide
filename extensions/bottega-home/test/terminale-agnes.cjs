@@ -614,7 +614,7 @@ function terminale(passi, env) {
 			extensionPath: path.join(__dirname, '..'),
 			globalStorageUri: { fsPath: path.join(TMP, 'gs', 'x') },
 			globalState: { get: () => undefined, update: async () => undefined },
-			environmentVariableCollection: { replace: (k, v) => ambiente.set(k, v), delete: k => ambiente.delete(k), persistent: true, description: '' },
+			environmentVariableCollection: { replace: (k, v) => ambiente.set(k, v), delete: k => ambiente.delete(k), persistent: false, description: '' },
 		};
 		H.registerTerminale(ctx, {
 			cartellaLavoro: () => undefined,
@@ -625,7 +625,8 @@ function terminale(passi, env) {
 		});
 		const zd = path.join(bottega, 'zsh');
 		assert.strictEqual(ambiente.get('ZDOTDIR'), zd);
-		assert.strictEqual(ctx.environmentVariableCollection.persistent, false);
+		// ricordata fra un avvio e l'altro: i terminali ripristinati all'avvio nascono prima dell'estensione (3/10/2026)
+		assert.strictEqual(ctx.environmentVariableCollection.persistent, true);
 		assert.ok(fs.existsSync(path.join(zd, '.zshrc')) && fs.existsSync(path.join(zd, 'agnes.zsh')));
 		const p = JSON.parse(fs.readFileSync(profilo, 'utf8')).Profiles[0];
 		assert.strictEqual(p['Custom Command'], 'Yes');

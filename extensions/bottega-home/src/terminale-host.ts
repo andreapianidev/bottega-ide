@@ -186,13 +186,18 @@ export function registerTerminale(ctx: vscode.ExtensionContext, deps: TerminaleD
 			const scritti = installaZsh(path.join(ctx.extensionPath, 'shell'), ZDOT, cervelloScelto());
 			if (scritti.length) out.info(`file di zsh aggiornati in ${ZDOT}: ${scritti.join(', ')}`);
 		} catch (e: any) {
-			// senza i file ZDOTDIR non si tocca: un terminale con ZDOTDIR in una cartella vuota perderebbe l'ambiente
+			// senza i file ZDOTDIR si toglie (anche quello ricordato dall'avvio prima): un terminale con ZDOTDIR in una
+			// cartella vuota perderebbe l'ambiente
+			ambiente.delete('ZDOTDIR');
+			ambiente.delete('BOTTEGA_ZDOTDIR_UTENTE');
 			out.warn(`file di zsh non scritti, Agnes nel terminale resta spenta: ${e?.message ?? e}`);
 			return;
 		}
 		zshPronto = true;
-		// solo per questa sessione: si rimette a ogni avvio, dopo aver scritto i file
-		ambiente.persistent = false;
+		// Ricordata da un avvio all'altro: VS Code ripristina i terminali della volta prima PRIMA che l'estensione parta, e
+		// con persistent = false nascevano senza ZDOTDIR, cioe' senza Agnes (3/10/2026: shell partita 0,6 s prima). I file
+		// in ~/.bottega/zsh restano sul disco; se non si possono scrivere, sopra si toglie tutto.
+		ambiente.persistent = true;
 		ambiente.description = 'La Bottega: scrivi in italiano cosa vuoi fare e Agnes propone il comando';
 		ambiente.replace('ZDOTDIR', ZDOT);
 		const suo = process.env.ZDOTDIR;
