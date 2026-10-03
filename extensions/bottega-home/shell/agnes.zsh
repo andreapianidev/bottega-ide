@@ -234,7 +234,7 @@ __bottega_accetta() {
 		zle -U -- "$KEYS"
 	fi
 	local esegui=proponi consentibile=no errore='' comando='' r
-	local -a avvisi note spiega
+	local -a avvisi note spiega risposta
 	local -i corpo=0
 	for r in "${reply[@]}"; do
 		if (( corpo )); then comando+=${comando:+$'\n'}$r; continue; fi
@@ -245,6 +245,7 @@ __bottega_accetta() {
 			'avviso '*) avvisi+=("${r#avviso }") ;;
 			'nota '*) note+=("${r#nota }") ;;
 			'spiega '*) spiega+=("${r#spiega }") ;;
+			'risposta '*) risposta+=("${r#risposta }") ;;
 			'errore '*) errore=${r#errore } ;;
 		esac
 	done
@@ -252,6 +253,13 @@ __bottega_accetta() {
 	print -s -- "$riga"
 	for r in $note; do __bottega_grigio "$r"; done
 	for r in $spiega; do print -r -- "$r"; done
+	# una domanda: ha risposto Melissa, la riga si svuota
+	if (( $#risposta )) && [[ -z $errore ]]; then
+		for r in $risposta; do print -r -- "$r"; done
+		BUFFER=''
+		CURSOR=0
+		return
+	fi
 	if [[ -n $errore || -z $comando ]]; then
 		[[ -n $errore ]] && __bottega_grigio "$errore"
 		BUFFER=$riga

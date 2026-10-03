@@ -910,7 +910,17 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	registerTerminale(ctx, {
 		cartellaLavoro: t => jobManager?.list().find(j => jobManager!.terminal(j.id) === t)?.path,
 		// Agnes nel terminale (docs/CONTRATTI.md, 12): gli stessi cervelli di Melissa, Apple dal Nucleo
-		agnes: { cervelli: cervelli!, nucleo: () => nucleo, apple: () => !!nucleo?.available && !!nucleo.capabilities?.foundationModels },
+		agnes: {
+			cervelli: cervelli!,
+			nucleo: () => nucleo,
+			apple: () => !!nucleo?.available && !!nucleo.capabilities?.foundationModels,
+			// una domanda scritta nel terminale («quanto abbiamo guadagnato ieri?») va a Melissa, muta, con i suoi strumenti
+			melissa: async domanda => {
+				if (!assistant) throw new Error('Melissa non e\' ancora pronta');
+				if (assistant.busy()) throw new Error('Melissa sta gia\' rispondendo, riprova tra un attimo');
+				return assistant.askRemote(domanda);
+			},
+		},
 	});
 	ensureItalian(ctx);
 }

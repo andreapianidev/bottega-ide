@@ -36,7 +36,7 @@ export interface TerminaleDeps {
 	iterm?: string;
 	profilo?: string;
 	/** Agnes nel terminale: i cervelli di Melissa e il Nucleo per Apple Intelligence. Senza, niente Agnes. */
-	agnes?: { cervelli: Cervelli; nucleo(): NucleoBridge | undefined; apple(): boolean };
+	agnes?: { cervelli: Cervelli; nucleo(): NucleoBridge | undefined; apple(): boolean; melissa?: (domanda: string) => Promise<string> };
 }
 
 export interface TerminaleApi {
@@ -202,6 +202,7 @@ export function registerTerminale(ctx: vscode.ExtensionContext, deps: TerminaleD
 			modo,
 			cervello: cervelloScelto,
 			pensa: pensatore(deps.agnes!),
+			melissa: deps.agnes!.melissa,
 			consentiti: CONSENTITI,
 			home: CASA,
 			log: m => out.info(`agnes: ${m}`),

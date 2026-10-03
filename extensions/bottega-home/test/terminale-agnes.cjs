@@ -178,6 +178,7 @@ function terminale(passi, env) {
 	const fila = [];
 	let risposte = {};
 	let modo = 'chiedi';
+	const domandeMelissa = [];
 	let tempo = 1_000_000;
 	const pensa = async (c, sis, ute) => {
 		fila.push({ c, sis, ute });
@@ -197,6 +198,11 @@ function terminale(passi, env) {
 		sistema: async () => 'macOS 27.0',
 		git: async c => (c === progetto ? { ramo: 'main', stato: ' M a.ts' } : undefined),
 		ora: () => tempo,
+		melissa: async domanda => {
+			domandeMelissa.push(domanda);
+			if (domanda.includes('rotta')) throw new Error('rete giu\'');
+			return 'Ieri le app hanno reso 14 euro.\nAdMob 4 euro, Store 10 euro.';
+		},
 	});
 	const chiedi = campi =>
 		new Promise((ok, ko) => {
@@ -529,6 +535,32 @@ function terminale(passi, env) {
 	});
 
 	fs.rmSync(path.join(TMP, 'tardi.sock'), { force: true });
+	await test('una domanda sui dati va a Melissa, con o senza MELISSA nella risposta del cervello', async () => {
+		tempo += 5000;
+		risposte = { agnes: 'MELISSA' };
+		const r = await chiedi({ azione: 'proponi', tipo: 'comando', cartella: progetto, richiesta: 'quanto abbiamo guadagnato ieri ?' });
+		assert.strictEqual(r.esito, 'ok');
+		assert.deepStrictEqual(r.risposta, ['Ieri le app hanno reso 14 euro.', 'AdMob 4 euro, Store 10 euro.']);
+		assert.ok(!r.comando, 'nessun comando da eseguire');
+		assert.strictEqual(domandeMelissa.pop(), 'quanto abbiamo guadagnato ieri ?');
+		assert.ok(/MELISSA/.test(fila[fila.length - 1].sis), 'il prompt dice quando passare a Melissa');
+		tempo += 5000;
+		risposte = { agnes: '# richiede dati che non si estraggono con comandi di shell' };
+		const r2 = await chiedi({ azione: 'proponi', tipo: 'comando', cartella: progetto, richiesta: 'quante ore ho fatto oggi' });
+		assert.strictEqual(r2.risposta.length, 2, 'anche una spiegazione senza comando passa a Melissa');
+		tempo += 5000;
+		const r3 = await chiedi({ azione: 'proponi', tipo: 'comando', cartella: progetto, richiesta: 'domanda rotta' });
+		assert.strictEqual(r3.esito, 'errore');
+		assert.ok(/Melissa non risponde/.test(r3.errore));
+		tempo += 5000;
+		risposte = { agnes: 'ls -la' };
+		const r4 = await chiedi({ azione: 'proponi', tipo: 'comando', cartella: progetto, richiesta: 'elenca i file' });
+		assert.strictEqual(r4.comando, 'ls -la', 'un comando resta un comando');
+		assert.ok(!r4.risposta || !r4.risposta.length);
+		const giro = A.decodifica(A.codifica({ esito: 'ok', risposta: ['uno', 'due'] }));
+		assert.deepStrictEqual(giro.risposta, ['uno', 'due']);
+	});
+
 	await sportello.chiudi();
 	await test('chiuso lo sportello il socket non c\'e\' piu\'', () => assert.ok(!fs.existsSync(SOCK)));
 

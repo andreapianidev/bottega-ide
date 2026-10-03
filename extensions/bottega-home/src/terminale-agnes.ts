@@ -650,7 +650,8 @@ export function promptSistema(tipo: 'comando' | 'perche'): string {
 	return [
 		...base,
 		'- Rispondi SOLO con il comando: una riga; se servono piu\' comandi uniscili con &&.',
-		'- Se la richiesta non si fa con un comando, rispondi con una sola riga che comincia con "# " e dice perche\'.',
+		'- Se e\' una domanda su Andrea, il suo lavoro o i suoi dati (guadagni, vendite, download, app, ore, progetti, lavori e sessioni di Claude, posta, clienti, regole, cose da fare, siti), o comunque una domanda da fare a un\'assistente e non un comando sul Mac, rispondi esattamente MELISSA e nient\'altro.',
+		'- Se la richiesta non si fa con un comando e non e\' una domanda, rispondi con una sola riga che comincia con "# " e dice perche\'.',
 	].join('\n');
 }
 
@@ -715,6 +716,8 @@ export interface Risposta {
 	note?: string[];
 	errore?: string;
 	comando?: string;
+	/** La risposta di Melissa a una domanda, riga per riga. */
+	risposta?: string[];
 }
 
 const unaRiga = (s: string) => String(s).replace(/[\r\n]+/g, ' ').trim();
@@ -727,6 +730,7 @@ export function codifica(r: Risposta): string {
 	for (const n of r.note ?? []) righe.push(`nota ${unaRiga(n)}`);
 	for (const s of r.spiega ?? []) righe.push(`spiega ${unaRiga(s)}`);
 	for (const a of r.avvisi ?? []) righe.push(`avviso ${unaRiga(a)}`);
+	for (const x of r.risposta ?? []) righe.push(`risposta ${unaRiga(x)}`);
 	if (r.errore) righe.push(`errore ${unaRiga(r.errore)}`);
 	return righe.join('\n') + '\n\n' + (r.comando ? r.comando + '\n' : '');
 }
@@ -746,6 +750,7 @@ export function decodifica(testo: string): Risposta {
 		else if (k === 'nota') r.note!.push(v);
 		else if (k === 'spiega') r.spiega!.push(v);
 		else if (k === 'avviso') r.avvisi!.push(v);
+		else if (k === 'risposta') (r.risposta ??= []).push(v);
 		else if (k === 'errore') r.errore = v;
 	}
 	if (corpo) r.comando = corpo;
@@ -797,6 +802,9 @@ export interface SportelloOpzioni {
 	/** Ramo e `git status --short` della cartella (finto nei test). */
 	git?: (cartella: string) => Promise<{ ramo: string; stato: string } | undefined>;
 	ora?: () => number;
+	/** Una domanda che non e' un comando va a Melissa, con i suoi strumenti (stanze, App Store, cruscotto...): testo
+	 *  della risposta. Senza, la domanda resta una spiegazione del cervello. */
+	melissa?: (domanda: string) => Promise<string>;
 	/** Tempo massimo per cervello, in millisecondi (Apple il doppio). */
 	attesa?: number;
 	log?: (s: string) => void;
@@ -840,6 +848,18 @@ export function apriSportello(o: SportelloOpzioni): Sportello {
 	let mio: { ino: number } | undefined;
 	let pronto = false;
 	let chiuso = false;
+
+	const chiediAMelissa = async (domanda: string): Promise<Risposta> => {
+		const t0 = ora();
+		try {
+			const testo = String(await o.melissa!(domanda)).trim();
+			log(`Melissa ha risposto in ${((ora() - t0) / 1000).toFixed(1)} s`);
+			const righe = testo.split(/\n+/).map(x => x.trim()).filter(Boolean).slice(0, 30);
+			return { esito: 'ok', note: ['risponde Melissa'], risposta: righe.length ? righe : ['Melissa non ha risposto niente.'] };
+		} catch (e: any) {
+			return { esito: 'errore', errore: `Melissa non risponde: ${String(e?.message ?? e).split('\n')[0].slice(0, 120)}` };
+		}
+	};
 
 	const rispondi = async (c: Record<string, string>): Promise<Risposta> => {
 		const azione = c.azione || 'proponi';
@@ -892,6 +912,11 @@ export function apriSportello(o: SportelloOpzioni): Sportello {
 					clearTimeout(timer);
 				}
 				const p = leggiProposta(testo);
+				// una domanda, non un comando: risponde Melissa con i suoi strumenti
+				if (tipo === 'comando' && o.melissa && (/^\s*MELISSA\b/.test(testo.trim()) || (!p.comando && p.spiega.length))) {
+					log(`domanda da ${cartella}: ${NOMI[cerv]} la passa a Melissa`);
+					return await chiediAMelissa(richiesta);
+				}
 				if (!p.comando && !p.spiega.length) {
 					falliti.push(`${NOMI[cerv]} (risposta vuota)`);
 					continue;
