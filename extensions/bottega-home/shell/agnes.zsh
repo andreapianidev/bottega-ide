@@ -181,7 +181,10 @@ __bottega_inizio() {
 		__bottega_attesa=''
 		__bottega_forza=1
 		zle __bottega_accetta
+		return
 	fi
+	# line-pre-redraw non scatta prima del primo disegno del prompt: la scritta della riga vuota si mette da qui
+	zle __bottega_indizio
 }
 
 # ---------- l'Invio ----------

@@ -918,7 +918,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			melissa: async domanda => {
 				if (!assistant) throw new Error('Melissa non e\' ancora pronta');
 				if (assistant.busy()) throw new Error('Melissa sta gia\' rispondendo, riprova tra un attimo');
-				return assistant.askRemote(domanda);
+				// la risposta si legge nel terminale, non si ascolta: cifre e non numeri in lettere, poche righe
+				return assistant.askRemote(`${domanda}\n\n(Scritta nel terminale: rispondi per scritto, breve, con le cifre in numeri e gli euro col simbolo €.)`);
 			},
 		},
 	});
