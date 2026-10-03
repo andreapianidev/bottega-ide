@@ -309,6 +309,11 @@ listino; la Vedetta con il semaforo e i siti su Vercel; le cose da fare della Me
 progetto, per posta e su WhatsApp; le ore e gli importi dei clienti; la coda della notte. Con il Mac spento vedi
 l'ultimo dato, con la sua età.
 
+La stanza App Store sull'iPhone mostra quello che mostra il Mac (guadagni, download, tendenza, abbonati, scheda dello
+Store, paesi, allarmi, risolti e ignorati) con grafici che si toccano per vedere il giorno, apre la scheda di ogni app
+e su ogni cosa da sistemare permette «Fallo sistemare a Claude», «Ignora» e «Verifica di nuovo», che il Mac esegue
+come se le avessi toccate sulla plancia (mai un push o una pubblicazione).
+
 iPhone e Mac si parlano solo dentro [Tailscale](https://tailscale.com), senza server in mezzo: la Bottega apre un
 piccolo ponte sull'indirizzo Tailscale del Mac, invisibile dal Wi-Fi e da internet, e ogni richiesta porta un
 gettone. Il Mac deve essere acceso, con la Bottega aperta. Per collegare l'iPhone: comando «Collega l'iPhone» nella
@@ -320,6 +325,12 @@ sessioni lavorano, nella Dynamic Island e sulla schermata di blocco c'è una Liv
 una ti aspetta. Ci sono i widget per la Home e la schermata di blocco, il pulsante «Parla con Melissa» nel Centro di
 Controllo e Siri («Chiedi a Melissa su Bottega», «Chi mi aspetta su Bottega»). Le notifiche le manda il Mac
 direttamente ai server di Apple, con la tua chiave APNs: dentro c'è solo il nome del progetto e una frase breve.
+
+Accanto a «Sessioni» ci sono quattro widget che vengono dalle stanze del Mac: «Guadagni» con il totale di ieri,
+della settimana o del mese, AdMob e Store, le barre dei giorni, le app che rendono di più e il primo buco da
+sistemare; «Consigli» con la cosa più utile da fare adesso, il perché e quanto vale, e una freccia per passare al
+successivo; «Crediti» con quanto resta su DeepSeek, ElevenLabs e Agnes; «Semaforo» con i rossi della Vedetta. Con il
+Mac spento mostrano l'ultimo dato visto, con la sua età.
 
 ### Gli aggiornamenti
 

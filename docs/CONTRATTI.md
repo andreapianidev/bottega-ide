@@ -1338,6 +1338,8 @@ nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard,
 - `POST /v1/voce {testo}` -> `audio/wav` (PCM 16 bit, 24 kHz, mono), dal Nucleo con `ponte.voce`. 503 senza Nucleo.
   Resta per chi vuole una frase intera; l'app usa `/v1/parla`.
 - `POST /v1/lavoro {id, testo}` -> `{ok: true}` | 404: scrive nel terminale di un lavoro della Bottega.
+- `GET /v1/stanza?nome=..` -> una stanza della plancia in sola lettura (9.6); `POST /v1/stanza/azione {..}` -> le
+  poche azioni della stanza App Store (9.7).
 - Errori: `{errore}` in italiano, da mostrare cosi' com'e'.
 - Comando «Collega l'iPhone» (`bottega.ponte.collega`): pagina con il QR (dal Nucleo) di
   `bottega://collega?host=<nome MagicDNS>&ip=<100.x>&porta=7790&token=<gettone>` e il pulsante per copiarlo.
@@ -1457,7 +1459,9 @@ prima chi ti aspetta; `da` e `aggiornato` in ms dal 1970).
 **Widget** (`apns-push-type: widgets`, `{aps: {"content-changed": true}}`, priorita' 5) a ogni cambio di `tiAspetta`
 o `inCorso`, al massimo uno ogni 5 minuti (salvo `tiAspetta` che sale). Il widget rilegge `GET /v1/stato` dal ponte
 con il collegamento condiviso; se il Mac non risponde mostra l'ultimo stato salvato dall'app (`StatoMac.ultimo()`)
-con la sua eta'.
+con la sua eta'. La stessa push parte anche quando cambia il numero dei rossi del semaforo o cambiano gli allarmi in
+`Istantanea.negozio` (App Store e avvisi di ricarica dei servizi), sempre al massimo una ogni 5 minuti; quei due
+pezzi della firma contano solo quando semaforo e negozio sono stati letti.
 
 **Condiviso tra app e widget** (`ios/Condiviso/`): gruppo `group.com.andreapiani.bottega.ios`, portachiavi
 `$(AppIdentifierPrefix)com.andreapiani.bottega.condiviso` (il gettone), `StatoMac`, `BottegaAttivita`, `Tinte`.
@@ -1466,7 +1470,32 @@ con la sua eta'.
 portachiavi condiviso e `aps-environment` per le push dei widget; il token lo scrive in `Condiviso.chiaveTokenWidget`
 e l'app lo manda al Mac): widget «Sessioni»
 (piccolo, medio, schermata di blocco), la Live Activity (Dynamic Island e schermata di blocco), il controllo
-«Parla con Melissa» del Centro di Controllo (apre `bottega://melissa?ascolta=1`).
+«Parla con Melissa» del Centro di Controllo (apre `bottega://melissa?ascolta=1`), e quattro widget che vengono dalle
+stanze del Mac (9.6):
+
+- «Guadagni» (piccolo, medio, grande, schermata di blocco rettangolare e in linea; `AppIntentConfiguration` con
+  periodo ieri, settimana o mese e un'app o tutte): `GET /v1/stanza?nome=appstore&periodo=..&progetto=<app>`. Totale in
+  ambra, AdMob e Store, freccia sul periodo prima (solo AdMob quando lo Store e' incompleto), barre impilate dei giorni
+  con i colori della stanza; nel grande le tre app migliori e il primo buco con la stima al mese. Con
+  `storeIncompleto` dice «Store fino al ...». Le app proposte nella configurazione sono quelle viste l'ultima volta
+  nella stanza. Un tocco apre `bottega://stanze?nome=appstore`.
+- «Consigli» (medio, grande): `GET /v1/stanza?nome=consigli`. Un tocco apre `bottega://stanze?nome=<apri>` (o
+  `bottega://lavori`); con piu' consigli la freccia (`ProssimoConsiglio`, App Intent interattivo) passa al successivo
+  leggendo solo la copia, senza rete.
+- «Crediti» (piccolo, medio): `GET /v1/stanza?nome=servizi`, ogni ora. DeepSeek con il saldo e i giorni al ritmo di
+  adesso, ElevenLabs con i caratteri del mese, Agnes gratis, ognuno col suo tono; nel medio la spesa di DeepSeek dei
+  14 giorni. Un tocco apre `bottega://stanze?nome=cruscotto`.
+- «Semaforo» (piccolo, schermata di blocco tonda): `GET /v1/stanza?nome=vedetta`; il primo rosso in una riga. Un
+  tocco apre `bottega://stanze?nome=vedetta`.
+
+Guadagni, Consigli e Semaforo hanno il gestore delle push (`SpintaWidget`), Crediti no. Timeline: ogni 30 minuti
+(Crediti 60). Richiesta di 8 s al massimo (`DatiWidget`), prima il nome MagicDNS poi l'indirizzo 100.x, gettone del
+portachiavi condiviso. Copia condivisa (`ios/Condiviso/CacheWidget.swift`): `Library/Caches/widget` nel contenitore
+del gruppo, protezione fino al primo sblocco, solo `appstore`, `vedetta`, `consigli`, `servizi`. La scrivono i widget
+e l'app (`PonteStanze.leggi`, che poi ricarica il widget di quella stanza); una copia di meno di 2 minuti non si
+richiede, cosi' piu' widget sulla stessa stanza fanno una richiesta sola. Col Mac spento il widget mostra la copia
+con «2 h fa» e la frase dell'errore; senza copia lo dice, mai un numero finto. Scollegando l'iPhone la copia si
+cancella.
 
 **Siri** (App Intents nell'app): «Chiedi a Melissa» (`POST /v1/chiedi`, Siri legge la risposta) e «Chi mi aspetta»
 (dallo stato), con le frasi per Comandi rapidi e Siri.
@@ -1544,19 +1573,22 @@ l'app davanti.
 
 ### 9.6 Le stanze della plancia (`src/ponte-stanze.ts`)
 
-Una rotta sola, in sola lettura, dietro il gettone come le altre: `src/ponte.ts` la gira a `PonteDeps.stanze`
-(`RotteStanze.leggi(searchParams)`) dopo il controllo del gettone; un metodo diverso da GET prende 405. Le fonti sono
+Una rotta sola per leggere, dietro il gettone come le altre: `src/ponte.ts` la gira a `PonteDeps.stanze`
+(`RotteStanze.leggi(searchParams)`) dopo il controllo del gettone; un metodo diverso da GET prende 405. L'unica che
+scrive, le azioni della stanza App Store, e' in 9.7. Le fonti sono
 quelle di `stanza_leggi` (sezione 6): `fontiStanze()` di `src/strumenti-stanze.ts`, cioe' lo stato che la plancia
 mostra (`AppStore.state()`, il calcolo del cruscotto, `idee.rules`, `idee.radar` con `vercel`, le ore per cliente, la
 Memoria, `statoPosta()` della stanza Connettori, `idee.night`), piu' i lavori per la fila della notte. Nessuna
 chiamata di rete, nessuna delega, nessuna scrittura. Elenchi tagliati: una risposta sta sotto i 40 KB anche con
-centinaia di progetti. Testi gia' ripuliti dalle lineette lunghe e medie (`pulisci`).
+centinaia di progetti, salvo `appstore`, che con i dati veri (43 buchi, ognuno con il suo compito) arriva a circa
+55 KB e resta sotto gli 80 KB. Testi gia' ripuliti dalle lineette lunghe e medie (`pulisci`).
 
-`GET /v1/stanza?nome=<appstore|cruscotto|vedetta|dafare|posta|clienti|notte>&periodo=..&progetto=..&mese=..`
+`GET /v1/stanza?nome=<appstore|cruscotto|vedetta|dafare|posta|clienti|notte|servizi|consigli>&periodo=..&progetto=..&mese=..&app=..`
 
 - `periodo`: `ieri`/`oggi` (1), `settimana` (7), `mese` (30), `trimestre` (90), `anno` (365) o i giorni, ricondotti
   da `periodoDa`. `progetto`: risolto con `resolveProject` (per `appstore` anche il nome di un'app). `mese`:
-  `YYYY-MM` o come lo dice Andrea (`meseDa`), per `appstore` e `clienti`.
+  `YYYY-MM` o come lo dice Andrea (`meseDa`), per `appstore` e `clienti`. `app`: la chiave di un'app, solo per
+  `appstore` (9.7).
 - Ogni risposta: `{stanza, ora, aggiornatoAt, ...}`; `aggiornatoAt` e' l'ora del dato sul Mac (0 se non si sa).
 - Errori `{errore}` in italiano: 400 stanza sconosciuta, 404 progetto o app che non c'e', 503 stanza non pronta
   (prima lettura in corso, calcolo oltre 20 s, Memoria o Connettori assenti, Bottega che si avvia). La frase si
@@ -1568,9 +1600,9 @@ Forme (tempi in ms dal 1970, euro, minuti):
   cifre: {totale, admob, store, download}, prima: Cifre|null, grafico: [{chiave, admob, store|null, download,
   nelPeriodo}], storeFinoA, storeIncompleto, abbonamenti: {finoA, attivi, prove, mrr, ritardo, attiviPrima,
   giorniPrima, eventi: {categoria: n}}|null, app: [{chiave, nome, piattaforma, path, progetto, totale, admob, store,
-  download}] (le prime 8 con almeno 50 centesimi o un download), buchi: [{id, app, gravita, titolo, perche, cosa,
-  stima, stimaNota, path, progetto, daQuando}] (i primi 10), buchiTotali, stimaTotale, allarmi: [{app, testo, at}]
-  (3), errori: {store?, admob?}}`. Giorni fino a 30 (per `ieri` il grafico e' la settimana con ieri in fondo), mesi
+  download}] (fino a 25, con almeno 50 centesimi o un download), buchi: [{id, app, gravita, titolo, perche, cosa,
+  stima, stimaNota, path, progetto, daQuando}] (fino a 50), buchiTotali, stimaTotale, allarmi: [{app, testo, at}]
+  (10), errori: {store?, admob?}}`; i campi in piu' per la stanza intera sull'iPhone sono in 9.7. Giorni fino a 30 (per `ieri` il grafico e' la settimana con ieri in fondo), mesi
   oltre (90 = 3 mesi, anno = 12 compreso quello in corso; il grafico ha sempre 12 mesi). `store: null` = il report
   di quel giorno non c'e' ancora (dopo `storeFinoA`) o Apple non lo da' piu' (`storeSenzaDati`): non e' zero.
   `storeIncompleto`: il periodo arriva oltre l'ultimo report dello Store. Abbonati: l'ultimo giorno con il report
@@ -1600,6 +1632,22 @@ Forme (tempi in ms dal 1970, euro, minuti):
   importo?}}`.
 - `notte`: `{finestra: {da, a}, insieme, inFila, inCorso, corrente, perche, fila: [{progetto, path, titolo, stato,
   chiave}] (15, i lavori «stanotte»), resoconto: {giorno, lavori: [{progetto, compito, stato, riassunto?}] (15)}|null}`.
+- `servizi` (per il widget «Crediti»): `{servizi: [{id: deepseek|elevenlabs|agnes, nome, tono: ok|attesa|male,
+  frase?, valuta?, saldo?, mediaGiorno?, giorniRimasti?, letto?, unita?, usati?, limite?, rinnovo?, gratis?}], spesa:
+  {valuta, giorni: [{giorno, deepseek, caratteri}] (14, fino a oggi)}}`. DeepSeek ha `valuta`, `saldo`,
+  `mediaGiorno`, `giorniRimasti` e `letto`; ElevenLabs `unita`, `usati`, `limite` e `rinnovo`; Agnes `gratis`. Fonte:
+  `~/.bottega/conti/giorni.json` (sezione 14), letto a ogni richiesta; `aggiornatoAt` = `aggiornato` del file. Solo i
+  tre servizi noti, in quest'ordine; `campioni` non esce. Un giorno senza riga ha `null` (non letto), non zero. Un
+  `tono` sconosciuto vale `attesa`. Senza file: 503 «I conti dei servizi non sono ancora stati letti: li legge la
+  Bottega sul Mac.»; file che non si legge: 503.
+- `consigli` (per il widget «Consigli»): `{consigli: [{id, fonte: appstore|vedetta|lavori|dafare|home, etichetta,
+  titolo, perche?, cosa?, valore?, soggetto?, apri, chiave?}] (8), conti: {buchi, stimaTotale, rossi, tiAspetta}}`. In
+  ordine: il buco piu' grosso dell'App Store (`valore` = stima in euro al mese), la prima regola rossa (prima quelle
+  di tutti i progetti), fino a due sessioni che ti aspettano (`chiave` = la chiave della sessione), la prima cosa da
+  fare dell'ultimo riassunto della Memoria (al massimo 4 s, poi si lascia indietro), fino a tre consigli della Home
+  (`advice` di `~/.bottega/briefing.json`, `etichetta` «Apple Intelligence» o «La Home»). `apri` = la stanza da
+  aprire nell'app (`appstore`, `vedetta`, `dafare`), oppure `lavori` o `stanze`. Una fonte non pronta si salta: la
+  risposta e' 200 anche con l'elenco vuoto, e in `conti` vale `null`. Mai posta ne' WhatsApp.
 
 Niente di quello che passa di qui finisce nel registro del ponte: si scrivono solo le frasi d'errore della rotta
 («Non trovo il progetto ...»). Niente nelle notifiche APNs.
@@ -1612,9 +1660,81 @@ l'ora in cui l'iPhone l'ha vista: con il Mac spento la stanza mostra quella con 
 l'ultimo dato visto, 2 ore fa». In memoria sempre; su disco (cache dell'app, protezione completa) solo `appstore`,
 `cruscotto`, `vedetta`, `dafare`, `notte`; `posta` e `clienti` solo in memoria. Scollegando l'iPhone le copie si
 cancellano. Un tocco su un progetto che ha una sessione aperta nei Lavori apre la sua scheda (9.5). Link:
-`bottega://stanze[?nome=appstore]`.
+`bottega://stanze[?nome=appstore]`. `AppStoreView` e' la stanza intera; un tocco su un'app apre `SchedaAppView` (9.7).
+`servizi` e `consigli` non sono tessere della griglia: le leggono i widget (9.4).
 
-Aggiungere anche alla riga di intestazione di 9.1 / all'elenco delle rotte: `GET /v1/stanza?nome=..` (9.6).
+### 9.7 La stanza App Store sull'iPhone: piu' dati, grafici e azioni (`src/ponte-stanze.ts`, `ios/Bottega/Stanze/AppStore/`)
+
+Parita' con la stanza del Mac (sezione 13): l'iPhone vede tutto quello che mostra `media/appstore.js` e puo' fare le
+stesse azioni sui buchi. Le recensioni non ci sono: non le ha nemmeno la stanza del Mac.
+
+**Campi in piu' di `GET /v1/stanza?nome=appstore`** (tutti facoltativi per l'app: un Mac vecchio risponde senza e la
+stanza si mostra lo stesso):
+
+- in testa: `fase?` (mentre `aggiornando`), `controlloOre` (`bottega.appstore.controlloOre`, null se non si sa).
+- `grafico[].prima: {chiave, admob, store|null, download}|null`: lo stesso punto nel periodo prima, tanti giorni (o
+  mesi) indietro quanti ne ha il grafico. Serve alla tendenza cumulata.
+- `versioni: [{chiave, v, app}]`: le uscite (giorni o mesi, come il grafico) dentro il grafico, solo con un filtro
+  (`app` o `progetto`), come le tacche della stanza del Mac con un'app scelta.
+- `app[]` (fino a 25, quelle con almeno 50 centesimi o un download nel periodo) con in piu' `totalePrima|null`,
+  `buchi`, `subito` (i buchi alti), `abbonati?` (che pagano all'ultimo giorno), `andamento: number[]` (euro per punto
+  del grafico, lo Store solo dove c'e': la scintilla).
+- `abbonamenti` con in piu' `grazia`, `mrrPrima`, `eventiPrima` (stessa finestra subito prima, null se non c'e' intera),
+  `serie: [{giorno, attivi, prove}]` (7 o 30 giorni fino a `abbFinoA`; per l'anno tutti i giorni che Apple tiene),
+  `perApp: [{chiave, nome, attivi, prove, mrr}]` (12, senza filtro).
+- `scheda: {finoA, giorni, imp, vis, dl, impPrima, visPrima, dlPrima, haPrima, fonti: [{fonte, imp, vis, dl}],
+  perApp: [{chiave, nome, imp, vis, dl}]}|null`: la finestra di `finestraScheda` del Mac (7 o 30 giorni fino a
+  `schedaFinoA`, 30 per l'anno), fonti a zero escluse.
+- `buchi[]` (fino a 50) con in piu' `chiave`, `tipo`, `fonte`, `soglia?`, `verifica?: {versione, giorno, prima, dopo,
+  giorniDopo, esito}`, `compito?`: solo se il buco ha un progetto; e' il `compito` della regola o, se la regola non ne
+  ha uno, il buco in chiaro («Nell'app X: titolo. perche' Cosa fare: ...»), sempre su una riga. `perche` e `cosa`
+  fino a 600 caratteri.
+- `risolti: [{id, chiave, app, titolo, quando, daQuando, prima?, dopo?}]` (20), `ignorati: [{id, chiave, app, titolo,
+  quando, daQuando, motivo?}]` (30), `allarmi` fino a 10 con `chiave`, `paesi: [{codice, euro, impressioni}]` (12,
+  solo senza filtro: sono di tutte le app).
+- `dettaglio`: null, salvo con `app=<chiave>` (`ios:<id>`, `android:<pacchetto>`, `admob:<id>`; 404 se non c'e'):
+  `{chiave, nome, piattaforma, progetto?, path?, bundleId?, approvazione?, collegata?, suAdmob, formati: [{formato,
+  richieste, abbinate, impressioni, clic, euro}] (senza quelli a zero), unita: [{nome, formato, richieste,
+  impressioni, euro}] (12, per euro), acquisti|null, versioni: [{v, quando}] (8, la piu' recente in testa),
+  versioniMesi, codice: {letteAt, file, sdk, ump, att, attRichiesta, skan, storekit, revenuecat, formati,
+  idProva}|null}`. Con `app=` cifre, grafico, buchi, abbonati e scheda sono solo di quell'app.
+
+**`POST /v1/stanza/azione {stanza: 'appstore', azione, id?, motivo?, compito?}`** -> `{ok, azione, messaggio, id?,
+lavoro?, stato?, progetto?}`. Dietro il gettone come le altre (`src/ponte.ts` la gira a `RotteStanze.azione` dopo il
+controllo), solo POST (405), corpo al massimo 16 KB. Un'altra `stanza` prende 400. Elenco chiuso `AZIONI_APPSTORE`;
+ogni altra azione 400 con l'elenco. Push, pubblicazioni e invii in revisione non ci sono e non ci saranno.
+
+- `verifica`: «Verifica di nuovo», rilegge AdMob e App Store Connect adesso (`appstore.refresh` della plancia). Se
+  sta gia' rileggendo risponde ok e non rilancia.
+- `ignora {id, motivo}`: `appstore.ignora` della plancia (motivo su una riga, 300 caratteri). 404 se il buco non c'e'.
+- `ripristina {id}`: `appstore.ripristina`; 404 se l'id non e' tra gli ignorati.
+- `lavoro {id, compito?}`: «Fallo sistemare a Claude». Il progetto viene SEMPRE dal buco (`projectPath`, che deve
+  essere un progetto della Bottega), mai dalla richiesta; 409 senza progetto. Il compito e' quello scritto (o
+  corretto) sull'iPhone, ripulito su una riga senza caratteri di controllo (3000 al massimo), o quello del buco; in
+  fondo il Mac aggiunge sempre `CODA_COMPITO` («Questo lavoro parte dall'iPhone: non fare git push, non pubblicare e
+  non mandare niente in revisione. Quello lo decide Andrea dal Mac.»). Parte come `lavoro_nuovo` di Melissa
+  (`AssistantDeps.actions.startJob`: in coda se non c'e' posto). Lo stesso buco non riparte per 2 minuti (409:
+  doppio tocco). 503 se i lavori non sono pronti.
+- 503 se la stanza App Store non e' pronta o la Bottega non ha registrato le azioni.
+
+Gestori: `StanzeDeps.azioni` (`AzioniAppStore`), passati da `src/ponte-host.ts` a `handleAppStore` di
+`src/appstore-host.ts` (gli stessi messaggi della plancia, nessuna logica duplicata) e a `startJob`. Niente di quello
+che passa (compiti, motivi) finisce nel registro del ponte. Provato da `test/ponte-stanze.cjs` (gettone, solo POST,
+elenco chiuso, progetto dal buco, divieto di push in coda, doppio tocco) con un gestore finto.
+
+**App** (`ios/Bottega/Stanze/AppStore/`): `ModelliAppStore.swift` (le forme, solo Foundation; `StanzaAppStore` non
+sta piu' in `ModelliStanze.swift`), `CalcoliAppStore.swift` (frasi e conti del Mac: la frase in testa, la verifica
+dopo una versione, la tendenza cumulata, riempimento, mostrati, ogni mille), `GraficiAppStore.swift` (Swift Charts:
+guadagni impilati AdMob e Store con le versioni come `RuleMark` tratteggiati, download, tendenza contro il periodo
+prima, confronto tra le app a barre orizzontali, abbonati nel tempo, barre per paesi e fonti; tocco o trascinamento
+con `chartXSelection` mostrano il giorno), `SezioniAppStore.swift`, `BuchiAppStore.swift` (le azioni,
+`PonteStanze.azione`), `SchedaAppView.swift` (la scheda di un'app: `NavigationLink` dalla stanza). Ogni buco dice
+cosa fare, quanto vale, da quanto c'e' e la verifica; «Fallo sistemare a Claude» mostra il compito in un foglio da
+correggere e parte solo con «Avvia». Le azioni sono accese solo se l'ultima lettura e' arrivata dal Mac; con il Mac
+spento restano spente con «Serve il Mac acceso, con la Bottega aperta.» Le schede delle app finiscono nella stessa
+copia su disco della stanza (la chiave contiene `app=`): con il Mac spento si vede l'ultima scheda vista, con l'eta'.
+Un allarme si riconosce da ora, app e testo insieme: gli allarmi di uno stesso controllo hanno la stessa ora.
+
 
 ## 10. Gli aggiornamenti: VS Code solo quando serve, Claude Code sempre
 
