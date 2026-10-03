@@ -70,12 +70,15 @@ final class PonteStanze {
         if Self.suDisco.contains(nome), let f = file(k) {
             try? d.write(to: f, options: [.atomic, .completeFileProtection])
         }
+        // App Store e Vedetta servono anche ai widget: la copia nel gruppo e il widget si ridisegna
+        if CacheWidget.stanze.contains(nome) { CacheWidget.scrivi(d, nome, query, ricarica: true) }
         return c
     }
 
     /// Scollegando l'iPhone le copie non servono piu'.
     func dimentica() {
         memoria = [:]
+        CacheWidget.dimentica()
         if let c = cartella { try? FileManager.default.removeItem(at: c) }
         cartella = nil
     }

@@ -110,7 +110,8 @@ struct VoceGuadagni: TimelineEntry {
         let admob: [Double] = [7.2, 8.9, 6.4, 9.8, 11.2, 10.4, 12.6, 9.1, 8.3, 10.9, 12.2, 11.4, 9.6, 13.1, 12.8, 10.2, 9.4, 11.7, 12.9, 14.2, 13.3, 11.8, 10.6, 12.4, 13.9, 15.1, 14.4, 12.7, 13.6, 14.8]
         let punti = (0..<n).map { i -> DatiGuadagni.Punto in
             let d = cal.date(byAdding: .day, value: i - n, to: oggi) ?? oggi
-            let k = d.formatted(.iso8601.year().month().day().dateSeparator(.dash))
+            let c = cal.dateComponents([.year, .month, .day], from: d)
+            let k = String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
             let a = admob[(admob.count - n + i) % admob.count]
             return DatiGuadagni.Punto(chiave: k, admob: a, store: i == n - 1 ? nil : (a * 0.22).rounded(), nelPeriodo: periodo != .ieri || i == n - 1)
         }
@@ -259,15 +260,14 @@ private struct Barre: View {
         .chartLegend(.hidden)
         .chartXAxis(.hidden)
         .chartYAxis {
-            if assi {
-                AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { v in
-                    AxisGridLine().foregroundStyle(Tinte.bordo.opacity(0.7))
-                    AxisValueLabel {
-                        if let e = v.as(Double.self) { Text(FormatiWidget.euro(e)).font(.system(size: 8)).foregroundStyle(Tinte.tinta) }
-                    }
+            AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { v in
+                AxisGridLine().foregroundStyle(Tinte.bordo.opacity(0.7))
+                AxisValueLabel {
+                    if let e = v.as(Double.self) { Text(FormatiWidget.euro(e)).font(.system(size: 8)).foregroundStyle(Tinte.tinta) }
                 }
             }
         }
+        .chartYAxis(assi ? .visible : .hidden)
     }
 }
 
@@ -386,13 +386,13 @@ private struct GuadagniMedio: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline) {
-                    if let (nome, v) = altroNumero(voce, d) {
-                        Text(nome).font(.caption2).foregroundStyle(Tinte.tinta)
-                        Text(FormatiWidget.euro(v))
+                    if let altro = altroNumero(voce, d) {
+                        Text(altro.0).font(.caption2).foregroundStyle(Tinte.tinta)
+                        Text(FormatiWidget.euro(altro.1))
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(Tinte.testo)
                             .monospacedDigit()
-                            .contentTransition(.numericText(value: v))
+                            .contentTransition(.numericText(value: altro.1))
                     }
                     Spacer(minLength: 0)
                     EtaWidget(visto: voce.letto.visto, fonte: voce.letto.fonte)

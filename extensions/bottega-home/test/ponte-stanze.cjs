@@ -167,6 +167,7 @@ const CONTI = {
 		'2026-10-03': { deepseek: { speso: 0.25 } },
 		'2026-09-01': { deepseek: { speso: 9 } },
 	},
+	campioni: { deepseek: { at: 0, saldo: 99 }, openrouter: { at: 0, crediti: 10, uso: 6.8 } },
 };
 let casa = { at: ORA - H, engine: 'apple', items: [{ text: 'Chiudi la pagina dei prezzi — oggi.' }, { text: 'Spingi i commit di Bottega.' }, { text: 'Rispondi a chi aspetta.' }, { text: 'Il quarto non entra.' }] };
 
@@ -426,6 +427,7 @@ function call(port, token, method, url) {
 	assert.strictEqual(s.spesa.giorni[12].deepseek, null, 'un giorno senza riga non e\' zero');
 	assert.strictEqual(s.spesa.giorni[11].openrouter, 0.2);
 	assert.strictEqual(s.spesa.giorni[11].caratteri, 3000);
+	assert.ok(!('campioni' in s), 'i campioni restano all\'estensione');
 	assert.deepStrictEqual([tonoServizio('rosso'), tonoServizio('ok'), tonoServizio(undefined)], ['male', 'ok', 'attesa']);
 	ok('servizi: crediti, tono e spesa dei 14 giorni dal file dei conti');
 
