@@ -368,10 +368,10 @@ function lineette(d) {
 		assert.strictEqual(b.$('#registro-vuoto').hidden, false);
 	});
 
-	await test('sessioni: gruppi in ordine, chi aspetta fuori dalla parte che scorre, conteggi, bacheca', () => {
+	await test('sessioni: gruppi in ordine, chi aspetta in cima, conteggi, bacheca', () => {
 		const b = mount();
 		b.send(stato());
-		assert.ok(b.$('#aspettano').contains(b.item('job:j1')), 'chi aspetta sta nel blocco fisso');
+		assert.ok(b.$('#aspettano').contains(b.item('job:j1')), 'chi aspetta sta nel blocco in cima');
 		assert.ok(!b.$('#scorre').contains(b.item('job:j1')));
 		const ordine = b.$$('#sessioni .gruppo:not([hidden])').map(s => s.getAttribute('aria-label'));
 		assert.deepStrictEqual(ordine, ['Ti aspetta', 'In corso', 'Nel terminale', 'In coda', 'Stanotte']);
@@ -599,6 +599,10 @@ function lineette(d) {
 		assert.match(CSS, /\.notte \{[^}]*var\(--notte\)/);
 		assert.ok(!/min-width:\s*(2[89]\d|[3-9]\d\d)px/.test(CSS), 'nessuna larghezza minima oltre la barra');
 		assert.match(CSS, /\.aspettano \{[^}]*flex: 0 0 auto/, 'chi aspetta non si restringe');
+		// una sola parte che scorre: le sessioni intere, non chi aspetta e le altre ciascuno per conto suo
+		assert.match(CSS, /\.sessioni \{[^}]*overflow-y: auto/, 'le sessioni scorrono insieme');
+		for (const sel of ['aspettano', 'scorre']) assert.ok(!new RegExp(`\\.${sel} \\{[^}]*overflow-y`).test(CSS), `.${sel} non ha uno scorrimento suo`);
+		assert.match(CSS, /\.sessioni-testa \{[^}]*position: sticky/, 'il titolo resta in vista')
 		assert.deepStrictEqual(b.errors, []);
 	});
 
