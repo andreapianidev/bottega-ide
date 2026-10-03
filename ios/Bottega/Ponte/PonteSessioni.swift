@@ -193,7 +193,7 @@ final class PonteSessioni {
 
     private func apri(_ req: URLRequest) async throws -> URLSession.AsyncBytes {
         do {
-            let (b, r) = try await lunga.bytes(for: req)
+            let (b, r) = try await lunga.bytes(for: req, delegate: FiduciaPonte.shared)
             if let h = r as? HTTPURLResponse, !(200..<300).contains(h.statusCode) {
                 var corpo = Data()
                 for try await x in b { corpo.append(x) }

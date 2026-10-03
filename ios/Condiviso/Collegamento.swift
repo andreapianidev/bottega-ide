@@ -180,12 +180,25 @@ struct Collegamento: Equatable {
 }
 
 /// Accetta il certificato del ponte solo se la sua impronta e' quella che il Mac ha annunciato in /v1/stato (9.1).
-/// Nessuna autorita' lo firma: lo fa il Mac per se'. Le sessioni del ponte (app e widget) lo usano come delegato.
-final class FiduciaPonte: NSObject, URLSessionDelegate, @unchecked Sendable {
+/// Nessuna autorita' lo firma: lo fa il Mac per se'. Le sessioni del ponte (app e widget) lo usano come delegato, e le
+/// richieste in streaming (`bytes(for:delegate:)`) anche come delegato della richiesta: senza, il flusso degli eventi
+/// finiva nella verifica predefinita di iOS e cadeva (-1202, build 71). Forma con completion handler, non async.
+final class FiduciaPonte: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     static let shared = FiduciaPonte()
 
-    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async
-        -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let (d, c) = Self.decidi(challenge)
+        completionHandler(d, c)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let (d, c) = Self.decidi(challenge)
+        completionHandler(d, c)
+    }
+
+    private static func decidi(_ challenge: URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               let trust = challenge.protectionSpace.serverTrust else { return (.performDefaultHandling, nil) }
         guard let attesa = Collegamento.sicuro?.impronta,

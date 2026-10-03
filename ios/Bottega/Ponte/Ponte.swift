@@ -113,7 +113,7 @@ final class Ponte {
         while !Task.isCancelled {
             linea = .provo
             do {
-                let (bytes, risposta) = try await sessione.bytes(for: richiesta("/v1/eventi", timeout: 60))
+                let (bytes, risposta) = try await sessione.bytes(for: richiesta("/v1/eventi", timeout: 60), delegate: FiduciaPonte.shared)
                 try controlla(risposta, corpo: nil)
                 attesa = 1
                 for try await riga in bytes.lines {
@@ -190,7 +190,7 @@ final class Ponte {
         req.httpBody = try JSONSerialization.data(withJSONObject: ["testo": testo])
         let bytes: URLSession.AsyncBytes
         do {
-            let (b, r) = try await sessioneLunga.bytes(for: req)
+            let (b, r) = try await sessioneLunga.bytes(for: req, delegate: FiduciaPonte.shared)
             if let h = r as? HTTPURLResponse, !(200..<300).contains(h.statusCode) {
                 var corpo = Data()
                 for try await x in b { corpo.append(x) }
