@@ -422,7 +422,7 @@ function call(port, token, method, url) {
 	assert.deepStrictEqual([s.servizi[1].usati, s.servizi[1].limite], [62000, 100000]);
 	assert.ok(s.servizi[1].rinnovo > 0);
 	assert.strictEqual(s.servizi[2].gratis, true);
-	assert.strictEqual(s.servizi[3].tono, 'attesa', 'un tono sconosciuto e\' ambra');
+	assert.strictEqual(s.servizi[2].tono, 'attesa', 'un tono sconosciuto e\' ambra');
 	assert.strictEqual(s.spesa.valuta, 'USD');
 	assert.strictEqual(s.spesa.giorni.length, 14);
 	assert.strictEqual(s.spesa.giorni[13].giorno, '2026-10-03');
