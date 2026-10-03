@@ -2,7 +2,7 @@
 //  CreditiWidget.swift
 //  Bottega per iPhone, estensione dei widget
 //
-//  Il widget «Crediti»: quanto resta sui servizi che la Bottega paga a consumo. DeepSeek e OpenRouter con il saldo e
+//  Il widget «Crediti»: quanto resta sui servizi che la Bottega paga a consumo. DeepSeek con il saldo e
 //  i giorni al ritmo attuale, ElevenLabs con i caratteri del mese, Agnes gratis; ognuno col suo tono (verde, ambra
 //  quando e' ora di ricaricare, rosso quando e' finito). Nel medio anche la spesa di DeepSeek degli ultimi 14 giorni.
 //  Legge GET /v1/stanza?nome=servizi (docs/CONTRATTI.md, 9.6 e 14) con DatiWidget, ogni ora.
@@ -33,8 +33,6 @@ struct VoceCrediti: TimelineEntry {
         let d = DatiServizi(aggiornatoAt: Date().timeIntervalSince1970 * 1000, servizi: [
             .init(id: "deepseek", nome: "DeepSeek", tono: "ok", frase: "restano 9,98 $, circa 31 giorni", valuta: "USD", saldo: 9.98,
                   mediaGiorno: 0.32, giorniRimasti: 31, usati: nil, limite: nil, gratis: nil),
-            .init(id: "openrouter", nome: "OpenRouter", tono: "attesa", frase: "restano 1,20 $, ricarica presto", valuta: "USD", saldo: 1.2,
-                  mediaGiorno: 0.3, giorniRimasti: 4, usati: nil, limite: nil, gratis: nil),
             .init(id: "elevenlabs", nome: "ElevenLabs", tono: "ok", frase: nil, valuta: nil, saldo: nil, mediaGiorno: nil,
                   giorniRimasti: nil, usati: 12_345, limite: nil, gratis: nil),
             .init(id: "agnes", nome: "Agnes", tono: "ok", frase: "gratis, 15 richieste oggi", valuta: nil, saldo: nil, mediaGiorno: nil,
@@ -71,7 +69,7 @@ struct CreditiWidget: Widget {
                 .widgetURL(URL(string: "bottega://stanze?nome=cruscotto"))
         }
         .configurationDisplayName("Crediti")
-        .description("Quanto resta su DeepSeek, OpenRouter, ElevenLabs e Agnes, e quando ricaricare.")
+        .description("Quanto resta su DeepSeek, ElevenLabs e Agnes, e quando ricaricare.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }

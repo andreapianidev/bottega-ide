@@ -204,7 +204,7 @@ struct DatiSemaforo: Decodable {
 
 struct DatiServizi: Decodable {
     struct Servizio: Decodable, Identifiable {
-        /// deepseek | openrouter | elevenlabs | agnes
+        /// deepseek | elevenlabs | agnes
         let id: String
         let nome: String
         /// ok | attesa | male

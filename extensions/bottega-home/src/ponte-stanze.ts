@@ -12,9 +12,9 @@
    Posta e WhatsApp: solo nome del contatto, progetto, oggetto e un'anteprima breve; mai indirizzi, numeri o corpi
    delle mail (un mittente senza nome diventa il dominio, un contatto che e' solo un numero diventa «contatto senza nome»,
    un indirizzo o un telefono dentro l'oggetto diventa «[indirizzo]» o «[numero]»).
-   Niente di quello che passa di qui finisce nei registri del ponte. */
+   Niente di quello che passa di qui finisce nei registri del ponte.
 
-   Due stanze in piu' per i widget dell'iPhone: `servizi` (i crediti di DeepSeek, OpenRouter, ElevenLabs e Agnes dal
+   Due stanze in piu' per i widget dell'iPhone: `servizi` (i crediti di DeepSeek, ElevenLabs e Agnes dal
    file dei conti, ~/.bottega/conti/giorni.json, CONTRATTI 14) e `consigli` (la cosa piu' utile da fare adesso: il
    buco piu' grosso dell'App Store, una regola rossa, un lavoro che ti aspetta, le cose da fare della Memoria, i
    consigli della Home). Niente posta ne' WhatsApp: finiscono in un widget. */
@@ -535,8 +535,8 @@ function notte(f: FontiStanze, lavori: WorkItem[], now: number) {
 // ---------- servizi (i crediti, per i widget) ----------
 
 export const CONTI_FILE = path.join(os.homedir(), '.bottega', 'conti', 'giorni.json');
-const SERVIZI = ['deepseek', 'openrouter', 'elevenlabs', 'agnes'] as const;
-const NOMI_SERVIZI: Record<string, string> = { deepseek: 'DeepSeek', openrouter: 'OpenRouter', elevenlabs: 'ElevenLabs', agnes: 'Agnes' };
+const SERVIZI = ['deepseek', 'elevenlabs', 'agnes'] as const;
+const NOMI_SERVIZI: Record<string, string> = { deepseek: 'DeepSeek', elevenlabs: 'ElevenLabs', agnes: 'Agnes' };
 
 /** Millisecondi da un numero o da una data ISO; undefined se non si legge. */
 function msDa(v: unknown): number | undefined {
@@ -595,7 +595,7 @@ function servizi(d: StanzeDeps, now: number) {
 		const k = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 		const r = g[k] ?? {};
 		const speso = (s: string) => (numero(r[s]?.speso) !== undefined ? tondo(r[s].speso, 3) : null);
-		return { giorno: k, deepseek: speso('deepseek'), openrouter: speso('openrouter'), caratteri: numero(r.elevenlabs?.caratteri) ?? null };
+		return { giorno: k, deepseek: speso('deepseek'), caratteri: numero(r.elevenlabs?.caratteri) ?? null };
 	});
 	const ds = elenco.find(x => x.id === 'deepseek') as { valuta?: string } | undefined;
 	return {
