@@ -1288,6 +1288,25 @@ export class Assistant {
 			}
 			return content.trim() || this.turnText.trim() || 'Non ho niente da dirti.';
 		}
+		// Giro chiuso senza una risposta (strumento richiesto di nuovo, o finiti i passi): i dati raccolti ci sono, quindi
+		// un'ultima chiamata senza strumenti per dirli. Il 3/10/2026 Agnes chiedeva app_guadagni tre volte e Andrea, nel
+		// terminale, leggeva «mi sono incartata» invece dei guadagni di ieri.
+		if (!this.turnText.trim() && messages.some(m => m.role === 'tool') && !signal.aborted) {
+			messages.push({ role: 'user', content: '(Rispondi adesso ad Andrea con i dati che hai gia\' raccolto, senza chiamare altri strumenti.)' });
+			let content = '';
+			try {
+				await stream(messages, [], (d: LlmDelta) => {
+					if (!d.content) return;
+					content += d.content;
+					this.turnText += d.content;
+					if (speak) this.feedSpeak(d.content);
+				}, signal);
+			} catch (e: any) {
+				if (signal.aborted) throw e;
+				this.out.warn(`risposta finale senza strumenti non riuscita: ${e?.message ?? e}`);
+			}
+			if (content.trim()) return content.trim();
+		}
 		return this.turnText.trim() || 'Mi sono incartata tra i passaggi, ridimmi cosa ti serve.';
 	}
 
@@ -1380,7 +1399,7 @@ export class Assistant {
 		// A voce Agnes risponde senza ragionare, come la Melissa di Avo (reasoning_effort none): con "profondo"
 		// pensava circa 4 s prima della prima parola. L'impegno scelto vale per le domande scritte.
 		const reasoning = this.spokenTurn ? 'none' : effort === 'profondo' ? 'high' : effort === 'normale' ? 'low' : 'none';
-		const body = JSON.stringify({ model: AGNES_MODEL, messages, tools, tool_choice: 'auto', reasoning_effort: this.deps.cervelli ? reasoning : 'none', stream: true });
+		const body = JSON.stringify({ model: AGNES_MODEL, messages, ...(tools.length ? { tools, tool_choice: 'auto' } : {}), reasoning_effort: this.deps.cervelli ? reasoning : 'none', stream: true });
 		let wait = 2000;
 		for (let attempt = 0; attempt < 4; attempt++) {
 			if (signal.aborted) throw abortError();
