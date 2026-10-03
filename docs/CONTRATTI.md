@@ -1508,7 +1508,8 @@ prima chi ti aspetta; `da` e `aggiornato` in ms dal 1970).
   subito con `avvio`. (2) Oltre le 8 ore (limite di iOS) il token si toglie e si riparte con `avvio`.
 - Interruttore «Live Activity e Dynamic Island» nelle impostazioni dell'app (preferenza condivisa
   `liveActivityAccese`, accese se mai scelto). Spente: l'app manda `avvio: ""` e `attivita: ""` e chiude quelle aperte,
-  e i nuovi token di avvio restano sull'iPhone. Riaccese: rimanda il token di avvio. Sotto, se servono, il rimando alle
+  e i nuovi token di avvio restano sull'iPhone. Riaccese: rimanda il token di avvio, e il Mac (che l'aveva visto
+  sparire) la fa ripartire subito se c'e' lavoro, anche se quella di prima era stata chiusa a mano (build 69). Sotto, se servono, il rimando alle
   impostazioni di iOS (`ActivityAuthorizationInfo().areActivitiesEnabled`).
 
 **Widget** (`apns-push-type: widgets`, `{aps: {"content-changed": true}}`, priorita' 5) a ogni cambio di `tiAspetta`
