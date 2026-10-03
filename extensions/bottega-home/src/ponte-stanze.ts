@@ -1,7 +1,7 @@
 /* Le stanze della plancia per l'iPhone (docs/CONTRATTI.md, 9.6): una rotta sola, in sola lettura, chiamata da
    src/ponte.ts dopo il gettone.
 
-     GET /v1/stanza?nome=<appstore|cruscotto|vedetta|dafare|posta|clienti|notte>&periodo=..&progetto=..&mese=..
+     GET /v1/stanza?nome=<appstore|cruscotto|vedetta|dafare|posta|clienti|notte|servizi|consigli>&periodo=..&progetto=..&mese=..
 
    Restituisce JSON strutturato (numeri, elenchi corti), non le frasi per la voce: l'app disegna grafici e righe.
    Legge le stesse fonti che usa Melissa per `stanza_leggi` (src/strumenti-stanze.ts, `fontiStanze()`), cioe' lo
@@ -11,14 +11,23 @@
 
    Posta e WhatsApp: solo nome del contatto, progetto, oggetto e un'anteprima breve; mai indirizzi, numeri o corpi
    delle mail (un mittente senza nome diventa il dominio, un contatto che e' solo un numero diventa «contatto senza nome»).
-   Niente di quello che passa di qui finisce nei registri del ponte. */
+   Niente di quello che passa di qui finisce nei registri del ponte.
 
+   Due stanze in piu' per i widget dell'iPhone: `servizi` (i crediti di DeepSeek, OpenRouter, ElevenLabs e Agnes dal
+   file dei conti, ~/.bottega/conti/giorni.json, CONTRATTI 14) e `consigli` (la cosa piu' utile da fare adesso: il
+   buco piu' grosso dell'App Store, una regola rossa, un lavoro che ti aspetta, le cose da fare della Memoria, i
+   consigli della Home). Niente posta ne' WhatsApp: finiscono in un widget. */
+
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { readBriefing } from './briefing';
 import { splitSummary } from './continua';
 import type { WorkItem } from './jobs';
 import type { RotteStanze } from './ponte';
 import { FontiStanze, meseDa, periodoDa, pulisci, SerieStore, StatoStore } from './strumenti-stanze';
 
-export const STANZE_PONTE = ['appstore', 'cruscotto', 'vedetta', 'dafare', 'posta', 'clienti', 'notte'] as const;
+export const STANZE_PONTE = ['appstore', 'cruscotto', 'vedetta', 'dafare', 'posta', 'clienti', 'notte', 'servizi', 'consigli'] as const;
 export type StanzaPonte = (typeof STANZE_PONTE)[number];
 
 export interface StanzeDeps {
@@ -29,6 +38,10 @@ export interface StanzeDeps {
 	ora?(): number;
 	/** Quanto aspettare un calcolo lento (cruscotto, clienti, Memoria). */
 	tempoMs?: number;
+	/** Il file dei conti dei servizi (CONTRATTI 14); predefinito ~/.bottega/conti/giorni.json. */
+	contiFile?: string;
+	/** I consigli della Home (src/idee.ts, Advice); predefinito quelli salvati in ~/.bottega/briefing.json. */
+	consigliHome?(): { at: number; engine: string; items: { text: string }[] } | null | undefined;
 }
 
 const errore = (status: number, msg: string) => Object.assign(new Error(msg), { status });
@@ -509,6 +522,216 @@ function notte(f: FontiStanze, lavori: WorkItem[], now: number) {
 	};
 }
 
+// ---------- servizi (i crediti, per i widget) ----------
+
+export const CONTI_FILE = path.join(os.homedir(), '.bottega', 'conti', 'giorni.json');
+const SERVIZI = ['deepseek', 'openrouter', 'elevenlabs', 'agnes'] as const;
+const NOMI_SERVIZI: Record<string, string> = { deepseek: 'DeepSeek', openrouter: 'OpenRouter', elevenlabs: 'ElevenLabs', agnes: 'Agnes' };
+
+/** Millisecondi da un numero o da una data ISO; undefined se non si legge. */
+function msDa(v: unknown): number | undefined {
+	if (typeof v === 'number' && Number.isFinite(v)) return v;
+	if (typeof v === 'string' && v) {
+		const t = Date.parse(v);
+		return Number.isFinite(t) ? t : undefined;
+	}
+	return undefined;
+}
+const numero = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+
+/** Il tono di un servizio: ok, attesa (in ambra) o male (in rosso). Uno sconosciuto vale attesa: meglio un'ambra di troppo. */
+export function tonoServizio(v: unknown): 'ok' | 'attesa' | 'male' {
+	const t = norma(String(v ?? ''));
+	if (['ok', 'verde', 'bene'].includes(t)) return 'ok';
+	if (['male', 'rosso', 'errore', 'finito', 'esaurito'].includes(t)) return 'male';
+	return 'attesa';
+}
+
+function servizi(d: StanzeDeps, now: number) {
+	let grezzo: string;
+	try {
+		grezzo = fs.readFileSync(d.contiFile ?? CONTI_FILE, 'utf8');
+	} catch {
+		throw errore(503, 'I conti dei servizi non sono ancora stati letti: li legge la Bottega sul Mac.');
+	}
+	let j: any;
+	try {
+		j = JSON.parse(grezzo);
+	} catch {
+		throw errore(503, 'Il file dei conti non si legge adesso: riprova tra poco.');
+	}
+	const sv = j && typeof j.servizi === 'object' && j.servizi ? j.servizi : {};
+	const elenco = SERVIZI.filter(k => sv[k] && typeof sv[k] === 'object').map(k => {
+		const x = sv[k];
+		const base = { id: k, nome: testo(x.nome || NOMI_SERVIZI[k], 30), tono: tonoServizio(x.tono), frase: x.frase ? testo(x.frase, 120) : undefined };
+		if (k === 'elevenlabs') {
+			return { ...base, unita: x.unita ? testo(x.unita, 20) : 'caratteri', usati: numero(x.usatiMese), limite: numero(x.limiteMese), rinnovo: msDa(x.rinnovo) };
+		}
+		if (k === 'agnes') return { ...base, gratis: x.gratis !== false };
+		return {
+			...base,
+			valuta: typeof x.valuta === 'string' ? x.valuta.slice(0, 3).toUpperCase() : 'USD',
+			saldo: numero(x.saldo) !== undefined ? tondo(x.saldo) : undefined,
+			mediaGiorno: numero(x.mediaGiorno) !== undefined ? tondo(x.mediaGiorno, 3) : undefined,
+			giorniRimasti: numero(x.giorniRimasti) !== undefined ? Math.max(0, Math.floor(x.giorniRimasti)) : undefined,
+			letto: msDa(x.letto),
+		};
+	});
+	// la spesa degli ultimi 14 giorni, fino a oggi; un giorno senza riga e' null (non letto), non zero
+	const g = j && typeof j.giorni === 'object' && j.giorni ? j.giorni : {};
+	const oggi = new Date(now);
+	const spesa = range(0, 14).map(i => {
+		const d = new Date(oggi.getFullYear(), oggi.getMonth(), oggi.getDate() - 13 + i);
+		const k = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+		const r = g[k] ?? {};
+		const speso = (s: string) => (numero(r[s]?.speso) !== undefined ? tondo(r[s].speso, 3) : null);
+		return { giorno: k, deepseek: speso('deepseek'), openrouter: speso('openrouter'), caratteri: numero(r.elevenlabs?.caratteri) ?? null };
+	});
+	const ds = elenco.find(x => x.id === 'deepseek') as { valuta?: string } | undefined;
+	return {
+		stanza: 'servizi',
+		ora: now,
+		aggiornatoAt: msDa(j?.aggiornato) ?? 0,
+		servizi: elenco,
+		spesa: { valuta: ds?.valuta ?? 'USD', giorni: spesa },
+	};
+}
+
+// ---------- consigli (per i widget) ----------
+
+export interface Consiglio {
+	id: string;
+	fonte: 'appstore' | 'vedetta' | 'lavori' | 'dafare' | 'home';
+	/** Da dove viene, in due parole: «App Store», «Vedetta», «Lavori», «Cose da fare», «Apple Intelligence». */
+	etichetta: string;
+	/** La cosa da fare, in una frase. */
+	titolo: string;
+	perche?: string;
+	cosa?: string;
+	/** Euro al mese che vale (la stima del buco), se si sa. */
+	valore?: number;
+	/** Di chi parla: un'app o un progetto. */
+	soggetto?: string;
+	/** Dove porta un tocco nell'app: una stanza (9.6), oppure «lavori» o «stanze». */
+	apri: string;
+	/** Per «lavori»: la chiave della sessione. */
+	chiave?: string;
+}
+
+async function consigli(f: FontiStanze, d: StanzeDeps, now: number, tempo: number) {
+	const out: Consiglio[] = [];
+	let aggiornatoAt = 0;
+
+	// 1. il buco piu' grosso dell'App Store, con la stima al mese
+	const st = f.appStore?.() as StatoStoreRicco | undefined;
+	if (st?.aggiornatoAt) {
+		aggiornatoAt = Math.max(aggiornatoAt, st.aggiornatoAt);
+		const peso = { alta: 0, media: 1, bassa: 2 } as Record<string, number>;
+		const buchi = [...st.buchi].sort((a, b) => (b.stima ?? 0) - (a.stima ?? 0) || (peso[a.gravita] ?? 3) - (peso[b.gravita] ?? 3));
+		for (const b of buchi.slice(0, 1)) {
+			out.push({
+				id: `appstore:${b.id ?? `${b.chiave}:${norma(b.titolo).slice(0, 24)}`}`,
+				fonte: 'appstore',
+				etichetta: 'App Store',
+				titolo: testo(b.titolo, 120),
+				perche: b.perche ? testo(b.perche, 200) : undefined,
+				cosa: testo(b.cosa, 200),
+				valore: b.stima && b.stima >= 1 ? Math.round(b.stima) : undefined,
+				soggetto: testo(b.app, 60),
+				apri: 'appstore',
+			});
+		}
+	}
+
+	// 2. una regola rossa della Vedetta: prima quelle di tutti, poi i progetti
+	const r = f.regole?.();
+	if (r?.checkedAt) {
+		aggiornatoAt = Math.max(aggiornatoAt, r.checkedAt);
+		const rosse: { h: { id: string; frase: string; rimedio: string }; path?: string }[] = [
+			...r.global.filter(h => h.livello === 'rosso').map(h => ({ h })),
+			...Object.values(r.projects).flatMap(p => p.hits.filter(h => h.livello === 'rosso').map(h => ({ h, path: p.path }))),
+		];
+		for (const { h, path: p } of rosse.slice(0, 1)) {
+			out.push({
+				id: `vedetta:${p ?? 'tutti'}:${h.id}`,
+				fonte: 'vedetta',
+				etichetta: 'Vedetta',
+				titolo: testo(h.frase, 120),
+				cosa: testo(h.rimedio, 200),
+				soggetto: p ? testo(f.progetto(p)?.name ?? baseNome(p), 60) : undefined,
+				apri: 'vedetta',
+			});
+		}
+	}
+
+	// 3. un lavoro che ti aspetta
+	const aspettano = (d.lavori?.() ?? []).filter(w => w.status === 'ti aspetta');
+	for (const w of aspettano.slice(0, 2)) {
+		out.push({
+			id: `lavori:${w.key}`,
+			fonte: 'lavori',
+			etichetta: 'Lavori',
+			titolo: `${testo(w.project, 60)} ti aspetta`,
+			perche: w.title ? testo(w.title, 140) : undefined,
+			cosa: 'Rispondi dalla scheda della sessione.',
+			soggetto: testo(w.project, 60),
+			apri: 'lavori',
+			chiave: w.key,
+		});
+	}
+
+	// 4. le cose da fare della Memoria: la prima dell'ultimo riassunto con una lista (al massimo 4 s: e' un widget)
+	const m = f.memoria?.();
+	if (m) {
+		const rs = await conTempo(m.recent(undefined, { kinds: ['riassunto'], limit: 10 }).catch(() => null), Math.min(tempo, 4000));
+		if (rs && rs !== 'tempo') {
+			const visti = new Set<string>();
+			let presi = 0;
+			for (const x of [...rs].sort((a, b) => b.createdAt - a.createdAt)) {
+				if (presi >= 1) break;
+				if (!x.project || visti.has(x.project)) continue;
+				visti.add(x.project);
+				const todo = splitSummary(x.text).todo;
+				if (!todo.length) continue;
+				presi++;
+				const chi = testo(x.project, 60);
+				out.push({
+					id: `dafare:${norma(x.project)}:${norma(todo[0]).slice(0, 24)}`,
+					fonte: 'dafare',
+					etichetta: 'Cose da fare',
+					titolo: testo(todo[0], 120),
+					perche: todo.length > 1 ? `Dall'ultimo riassunto di ${chi}, con altre ${todo.length - 1}.` : `Dall'ultimo riassunto di ${chi}.`,
+					soggetto: chi,
+					apri: 'dafare',
+				});
+			}
+		}
+	}
+
+	// 5. i consigli della Home (Apple Intelligence sul Mac, o le regole)
+	const casa = d.consigliHome ? d.consigliHome() : readBriefing().advice;
+	if (casa?.items?.length) {
+		aggiornatoAt = Math.max(aggiornatoAt, Number(casa.at) || 0);
+		casa.items.slice(0, 3).forEach((it, i) => {
+			const t = testo(it?.text, 160);
+			if (t) out.push({ id: `home:${Number(casa.at) || 0}:${i}`, fonte: 'home', etichetta: casa.engine === 'apple' ? 'Apple Intelligence' : 'La Home', titolo: t, apri: 'stanze' });
+		});
+	}
+
+	return {
+		stanza: 'consigli',
+		ora: now,
+		aggiornatoAt,
+		consigli: out.slice(0, 8),
+		conti: {
+			buchi: st?.aggiornatoAt ? st.buchi.length : null,
+			stimaTotale: st?.aggiornatoAt ? Math.round(somma(st.buchi.map(b => (b.stima && b.stima >= 1 ? b.stima : 0)))) : null,
+			rossi: r?.checkedAt ? r.counts.rosso : null,
+			tiAspetta: aspettano.length,
+		},
+	};
+}
+
 // ---------- la rotta ----------
 
 export class StanzePonte implements RotteStanze {
@@ -531,6 +754,8 @@ export class StanzePonte implements RotteStanze {
 			case 'posta': return posta(f, d, now);
 			case 'clienti': return clienti(f, d, now, tempo);
 			case 'notte': return notte(f, this.deps.lavori?.() ?? [], now);
+			case 'servizi': return servizi(this.deps, now);
+			case 'consigli': return consigli(f, this.deps, now, tempo);
 		}
 	}
 }

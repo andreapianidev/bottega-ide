@@ -107,7 +107,9 @@ export class Avvisi {
 	private livelli?: Map<string, Livello>;
 	private allarmiVisti?: Set<string>;
 	private la = { avviata: false, tentata: -Infinity, ultimoInvio: -Infinity, firma: '', tiAspetta: -1, vuotoDal: undefined as number | undefined, token: '', da: 0, nostra: false };
-	private wg = { ultimo: -Infinity, inCorso: 0, tiAspetta: 0 };
+	/** Le push dei widget: l'ultimo invio e quello che dicevano. `rossi` e `negozio` svegliano anche i widget dei
+	 *  guadagni, dei consigli e del semaforo (stesso token, stesso limite di uno ogni 5 minuti). */
+	private wg = { ultimo: -Infinity, inCorso: 0, tiAspetta: 0, rossi: 0, negozio: '' };
 	private corsa?: Promise<void>;
 	private ancora = false;
 	private readonly ora: () => number;
@@ -176,7 +178,7 @@ export class Avvisi {
 		}
 
 		const disp = this.d.dispositivo();
-		if (primo) this.wg = { ultimo: -Infinity, inCorso: ist.conti.inCorso, tiAspetta: ist.conti.tiAspetta };
+		if (primo) this.wg = { ultimo: -Infinity, inCorso: ist.conti.inCorso, tiAspetta: ist.conti.tiAspetta, ...this.firmaWidget(ist) };
 		if (!disp) return;
 		await this.notifiche(disp, ist, now, finiti, rossi, negozio);
 		await this.attivita(this.d.dispositivo() ?? disp, ist, now);
@@ -354,16 +356,25 @@ export class Avvisi {
 
 	// ---------- widget ----------
 
+	/** Quanti rossi nel semaforo e quali allarmi del negozio: finche' non sono letti restano quelli di prima. */
+	private firmaWidget(ist: Istantanea): { rossi: number; negozio: string } {
+		return {
+			rossi: ist.regole ? ist.regole.filter(r => r.livello === 'rosso').length : this.wg.rossi,
+			negozio: ist.negozio ? ist.negozio.map(a => a.id).sort().join('|') : this.wg.negozio,
+		};
+	}
+
 	private async widget(disp: Dispositivo, ist: Istantanea, now: number): Promise<void> {
 		if (!disp.widget) return;
 		const { inCorso, tiAspetta } = ist.conti;
-		if (inCorso === this.wg.inCorso && tiAspetta === this.wg.tiAspetta) return;
+		const { rossi, negozio } = this.firmaWidget(ist);
+		if (inCorso === this.wg.inCorso && tiAspetta === this.wg.tiAspetta && rossi === this.wg.rossi && negozio === this.wg.negozio) return;
 		if (now - this.wg.ultimo < WIDGET_OGNI_MS && tiAspetta <= this.wg.tiAspetta) return;
 		const e = await this.manda('widget', {
 			tipo: 'widgets', token: disp.widget, ambiente: disp.ambiente, priorita: 5, scadenza: Math.floor((now + 15 * 60_000) / 1000),
 			payload: { aps: { 'content-changed': true } },
 		});
-		this.wg = e.ok ? { ultimo: now, inCorso, tiAspetta } : { ...this.wg, ultimo: now };
+		this.wg = e.ok ? { ultimo: now, inCorso, tiAspetta, rossi, negozio } : { ...this.wg, ultimo: now };
 	}
 
 	private async manda(campo: CampoToken, p: Push) {
