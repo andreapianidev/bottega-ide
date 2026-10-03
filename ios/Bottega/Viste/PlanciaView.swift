@@ -157,7 +157,8 @@ struct PlanciaView: View {
 
     private func etichetta(_ s: Stanza) -> String {
         guard s == .lavori, let c = ponte.stato?.conti, c.tiAspetta > 0 else { return s.rawValue }
-        return "Lavori · \(c.tiAspetta) ti aspetta\(c.tiAspetta == 1 ? "" : "no")"
+        // nel segmentato a tre la frase intera non ci sta: solo il numero di chi ti aspetta
+        return "Lavori · \(c.tiAspetta)"
     }
 
     private var coloreLinea: Color {
