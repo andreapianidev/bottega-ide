@@ -302,6 +302,10 @@ Bottega rispondi con Sì, No o due parole, le altre le leggi soltanto. Da lì ve
 colorato, il terminale dei lavori della Bottega in diretta, Melissa che te la riassume a voce in due frasi, e puoi
 scegliere la sessione da seguire nella Live Activity.
 
+Sotto la sfera dell'iPhone c'e' il nome del cervello che Melissa sta usando: un tocco (o un tocco lungo sulla sfera)
+apre il selettore per cambiarlo, con l'impegno e la scelta tra «per questa conversazione» e «sempre», la stessa che la
+barra del Mac mostra con l'interruttore «sempre».
+
 Dalla voce «Stanze» l'iPhone apre anche le stanze della plancia, in sola lettura e dagli stessi dati del Mac:
 l'App Store con il totale, AdMob, lo Store, i download e gli abbonati per ieri, la settimana, il mese e l'anno, un
 grafico e i buchi da sistemare con la stima; il cruscotto con le ore tue e di Claude, i token e il valore a

@@ -967,6 +967,8 @@ interface BrainOption {
 interface BrainState {
   current: { provider: Provider; model: string; label: string };
   effort: Effort;
+  defaultProvider: Provider;   // il cervello a cui si torna a fine conversazione: Agnes, salvo una scelta «sempre»
+  temporary: boolean;          // vero se il cervello di adesso vale solo per questa conversazione
   options: BrainOption[];
   accounts: Account[];                                     // i conti dei servizi, solo dati veri
   checkedAt: number;
@@ -988,6 +990,12 @@ interface Account {
 `racconta.ferma` dal pulsante «racconta»; `conti` apre la sezione
 «Servizi» del Cruscotto, sezione 14).
 
+`brain.set {provider, model, sempre?}`: con `sempre` vero il cervello diventa il predefinito (con `agnes` toglie il
+predefinito). Nella testata, accanto a «racconta», l'interruttore «sempre»: acceso quando il cervello di adesso e' il
+predefinito, spento quando vale solo per questa conversazione (e la nota sotto il nome dice «per questa conversazione»).
+Accenderlo rende predefinito il cervello di adesso; spegnerlo riporta il predefinito ad Agnes. Con Agnes predefinita e in
+uso e' acceso e fermo.
+
 ### Cervelli
 
 I due cervelli in rete parlano l'API compatibile OpenAI con gli strumenti, in streaming. OpenRouter (Claude, Gemini,
@@ -1000,12 +1008,18 @@ a voce «usa Claude» risponde che non c'e' piu'. La sua chiave resta nel vault 
 | deepseek | `https://api.deepseek.com/chat/completions` | `DEEPSEEK_API_KEY` (`~/.secrets/deepseek-harness.env`) | `deepseek-flash` (DeepSeek-V4.1-Flash) per rapido e normale, `deepseek-v4-pro` per profondo (`GET /models`, 3/10/2026) | `reasoning_effort`: none / low / high; non disponibile finche' l'API risponde 402 |
 | apple | Nucleo, cervello Foundation Models con strumenti (build 16, `src/cervello.ts` della sessione nativo) | | sul Mac | |
 
-**Agnes e' sempre il cervello primario** (decisione di Andrea, 2 ottobre 2026). Un altro cervello si usa solo se Andrea
-lo sceglie (dalla barra o a voce con lo strumento `cervello_cambia {cervello?, impegno?}`: «usa DeepSeek», «pensa piu' a
-fondo», «torna ad Agnes») e vale per quella conversazione: si torna ad Agnes da soli quando la conversazione si chiude,
-dopo 15 minuti senza domande, al riavvio della Bottega e dopo qualsiasi errore (un 401 o un 402 mette anche il cervello
-da parte per un'ora). La scelta manuale non si salva mai; si ricorda solo l'impegno (`globalState`). Apple Intelligence
-resta la riserva automatica solo quando Agnes non risponde (429, rete).
+**Agnes e' il cervello predefinito** (decisione di Andrea, 2 ottobre 2026). Un altro cervello si usa se Andrea lo
+sceglie: dalla barra, dall'iPhone o a voce con `cervello_cambia {cervello?, impegno?}` («usa DeepSeek», «pensa piu' a
+fondo», «torna ad Agnes»). Di solito vale per quella conversazione: si torna al predefinito quando la conversazione si
+chiude, dopo 15 minuti senza domande, al riavvio della Bottega e dopo qualsiasi errore (un 401 o un 402 mette anche il
+cervello da parte per un'ora). Dal 3 ottobre 2026 la scelta puo' valere «sempre» (interruttore nella barra, selettore
+dell'iPhone, 9.8): quel cervello diventa il predefinito, salvato in `globalState` (`bottega.cervello.predefinito`,
+assente = Agnes) e sopravvive al riavvio, finche' non si sceglie «sempre» un altro. Un predefinito che adesso non si
+puo' usare (DeepSeek senza credito, Apple senza Nucleo) ripiega su Agnes senza cancellarsi. L'impegno si ricorda sempre
+(`bottega.cervello.impegno`). Apple Intelligence resta la riserva automatica solo quando Agnes non risponde (429, rete).
+Ogni cambio (barra, voce, iPhone, cervello messo da parte) chiama `onChange` di `Cervelli`: la barra rilegge il cervello
+e il ponte avvisa l'iPhone sugli eventi, cosi' Mac e iPhone mostrano sempre la stessa scelta. A voce lo strumento
+`cervello_cambia` non ha `sempre`: la sua scelta vale per la conversazione, poi si torna al predefinito.
 Con DeepSeek i nomi vecchi `deepseek-chat` e `deepseek-reasoner` portano entrambi a V4.1 Flash, senza e con ragionamento:
 fino alla build 60 rapido e normale erano la stessa cosa e V4 Pro non si usava mai.
 
@@ -1379,6 +1393,8 @@ nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard,
 - `POST /v1/lavoro {id, testo}` -> `{ok: true}` | 404: scrive nel terminale di un lavoro della Bottega.
 - `GET /v1/stanza?nome=..` -> una stanza della plancia in sola lettura (9.6); `POST /v1/stanza/azione {..}` -> le
   poche azioni della stanza App Store (9.7).
+- `GET /v1/stato`: `melissa.scelta?` (9.8), facoltativo. `GET /v1/cervelli` e `POST /v1/cervello {provider?, impegno?,
+  sempre?}`: il cervello di Melissa (9.8).
 - Errori: `{errore}` in italiano, da mostrare cosi' com'e'.
 - Comando «Collega l'iPhone» (`bottega.ponte.collega`): pagina con il QR (dal Nucleo) di
   `bottega://collega?host=<nome MagicDNS>&ip=<100.x>&porta=7790&token=<gettone>` e il pulsante per copiarlo.
@@ -1774,6 +1790,28 @@ spento restano spente con «Serve il Mac acceso, con la Bottega aperta.» Le sch
 copia su disco della stanza (la chiave contiene `app=`): con il Mac spento si vede l'ultima scheda vista, con l'eta'.
 Un allarme si riconosce da ora, app e testo insieme: gli allarmi di uno stesso controllo hanno la stessa ora.
 
+
+### 9.8 Il cervello di Melissa sull'iPhone (`src/ponte.ts`, `ios/Bottega/Viste/CervelloView.swift`)
+
+Sull'iPhone, sotto la sfera, il nome del cervello che Melissa sta usando, piccolo: «Agnes», «DeepSeek», «DeepSeek V4
+Pro» (DeepSeek con impegno profondo), «Apple Intelligence». Viene da `melissa.scelta` dello stato, quindi si aggiorna
+con gli eventi anche quando si cambia dal Mac o a voce. Un tocco sul nome, o un tocco lungo sulla sfera (o l'azione di
+accessibilita' «Scegli il cervello»), apre il selettore: i cervelli che il Mac dice, con la nota («gratis», «a consumo, a
+fondo V4 Pro», «gratis, sul Mac») e, se non disponibili, il perche' («senza credito», «il Nucleo non è acceso»); «Per
+questa conversazione» o «Sempre»; l'impegno (rapido, normale, profondo, come nella barra: resta finche' non lo cambi).
+Cambiare «Per questa conversazione»/«Sempre» vale anche per il cervello di adesso se non e' Agnes. Con il Mac spento il
+selettore e' grigio, dice «Serve il Mac acceso» e mostra l'ultimo cervello visto. Lo stato di una Bottega vecchia senza
+`scelta` si legge ancora (il nome non compare).
+
+- `GET /v1/stato` -> `melissa.scelta?: {provider, nome, impegno, predefinito, perOra}` (`sceltaDi`, senza rete).
+- `GET /v1/cervelli` -> `PonteCervelli`: `{provider, nome, impegno, predefinito, perOra, opzioni: [{provider, nome, nota,
+  disponibile, perche?}]}` (da `Cervelli.state()`, che va in rete solo con le cache vecchie, come la barra).
+- `POST /v1/cervello {provider?, impegno?, sempre?}` -> `PonteCervelli`. Dopo il gettone. Elenco chiuso: `provider` in
+  agnes, deepseek, apple; `impegno` in rapido, normale, profondo; `sempre` booleano; almeno uno tra provider e impegno,
+  altrimenti 400 con la frase. Un cervello non disponibile -> 409 con la frase di `Cervelli.set` («Apple Intelligence
+  adesso non è disponibile: il Nucleo non è acceso.»). Passa da `rotteCervelli` (ponte.ts), che chiama gli stessi
+  `Cervelli.setEffort` e `Cervelli.set(provider, undefined, sempre)` della barra. 405 con il metodo sbagliato.
+  Dopo il cambio il ponte manda subito uno stato sugli eventi.
 
 ## 10. Gli aggiornamenti: VS Code solo quando serve, Claude Code sempre
 
