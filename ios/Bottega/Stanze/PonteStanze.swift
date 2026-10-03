@@ -73,6 +73,16 @@ final class PonteStanze {
         return c
     }
 
+    /// POST /v1/stanza/azione (CONTRATTI 9.7): un'azione della stanza App Store. Nessuna copia: con il Mac spento
+    /// fallisce, e la stanza lo dice.
+    func azione(_ corpo: [String: String]) async throws -> Data {
+        var req = try richiesta("/v1/stanza/azione", [:])
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: corpo)
+        return try await dati(req)
+    }
+
     /// Scollegando l'iPhone le copie non servono piu'.
     func dimentica() {
         memoria = [:]

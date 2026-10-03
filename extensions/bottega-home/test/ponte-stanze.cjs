@@ -69,21 +69,33 @@ const STATS = {
 const giorni = Array.from({ length: 62 }, (_, i) => giornoDi(new Date(2026, 9, 2 - 61 + i)));
 const mesi = Array.from({ length: 24 }, (_, i) => { const d = new Date(2026, 9 - 23 + i, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; });
 const serie = (n, admob, store, dl) => ({ admob: Array(n).fill(admob), store: Array(n).fill(store), dl: Array(n).fill(dl) });
+const scheda = n => ({ imp: Array(62).fill(n * 10), vis: Array(62).fill(n), dl: Array(62).fill(n / 10), fonti: { ricerca: { imp: n * 200, vis: n * 20, dl: n * 2 }, web: { imp: 0, vis: 0, dl: 0 } } });
 const abb = (attivi, prove) => ({ attivi: Array(62).fill(attivi).map((x, i) => x + Math.floor(i / 10)), prove: Array(62).fill(prove), mrr: Array(62).fill(attivi * 2.5), ritardo: Array(62).fill(1), grazia: Array(62).fill(0), eventi: { nuovi: Array(62).fill(1), disdette: Array(62).fill(0) } });
 const APPSTORE = {
 	aggiornatoAt: ORA - 3 * H, aggiornando: false, errori: { admob: 'AdMob non risponde — riprovo' }, valuta: 'EUR', giorni, mesi, storeFinoA: '2026-10-01', storeSenzaDati: ['2024-11'],
-	abbFinoA: giorni[59],
-	totale: { giorni: serie(62, 12, 2, 40), mesi: serie(24, 360, 60, 1200), abbonamenti: abb(20, 4) },
+	abbFinoA: giorni[59], schedaFinoA: giorni[59], controlloOre: 3,
+	totale: { giorni: serie(62, 12, 2, 40), mesi: serie(24, 360, 60, 1200), abbonamenti: abb(20, 4), scheda: scheda(100) },
 	app: [
-		{ chiave: 'ios:2', nome: 'Woofmap', projectPath: '/prove/woofmap', projectName: 'Woofmap', piattaforma: 'ios', giorni: serie(62, 2, 0.5, 10), mesi: serie(24, 60, 20, 300), abbonamenti: abb(5, 1) },
+		{
+			chiave: 'ios:2', nome: 'Woofmap', projectPath: '/prove/woofmap', projectName: 'Woofmap', piattaforma: 'ios', giorni: serie(62, 2, 0.5, 10), mesi: serie(24, 60, 20, 300), abbonamenti: abb(5, 1),
+			scheda: scheda(40), admobId: 'ca-app-pub-0000000000000000~0000000001', approvazione: 'APPROVED', collegata: true,
+			versioni: [{ v: '2.0', quando: giorni[20] }, { v: '2.1', quando: giorni[50] }], versioniMesi: [{ v: '2.1', quando: mesi[23] }],
+			formati: [{ formato: 'interstitial', richieste: 1000, abbinate: 800, impressioni: 300, clic: 9, euro: 4.5 }, { formato: 'banner', richieste: 0, abbinate: 0, impressioni: 0, clic: 0, euro: 0 }],
+			unita: [{ id: 'u1', nome: 'Pausa prova', formato: 'interstitial', richieste: 1000, impressioni: 300, euro: 4.5 }],
+			acquisti: { nuovi: 3, rinnovi: 5, altri: 0, euro: 21.337 },
+			repo: { path: '/prove/woofmap', letteAt: ORA - H, file: 120, sdk: true, formati: ['interstitial'], ump: false, att: true, attRichiesta: true, skan: 12, idProva: [], unita: [], storekit: true, revenuecat: false },
+		},
 		{ chiave: 'ios:1', nome: 'Talky', piattaforma: 'ios', giorni: serie(62, 10, 1.5, 30), mesi: serie(24, 300, 40, 900) },
 		{ chiave: 'admob:3', nome: 'Ferma', piattaforma: 'android', giorni: serie(62, 0, 0, 0), mesi: serie(24, 0, 0, 0) },
 	],
-	paesi: [],
+	paesi: [{ codice: 'IT', euro: 12.345, impressioni: 4000 }, { codice: 'ES', euro: 3, impressioni: 1500 }],
 	buchi: [
-		{ id: 'ios:2:ump', chiave: 'ios:2', app: 'Woofmap', gravita: 'alta', titolo: 'Manca il consenso UMP', perche: 'Senza consenso — niente annunci in Europa.', cosa: 'Aggiungi il modulo del consenso.', stima: 30, stimaNota: 'stima larga', projectPath: '/prove/woofmap', daQuando: ORA - 5 * D },
-		{ id: 'ios:1:fill', chiave: 'ios:1', app: 'Talky', gravita: 'media', titolo: 'Riempimento al 40%', perche: 'x', cosa: 'Controlla la mediazione.', stima: 12.4 },
+		{ id: 'ios:2:ump', chiave: 'ios:2', app: 'Woofmap', gravita: 'alta', titolo: 'Manca il consenso UMP', perche: 'Senza consenso — niente annunci in Europa.', cosa: 'Aggiungi il modulo del consenso.', stima: 30, stimaNota: 'stima larga', projectPath: '/prove/woofmap', daQuando: ORA - 5 * D, tipo: 'ump', fonte: 'codice' },
+		{ id: 'ios:1:fill', chiave: 'ios:1', app: 'Talky', gravita: 'media', titolo: 'Riempimento al 40%', perche: 'x', cosa: 'Controlla la mediazione.', stima: 12.4, tipo: 'fill', fonte: 'admob', misura: 0.4, soglia: 0.6, verifica: { versione: '3.2', giorno: giorni[55], prima: 0.3, dopo: 0.4, giorniDopo: 6, esito: 'meglio' } },
+		{ id: 'ios:2:mostrati:interstitial', chiave: 'ios:2', app: 'Woofmap', gravita: 'media', titolo: 'Interstitial caricati e non mostrati', perche: 'y', cosa: 'Carica solo quando mostri.', projectPath: '/prove/woofmap', compito: 'Nell\'app Woofmap sistema il ciclo degli interstitial.\nUsa la skill ios-admob-integration.', tipo: 'mostrati', fonte: 'admob' },
 	],
+	risolti: [{ id: 'ios:1:ump', chiave: 'ios:1', app: 'Talky', titolo: 'Manca il consenso UMP', quando: ORA - 2 * D, daQuando: ORA - 9 * D, prima: 0.2, dopo: 0.7 }],
+	ignorati: [{ id: 'ios:1:premio', chiave: 'ios:1', app: 'Talky', titolo: 'Annunci con premio poco visti', quando: ORA - D, daQuando: ORA - 4 * D, motivo: 'li offro solo a chi li vuole' }],
 	allarmi: [{ id: 'a1', chiave: 'ios:1', app: 'Talky', testo: 'AdMob di ieri al 30% della media', at: ORA - 2 * H }],
 	senzaCambio: [],
 };
@@ -169,9 +181,11 @@ const fonti = (extra = {}) => ({
 	...extra,
 });
 
-function call(port, token, method, url) {
+function call(port, token, method, url, corpo) {
 	return new Promise((resolve, reject) => {
-		const req = http.request({ host: '127.0.0.1', port, method, path: url, headers: { authorization: `Bearer ${token}` } }, res => {
+		const headers = { authorization: `Bearer ${token}` };
+		if (corpo !== undefined) headers['content-type'] = 'application/json';
+		const req = http.request({ host: '127.0.0.1', port, method, path: url, headers }, res => {
 			const parti = [];
 			res.on('data', c => parti.push(c));
 			res.on('end', () => {
@@ -186,7 +200,7 @@ function call(port, token, method, url) {
 			});
 		});
 		req.on('error', reject);
-		req.end();
+		req.end(corpo === undefined ? undefined : JSON.stringify(corpo));
 	});
 }
 
@@ -218,6 +232,15 @@ function call(port, token, method, url) {
 	const port = 20000 + Math.floor(Math.random() * 20000);
 	const registro = [];
 	let f = fonti();
+	// le azioni finte: si guarda solo chi viene chiamato e con cosa, niente tocca i dati veri
+	const chiamate = [];
+	let lavoriPronti = true;
+	const finte = {
+		ignora: (id, motivo) => chiamate.push(['ignora', id, motivo]),
+		ripristina: id => chiamate.push(['ripristina', id]),
+		verifica: () => chiamate.push(['verifica']),
+		lavoro: (p, compito) => (chiamate.push(['lavoro', p, compito]), lavoriPronti ? { id: 'job-7', stato: 'in coda' } : undefined),
+	};
 	const ponte = new Ponte({
 		dir, versione: '9.9.9', porta: port,
 		indirizzo: async () => ({ ip: '127.0.0.1', nome: 'mac-di-prova.tailnet.ts.net' }),
@@ -225,7 +248,7 @@ function call(port, token, method, url) {
 		occupata: () => false, chiedi: async () => '', parla: async () => '', voce: async () => Buffer.alloc(0),
 		scriviLavoro: () => false, registraDispositivo: () => undefined,
 		log: r => registro.push(r),
-		stanze: new StanzePonte({ fonti: () => f, lavori: () => LAVORI, tempoMs: 200 }),
+		stanze: new StanzePonte({ fonti: () => f, lavori: () => LAVORI, tempoMs: 200, azioni: finte }),
 	});
 	await ponte.start();
 	const token = JSON.parse(fs.readFileSync(path.join(dir, 'ponte.json'), 'utf8')).token;
@@ -258,7 +281,7 @@ function call(port, token, method, url) {
 	assert.strictEqual(s.storeIncompleto, true);
 	assert.deepStrictEqual(s.app.map(x => x.nome), ['Talky', 'Woofmap'], 'le app ferme non ci sono, la piu\' ricca in testa');
 	assert.strictEqual(s.app[1].progetto, 'Woofmap');
-	assert.strictEqual(s.buchi.length, 2);
+	assert.strictEqual(s.buchi.length, 3);
 	assert.strictEqual(s.buchi[0].progetto, 'Woofmap');
 	assert.strictEqual(s.stimaTotale, 42);
 	assert.strictEqual(s.allarmi.length, 1);
@@ -286,10 +309,115 @@ function call(port, token, method, url) {
 	s = pulita(await get('nome=appstore&periodo=settimana&progetto=woofmap'));
 	assert.deepStrictEqual(s.cifre, { totale: 17.5, admob: 14, store: 3.5, download: 70 });
 	assert.strictEqual(s.app.length, 1);
-	assert.strictEqual(s.buchi.length, 1);
+	assert.strictEqual(s.buchi.length, 2);
 	assert.strictEqual(s.abbonamenti.attivi, 10);
 	assert.strictEqual((await get('nome=appstore&progetto=nessuna')).status, 404);
 	ok('App Store: ieri con la settimana intorno, anno a mesi, un mese preciso, un progetto');
+
+	// App Store, i dati in piu' per l'iPhone (9.7): tendenza, versioni, scheda, paesi, buchi con il compito, chiusi
+	s = pulita(await get('nome=appstore&periodo=settimana'));
+	assert.strictEqual(s.controlloOre, 3);
+	assert.strictEqual(s.grafico.length, 7);
+	assert.strictEqual(s.grafico[0].prima.chiave, giorni[48], 'il punto del periodo prima: sette giorni indietro');
+	assert.deepStrictEqual([s.grafico[0].prima.admob, s.grafico[0].prima.store], [12, 2]);
+	assert.strictEqual(s.versioni.length, 0, 'senza un\'app scelta le versioni non ci sono, come sul Mac');
+	assert.deepStrictEqual(s.app.map(x => [x.nome, x.totalePrima, x.buchi, x.subito]), [['Talky', 80.5, 1, 0], ['Woofmap', 17.5, 2, 1]]);
+	assert.strictEqual(s.app[1].andamento.length, 7);
+	assert.strictEqual(s.app[1].andamento[6], 2, 'oltre storeFinoA la scintilla non conta lo Store');
+	assert.strictEqual(s.app[1].abbonati, 10);
+	assert.deepStrictEqual(s.paesi[0], { codice: 'IT', euro: 12.35, impressioni: 4000 });
+	assert.strictEqual(s.abbonamenti.serie.length, 7);
+	assert.strictEqual(s.abbonamenti.serie[6].giorno, giorni[59]);
+	assert.deepStrictEqual(s.abbonamenti.eventiPrima, { nuovi: 7 });
+	assert.strictEqual(s.abbonamenti.mrrPrima, 50);
+	assert.deepStrictEqual(s.abbonamenti.perApp.map(x => x.nome), ['Woofmap']);
+	assert.deepStrictEqual([s.scheda.imp, s.scheda.vis, s.scheda.dl, s.scheda.impPrima, s.scheda.haPrima, s.scheda.giorni], [7000, 700, 70, 7000, true, 7]);
+	assert.deepStrictEqual(s.scheda.fonti.map(x => x.fonte), ['ricerca'], 'le fonti a zero non viaggiano');
+	assert.deepStrictEqual(s.scheda.perApp.map(x => [x.nome, x.imp]), [['Woofmap', 2800]]);
+	const [ump, fill, mostrati] = s.buchi;
+	assert.match(ump.compito, /^Nell'app Woofmap: Manca il consenso UMP\. Senza consenso, niente annunci/, 'senza compito della regola, il buco in chiaro');
+	assert.strictEqual(fill.compito, undefined, 'senza progetto niente lavoro');
+	assert.strictEqual(fill.verifica.esito, 'meglio');
+	assert.strictEqual(fill.soglia, 0.6);
+	assert.strictEqual(mostrati.compito, 'Nell\'app Woofmap sistema il ciclo degli interstitial. Usa la skill ios-admob-integration.', 'il compito della regola, su una riga');
+	assert.strictEqual(ump.chiave, 'ios:2');
+	assert.strictEqual(s.risolti[0].dopo, 0.7);
+	assert.strictEqual(s.ignorati[0].motivo, 'li offro solo a chi li vuole');
+	assert.strictEqual(s.dettaglio, null);
+	ok('App Store per l\'iPhone: tendenza, abbonati giorno per giorno, scheda, paesi, buchi con il compito, risolti e ignorati');
+
+	s = pulita(await get('nome=appstore&periodo=mese&app=ios%3A2'));
+	assert.deepStrictEqual(s.app.map(x => x.chiave), ['ios:2']);
+	assert.deepStrictEqual(s.versioni, [{ chiave: giorni[50], v: '2.1', app: 'Woofmap' }], 'solo le uscite dentro il grafico');
+	assert.strictEqual(s.buchi.length, 2);
+	assert.deepStrictEqual(s.risolti, []);
+	assert.deepStrictEqual(s.paesi, []);
+	const det = s.dettaglio;
+	assert.strictEqual(det.nome, 'Woofmap');
+	assert.strictEqual(det.suAdmob, true);
+	assert.deepStrictEqual(det.formati.map(x => x.formato), ['interstitial'], 'i formati senza richieste non viaggiano');
+	assert.strictEqual(det.unita[0].nome, 'Pausa prova');
+	assert.strictEqual(det.acquisti.euro, 21.34);
+	assert.deepStrictEqual(det.versioni.map(v => v.v), ['2.1', '2.0'], 'la piu\' recente in testa');
+	assert.deepStrictEqual([det.codice.sdk, det.codice.ump, det.codice.skan, det.codice.idProva], [true, false, 12, 0]);
+	assert.strictEqual(s.scheda.imp, 40 * 10 * 30);
+	assert.strictEqual(s.abbonamenti.attivi, 10);
+	s = pulita(await get('nome=appstore&periodo=anno&app=ios%3A2'));
+	assert.deepStrictEqual(s.versioni, [{ chiave: mesi[23], v: '2.1', app: 'Woofmap' }]);
+	assert.strictEqual((await get('nome=appstore&app=ios%3A99')).status, 404);
+	ok('App Store, la scheda di un\'app: versioni nel grafico, formati, unita\', acquisti, codice');
+
+	// le azioni: gettone, solo POST, elenco chiuso, il progetto viene dal buco, mai un push
+	const azione = c => call(port, token, 'POST', '/v1/stanza/azione', c);
+	assert.strictEqual((await call(port, 'sbagliato', 'POST', '/v1/stanza/azione', { stanza: 'appstore', azione: 'verifica' })).status, 401);
+	assert.strictEqual((await call(port, token, 'GET', '/v1/stanza/azione')).status, 405);
+	for (const a of ['push', 'pubblica', 'deploy', 'rilascia', '', 'lavoro ']) {
+		const r = await azione({ stanza: 'appstore', azione: a, id: 'ios:2:ump' });
+		assert.strictEqual(r.status, 400, a);
+		assert.match(r.body.errore, /ignora, ripristina, verifica, lavoro/);
+	}
+	assert.strictEqual((await azione({ stanza: 'vedetta', azione: 'verifica' })).status, 400);
+	assert.strictEqual(chiamate.length, 0, 'nessuna azione sconosciuta e\' arrivata ai gestori');
+	ok('azioni: gettone, solo POST, elenco chiuso (niente push ne\' pubblicazioni)');
+
+	let r = await azione({ stanza: 'appstore', azione: 'verifica' });
+	assert.strictEqual(r.status, 200);
+	assert.match(r.body.messaggio, /Rileggo/);
+	assert.deepStrictEqual(chiamate.pop(), ['verifica']);
+	r = await azione({ stanza: 'appstore', azione: 'ignora', id: 'ios:1:nessuno', motivo: 'x' });
+	assert.strictEqual(r.status, 404);
+	r = await azione({ stanza: 'appstore', azione: 'ignora', id: 'ios:1:fill', motivo: 'la mediazione\nla cambio a novembre' });
+	assert.strictEqual(r.status, 200);
+	assert.deepStrictEqual(chiamate.pop(), ['ignora', 'ios:1:fill', 'la mediazione la cambio a novembre']);
+	assert.strictEqual((await azione({ stanza: 'appstore', azione: 'ripristina', id: 'ios:1:fill' })).status, 404, 'si ripristina solo un ignorato');
+	r = await azione({ stanza: 'appstore', azione: 'ripristina', id: 'ios:1:premio' });
+	assert.strictEqual(r.status, 200);
+	assert.deepStrictEqual(chiamate.pop(), ['ripristina', 'ios:1:premio']);
+	ok('azioni: verifica di nuovo, ignora con il motivo, ripristina, buchi che non ci sono 404');
+
+	r = await azione({ stanza: 'appstore', azione: 'lavoro', id: 'ios:1:fill' });
+	assert.strictEqual(r.status, 409, 'senza progetto sul Mac niente lavoro');
+	assert.match(r.body.errore, /progetto/);
+	lavoriPronti = false;
+	assert.strictEqual((await azione({ stanza: 'appstore', azione: 'lavoro', id: 'ios:2:ump' })).status, 503);
+	chiamate.pop();
+	lavoriPronti = true;
+	r = await azione({ stanza: 'appstore', azione: 'lavoro', id: 'ios:2:ump', path: '/etc', progetto: 'altro', compito: 'Aggiungi UMP\ncon la skill\u0007 ios-admob-integration' });
+	assert.strictEqual(r.status, 200, r.testo);
+	assert.deepStrictEqual([r.body.lavoro, r.body.stato, r.body.progetto], ['job-7', 'in coda', 'Woofmap']);
+	const [cosa, dove, compito] = chiamate.pop();
+	assert.strictEqual(cosa, 'lavoro');
+	assert.strictEqual(dove, '/prove/woofmap', 'il progetto viene dal buco, non dalla richiesta');
+	assert.ok(compito.startsWith('Aggiungi UMP con la skill ios-admob-integration '), compito);
+	assert.ok(!/[\n\u0007]/.test(compito), 'una riga sola, senza caratteri di controllo');
+	assert.match(compito, /non fare git push, non pubblicare/);
+	assert.strictEqual((await azione({ stanza: 'appstore', azione: 'lavoro', id: 'ios:2:ump' })).status, 409, 'un doppio tocco non avvia due lavori');
+	assert.strictEqual(chiamate.length, 0);
+	r = await azione({ stanza: 'appstore', azione: 'lavoro', id: 'ios:2:mostrati:interstitial' });
+	assert.strictEqual(r.status, 200);
+	assert.match(chiamate.pop()[2], /^Nell'app Woofmap sistema il ciclo.*ios-admob-integration\. Questo lavoro parte dall'iPhone/, 'senza testo dall\'iPhone, il compito del buco');
+	assert.ok(!registro.some(x => /UMP|interstitial|Woofmap/.test(x)), 'niente compiti nel registro del ponte');
+	ok('azioni: «Fallo sistemare a Claude» sul progetto del buco, compito su una riga con il divieto di push, niente doppioni');
 
 	// cruscotto
 	s = pulita(await get('nome=cruscotto'));
@@ -383,6 +511,7 @@ function call(port, token, method, url) {
 	// stanze non pronte
 	f = undefined;
 	assert.strictEqual((await get('nome=appstore')).status, 503);
+	assert.strictEqual((await call(port, token, 'POST', '/v1/stanza/azione', { stanza: 'appstore', azione: 'verifica' })).status, 503, 'azioni con la stanza non pronta');
 	f = fonti({ appStore: () => ({ ...APPSTORE, aggiornatoAt: 0, aggiornando: true }), connettori: undefined });
 	const primaVolta = await get('nome=appstore');
 	assert.strictEqual(primaVolta.status, 503);

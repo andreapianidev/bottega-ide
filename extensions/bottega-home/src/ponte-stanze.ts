@@ -11,8 +11,18 @@
 
    Posta e WhatsApp: solo nome del contatto, progetto, oggetto e un'anteprima breve; mai indirizzi, numeri o corpi
    delle mail (un mittente senza nome diventa il dominio, un contatto che e' solo un numero diventa «contatto senza nome»).
-   Niente di quello che passa di qui finisce nei registri del ponte. */
+   Niente di quello che passa di qui finisce nei registri del ponte.
 
+   Una sola rotta che scrive, la stanza App Store (CONTRATTI 9.7):
+
+     POST /v1/stanza/azione {stanza: 'appstore', azione: ignora|ripristina|verifica|lavoro, id?, motivo?, compito?}
+
+   Un elenco chiuso di azioni, gli stessi gestori della plancia (handleAppStore di appstore-host.ts) e, per
+   «Fallo sistemare a Claude», lo stesso avvio dei lavori di Melissa (lavoro_nuovo). Il progetto viene sempre dal
+   buco, mai dall'iPhone. Push e pubblicazioni da qui non partono: non sono nell'elenco, e ogni compito porta in
+   fondo la frase che lo dice a Claude. */
+
+import type { BucoChiuso, FormatoApp, RepoEsito, Scheda, UnitaApp, Verifica } from './appstore';
 import { splitSummary } from './continua';
 import type { WorkItem } from './jobs';
 import type { RotteStanze } from './ponte';
@@ -29,6 +39,23 @@ export interface StanzeDeps {
 	ora?(): number;
 	/** Quanto aspettare un calcolo lento (cruscotto, clienti, Memoria). */
 	tempoMs?: number;
+	/** Le azioni della stanza App Store (POST /v1/stanza/azione); senza, la rotta risponde 503. */
+	azioni?: AzioniAppStore;
+}
+
+/** Le azioni che l'iPhone puo' chiedere alla stanza App Store: un elenco chiuso. */
+export const AZIONI_APPSTORE = ['ignora', 'ripristina', 'verifica', 'lavoro'] as const;
+
+/** Chi esegue le azioni: ponte-host.ts le gira agli stessi gestori della plancia e di Melissa. */
+export interface AzioniAppStore {
+	/** «Ignora», con il motivo (appstore.ignora della plancia). */
+	ignora(id: string, motivo: string): void;
+	/** «Ripristina» un buco ignorato (appstore.ripristina). */
+	ripristina(id: string): void;
+	/** «Verifica di nuovo»: rilegge AdMob e lo Store adesso, come «Aggiorna» nella stanza (appstore.refresh). */
+	verifica(): void;
+	/** Un lavoro Claude sul progetto, come lavoro_nuovo di Melissa; undefined se i lavori non sono pronti. */
+	lavoro(path: string, compito: string): { id: string; stato: string } | undefined;
 }
 
 const errore = (status: number, msg: string) => Object.assign(new Error(msg), { status });
@@ -85,11 +112,14 @@ interface Domanda {
 	periodo: string | null;
 	progetto?: string;
 	mese?: string;
+	/** Per appstore: la chiave di un'app (ios:<id>, android:<pacchetto>, admob:<id>), la sua scheda. */
+	app?: string;
 }
 
 // ---------- App Store ----------
 
-/** I campi di AppStoreStato (CONTRATTI 13.2) oltre il minimo di strumenti-stanze: tutti facoltativi. */
+/** I campi di AppStoreStato (CONTRATTI 13.2) oltre il minimo di strumenti-stanze: tutti facoltativi, cosi' uno
+ *  stato vecchio o parziale non rompe la rotta. */
 interface Abbonamenti {
 	attivi: number[];
 	prove: number[];
@@ -98,13 +128,46 @@ interface Abbonamenti {
 	grazia: number[];
 	eventi: Record<string, number[]>;
 }
+type BucoStore = StatoStore['buchi'][number] & {
+	id?: string;
+	perche?: string;
+	stimaNota?: string;
+	daQuando?: number;
+	compito?: string;
+	tipo?: string;
+	fonte?: string;
+	misura?: number;
+	soglia?: number;
+	verifica?: Verifica;
+};
+type AppStoreRiga = StatoStore['app'][number] & {
+	piattaforma?: string;
+	bundleId?: string;
+	admobId?: string;
+	approvazione?: string;
+	collegata?: boolean;
+	abbonamenti?: Abbonamenti;
+	scheda?: Scheda;
+	formati?: FormatoApp[];
+	unita?: UnitaApp[];
+	acquisti?: { nuovi: number; rinnovi: number; altri: number; euro: number };
+	repo?: RepoEsito;
+	versioni?: { v: string; quando: string }[];
+	versioniMesi?: { v: string; quando: string }[];
+};
 type StatoStoreRicco = Omit<StatoStore, 'app' | 'buchi' | 'totale'> & {
+	fase?: string;
 	storeSenzaDati?: string[];
 	abbFinoA?: string;
-	totale: StatoStore['totale'] & { abbonamenti?: Abbonamenti };
-	app: (StatoStore['app'][number] & { piattaforma?: string; abbonamenti?: Abbonamenti })[];
-	buchi: (StatoStore['buchi'][number] & { id?: string; perche?: string; stimaNota?: string; daQuando?: number })[];
-	allarmi?: { app: string; testo: string; at: number }[];
+	schedaFinoA?: string;
+	controlloOre?: number;
+	totale: StatoStore['totale'] & { abbonamenti?: Abbonamenti; scheda?: Scheda };
+	app: AppStoreRiga[];
+	buchi: BucoStore[];
+	paesi?: { codice: string; euro: number; impressioni: number }[];
+	risolti?: BucoChiuso[];
+	ignorati?: BucoChiuso[];
+	allarmi?: { chiave?: string; app: string; testo: string; at: number }[];
 };
 
 interface Cifre {
@@ -131,6 +194,60 @@ function sommaAbbonamenti(l: Abbonamenti[]): Abbonamenti | undefined {
 	return { attivi: somme('attivi'), prove: somme('prove'), mrr: somme('mrr'), ritardo: somme('ritardo'), grazia: somme('grazia'), eventi };
 }
 
+function sommaScheda(l: Scheda[]): Scheda | undefined {
+	if (l.length <= 1) return l[0];
+	const n = Math.max(...l.map(s => s.imp.length));
+	const somme = (k: 'imp' | 'vis' | 'dl') => range(0, n).map(i => somma(l.map(s => s[k]?.[i] ?? 0)));
+	const fonti: Scheda['fonti'] = {};
+	for (const s of l) {
+		for (const [k, v] of Object.entries(s.fonti ?? {})) {
+			const t = (fonti[k] ??= { imp: 0, vis: 0, dl: 0 });
+			t.imp += v.imp || 0;
+			t.vis += v.vis || 0;
+			t.dl += v.dl || 0;
+		}
+	}
+	return { imp: somme('imp'), vis: somme('vis'), dl: somme('dl'), fonti };
+}
+
+/** La scheda dello Store nella finestra che finisce all'ultimo giorno con dati (Apple li prepara con due o tre giorni
+ *  di ritardo), e lo stesso tratto prima: come finestraScheda di media/appstore.js (per l'anno, 30 giorni). */
+function finestraScheda(sc: Scheda | undefined, giorni: string[], finoA: string | undefined, g: number) {
+	if (!sc || !finoA) return null;
+	const fine = giorni.indexOf(finoA);
+	if (fine < 0) return null;
+	const k = g > 30 ? 30 : Math.max(g, 7);
+	const da = Math.max(0, fine + 1 - k);
+	const p = Math.max(0, da - k);
+	const t = (a: number[], x: number, y: number) => Math.round(somma((a ?? []).slice(x, y)));
+	return {
+		finoA,
+		giorni: fine + 1 - da,
+		imp: t(sc.imp, da, fine + 1),
+		vis: t(sc.vis, da, fine + 1),
+		dl: t(sc.dl, da, fine + 1),
+		impPrima: t(sc.imp, p, da),
+		visPrima: t(sc.vis, p, da),
+		dlPrima: t(sc.dl, p, da),
+		haPrima: (sc.imp ?? []).slice(p, da).some(Boolean),
+	};
+}
+
+/** Il compito per un lavoro Claude: quello scritto dalla regola del buco o, se la regola non ne ha uno, il buco stesso
+ *  in chiaro. Una riga sola: arriva al terminale come argomento di claude. */
+export function compitoBuco(b: { app: string; titolo: string; perche?: string; cosa: string; compito?: string }): string {
+	if (b.compito) return pulisci(b.compito, 3000);
+	return pulisci(`Nell'app ${b.app}: ${b.titolo}. ${b.perche ? `${b.perche} ` : ''}Cosa fare: ${b.cosa} Prima di cambiare il codice guarda come è fatto adesso e dimmi cosa cambi.`, 3000);
+}
+
+/** In coda a ogni compito partito dall'iPhone: un push o una pubblicazione da qui non partono mai. */
+export const CODA_COMPITO = 'Questo lavoro parte dall\'iPhone: non fare git push, non pubblicare e non mandare niente in revisione. Quello lo decide Andrea dal Mac.';
+
+/** Il compito scritto (o corretto) da Andrea sull'iPhone: una riga, senza caratteri di controllo, al massimo 3000. */
+export function compitoPulito(s: unknown): string {
+	return pulisci(String(s ?? '').replace(/[\u0000-\u001f\u007f]/g, ' '), 3000);
+}
+
 function appStore(f: FontiStanze, d: Domanda, now: number) {
 	const st = f.appStore?.() as StatoStoreRicco | undefined;
 	if (!st) throw errore(503, 'La stanza App Store non è pronta.');
@@ -140,15 +257,19 @@ function appStore(f: FontiStanze, d: Domanda, now: number) {
 	const g = periodoParam(d.periodo, 30);
 	const mese = meseDa(d.mese, now);
 
-	// il filtro: le app del progetto, oppure un'app per nome (come stanza_leggi)
+	// il filtro: un'app precisa (la sua scheda sull'iPhone), le app del progetto, oppure un'app per nome (come stanza_leggi)
 	let app = st.app;
-	if (d.progetto) {
+	if (d.app) {
+		app = st.app.filter(x => x.chiave === d.app);
+		if (!app.length) throw errore(404, 'Questa app non c\'è più nella stanza App Store.');
+	} else if (d.progetto) {
 		const p = f.progetto(d.progetto);
 		const q = norma(d.progetto);
 		const delProgetto = p ? st.app.filter(x => x.projectPath === p.path) : [];
 		app = delProgetto.length ? delProgetto : st.app.filter(x => q && (norma(x.nome).includes(q) || norma(x.projectName ?? '').includes(q)));
 		if (!app.length) throw errore(404, `Non trovo app di «${testo(d.progetto, 60)}» nella stanza App Store.`);
 	}
+	const filtrato = !!(d.app || d.progetto);
 
 	let quale: 'giorni' | 'mesi';
 	let idx: number[];
@@ -182,53 +303,129 @@ function appStore(f: FontiStanze, d: Domanda, now: number) {
 	}
 	const chiavi = quale === 'giorni' ? st.giorni : st.mesi;
 	const serie = (x: { giorni: SerieStore; mesi: SerieStore }) => (quale === 'giorni' ? x.giorni : x.mesi);
-	const tutte = d.progetto ? app.map(serie) : [serie(st.totale)];
+	const tutte = filtrato ? app.map(serie) : [serie(st.totale)];
 	const senzaStore = new Set(st.storeSenzaDati ?? []);
 	const storeManca = (k: string) => (quale === 'giorni' ? !!st.storeFinoA && k > st.storeFinoA : senzaStore.has(k));
+	const nelGrafico = new Set(grafico.map(i => chiavi[i]));
+	const conPrima = prima.length === idx.length;
 
+	const buchiDi = (chiave: string) => st.buchi.filter(b => b.chiave === chiave);
+	const iAbb = (a: Abbonamenti) => (st.abbFinoA && st.giorni.includes(st.abbFinoA) ? st.giorni.indexOf(st.abbFinoA) : a.attivi.length - 1);
+
+	// le app che hanno reso o scaricato nel periodo, la piu' ricca in testa: per il confronto e per aprirle una per una
 	const migliori = app
 		.map(x => ({ x, c: cifre([serie(x)], idx) }))
 		.filter(({ c }) => c.totale >= 0.5 || c.download > 0)
 		.sort((a, b) => b.c.totale - a.c.totale || b.c.download - a.c.download)
-		.slice(0, 8)
-		.map(({ x, c }) => ({ chiave: x.chiave, nome: testo(x.nome, 60), piattaforma: x.piattaforma, path: x.projectPath, progetto: x.projectName ?? (x.projectPath ? f.progetto(x.projectPath)?.name : undefined), ...c }));
+		.slice(0, 25)
+		.map(({ x, c }) => {
+			const s = serie(x);
+			const suoi = buchiDi(x.chiave);
+			return {
+				chiave: x.chiave,
+				nome: testo(x.nome, 60),
+				piattaforma: x.piattaforma,
+				path: x.projectPath,
+				progetto: x.projectName ?? (x.projectPath ? f.progetto(x.projectPath)?.name : undefined),
+				...c,
+				totalePrima: conPrima ? cifre([s], prima).totale : null,
+				buchi: suoi.length,
+				subito: suoi.filter(b => b.gravita === 'alta').length,
+				abbonati: x.abbonamenti?.attivi.length ? x.abbonamenti.attivi[iAbb(x.abbonamenti)] ?? 0 : undefined,
+				// la scintilla della riga: gli euro del grafico, lo Store solo dove c'e'
+				andamento: grafico.map(i => tondo((Number(s.admob[i]) || 0) + (storeManca(chiavi[i]) ? 0 : Number(s.store[i]) || 0))),
+			};
+		});
 
 	const dentro = new Set(app.map(x => x.chiave));
-	const buchi = d.progetto ? st.buchi.filter(b => dentro.has(b.chiave)) : st.buchi;
+	const buchi = filtrato ? st.buchi.filter(b => dentro.has(b.chiave)) : st.buchi;
 
 	// abbonati: l'ultimo giorno con il report, contro lo stesso numero di giorni prima
-	const abb = d.progetto ? sommaAbbonamenti(app.map(x => x.abbonamenti).filter((a): a is Abbonamenti => !!a)) : st.totale.abbonamenti;
+	const abb = filtrato ? sommaAbbonamenti(app.map(x => x.abbonamenti).filter((a): a is Abbonamenti => !!a)) : st.totale.abbonamenti;
 	let abbonamenti: Record<string, unknown> | undefined;
 	if (abb && abb.attivi.length) {
-		const i = st.abbFinoA && st.giorni.includes(st.abbFinoA) ? st.giorni.indexOf(st.abbFinoA) : abb.attivi.length - 1;
+		const i = iAbb(abb);
 		// gli eventi sui giorni del periodo (al massimo 30), il confronto con almeno una settimana prima
 		const lung = Math.min(g, 30);
 		const finestra = range(Math.max(0, i - lung + 1), i + 1);
+		const finestraPrima = range(Math.max(0, i - 2 * lung + 1), Math.max(0, i - lung + 1));
+		const primaIntera = finestraPrima.length === finestra.length;
 		const passo = Math.min(Math.max(lung, 7), i);
 		const eventi: Record<string, number> = {};
+		const eventiPrima: Record<string, number> = {};
 		for (const [k, v] of Object.entries(abb.eventi ?? {})) {
 			const n = finestra.reduce((t, j) => t + (Number(v[j]) || 0), 0);
+			const p = primaIntera ? finestraPrima.reduce((t, j) => t + (Number(v[j]) || 0), 0) : 0;
 			if (n) eventi[k] = n;
+			if (p) eventiPrima[k] = p;
 		}
 		if ((abb.attivi[i] ?? 0) + (abb.prove[i] ?? 0) + somma(Object.values(eventi)) > 0) {
+			// la serie del grafico: la settimana, il mese o tutti i giorni che Apple tiene (per l'anno)
+			const lungSerie = g > 30 ? i + 1 : Math.max(g, 7);
 			abbonamenti = {
 				finoA: st.abbFinoA ?? st.giorni[i],
 				attivi: abb.attivi[i] ?? 0,
 				prove: abb.prove[i] ?? 0,
 				mrr: tondo(abb.mrr[i] ?? 0),
 				ritardo: abb.ritardo[i] ?? 0,
+				grazia: abb.grazia?.[i] ?? 0,
 				attiviPrima: passo > 0 ? (abb.attivi[i - passo] ?? null) : null,
+				mrrPrima: passo > 0 ? tondo(abb.mrr[i - passo] ?? 0) : null,
 				giorniPrima: passo,
 				eventi,
+				eventiPrima: primaIntera ? eventiPrima : null,
+				serie: range(Math.max(0, i - lungSerie + 1), i + 1).map(j => ({ giorno: st.giorni[j], attivi: abb.attivi[j] ?? 0, prove: abb.prove[j] ?? 0 })),
+				perApp: filtrato
+					? []
+					: st.app
+							.filter(x => x.abbonamenti && (x.abbonamenti.attivi[i] || x.abbonamenti.prove[i]))
+							.map(x => ({ chiave: x.chiave, nome: testo(x.nome, 60), attivi: x.abbonamenti!.attivi[i] ?? 0, prove: x.abbonamenti!.prove[i] ?? 0, mrr: tondo(x.abbonamenti!.mrr[i] ?? 0) }))
+							.sort((a, b) => b.mrr - a.mrr || b.attivi - a.attivi)
+							.slice(0, 12),
 			};
 		}
 	}
+
+	// la scheda dello Store: impressioni, visite, download nuovi e da dove arrivano
+	const sc = filtrato ? sommaScheda(app.map(x => x.scheda).filter((s): s is Scheda => !!s)) : st.totale.scheda;
+	const fsc = finestraScheda(sc, st.giorni, st.schedaFinoA, g);
+	const scheda =
+		sc && fsc && fsc.imp
+			? {
+					...fsc,
+					fonti: Object.entries(sc.fonti ?? {})
+						.filter(([, v]) => v.dl || v.imp)
+						.sort((a, b) => b[1].dl - a[1].dl)
+						.map(([k, v]) => ({ fonte: testo(k, 30), imp: Math.round(v.imp), vis: Math.round(v.vis), dl: Math.round(v.dl) })),
+					perApp: filtrato
+						? []
+						: st.app
+								.map(x => ({ x, w: finestraScheda(x.scheda, st.giorni, st.schedaFinoA, g) }))
+								.filter(({ w }) => w && w.imp)
+								.sort((a, b) => b.w!.imp - a.w!.imp)
+								.slice(0, 12)
+								.map(({ x, w }) => ({ chiave: x.chiave, nome: testo(x.nome, 60), imp: w!.imp, vis: w!.vis, dl: w!.dl })),
+				}
+			: null;
+
+	// le versioni uscite dentro il grafico, per le app scelte (sul Mac le tacche compaiono solo con un'app scelta)
+	const versioni = filtrato
+		? app.flatMap(x =>
+				((quale === 'giorni' ? x.versioni : x.versioniMesi) ?? [])
+					.filter(v => nelGrafico.has(v.quando))
+					.map(v => ({ chiave: v.quando, v: testo(v.v, 20), app: testo(x.nome, 60) })),
+			)
+		: [];
+
+	const chiuso = (b: BucoChiuso) => ({ id: b.id, chiave: b.chiave, app: testo(b.app, 60), titolo: testo(b.titolo, 140), quando: b.quando, daQuando: b.daQuando });
 
 	return {
 		stanza: 'appstore',
 		ora: now,
 		aggiornatoAt: st.aggiornatoAt,
 		aggiornando: !!st.aggiornando,
+		fase: st.aggiornando && st.fase ? testo(st.fase, 120) : undefined,
+		controlloOre: st.controlloOre ?? null,
 		valuta: 'EUR',
 		periodo: mese ? 30 : g,
 		mese: mese ?? null,
@@ -236,34 +433,99 @@ function appStore(f: FontiStanze, d: Domanda, now: number) {
 		etichetta,
 		progetto: d.progetto ? testo(d.progetto, 60) : null,
 		cifre: cifre(tutte, idx),
-		prima: prima.length === idx.length ? cifre(tutte, prima) : null,
+		prima: conPrima ? cifre(tutte, prima) : null,
 		grafico: grafico.map(i => {
 			const c = cifre(tutte, [i]);
-			const manca = storeManca(chiavi[i]);
-			return { chiave: chiavi[i], admob: c.admob, store: manca ? null : c.store, download: c.download, nelPeriodo: idx.includes(i) };
+			// lo stesso punto del periodo prima, per la tendenza: tanti giorni (o mesi) indietro quanti ne ha il grafico
+			const j = i - grafico.length;
+			const p = j >= 0 ? cifre(tutte, [j]) : null;
+			return {
+				chiave: chiavi[i],
+				admob: c.admob,
+				store: storeManca(chiavi[i]) ? null : c.store,
+				download: c.download,
+				nelPeriodo: idx.includes(i),
+				prima: p ? { chiave: chiavi[j], admob: p.admob, store: storeManca(chiavi[j]) ? null : p.store, download: p.download } : null,
+			};
 		}),
+		versioni,
 		storeFinoA: st.storeFinoA ?? null,
 		// il periodo arriva oltre l'ultimo report dello Store: la sua cifra e' parziale, non zero
 		storeIncompleto: idx.some(i => storeManca(chiavi[i])),
 		abbonamenti: abbonamenti ?? null,
+		scheda,
 		app: migliori,
-		buchi: buchi.slice(0, 10).map(b => ({
+		buchi: buchi.slice(0, 50).map(b => ({
 			id: b.id ?? `${b.chiave}:${norma(b.titolo).slice(0, 24)}`,
+			chiave: b.chiave,
 			app: testo(b.app, 60),
 			gravita: b.gravita,
 			titolo: testo(b.titolo, 140),
-			perche: b.perche ? testo(b.perche, 240) : undefined,
-			cosa: testo(b.cosa, 240),
+			perche: b.perche ? testo(b.perche, 600) : undefined,
+			cosa: testo(b.cosa, 600),
 			stima: b.stima && b.stima >= 1 ? Math.round(b.stima) : undefined,
-			stimaNota: b.stimaNota ? testo(b.stimaNota, 160) : undefined,
+			stimaNota: b.stimaNota ? testo(b.stimaNota, 200) : undefined,
 			path: b.projectPath,
 			progetto: b.projectPath ? f.progetto(b.projectPath)?.name ?? baseNome(b.projectPath) : undefined,
 			daQuando: b.daQuando,
+			tipo: b.tipo,
+			fonte: b.fonte,
+			soglia: b.soglia,
+			verifica: b.verifica
+				? { versione: testo(b.verifica.versione, 20), giorno: b.verifica.giorno, prima: b.verifica.prima, dopo: b.verifica.dopo, giorniDopo: b.verifica.giorniDopo, esito: b.verifica.esito }
+				: undefined,
+			// «Fallo sistemare a Claude»: il compito gia' scritto, da mostrare e correggere sull'iPhone prima di partire
+			compito: b.projectPath ? compitoBuco(b) : undefined,
 		})),
 		buchiTotali: buchi.length,
 		stimaTotale: Math.round(somma(buchi.map(b => (b.stima && b.stima >= 1 ? b.stima : 0)))),
-		allarmi: (st.allarmi ?? []).slice(0, 3).map(a => ({ app: testo(a.app, 60), testo: testo(a.testo, 160), at: a.at })),
+		risolti: (st.risolti ?? [])
+			.filter(b => !filtrato || dentro.has(b.chiave))
+			.slice(0, 20)
+			.map(b => ({ ...chiuso(b), prima: b.prima, dopo: b.dopo })),
+		ignorati: (st.ignorati ?? [])
+			.filter(b => !filtrato || dentro.has(b.chiave))
+			.slice(0, 30)
+			.map(b => ({ ...chiuso(b), motivo: b.motivo ? testo(b.motivo, 300) : undefined })),
+		allarmi: (st.allarmi ?? [])
+			.filter(a => !filtrato || !a.chiave || dentro.has(a.chiave))
+			.slice(0, 10)
+			.map(a => ({ app: testo(a.app, 60), chiave: a.chiave, testo: testo(a.testo, 200), at: a.at })),
+		// i paesi sono di tutte le app insieme (AdMob, 30 giorni): con un filtro non ci sono
+		paesi: filtrato ? [] : (st.paesi ?? []).slice(0, 12).map(p => ({ codice: testo(p.codice, 4), euro: tondo(p.euro), impressioni: Math.round(p.impressioni) })),
+		dettaglio: d.app ? dettaglioApp(app[0], f) : null,
 		errori: { store: st.errori?.store ? testo(st.errori.store, 160) : undefined, admob: st.errori?.admob ? testo(st.errori.admob, 160) : undefined },
+	};
+}
+
+/** La scheda di un'app sull'iPhone: annunci per formato e per unita' (30 giorni), acquisti, versioni uscite e cosa c'e'
+ *  nel codice, come il dettaglio di «App per app» nella stanza del Mac. */
+function dettaglioApp(x: AppStoreRiga, f: FontiStanze) {
+	const r = x.repo;
+	const versione = (v: { v: string; quando: string }) => ({ v: testo(v.v, 20), quando: v.quando });
+	return {
+		chiave: x.chiave,
+		nome: testo(x.nome, 60),
+		piattaforma: x.piattaforma,
+		progetto: x.projectName ?? (x.projectPath ? f.progetto(x.projectPath)?.name : undefined),
+		path: x.projectPath,
+		bundleId: x.bundleId,
+		approvazione: x.approvazione,
+		collegata: x.collegata,
+		suAdmob: !!x.admobId,
+		formati: (x.formati ?? [])
+			.filter(v => v.richieste || v.impressioni)
+			.map(v => ({ formato: v.formato, richieste: v.richieste, abbinate: v.abbinate, impressioni: v.impressioni, clic: v.clic, euro: tondo(v.euro) })),
+		unita: [...(x.unita ?? [])]
+			.sort((a, b) => b.euro - a.euro || b.richieste - a.richieste)
+			.slice(0, 12)
+			.map(u => ({ nome: testo(u.nome, 60), formato: u.formato, richieste: u.richieste, impressioni: u.impressioni, euro: tondo(u.euro) })),
+		acquisti: x.acquisti ? { nuovi: x.acquisti.nuovi, rinnovi: x.acquisti.rinnovi, altri: x.acquisti.altri, euro: tondo(x.acquisti.euro) } : null,
+		versioni: (x.versioni ?? []).slice(-8).reverse().map(versione),
+		versioniMesi: (x.versioniMesi ?? []).slice(-8).reverse().map(versione),
+		codice: r
+			? { letteAt: r.letteAt, file: r.file, sdk: r.sdk, ump: r.ump, att: r.att, attRichiesta: r.attRichiesta, skan: r.skan, storekit: r.storekit, revenuecat: r.revenuecat, formati: r.formati ?? [], idProva: (r.idProva ?? []).length }
+			: null,
 	};
 }
 
@@ -522,7 +784,7 @@ export class StanzePonte implements RotteStanze {
 		const now = this.deps.ora?.() ?? f.ora?.() ?? Date.now();
 		const tempo = this.deps.tempoMs ?? 20_000;
 		const progetto = (q.get('progetto') ?? '').trim().slice(0, 120) || undefined;
-		const d: Domanda = { periodo: q.get('periodo'), progetto, mese: (q.get('mese') ?? '').trim().slice(0, 40) || undefined };
+		const d: Domanda = { periodo: q.get('periodo'), progetto, mese: (q.get('mese') ?? '').trim().slice(0, 40) || undefined, app: (q.get('app') ?? '').trim().slice(0, 120) || undefined };
 		switch (nome) {
 			case 'appstore': return appStore(f, d, now);
 			case 'cruscotto': return cruscotto(f, d, now, tempo);
@@ -531,6 +793,66 @@ export class StanzePonte implements RotteStanze {
 			case 'posta': return posta(f, d, now);
 			case 'clienti': return clienti(f, d, now, tempo);
 			case 'notte': return notte(f, this.deps.lavori?.() ?? [], now);
+		}
+	}
+
+	/** Quando e' partito l'ultimo lavoro per ogni buco: un doppio tocco non ne avvia due. */
+	private readonly avviati = new Map<string, number>();
+
+	/** POST /v1/stanza/azione (CONTRATTI 9.7). Il corpo e' gia' letto e limitato a 16 KB da ponte.ts. */
+	async azione(corpo: unknown): Promise<unknown> {
+		const c = (corpo && typeof corpo === 'object' ? corpo : {}) as Record<string, unknown>;
+		if (norma(String(c.stanza ?? '')) !== 'appstore') throw errore(400, 'Dall\'iPhone si agisce solo sulla stanza App Store.');
+		const azione = String(c.azione ?? '') as (typeof AZIONI_APPSTORE)[number];
+		if (!AZIONI_APPSTORE.includes(azione)) throw errore(400, `Azione sconosciuta. Ci sono: ${AZIONI_APPSTORE.join(', ')}.`);
+		const a = this.deps.azioni;
+		const f = this.deps.fonti();
+		const st = f?.appStore?.() as StatoStoreRicco | undefined;
+		if (!a || !f || !st?.aggiornatoAt) throw errore(503, 'La stanza App Store non è pronta sul Mac.');
+		const now = this.deps.ora?.() ?? f.ora?.() ?? Date.now();
+		const id = typeof c.id === 'string' ? c.id.slice(0, 200) : '';
+		const buco = () => {
+			const b = st.buchi.find(x => x.id === id);
+			if (!b) throw errore(404, 'Questo punto non c\'è più: forse è già risolto o ignorato. Aggiorna la stanza.');
+			return b;
+		};
+		switch (azione) {
+			case 'verifica':
+				if (st.aggiornando) return { ok: true, azione, messaggio: 'Sto già rileggendo AdMob e App Store Connect.' };
+				a.verifica();
+				return { ok: true, azione, messaggio: 'Rileggo AdMob e App Store Connect adesso: tra un minuto i numeri nuovi.' };
+			case 'ignora': {
+				const b = buco();
+				a.ignora(id, pulisci(String(c.motivo ?? '').replace(/[\u0000-\u001f\u007f]/g, ' '), 300));
+				return { ok: true, azione, id, messaggio: `Ignorato: «${testo(b.titolo, 80)}» non compare più finché non lo ripristini.` };
+			}
+			case 'ripristina': {
+				if (!(st.ignorati ?? []).some(x => x.id === id)) throw errore(404, 'Non trovo questo punto tra gli ignorati.');
+				a.ripristina(id);
+				return { ok: true, azione, id, messaggio: 'Ripristinato: se c\'è ancora, torna tra le cose da sistemare.' };
+			}
+			case 'lavoro': {
+				const b = buco();
+				// il progetto viene dal buco, mai dall'iPhone, e deve essere uno di quelli che la Bottega conosce
+				const p = b.projectPath ? f.progetto(b.projectPath) : undefined;
+				if (!p || p.path !== b.projectPath) throw errore(409, 'Questa app non ha un progetto sul Mac: non so dove far lavorare Claude.');
+				const ultimo = this.avviati.get(id);
+				if (ultimo && now - ultimo < 2 * 60_000) throw errore(409, 'Ho appena avviato un lavoro per questo punto: guardalo nei Lavori.');
+				const scritto = compitoPulito(c.compito);
+				const compito = `${scritto || compitoBuco(b)} ${CODA_COMPITO}`;
+				const j = a.lavoro(p.path, compito);
+				if (!j) throw errore(503, 'I lavori della Bottega non sono pronti: riprova tra poco.');
+				this.avviati.set(id, now);
+				return {
+					ok: true,
+					azione,
+					id,
+					lavoro: j.id,
+					stato: j.stato,
+					progetto: p.name,
+					messaggio: j.stato === 'in coda' ? `Lavoro in coda su ${p.name}: parte appena c'è posto.` : `Lavoro avviato su ${p.name}.`,
+				};
+			}
 		}
 	}
 }

@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { Apns } from './apns';
+import { handleAppStore } from './appstore-host';
 import type { Assistant } from './assistant';
 import { Avvisi, inattivitaHID, ModoAvvisi, RegolaProgetto, type AllarmeNegozio } from './avvisi';
 import { Dispositivo, fondiDispositivo, leggiDispositivo, togliToken } from './dispositivo';
@@ -96,7 +97,20 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 		stato: () => stato(deps),
 		sessioni,
 		// le stanze della plancia, dalle stesse fonti di stanza_leggi (CONTRATTI 9.6)
-		stanze: new StanzePonte({ fonti: fontiStanze, lavori: deps.work }),
+		stanze: new StanzePonte({
+			fonti: fontiStanze,
+			lavori: deps.work,
+			// le azioni della stanza App Store (9.7): gli stessi gestori della plancia, e i lavori come lavoro_nuovo di Melissa
+			azioni: {
+				ignora: (id, motivo) => void handleAppStore({ type: 'appstore.ignora', id, motivo }, { send: () => undefined }),
+				ripristina: id => void handleAppStore({ type: 'appstore.ripristina', id }, { send: () => undefined }),
+				verifica: () => void handleAppStore({ type: 'appstore.refresh' }, { send: () => undefined }),
+				lavoro: (p, compito) => {
+					const j = deps.assistant()?.deps.actions.startJob(p, compito);
+					return j ? { id: j.id, stato: j.status } : undefined;
+				},
+			},
+		}),
 		// prenotata subito, prima di qualunque await: due domande dall'iPhone non passano insieme il controllo
 		occupata: () => impegnata || (deps.assistant()?.busy() ?? true),
 		confermaAttuale: () => deps.assistant()?.pendingConfirmation(),
