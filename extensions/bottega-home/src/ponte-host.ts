@@ -44,6 +44,25 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 	const dir = path.join(os.homedir(), '.bottega');
 	const acceso = () => vscode.workspace.getConfiguration('bottega').get<boolean>('ponte.attivo', true);
 
+	// l'iPhone attaccato al Mac col cavo (9.9): lo dice il Nucleo con l'evento usb.iphone, si rilegge quando si riaccende
+	let cavo = false;
+	const nuovoCavo = (c: boolean) => {
+		if (c === cavo) return;
+		cavo = c;
+		out.info(`ponte: iPhone ${c ? 'attaccato al Mac col cavo' : 'staccato dal cavo'}`);
+		ponte.notify();
+		avvisa();
+	};
+	const leggiCavo = async () => {
+		const n = deps.nucleo();
+		if (!n?.available) return;
+		try {
+			nuovoCavo(!!(await n.request<{ collegato?: boolean }>('usb.iphone', {}, 4000)).collegato);
+		} catch {
+			// un Nucleo di prima della build 68 non conosce il comando: nessun cavo
+		}
+	};
+
 	// gli avvisi: il registro dell'iPhone sta in memoria e su disco, gli invii passano da APNs
 	let disp: Dispositivo | null = leggiDispositivo(dir);
 	const apns = new Apns({ log: line => out.info(line) });
@@ -69,6 +88,7 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 			return (m === 'sempre' || m === 'mai' ? m : 'lontano') as ModoAvvisi;
 		},
 		inattivoMs: inattivitaHID(),
+		cavo: () => cavo,
 		mac: os.hostname().replace(/\.local$/, ''),
 		log: line => out.info(line),
 	});
@@ -98,6 +118,7 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 		dir,
 		versione: String(ctx.extension.packageJSON.version ?? ''),
 		stato: () => stato(deps),
+		cavo: () => cavo,
 		sessioni,
 		// il cervello di Melissa (9.8): gli stessi metodi della barra del Mac
 		cervelli: deps.cervelli ? rotteCervelli(deps.cervelli) : undefined,
@@ -157,6 +178,23 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 
 	if (acceso()) void ponte.start();
 	avvisa(); // la linea di partenza: quello che c'e' gia' non suona
+	const n = deps.nucleo();
+	if (n) {
+		const evento = (m: any) => nuovoCavo(m?.collegato === true);
+		const giu = () => nuovoCavo(false);
+		const su = () => void leggiCavo();
+		n.on('usb.iphone', evento);
+		n.on('down', giu);
+		n.on('available', su);
+		ctx.subscriptions.push({
+			dispose: () => {
+				n.off('usb.iphone', evento);
+				n.off('down', giu);
+				n.off('available', su);
+			},
+		});
+		void leggiCavo();
+	}
 	ctx.subscriptions.push(
 		out,
 		{ dispose: () => ponte.stop() },
@@ -251,7 +289,7 @@ async function parla(deps: PonteHostDeps, testo: string, emetti: (r: RigaParla) 
 	}
 }
 
-function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora'> {
+function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora' | 'vicino'> {
 	const a = deps.assistant()?.getState();
 	const c = deps.counts();
 	const cv = deps.cervelli?.();

@@ -330,6 +330,10 @@ una ti aspetta. Ci sono i widget per la Home e la schermata di blocco, il pulsan
 Controllo e Siri («Chiedi a Melissa su Bottega», «Chi mi aspetta su Bottega»). Le notifiche le manda il Mac
 direttamente ai server di Apple, con la tua chiave APNs: dentro c'è solo il nome del progetto e una frase breve.
 
+Il Mac sa anche dov'è l'iPhone: attaccato col cavo, in casa (Tailscale lo raggiunge dalla rete di casa) o fuori.
+Col cavo l'iPhone sta sulla scrivania: niente notifiche doppie e, con l'app aperta, lo schermo resta acceso. La strada
+resta sempre Tailscale. Risponde a voce il dispositivo a cui hai parlato.
+
 Accanto a «Sessioni» ci sono quattro widget che vengono dalle stanze del Mac: «Guadagni» con il totale di ieri,
 della settimana o del mese, AdMob e Store, le barre dei giorni, le app che rendono di più e il primo buco da
 sistemare; «Consigli» con la cosa più utile da fare adesso, il perché e quanto vale, e una freccia per passare al

@@ -1369,7 +1369,7 @@ nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard,
   indirizzi fuori da 100.64.0.0/10 e fd7a:115c:a1e0::/48 -> 403; 20 gettoni sbagliati in 10 minuti -> quell'indirizzo
   riceve 429 per 10 minuti sui gettoni sbagliati (il gettone giusto passa sempre, cosi' un nuovo QR non resta
   chiuso fuori dai widget col gettone vecchio). Corpo al massimo 16 KB, testo al massimo 2000 caratteri.
-- `GET /v1/stato` -> `{versione, mac, ora, melissa: {stato, cervello, parziale?, registro: [{chi: tu|melissa|azione,
+- `GET /v1/stato` -> `{versione, mac, ora, vicino (9.9), melissa: {stato, cervello, parziale?, registro: [{chi: tu|melissa|azione,
   testo, alle}]}, lavori: [{chiave, origine: bottega|altrove, stato, progetto, titolo, da, jobId?}], conti: {inCorso,
   tiAspetta, inCoda, vive}}`. Registro: gli ultimi 30 della barra di Melissa. Lavori: i primi 40 di `snapshot.work`.
 - `GET /v1/eventi` -> `text/event-stream`: subito una riga `data: <stato>`, poi una a ogni cambio di Melissa o dei
@@ -1812,6 +1812,38 @@ selettore e' grigio, dice «Serve il Mac acceso» e mostra l'ultimo cervello vis
   adesso non è disponibile: il Nucleo non è acceso.»). Passa da `rotteCervelli` (ponte.ts), che chiama gli stessi
   `Cervelli.setEffort` e `Cervelli.set(provider, undefined, sempre)` della barra. 405 con il metodo sbagliato.
   Dopo il cambio il ponte manda subito uno stato sugli eventi.
+
+### 9.9 Vicino o lontano: il cavo e la casa (`nucleo/Sources/Ponte/CavoIPhone.swift`, `src/ponte.ts`, `src/avvisi.ts`)
+
+La strada resta una sola, Tailscale, vicino o lontano: cambia il comportamento, non il collegamento. Il cavo e la
+rete di casa dicono al Mac dov'e' l'iPhone, non portano dati.
+
+- Nucleo: `usb.iphone {}` -> `{collegato}` ed evento `usb.iphone {collegato}` quando cambia (anche una volta
+  all'avvio del servizio). IOKit: `IOServiceAddMatchingNotification` su `IOUSBHostDevice`, comparsa e
+  scomparsa, sul run loop principale; nessun timer, 0% di CPU da fermo. Un iPhone = `idVendor` 0x05AC e
+  «USB Product Name» che comincia per «iPhone» (marca e nome si guardano nel codice: un filtro su `idVendor` nel
+  dizionario di IOKit non trova niente su `IOUSBHostDevice`, misurato il 3/10/2026). Qualunque iPhone, non solo
+  quello collegato al ponte: il Mac e' di Andrea. Gli iPhone si contano per `registryID`, perche' alla scomparsa
+  le proprieta' non si leggono piu'.
+- Estensione (`src/ponte-host.ts`): ascolta `usb.iphone`, rilegge con il comando quando il Nucleo si riaccende
+  (`available`), un Nucleo giu' (`down`) vale come cavo staccato. Un cambio manda subito uno stato agli eventi e
+  riguarda gli avvisi.
+- Casa (`direttiInCasa`, dentro lo stesso `tailscale status --json` che il ponte legge ogni minuto): gli indirizzi
+  Tailscale dei peer iOS in linea con `CurAddr` su un indirizzo privato (10/8, 172.16/12, 192.168/16), cioe'
+  raggiunti «direct» nella rete del Mac. Da fuori casa il percorso passa da un indirizzo pubblico o da un relay.
+  L'iPhone e' l'indirizzo dell'ultima richiesta col gettone giusto (non 127.0.0.1); prima della sua prima
+  richiesta basta un iPhone in casa. Il passaggio casa/lontano si vede entro un minuto.
+- `GET /v1/stato` (e gli eventi) -> `vicino: usb | casa | lontano` (`vicinoDi`): il cavo vince, poi la casa.
+- Avvisi (9.4): con `vicino` = usb l'iPhone sta sulla scrivania e si fa come con Andrea al Mac: niente ATTESA,
+  FINITO, REGOLA (si considerano viste), la CONFERMA aspetta. Casa non cambia niente: in casa ma lontano dalla
+  tastiera le notifiche servono. Live Activity e widget restano come sono.
+- App: «Collegato col cavo» / «Collegato in casa» nella riga sotto il nome del Mac. Col cavo, l'app davanti e il
+  ponte collegato lo schermo resta acceso (`isIdleTimerDisabled`), e torna normale appena una delle tre cose manca.
+- Voce: risponde il dispositivo a cui hai parlato, vicino o lontano (scelta di Andrea del 3/10/2026). Il cavo non
+  sposta la voce.
+- Da decidere, solo descritto: il cavo anche come canale (`usbmuxd`, come Xcode), per quando Wi-Fi o Tailscale non
+  ci sono. Solo il Mac puo' aprire la connessione verso l'iPhone, quindi servirebbe un tunnel nel Nucleo e un
+  ascolto nell'app, con l'app davanti.
 
 ## 10. Gli aggiornamenti: VS Code solo quando serve, Claude Code sempre
 

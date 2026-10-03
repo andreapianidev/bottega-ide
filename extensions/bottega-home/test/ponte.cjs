@@ -12,7 +12,7 @@ const esbuild = require('esbuild');
 const SRC = path.join(__dirname, '..', 'src');
 const OUT = path.join(__dirname, 'test-out', 'ponte');
 esbuild.buildSync({ entryPoints: ['ponte.ts', 'dispositivo.ts', 'cervelli.ts'].map(f => path.join(SRC, f)), outdir: OUT, format: 'cjs', platform: 'node', bundle: false, target: 'node20', logLevel: 'silent' });
-const { Ponte, inTailnet, leggiGettone, rotteCervelli, sceltaDi, leggiSceltaCervello, nomeCervello } = require(path.join(OUT, 'ponte.js'));
+const { Ponte, inTailnet, leggiGettone, rotteCervelli, sceltaDi, leggiSceltaCervello, nomeCervello, direttiInCasa, vicinoDi } = require(path.join(OUT, 'ponte.js'));
 const { Cervelli } = require(path.join(OUT, 'cervelli.js'));
 const { fondiDispositivo, leggiDispositivo } = require(path.join(OUT, 'dispositivo.js'));
 
@@ -59,6 +59,7 @@ function call(port, method, url, { token, body, raw } = {}) {
 	let confermaAperta;
 	const asked = [];
 	const written = [];
+	let cavo = false;
 	const port = 20000 + Math.floor(Math.random() * 20000);
 	// i Cervelli veri, con rete finta e chiavi finte: DeepSeek ha credito, Apple Intelligence no
 	const secrets = path.join(dir, 'secrets');
@@ -73,7 +74,8 @@ function call(port, method, url, { token, body, raw } = {}) {
 		dir,
 		versione: '9.9.9',
 		porta: port,
-		indirizzo: async () => ({ ip: '127.0.0.1', nome: 'mac-di-prova.tailnet.ts.net' }),
+		indirizzo: async () => ({ ip: '127.0.0.1', nome: 'mac-di-prova.tailnet.ts.net', diretti: ['100.70.0.9'] }),
+		cavo: () => cavo,
 		cervelli: rotteCervelli(() => cv),
 		stato: () => ({ melissa: { stato: busy ? 'thinking' : 'idle', cervello: 'agnes', scelta: sceltaDi(cv), registro: asked.map(t => ({ chi: 'tu', testo: t, alle: 1 })) }, lavori: [], conti: { inCorso: 0, tiAspetta: 1, inCoda: 0, vive: 1 } }),
 		occupata: () => busy,
@@ -269,6 +271,34 @@ function call(port, method, url, { token, body, raw } = {}) {
 	});
 	assert.deepStrictEqual([ev[0].melissa.scelta.impegno, ev[1].melissa.scelta.impegno], ['normale', 'rapido']);
 	ok('il cambio di cervello arriva agli eventi');
+
+	// vicino (9.9): dalle richieste in locale l'iPhone non si conosce ancora, quindi basta un iPhone in casa
+	assert.strictEqual((await call(port, 'GET', '/v1/stato', { token: t1 })).body.vicino, 'casa');
+	cavo = true;
+	assert.strictEqual((await call(port, 'GET', '/v1/stato', { token: t1 })).body.vicino, 'usb');
+	cavo = false;
+	ok('vicino nello stato: casa da Tailscale, usb col cavo');
+
+	const statoTs = {
+		Peer: {
+			a: { OS: 'iOS', Online: true, CurAddr: '192.168.0.106:41641', TailscaleIPs: ['100.124.213.1', 'fd7a:115c:a1e0::1'] },
+			b: { OS: 'iOS', Online: true, CurAddr: '', Relay: 'mad', TailscaleIPs: ['100.90.0.2'] },
+			c: { OS: 'iOS', Online: true, CurAddr: '85.48.1.2:41641', TailscaleIPs: ['100.90.0.3'] },
+			d: { OS: 'macOS', Online: true, CurAddr: '192.168.0.20:41641', TailscaleIPs: ['100.90.0.4'] },
+			e: { OS: 'iOS', Online: false, CurAddr: '10.0.0.5:41641', TailscaleIPs: ['100.90.0.5'] },
+			f: { OS: 'iOS', Online: true, CurAddr: '172.20.1.1:41641', TailscaleIPs: ['100.90.0.6'] },
+		},
+	};
+	assert.deepStrictEqual(direttiInCasa(statoTs), ['100.124.213.1', 'fd7a:115c:a1e0::1', '100.90.0.6']);
+	assert.deepStrictEqual(direttiInCasa({}), []);
+	ok('in casa solo gli iPhone in linea raggiunti diretti su un indirizzo privato');
+	assert.strictEqual(vicinoDi(true, [], undefined), 'usb');
+	assert.strictEqual(vicinoDi(true, ['100.1.1.1'], '100.1.1.1'), 'usb');
+	assert.strictEqual(vicinoDi(false, ['100.1.1.1'], '100.1.1.1'), 'casa');
+	assert.strictEqual(vicinoDi(false, ['100.1.1.1'], '100.2.2.2'), 'lontano');
+	assert.strictEqual(vicinoDi(false, ['100.1.1.1'], undefined), 'casa');
+	assert.strictEqual(vicinoDi(false, undefined, '100.1.1.1'), 'lontano');
+	ok('vicinoDi: il cavo vince, poi la casa dell\'iPhone che ha parlato');
 
 	// troppi gettoni sbagliati: fuori
 	for (let i = 0; i < 20; i++) await call(port, 'GET', '/v1/stato', { token: 'sbagliato' });

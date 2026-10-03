@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated {
             Notifier.shared.start()
             Power.shared.startMonitoring()
+            CavoIPhone.shared.start()
         }
         PressureMonitor.shared.start()
         StdinReader.start()

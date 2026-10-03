@@ -259,6 +259,24 @@ function banco(opz = {}) {
 		ok('lontano dal Mac: al Mac niente, poi solo chi comincia ad aspettare quando e\' via; «mai» e «sempre»');
 	}
 
+	// ---------- iPhone attaccato al Mac col cavo (9.9) ----------
+	{
+		let cavo = true;
+		const b = banco({ cavo: () => cavo });
+		fondiDispositivo(b.dir, { ambiente: 'sviluppo', token: hex(32) });
+		b.lavori = [lavoro('sess:s1', 'in corso')];
+		await b.giro();
+		await b.giro(61_000);
+		b.lavori = [lavoro('sess:s1', 'ti aspetta')]; // Andrea e' lontano dalla tastiera, ma l'iPhone e' sulla scrivania
+		await b.giro(1000);
+		assert.strictEqual(b.presi('alert').length, 0, 'col cavo niente notifiche anche lontano dalla tastiera');
+		cavo = false;
+		b.lavori = [lavoro('sess:s1', 'ti aspetta'), lavoro('sess:s2', 'ti aspetta')];
+		await b.giro(1000);
+		assert.deepStrictEqual(b.presi('alert').map(p => p.payload.chiave), ['sess:s2'], 'staccato: arriva chi comincia ad aspettare dopo');
+		ok('col cavo l\'iPhone e\' al Mac: niente notifiche, e staccandolo niente raffica');
+	}
+
 	// ---------- FINITO, CONFERMA, REGOLA ----------
 	{
 		const b = banco();

@@ -170,6 +170,10 @@ enum Service {
                 try Power.shared.release(token: token)
                 r.respond()
 
+            // MARK: cavo (docs/CONTRATTI.md, 9.9)
+            case "usb.iphone":
+                r.respond(["collegato": CavoIPhone.shared.collegato])
+
             // MARK: Spotlight
             case "spotlight.index":
                 let items = try (r.dicts("items") ?? []).map(Spotlight.Item.init)

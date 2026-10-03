@@ -60,6 +60,8 @@ export interface AvvisiDeps {
 	modo(): ModoAvvisi;
 	/** Millisecondi dall'ultimo tasto o movimento del mouse. */
 	inattivoMs(): Promise<number>;
+	/** Vero con l'iPhone attaccato al Mac col cavo (9.9): e' sulla scrivania, gli avvisi li vedi sul Mac. */
+	cavo?(): boolean;
 	/** Il nome del Mac, negli attributi della Live Activity. */
 	mac: string;
 	ora?: () => number;
@@ -196,8 +198,9 @@ export class Avvisi {
 		});
 		const conferma = this.conferma && !this.conferma.avvisata ? this.conferma : undefined;
 		if (!attese.length && !conferma && !finiti.length && !rossi.length && !negozio.length) return;
-		if (modo === 'lontano' && (await this.d.inattivoMs()) <= LONTANO_MS) {
-			// al Mac: chi ti aspetta lo vedi li', FINITO e REGOLA pure; NEGOZIO e' gia' una notifica del Mac; resta solo la CONFERMA
+		if (modo === 'lontano' && (this.d.cavo?.() || (await this.d.inattivoMs()) <= LONTANO_MS)) {
+			// al Mac, o l'iPhone attaccato al Mac col cavo: chi ti aspetta lo vedi li', FINITO e REGOLA pure; NEGOZIO e'
+			// gia' una notifica del Mac; resta solo la CONFERMA
 			for (const w of attese) this.attese.get(w.key)!.avvisata = true;
 			return;
 		}

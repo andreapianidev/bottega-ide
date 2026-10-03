@@ -42,6 +42,10 @@ struct PlanciaView: View {
                 if nav.stanza == .melissa { scrivi }
             }
         }
+        // sulla scrivania (9.9): attaccato al Mac col cavo e con l'app davanti, lo schermo resta acceso
+        .onChange(of: sullaScrivania, initial: true) { _, si in
+            UIApplication.shared.isIdleTimerDisabled = si
+        }
         .onChange(of: nav.ascoltaSubito, initial: true) { _, si in
             // dal Centro di Controllo: la sfera comincia ad ascoltare
             guard si else { return }
@@ -179,12 +183,21 @@ struct PlanciaView: View {
         }
     }
 
+    private var sullaScrivania: Bool {
+        davanti && ponte.linea == .collegato && ponte.stato?.vicino == "usb"
+    }
+
     private var fraseLinea: String {
         switch ponte.linea {
         case .collegato:
-            guard let c = ponte.stato?.conti else { return "Collegato" }
-            if c.vive == 0 { return "Collegato, nessuna sessione Claude aperta" }
-            return "Collegato, \(c.vive) session\(c.vive == 1 ? "e" : "i") Claude, \(c.inCorso) al lavoro"
+            let dove = switch ponte.stato?.vicino {
+            case "usb"?: "Collegato col cavo"
+            case "casa"?: "Collegato in casa"
+            default: "Collegato"
+            }
+            guard let c = ponte.stato?.conti else { return dove }
+            if c.vive == 0 { return "\(dove), nessuna sessione Claude aperta" }
+            return "\(dove), \(c.vive) session\(c.vive == 1 ? "e" : "i") Claude, \(c.inCorso) al lavoro"
         case .provo: return "Cerco il Mac…"
         case .scollegato: return "Scollegato"
         case .fuori(let perche): return perche

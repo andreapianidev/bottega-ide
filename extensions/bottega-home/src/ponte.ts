@@ -23,7 +23,10 @@ import { CAMPI_TOKEN, DispositivoParziale, TOKEN_HEX } from './dispositivo';
      GET  /v1/stanza?nome=..      -> una stanza della plancia in sola lettura (9.6), in src/ponte-stanze.ts
      POST /v1/stanza/azione {..}  -> {ok, messaggio}        ignora, ripristina, verifica, lavoro nella stanza App Store (9.7)
      GET  /v1/cervelli            -> PonteCervelli          il cervello di Melissa, l'impegno e le alternative (9.8)
-     POST /v1/cervello {provider?, impegno?, sempre?} -> PonteCervelli   lo cambia, come la barra del Mac */
+     POST /v1/cervello {provider?, impegno?, sempre?} -> PonteCervelli   lo cambia, come la barra del Mac
+
+   In /v1/stato c'e' anche `vicino` (9.9): usb se l'iPhone e' attaccato al Mac col cavo, casa se Tailscale lo raggiunge
+   dalla rete di casa, lontano altrimenti. */
 
 export interface PonteMelissa {
 	stato: string;
@@ -72,10 +75,14 @@ export interface PonteLavoro {
 	jobId?: string;
 }
 
+/** Dov'e' l'iPhone rispetto al Mac (docs/CONTRATTI.md, 9.9). */
+export type Vicino = 'usb' | 'casa' | 'lontano';
+
 export interface PonteStato {
 	versione: string;
 	mac: string;
 	ora: number;
+	vicino: Vicino;
 	melissa: PonteMelissa;
 	lavori: PonteLavoro[];
 	conti: { inCorso: number; tiAspetta: number; inCoda: number; vive: number };
@@ -85,7 +92,9 @@ export interface PonteDeps {
 	/** Cartella dei dati della Bottega (~/.bottega): li' sta il gettone. */
 	dir: string;
 	versione: string;
-	stato(): Omit<PonteStato, 'versione' | 'mac' | 'ora'>;
+	stato(): Omit<PonteStato, 'versione' | 'mac' | 'ora' | 'vicino'>;
+	/** Vero se un iPhone e' attaccato al Mac col cavo (evento usb.iphone del Nucleo, 9.9). */
+	cavo?(): boolean;
 	/** Vero mentre Melissa sta gia' rispondendo a qualcuno. */
 	occupata(): boolean;
 	chiedi(testo: string): Promise<string>;
@@ -139,6 +148,8 @@ export type RigaParla =
 export interface Rete {
 	ip: string;
 	nome: string;
+	/** Gli indirizzi Tailscale degli iPhone che Tailscale raggiunge direttamente dalla rete di casa (9.9). */
+	diretti?: string[];
 }
 
 export interface PonteInfo {
@@ -167,12 +178,34 @@ export function tailscaleSelf(): Promise<Rete | null> {
 				if (d.BackendState !== 'Running') return resolve(null);
 				const ip = (d.Self?.TailscaleIPs ?? []).find((a: string) => /^100\./.test(a));
 				const nome = String(d.Self?.DNSName ?? '').replace(/\.$/, '');
-				resolve(ip ? { ip, nome: nome || ip } : null);
+				resolve(ip ? { ip, nome: nome || ip, diretti: direttiInCasa(d) } : null);
 			} catch {
 				resolve(null);
 			}
 		});
 	});
+}
+
+/** Gli iPhone che Tailscale raggiunge «direct» su un indirizzo privato (10/8, 172.16/12, 192.168/16): stanno nella
+ *  stessa rete del Mac. Da fuori casa il percorso passa da un indirizzo pubblico o da un relay. */
+export function direttiInCasa(d: any): string[] {
+	const out: string[] = [];
+	for (const p of Object.values<any>(d?.Peer ?? {})) {
+		if (String(p?.OS ?? '').toLowerCase() !== 'ios' || !p?.Online) continue;
+		const host = String(p?.CurAddr ?? '').replace(/:\d+$/, '');
+		if (!/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host)) continue;
+		out.push(...(p?.TailscaleIPs ?? []).filter((a: unknown) => typeof a === 'string'));
+	}
+	return out;
+}
+
+/** usb vince su tutto; casa se l'iPhone che ha parlato per ultimo (o, prima della sua prima richiesta, un iPhone
+ *  qualunque) e' tra quelli raggiunti direttamente; lontano altrimenti. */
+export function vicinoDi(cavo: boolean, diretti: string[] | undefined, iphone: string | undefined): Vicino {
+	if (cavo) return 'usb';
+	if (!diretti?.length) return 'lontano';
+	if (!iphone) return 'casa';
+	return diretti.includes(iphone) ? 'casa' : 'lontano';
 }
 
 /** Un indirizzo della rete Tailscale (CGNAT 100.64.0.0/10 o l'IPv6 fd7a:115c:a1e0::/48). */
@@ -221,6 +254,8 @@ export class Ponte {
 	private fermato = false;
 	/** Un riallineamento alla volta: due insieme aprirebbero due server, e uno resterebbe orfano. */
 	private allineando?: Promise<void>;
+	/** L'indirizzo Tailscale dell'ultima richiesta col gettone giusto: e' l'iPhone (9.9). */
+	private iphone?: string;
 
 	constructor(private readonly deps: PonteDeps) {
 		this.token = leggiGettone(deps.dir);
@@ -262,7 +297,12 @@ export class Ponte {
 	}
 
 	private stato(): PonteStato {
-		return { versione: this.deps.versione, mac: os.hostname().replace(/\.local$/, ''), ora: Date.now(), ...this.deps.stato() };
+		return { versione: this.deps.versione, mac: os.hostname().replace(/\.local$/, ''), ora: Date.now(), vicino: this.vicino(), ...this.deps.stato() };
+	}
+
+	/** usb | casa | lontano (9.9): il cavo dal Nucleo, la casa da Tailscale (ricontrollata ogni minuto). */
+	vicino(): Vicino {
+		return vicinoDi(!!this.deps.cavo?.(), this.rete?.diretti, this.iphone);
 	}
 
 	private allinea(): Promise<void> {
@@ -281,7 +321,9 @@ export class Ponte {
 			return;
 		}
 		if (this.server && this.rete?.ip === rete.ip) {
+			const prima = this.vicino();
 			this.rete = rete;
+			if (this.vicino() !== prima) this.notify();
 			return;
 		}
 		this.chiudi();
@@ -350,6 +392,8 @@ export class Ponte {
 			this.deps.log(`ponte: gettone sbagliato da ${addr}`);
 			return json(401, { errore: 'Gettone non valido: ricollega l\'iPhone dalla Bottega.' });
 		}
+		const da = addr.replace(/^::ffff:/, '');
+		if (da !== '127.0.0.1' && da !== '::1') this.iphone = da; // una richiesta dal Mac stesso non e' l'iPhone
 		const url = (req.url ?? '/').split('?')[0];
 		try {
 			if (url === '/v1/sessione' || url.startsWith('/v1/sessione/')) {

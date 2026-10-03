@@ -202,36 +202,29 @@ private struct RigaAttivita: View {
     }
 }
 
-/// La schermata di blocco ha al massimo 160 punti di altezza: con il testo grande si mostrano meno sessioni.
+/// La schermata di blocco ha al massimo 160 punti di altezza: tre sessioni, due se c'e' quella seguita.
+/// Una vista sola, mai un ViewThatFits verticale con piu' copie: con quello (build 62-67) la Live Activity sulla
+/// schermata di blocco restava nera e vuota, mentre la Dynamic Island funzionava.
 private struct SchermataDiBlocco: View {
     let stato: BottegaAttivita.ContentState
     let mac: String
     let vecchia: Bool
 
     var body: some View {
-        ViewThatFits(in: .vertical) {
-            corpo(righe: 3)
-            corpo(righe: 2)
-            corpo(righe: 1)
-        }
-    }
-
-    private func corpo(righe quante: Int) -> some View {
         let aspetta = stato.tiAspetta > 0
-        return VStack(alignment: .leading, spacing: 10) {
+        let quante = stato.segui == nil ? 3 : 2
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 9) {
                 Sferetta(aspetta: aspetta, lavora: stato.inCorso > 0, diametro: 26)
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Bottega")
                         .font(.headline)
                         .foregroundStyle(Tinte.testo)
-                    ViewThatFits(in: .horizontal) {
-                        Text(vecchia ? "\(mac), il Mac non aggiorna da un po'" : mac).fixedSize()
-                        Text(vecchia ? "Il Mac non aggiorna da un po'" : mac).lineLimit(1).minimumScaleFactor(0.8)
-                    }
-                    .font(.caption)
-                    .foregroundStyle(vecchia ? Tinte.rosso : Tinte.tinta)
-                    .lineLimit(1)
+                    Text(vecchia ? "\(mac), il Mac non aggiorna da un po'" : mac)
+                        .font(.caption)
+                        .foregroundStyle(vecchia ? Tinte.rosso : Tinte.tinta)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
                 Spacer(minLength: 8)
                 Conti(stato: stato)

@@ -58,6 +58,9 @@ struct StatoMac: Codable, Equatable {
     let melissa: Melissa
     let lavori: [Lavoro]
     let conti: Conti
+    /// Dov'e' l'iPhone rispetto al Mac (docs/CONTRATTI.md, 9.9): usb (attaccato col cavo), casa (stessa rete,
+    /// Tailscale diretto), lontano. Assente con una Bottega sul Mac che non lo manda ancora.
+    var vicino: String? = nil
 }
 
 extension StatoMac {
