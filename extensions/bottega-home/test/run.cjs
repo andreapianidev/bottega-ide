@@ -378,7 +378,7 @@ function makeAssistant(over = {}) {
 		const acceso = makeAssistant({ stream: passi(), actions: { racconta: () => true } });
 		await acceso.a.turn('cerca peak', true);
 		const dette = acceso.nucleo.speaks.filter(s => s.append).map(s => s.text);
-		assert.deepStrictEqual(dette, ['Cerco i progetti su «peak».', 'Ho trovato Peak.']);
+		assert.deepStrictEqual(dette, ['Cerco i progetti su «peak».', 'Trovato: Peak.', 'Ho trovato Peak.']);
 		const spento = makeAssistant({ stream: passi(), actions: { racconta: () => false } });
 		await spento.a.turn('cerca peak', true);
 		assert.ok(!spento.nucleo.speaks.some(s => /Cerco i progetti/.test(s.text || '')));
@@ -386,6 +386,32 @@ function makeAssistant(over = {}) {
 		await scritto.a.turn('cerca peak', false);
 		assert.ok(scritto.a.getState().log.some(l => l.role === 'azione' && l.text === 'Cerco i progetti su «peak».'));
 		assert.ok(!scritto.nucleo.speaks.length, 'per iscritto non parla');
+	});
+
+	await test('racconta: dopo lo strumento dice cosa ha trovato, con i dati veri del risultato', async () => {
+		const stream = scriptedStream([[{ tool_call: { index: 0, id: 'c1', name: 'progetti_cerca', arguments: '{"testo":"p"}' } }], [{ content: 'Eccoli.' }]]);
+		const t = makeAssistant({ stream, actions: { racconta: () => true, searchProjects: () => [{ name: 'Peak', path: '/p/Peak' }, { name: 'Woofmap', path: '/p/W' }] } });
+		await t.a.turn('cerca p', true);
+		assert.deepStrictEqual(t.nucleo.speaks.filter(s => s.append).map(s => s.text), ['Cerco i progetti su «p».', 'Trovati 2 progetti.', 'Eccoli.']);
+	});
+
+	await test('«Spiega il codice»: legge con codice_leggi, ragiona anche se parla, e parla anche a voce spenta', async () => {
+		let reasoning;
+		const codice = { riga: () => 'Davanti ad Andrea nell\'editor: db.py, python, 3 righe.', leggi: () => 'File: db.py (python, 3 righe).\n\nIl file intero:\n1| a' };
+		let passo = 0;
+		const stream = async (messages, tools, onDelta) => {
+			reasoning = this_spoken();
+			if (passo++ === 0) return onDelta({ tool_call: { index: 0, id: 'c1', name: 'codice_leggi', arguments: '{}' } });
+			onDelta({ content: 'Questo file crea il database.' });
+		};
+		const t = makeAssistant({ stream, actions: { codice, racconta: () => true } });
+		const this_spoken = () => t.a.spokenTurn;
+		t.a.state.enabled = false;
+		await t.a.spiegaCodice();
+		assert.strictEqual(reasoning, false, 'turno che ragiona, non quello rapido della voce');
+		const dette = t.nucleo.speaks.filter(s => s.append).map(s => s.text);
+		assert.deepStrictEqual(dette, ['Leggo il codice che hai davanti.', 'Ho letto 3 righe.', 'Questo file crea il database.']);
+		assert.ok(t.a.getState().log.some(l => l.role === 'tu' && l.text === 'Spiegami il codice che ho davanti.'));
 	});
 
 	// ---- streaming dei delta + TTS frase per frase ----

@@ -49,5 +49,21 @@ test('nessuna lineetta, nessun apostrofo al posto dell\'accento, una frase d\'at
 	assert.strictEqual(R.ATTESA_MS, 8000);
 });
 
+test('cosa ha trovato, dal risultato vero: righe lette, selezione, conti, stanze, errori', () => {
+	assert.strictEqual(R.fraseFine('codice_leggi', {}, 'File: avo_bnb/db.py (python, 420 righe), sullo schermo le righe 37-55.\n\nSelezionato col mouse, righe 46-50 (e\' di questo...):\n46| x\n\nIl file intero:\n1| a'), 'Ho letto 420 righe, la parte selezionata è la 46-50.');
+	assert.strictEqual(R.fraseFine('codice_leggi', {}, "File: big.ts (typescript, 5000 righe).\n\nIl file e' lungo: qui le righe 1850-2190 di 5000. Per il resto"), 'Ho letto le righe 1850-2190 di 5000.');
+	assert.strictEqual(R.fraseFine('codice_leggi', {}, "env e' un file di segreti: non lo leggo e non lo mando a nessun cervello."), 'È un file di segreti: non lo leggo.');
+	assert.strictEqual(R.fraseFine('progetti_cerca', {}, 'Peak (/p/Peak)\nWoofmap (/p/Woofmap)\nTalky (/p/Talky)'), 'Trovati 3 progetti.');
+	assert.strictEqual(R.fraseFine('progetti_cerca', {}, 'Peak (/p/Peak)'), 'Trovato: Peak.');
+	assert.strictEqual(R.fraseFine('progetti_cerca', {}, 'Nessun progetto trovato per "zzz".'), 'Nessun progetto trovato per "zzz".');
+	assert.strictEqual(R.fraseFine('sessioni_attive', {}, 'Peak: al lavoro\nBottega: ti aspetta'), '2 sessioni aperte, una ti aspetta.');
+	assert.strictEqual(R.fraseFine('memoria_cerca', {}, '[Peak] a: b\n[Peak] c: d'), 'La memoria ha 2 ricordi su questo.');
+	assert.strictEqual(R.fraseFine('stanza_leggi', { stanza: 'appstore' }, 'Ultimi 30 giorni: 402 € in tutto, 104 € da AdMob e 299 € dallo Store, 5480 download nuovi. Lo Store ha i dati fino al 1 ottobre.'), 'La stanza App Store dice: Ultimi 30 giorni: 402 € in tutto, 104 € da AdMob e 299 € dallo Store, 5480 download nuovi. Ora te lo spiego.');
+	assert.strictEqual(R.fraseFine('lavoro_nuovo', {}, 'Lavoro avviato su Peak (stato: in coda).'), 'Il lavoro è partito.');
+	assert.strictEqual(R.fraseFine('cervello_cambia', {}, 'Impegno profondo.'), undefined, 'niente per chi si vede gia\' dalla risposta');
+	assert.strictEqual(R.fraseFine('progetti_cerca', {}, ''), undefined);
+	for (const f of ['codice_leggi', 'stanza_leggi', 'sessioni_attive']) assert.ok(!/[–—]/.test(R.fraseFine(f, { stanza: 'appstore' }, 'Peak: ti aspetta') || ''));
+});
+
 console.log(`\n${passed} ok, ${failed} falliti`);
 process.exit(failed ? 1 : 0);

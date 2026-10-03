@@ -871,6 +871,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 					lavori: () => showPlancia('lavori'),
 					cruscotto: () => showPlancia('cruscotto'),
 					conti: () => vscode.commands.executeCommand('bottega.apriConti'),
+					spiega: () => vscode.commands.executeCommand('bottega.spiegaCodice'),
 					continua: () => vscode.commands.executeCommand('bottega.continua'),
 					cerca: () => vscode.commands.executeCommand('bottega.cerca'),
 				};
@@ -910,6 +911,11 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			if (pick?.detail) await idee?.handle({ type: 'continua.prepare', path: pick.detail }).then(() => showPlancia('plancia'));
 		}),
 		vscode.commands.registerCommand('bottega.openMelissa', () => showPlancia('melissa')),
+		// «Spiega il codice»: Melissa legge il file davanti (o la selezione) e lo racconta con la sua voce
+		vscode.commands.registerCommand('bottega.spiegaCodice', () => {
+			barraView?.reveal();
+			void assistant?.spiegaCodice();
+		}),
 		// i conti dei servizi: il Cruscotto, sulla sezione «Servizi» (dalla barra di Melissa e dagli avvisi di ricarica)
 		vscode.commands.registerCommand('bottega.apriConti', () => {
 			showPlancia('cruscotto');

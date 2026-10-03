@@ -7,7 +7,7 @@ import { Job, WorkItem } from './jobs';
 import type { Cervelli } from './cervelli';
 import { BrainName, BrainRouter, OpenAiStreamFn, appleInstructions, appleOpenAiStream, appleToolSpecs } from './cervello';
 import { SystemStats } from './nucleo';
-import { ATTESA_MS, fraseAttesa, fraseInizio } from './racconto';
+import { ATTESA_MS, fraseAttesa, fraseFine, fraseInizio } from './racconto';
 
 const NUCLEO_LOG = path.join(os.homedir(), '.bottega', 'nucleo.log');
 
@@ -989,8 +989,16 @@ export class Assistant {
 		return this.turn(text, this.state.enabled && this.deps.nucleo.available);
 	}
 
-	async turn(userText: string, speak: boolean): Promise<string> {
-		this.spokenTurn = speak;
+	/** Il pulsante «Spiega il codice» (editor, tasto destro, barra): Melissa legge il codice davanti, lo analizza
+	 *  ragionando anche se poi parla, e lo racconta con la sua voce, anche a voce spenta, se il Nucleo c'e'. */
+	async spiegaCodice(): Promise<string> {
+		if (this.remote) return 'Sto rispondendo all\'iPhone: riprova tra un attimo.';
+		return this.turn('Spiegami il codice che ho davanti.', !!this.deps.nucleo.available, { ragiona: true });
+	}
+
+	async turn(userText: string, speak: boolean, opts: { ragiona?: boolean } = {}): Promise<string> {
+		// a voce Agnes non ragiona (risponde subito); «Spiega il codice» ragiona anche se poi parla
+		this.spokenTurn = speak && !opts.ragiona;
 		this.pushLog('tu', userText);
 
 		// Conferma in sospeso: questo turno e' il si/no.
@@ -1339,20 +1347,17 @@ export class Assistant {
 		const bad = validateArgs(def.spec, args);
 		if (bad) return `Argomenti non validi: ${bad}.`;
 		let filler: NodeJS.Timeout | undefined;
-		if (this.deps.actions.racconta?.()) {
+		const racconta = !!this.deps.actions.racconta?.();
+		const di = (frase: string | undefined) => {
+			if (!frase || signal.aborted) return;
+			if (speak) this.emitClause(frase);
+			else this.azione(frase);
+		};
+		if (racconta) {
 			// «racconta» acceso: cosa sta facendo, con la sua voce (o nel registro, se si scrive); se lo strumento e' lento,
 			// una frase in piu'. Frasi fisse e vere, come la Melissa di Avo (src/racconto.ts).
-			const frase = fraseInizio(tc.function.name, args);
-			if (frase) {
-				if (speak) this.emitClause(frase);
-				else this.azione(frase);
-			}
-			filler = setTimeout(() => {
-				if (signal.aborted) return;
-				const attesa = fraseAttesa(tc.function.name);
-				if (speak) this.emitClause(attesa);
-				else this.azione(attesa);
-			}, ATTESA_MS);
+			di(fraseInizio(tc.function.name, args));
+			filler = setTimeout(() => di(fraseAttesa(tc.function.name)), ATTESA_MS);
 		} else if (speak && !this.filled) {
 			// Riempitivo breve solo se un tool ci mette piu' di 1,5 s, una volta per turno.
 			filler = setTimeout(() => {
@@ -1362,7 +1367,13 @@ export class Assistant {
 			}, 1500);
 		}
 		try {
-			return await def.run(args, this);
+			const risultato = await def.run(args, this);
+			// cosa ha trovato, con i dati veri del risultato («Ho letto 420 righe», «Trovati 3 progetti»)
+			if (racconta) {
+				clearTimeout(filler);
+				di(fraseFine(tc.function.name, args, risultato));
+			}
+			return risultato;
 		} catch (e: any) {
 			return `Il tool ${tc.function.name} ha dato errore: ${e?.message ?? e}.`;
 		} finally {

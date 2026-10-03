@@ -88,6 +88,12 @@
         "category": "Bottega"
       },
       {
+        "command": "bottega.spiegaCodice",
+        "title": "Spiega con Melissa",
+        "icon": "$(comment-discussion)",
+        "category": "Bottega"
+      },
+      {
         "command": "bottega.apriConti",
         "title": "Apri crediti e consumi dei servizi",
         "category": "Bottega"
@@ -229,6 +235,20 @@
       ]
     },
     "menus": {
+      "editor/title": [
+        {
+          "command": "bottega.spiegaCodice",
+          "when": "resourceScheme == file || resourceScheme == untitled",
+          "group": "navigation@90"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "bottega.spiegaCodice",
+          "when": "resourceScheme == file || resourceScheme == untitled",
+          "group": "navigation@0"
+        }
+      ],
       "view/title": [
         {
           "command": "bottega.openPlancia",

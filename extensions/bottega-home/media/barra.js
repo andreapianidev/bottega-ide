@@ -159,6 +159,7 @@
 			<button type="button" data-comando="cruscotto">Cruscotto</button>
 			<button type="button" data-comando="continua">Continua</button>
 			<button type="button" data-comando="cerca">Cerca</button>
+			<button type="button" data-comando="spiega" title="Melissa legge il file aperto (o quello che hai selezionato) e te lo racconta">Spiega il codice</button>
 			<button type="button" class="casa" id="casa">Apri la Home</button>
 		</nav>
 		<div class="sr" id="annuncio" role="status" aria-live="polite"></div>`;

@@ -1047,6 +1047,18 @@ Con l'interruttore «racconta» acceso, a ogni strumento che parte Melissa dice 
 e' scritta; anche verso l'iPhone. Mai il ragionamento del modello, mai comandi, chiavi o risultati grezzi, mai una
 chiamata a un cervello. Uno strumento oltre 8 secondi (`ATTESA_MS`) aggiunge `fraseAttesa`. Spento: come prima, al
 massimo «Un attimo.» una volta per turno se uno strumento passa 1,5 s.
+Finito lo strumento, `fraseFine` dice cosa ha trovato con i dati veri del risultato, letti dal suo testo e mai
+inventati: «Ho letto 420 righe, la parte selezionata e' la 46-50», «Trovati 3 progetti», «2 sessioni aperte, una ti
+aspetta», «La stanza App Store dice: ... Ora te lo spiego.»; un risultato che dice «Non...», «Nessun...» o un errore si
+dice com'e'. Niente frase per gli strumenti che si vedono gia' dalla risposta.
+
+### «Spiega il codice»
+
+Comando `bottega.spiegaCodice` («Spiega con Melissa»): icona nella barra del titolo dell'editor, tasto destro sul
+codice, e `comando` `spiega` dai comandi rapidi della barra di Melissa. Apre la barra e fa un turno «Spiegami il codice
+che ho davanti.» (`Assistant.spiegaCodice()`): Melissa legge con `codice_leggi` (la selezione prima), usa il cervello e
+l'impegno scelti nella barra, ragiona anche se poi parla (`turn(..., {ragiona: true})`: il turno a voce normale va
+senza ragionamento) e racconta con la voce ElevenLabs anche a voce spenta, se il Nucleo c'e'.
 
 Strumenti sui connettori (5.7), sempre in sola lettura:
 - `connettori_elenco {server?, cerca?}`: senza server, i connettori con stato e tipo (diretti e gratis, oppure via
