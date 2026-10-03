@@ -115,6 +115,7 @@
 			<details class="conti" id="conti" hidden>
 				<summary><i class="conto-punto" id="conti-punto" aria-hidden="true"></i><span id="conti-riassunto"></span></summary>
 				<ul class="conti-lista" id="conti-lista" aria-label="Conti dei servizi"></ul>
+				<button type="button" class="link conti-apri" data-comando="conti">Crediti e consumi, giorno per giorno</button>
 			</details>
 			<div hidden>
 			</div>
@@ -957,6 +958,9 @@
 	}
 
 	// ---------- comandi rapidi ----------
+
+	// sotto i conti: crediti e consumi giorno per giorno, nel Cruscotto (CONTRATTI 14)
+	root.querySelector('.conti-apri')?.addEventListener('click', () => post({ type: 'comando', id: 'conti' }));
 
 	root.querySelector('.comandi')?.addEventListener('click', ev => {
 		const b = /** @type {HTMLElement} */ (ev.target).closest('button');

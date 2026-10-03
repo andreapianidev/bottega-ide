@@ -99,7 +99,8 @@ Voce in uscita: ElevenLabs se c'e' la chiave (`ELEVENLABS_API_KEY` nell'ambiente
 con `ELEVENLABS_VOICE_ID` facoltativo, default Melissa `QITiGyM4owEZrBEf0QV8`), sempre in tempo reale sul socket
 text-to-dialogue, modello `eleven_v4_turbo`, tenuto caldo mentre la voce e' in uso (conversazione, sfera visibile,
 o una risposta negli ultimi 2 minuti). I caratteri mandati si contano in `~/.bottega/nucleo/usage.json` (la chiave
-non ha il permesso di leggere il saldo). Senza chiave o a qualsiasi errore: AVSpeechSynthesizer, voce di sistema
+non ha il permesso di leggere il saldo): `elevenLabsCharsByMonth {"YYYY-MM": n}` e, dal 3/10/2026,
+`elevenLabsCharsByDay {"YYYY-MM-DD": n}` (ora locale, gli ultimi 400 giorni) per la sezione 14. Senza chiave o a qualsiasi errore: AVSpeechSynthesizer, voce di sistema
 `com.apple.voice.premium.it-IT.Emma` (gia' installata, niente download), i tag come `[laughs]` vengono tolti.
 
 Voce in entrata: solo ElevenLabs, nessun modello locale e nessun download (decisione di Andrea).
@@ -954,24 +955,23 @@ All'avvio l'estensione apre il contenitore una volta (`workbench.view.extension.
   `stato` vuol dire invariato
 
 ```ts
-type Provider = 'agnes' | 'openrouter' | 'apple' | 'deepseek';
+type Provider = 'agnes' | 'apple' | 'deepseek';          // OpenRouter tolto il 3/10/2026 (build 61)
 type Effort = 'rapido' | 'normale' | 'profondo';
 interface BrainOption {
-  provider: Provider; model: string; label: string;       // "Claude Sonnet 5.5"
-  note: string;                                            // "gratis", "a consumo", "sul Mac"
-  price?: { in: number; out: number };                     // dollari per milione di token (OpenRouter)
+  provider: Provider; model: string; label: string;       // "DeepSeek V4.1 Flash"
+  note: string;                                            // "gratis", "a consumo, a fondo V4 Pro", "sul Mac"
+  price?: { in: number; out: number };                     // dollari per milione di token, se un servizio li dice
   available: boolean; why?: string;                        // perche' no: "senza credito (402)", ...
 }
 interface BrainState {
   current: { provider: Provider; model: string; label: string };
   effort: Effort;
   options: BrainOption[];
-  credit?: { openrouter?: number };                        // dollari rimasti, se l'API lo dice
   accounts: Account[];                                     // i conti dei servizi, solo dati veri
   checkedAt: number;
 }
 interface Account {
-  id: 'agnes' | 'openrouter' | 'deepseek' | 'elevenlabs';
+  id: 'agnes' | 'deepseek' | 'elevenlabs';
   label: string; text: string; tone: 'ok' | 'attesa' | 'male';
   local?: boolean;                                         // contato dalla Bottega, non letto dal servizio
 }
@@ -983,33 +983,35 @@ interface Account {
 `brain.set {provider, model}`, `effort.set {effort}`,
 `job.focus {id}`, `job.write {id, text}` (istruzioni a un lavoro della Bottega), `open {path}`, `claude {path, id}`
 (riprendi qui una sessione aperta altrove), `bacheca.sessione {sessionId}`, `home {view}` (porta la Home su una stanza),
-`comando {id}` (comandi rapidi: `briefing`, `regole`, `lavori`, `cruscotto`, `continua`, `cerca`).
+`comando {id}` (comandi rapidi: `briefing`, `regole`, `lavori`, `cruscotto`, `continua`, `cerca`; `conti` apre la sezione
+«Servizi» del Cruscotto, sezione 14).
 
 ### Cervelli
 
-Tutti e tre i cervelli in rete parlano l'API compatibile OpenAI con gli strumenti, in streaming:
+I due cervelli in rete parlano l'API compatibile OpenAI con gli strumenti, in streaming. OpenRouter (Claude, Gemini,
+GPT a consumo) c'era fino alla build 60: tolto il 3/10/2026 per scelta di Andrea («Agnes e DeepSeek bastano e avanzano»);
+a voce «usa Claude» risponde che non c'e' piu'. La sua chiave resta nel vault e la Bottega la ignora.
 
 | provider | url | chiave | modelli | impegno |
 |---|---|---|---|---|
 | agnes | `https://apihub.agnes-ai.com/v1/chat/completions` | `AGNES_API_KEY` (`~/.secrets/agnes-ai.env`) | `agnes-3.0-flash` | `reasoning_effort`: none / low / high |
-| openrouter | `https://openrouter.ai/api/v1/chat/completions` | `OPENROUTER_API_KEY` (`~/.secrets/openrouter-vision.env`) | i piu' recenti per famiglia dall'elenco vero (`/api/v1/models`, cache 24 h): Claude Sonnet, Claude Opus, Gemini Flash, GPT | `reasoning: {effort}`: low / medium / high |
-| deepseek | `https://api.deepseek.com/chat/completions` | `DEEPSEEK_API_KEY` (`~/.secrets/deepseek-harness.env`) | `deepseek-chat` | non disponibile finche' l'API risponde 402 |
+| deepseek | `https://api.deepseek.com/chat/completions` | `DEEPSEEK_API_KEY` (`~/.secrets/deepseek-harness.env`) | `deepseek-flash` (DeepSeek-V4.1-Flash) per rapido e normale, `deepseek-v4-pro` per profondo (`GET /models`, 3/10/2026) | `reasoning_effort`: none / low / high; non disponibile finche' l'API risponde 402 |
 | apple | Nucleo, cervello Foundation Models con strumenti (build 16, `src/cervello.ts` della sessione nativo) | | sul Mac | |
 
 **Agnes e' sempre il cervello primario** (decisione di Andrea, 2 ottobre 2026). Un altro cervello si usa solo se Andrea
-lo sceglie (dalla barra o a voce con lo strumento `cervello_cambia {cervello?, impegno?}`: «usa Claude», «pensa piu' a
+lo sceglie (dalla barra o a voce con lo strumento `cervello_cambia {cervello?, impegno?}`: «usa DeepSeek», «pensa piu' a
 fondo», «torna ad Agnes») e vale per quella conversazione: si torna ad Agnes da soli quando la conversazione si chiude,
 dopo 15 minuti senza domande, al riavvio della Bottega e dopo qualsiasi errore (un 401 o un 402 mette anche il cervello
 da parte per un'ora). La scelta manuale non si salva mai; si ricorda solo l'impegno (`globalState`). Apple Intelligence
 resta la riserva automatica solo quando Agnes non risponde (429, rete).
-Il saldo OpenRouter si mostra com'e': l'API accetta un piccolo scoperto, quindi conta solo un 402 vero.
+Con DeepSeek i nomi vecchi `deepseek-chat` e `deepseek-reasoner` portano entrambi a V4.1 Flash, senza e con ragionamento:
+fino alla build 60 rapido e normale erano la stessa cosa e V4 Pro non si usava mai.
 
 ### I conti dei servizi (in testa alla barra)
 
 Solo dati veri, al massimo ogni 5 minuti (mai a ogni domanda):
 - Agnes: nessun endpoint di saldo (`/user/balance` risponde 404). Si mostra se risponde, le richieste fatte oggi dalla
   Bottega (contate in `globalState`) e i 429 degli ultimi 10 minuti (limite di circa 20 richieste al minuto).
-- OpenRouter: `GET /api/v1/credits` (`total_credits - total_usage`); sotto 1 $ in attesa, sotto zero «va ricaricato».
 - DeepSeek: `GET https://api.deepseek.com/user/balance` (`is_available`, `balance_infos`).
 - ElevenLabs: la chiave non puo' leggere l'account; i caratteri del mese da `~/.bottega/nucleo/usage.json`, dichiarati
   come conteggio della Bottega.
@@ -2006,3 +2008,72 @@ visite, download nuovi, conversione, fonti, tabella per app), che compaiono solo
 - **Briefing**: `Facts.appstore` (`AppStore.briefing()`, solo con dati di meno di 36 ore) prende il posto della riga di
   AdMob del radar: ieri AdMob e Store (o lo Store dell'altro ieri), la settimana contro quella prima, gli abbonati se
   sono cambiati, il primo allarme, i buchi nuovi di ieri e oggi (non quelli della prima lettura), con «Apri App Store».
+
+## 14. Crediti e consumi dei servizi
+
+Chi lo scrive: l'estensione (`src/conti.ts`, classe `Conti`, montata da `registraConti` in `extension.ts`). Chi lo legge:
+la sezione «Servizi: crediti e consumi» del Cruscotto (`media/conti.js`), gli avvisi del Mac e dell'iPhone, il ponte e i
+widget dell'iPhone (stanza `servizi`). I servizi non danno lo storico con le chiavi che abbiamo, quindi la Bottega lo
+tiene lei: legge i saldi 20 secondi dopo l'avvio e poi ogni 30 minuti, e ogni volta che il Cruscotto lo chiede (al
+massimo una lettura ogni 10 minuti, o subito con «Aggiorna i saldi»). Una lettura alla volta. Lo storico parte dal
+3 ottobre 2026; se la Bottega resta chiusa per giorni, la spesa di quei giorni va sul giorno della lettura dopo.
+
+Fonti:
+- **DeepSeek**: `GET https://api.deepseek.com/user/balance` (`balance_infos` USD, `is_available`). La discesa del saldo
+  fra due letture e' spesa, la salita e' una ricarica.
+- **ElevenLabs**: i caratteri per giorno dal Nucleo (`elevenLabsCharsByDay`, sezione 1). Il mese, il limite e il giorno
+  del rinnovo da `GET /v1/user/subscription` solo se la chiave ha il permesso `user_read` (oggi no: 401
+  `missing_permissions`, e resta il conteggio della Bottega).
+- **Agnes**: gratis; le richieste di oggi contate dalla Bottega (`Cervelli.agnesOggi()`).
+- **Deleghe a Claude** (`claude -p`): `~/.bottega/connettori/spesa.json` (sezione 5.4), spesa vera in dollari.
+- **Claude Code a listino** non e' qui: e' l'abbonamento, non una spesa. La sezione lo cita prendendolo dal Cruscotto.
+- **OpenRouter** c'era nelle build 59 e 60: tolto nella 61 con i suoi cervelli. Alla prima lettura la 61 toglie dal file
+  il suo saldo, il suo campione e i suoi giorni.
+
+`~/.bottega/conti/giorni.json` (mode 600, scritto intero: tmp + rename):
+
+```json
+{
+  "schema": 1,
+  "aggiornato": 1759450000000,
+  "servizi": {
+    "deepseek":   { "nome": "DeepSeek", "valuta": "USD", "saldo": 9.98, "letto": 1759450000000,
+                    "mediaGiorno": 0.12, "giorniRimasti": 83, "tono": "ok",
+                    "frase": "restano 9,98 $, circa 83 giorni al ritmo attuale" },
+    "elevenlabs": { "nome": "ElevenLabs", "unita": "caratteri", "usatiMese": 12345, "limiteMese": null,
+                    "rinnovo": null, "tono": "ok", "frase": "12.345 caratteri di voce a ottobre, contati dalla Bottega" },
+    "agnes":      { "nome": "Agnes", "gratis": true, "tono": "ok", "frase": "gratis, 15 richieste oggi" }
+  },
+  "giorni": {
+    "2026-10-03": {
+      "deepseek":   { "speso": 0.12, "ricarica": 10.0, "saldo": 9.98 },
+      "elevenlabs": { "caratteri": 1200 },
+      "agnes":      { "richieste": 15 },
+      "deleghe":    { "usd": 0.4 }
+    }
+  },
+  "campioni": { "deepseek": { "at": 0, "saldo": 9.98 } }
+}
+```
+
+- `servizi` contiene solo i servizi che hanno una chiave (ElevenLabs anche senza chiave, se il Nucleo ha contato
+  qualcosa). `giorni` usa chiavi in ora locale e tiene gli ultimi 400 giorni; un servizio manca in un giorno senza dati.
+  `campioni` serve solo all'estensione, per contare la differenza alla lettura dopo.
+- `mediaGiorno`: media di `speso` sugli ultimi 7 giorni che hanno dati per quel servizio (oggi compreso), `null` con
+  meno di 2 giorni. `giorniRimasti` = saldo / media, arrotondato in giu'.
+- `tono`: `male` se il saldo e' a zero o sotto, o il servizio dice che non e' disponibile; `attesa` sotto 2 $
+  (`SOGLIA_USD`) o con meno di 5 giorni al ritmo attuale (`SOGLIA_GIORNI`); ElevenLabs `attesa` oltre il 90% del limite
+  del mese, `male` a limite finito (solo con `user_read`). Altrimenti `ok`.
+- `frase`: italiano, senza lineette, pronta per la barra, un widget o una notifica.
+
+Avvisi di ricarica: un servizio in `attesa` o `male` da' un allarme con id `conti:<servizio>:<YYYY-MM-DD>`, quindi uno
+al giorno, anche dopo un riavvio (gli id di oggi gia' nel file non suonano di nuovo). Sul Mac: notifica del Nucleo
+`bottega:conti:...` con «Apri i conti» (comando `bottega.apriConti`, il Cruscotto sulla sezione). Sull'iPhone: lo stesso
+allarme entra in `Istantanea.negozio` (sezione 9.4) insieme a quelli della stanza App Store, con testo «Restano 1,20 $,
+... Si ricarica su platform.deepseek.com.».
+
+Plancia: la webview chiede `{type: "conti.request", aggiorna?: bool}` a ogni richiesta delle statistiche del Cruscotto
+(e con «Aggiorna i saldi»); l'estensione risponde subito con `{type: "conti", conti: ContiFile | null}` e, se i dati
+hanno piu' di 10 minuti o `aggiorna` e' vero, di nuovo dopo la lettura. `{type: "conti.mostra"}` porta la vista sulla
+sezione. Nella barra di Melissa, sotto i conti, «Crediti e consumi, giorno per giorno» manda `comando` `conti`.
+

@@ -77,7 +77,8 @@ enum ElevenLabsConfig {
     }
 }
 
-/// Characters sent to ElevenLabs, per calendar month, in ~/.bottega/nucleo/usage.json.
+/// Characters sent to ElevenLabs, per calendar month and per day (local time), in ~/.bottega/nucleo/usage.json.
+/// The extension draws the days in the Cruscotto (src/conti.ts, CONTRATTI 14); the last 400 days are kept.
 enum ElevenLabsUsage {
     private static let lock = NSLock()
     private static var file: URL { Nucleo.supportDir.appendingPathComponent("usage.json") }
@@ -85,6 +86,11 @@ enum ElevenLabsUsage {
     private static func monthKey(_ date: Date = Date()) -> String {
         let c = Calendar(identifier: .gregorian).dateComponents([.year, .month], from: date)
         return String(format: "%04d-%02d", c.year ?? 0, c.month ?? 0)
+    }
+
+    private static func dayKey(_ date: Date = Date()) -> String {
+        let c = Calendar(identifier: .gregorian).dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
     }
 
     private static func read() -> [String: Any] {
@@ -108,6 +114,11 @@ enum ElevenLabsUsage {
         let key = monthKey()
         months[key] = ((months[key] as? NSNumber)?.intValue ?? 0) + chars
         obj["elevenLabsCharsByMonth"] = months
+        var days = obj["elevenLabsCharsByDay"] as? [String: Any] ?? [:]
+        let day = dayKey()
+        days[day] = ((days[day] as? NSNumber)?.intValue ?? 0) + chars
+        for old in days.keys.sorted().dropLast(400) { days.removeValue(forKey: old) }
+        obj["elevenLabsCharsByDay"] = days
         obj["updatedAt"] = ISO8601DateFormatter().string(from: Date())
         if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: file, options: .atomic)

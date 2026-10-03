@@ -263,10 +263,10 @@ password: nessuna mail o messaggio viene mai inviato, nessuna bozza creata, nien
 Melissa vive nella barra laterale destra della Bottega, sempre aperta, e nella barra di stato: non sopra le altre app.
 La barra è il suo centro di controllo: la sfera, la conversazione, tutte le sessioni Claude del Mac (chi lavora, chi ti
 aspetta, cosa sta facendo), comandi rapidi, e in testa il cervello con cui pensa e i conti dei servizi. Il cervello è
-sempre Agnes; per una conversazione puoi scegliere Claude, Gemini o GPT via OpenRouter, Apple Intelligence o DeepSeek,
-anche a voce («usa Claude», «pensa più a fondo»), e alla fine si torna ad Agnes da soli. I conti dicono solo cose
-vere: il saldo di OpenRouter e DeepSeek letto dai servizi, le richieste di oggi ad Agnes (che non ha un saldo) e i
-caratteri di voce contati dalla Bottega. Melissa legge cosa hanno fatto le sessioni, passa istruzioni ai lavori della
+sempre Agnes; per una conversazione puoi scegliere DeepSeek (V4.1 Flash, o V4 Pro con «profondo») o Apple Intelligence,
+anche a voce («usa DeepSeek», «pensa più a fondo»), e alla fine si torna ad Agnes da soli. I conti dicono solo cose
+vere: il saldo di DeepSeek letto dal servizio, le richieste di oggi ad Agnes (che non ha un saldo) e i caratteri di voce
+contati dalla Bottega; crediti e consumi giorno per giorno, con gli avvisi di ricarica, stanno nel Cruscotto. Melissa legge cosa hanno fatto le sessioni, passa istruzioni ai lavori della
 Bottega, avvisa quando uno ti aspetta e muove il cruscotto mentre ti risponde («fammi vedere le ore di Woofmap questa
 settimana»). Usa anche i connettori che hai in Claude Code, sempre in sola lettura: legge da sola e gratis i server
 locali (AdMob, Search Console, App Store Connect...), chiede a Claude per Gmail, Calendar, Drive o Vercel solo dopo

@@ -189,6 +189,12 @@ export class BarraView implements vscode.WebviewViewProvider {
 		}
 	}
 
+	/** Il cervello va riletto subito: il Nucleo si e' appena collegato (Apple Intelligence diventa disponibile). Prima
+	 *  la barra restava fino a 10 minuti su «il Nucleo non è acceso» dopo ogni riavvio. */
+	refreshBrainNow(): void {
+		void this.refreshBrain().then(() => this.push(false));
+	}
+
 	/** Manda lo stato, al massimo una volta ogni 80 ms (il livello audio arriva molto spesso) e solo se e' cambiato. */
 	update(): void {
 		if (!this.view?.visible || this.pending) return;

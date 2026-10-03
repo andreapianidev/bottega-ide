@@ -15,7 +15,7 @@ import { Idee, IdeeDynamic } from './idee';
 import { handleConnettori, registerConnettori, stanzaConnettori } from './connettori-host';
 import { BarraView } from './barra';
 import { brainName } from './assistant';
-import { Cervelli, Effort, FAMILIES, Provider, spokenChoice } from './cervelli';
+import { Cervelli, Effort, Provider, spokenChoice } from './cervelli';
 import { digest, digestText } from './mani';
 import { CategorieMinuti, Osservatorio, categorieMinuti, fraseCategorie } from './osservatorio';
 import { registerPonte } from './ponte-host';
@@ -26,6 +26,7 @@ import { TOOLS } from './assistant';
 import { registraStrumentiConnettori, STRUMENTI_CONNETTORI } from './strumenti-connettori';
 import { registerTerminale, STRUMENTI_TERMINALE } from './terminale-host';
 import type { AppStore } from './appstore';
+import { Conti } from './conti';
 import { allarmiAppStore, briefingAppStore, handleAppStore, registerAppStore, STRUMENTI_APPSTORE } from './appstore-host';
 import { registraStrumentiStanze, STRUMENTI_STANZE } from './strumenti-stanze';
 import { buildReport, readClients } from './clienti';
@@ -84,6 +85,7 @@ let idee: Idee | undefined;
 let appStore: AppStore | undefined;
 let barraView: BarraView | undefined;
 let cervelli: Cervelli | undefined;
+let conti: Conti | undefined;
 /** Apple Intelligence attiva sul Mac (capabilities del Nucleo). */
 /** I lavori che aspettavano al giro prima: Melissa avvisa a voce solo dei nuovi. */
 let waitingBefore = new Set<string>();
@@ -200,16 +202,13 @@ async function switchBrain(cervello?: string, impegno?: string): Promise<string>
 		await cervelli.setEffort(effort);
 		out.push(`impegno ${effort}`);
 	}
+	// Claude, Gemini e GPT passavano da OpenRouter, tolto il 3/10/2026
+	if (!asked.provider && /\b(claude|opus|sonnet|gemini|google|gpt|openai|chat ?gpt|openrouter)\b/i.test(cervello ?? '')) {
+		out.push('Claude, Gemini e GPT non ci sono più: penso con Agnes o con DeepSeek');
+	}
 	if (asked.provider) {
-		const opts = await cervelli.options();
-		let model: string | undefined;
-		if (asked.provider === 'openrouter') {
-			const fam = FAMILIES[asked.family ?? 0];
-			model = opts.find(o => o.provider === 'openrouter' && fam.re.test(o.model))?.model;
-			if (!model) return `Non trovo ${fam.fallback} tra i modelli di OpenRouter.`;
-		}
 		try {
-			const c = await cervelli.set(asked.provider as Provider, model);
+			const c = await cervelli.set(asked.provider as Provider);
 			out.push(c.provider === 'agnes' ? 'torno ad Agnes' : `penso con ${brainName(c.model)} per questa conversazione, poi torno ad Agnes`);
 		} catch (e: any) {
 			return `${e?.message ?? e} Resto con Agnes.`;
@@ -424,6 +423,28 @@ function showPlancia(section?: string): void {
 	if (section) panelHost?.send({ type: 'view', view: section.toLowerCase() });
 }
 
+// ---------- crediti e consumi dei servizi (CONTRATTI 14) ----------
+
+/** Il registro dei conti: una lettura poco dopo l'avvio e poi ogni 30 minuti; gli avvisi di ricarica sul Mac. */
+function registraConti(ctx: vscode.ExtensionContext): Conti {
+	const c = new Conti({
+		chiave: () => cervelli?.key('deepseek'),
+		agnesOggi: () => cervelli?.agnesOggi() ?? 0,
+		log: s => console.warn(s),
+	});
+	c.onAllarmi(nuovi => {
+		for (const a of nuovi) nucleo?.fireAndForget('notify', { id: `bottega:${a.id}`, title: a.app, body: a.testo, actions: [{ id: 'apri', title: 'Apri i conti' }], sound: false });
+	});
+	nucleo?.on('notify.clicked', (x: any) => {
+		if (String(x?.id ?? '').startsWith('bottega:conti:') && x.action !== 'dismiss') void vscode.commands.executeCommand('bottega.apriConti');
+	});
+	const giro = () => void c.aggiorna().then(d => panelHost?.isOpen && panelHost.send({ type: 'conti', conti: d }));
+	const primo = setTimeout(giro, 20_000);
+	const ogni = setInterval(giro, 30 * 60_000);
+	ctx.subscriptions.push({ dispose: () => (clearTimeout(primo), clearInterval(ogni)) });
+	return c;
+}
+
 // ---------- cruscotto ----------
 
 /** Calcola le statistiche (solo i file cambiati) e le manda alla plancia se sono cambiate o se
@@ -527,6 +548,10 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 		case 'stats.request':
 			statsWanted = true;
 			return void sendStats(true);
+		case 'conti.request':
+			panelHost?.send({ type: 'conti', conti: conti?.stato() ?? null });
+			if (m.aggiorna || !conti?.stato().aggiornato || Date.now() - conti.stato().aggiornato > 10 * 60_000) void conti?.aggiorna().then(c => panelHost?.send({ type: 'conti', conti: c }));
+			return;
 		case 'assistant.ask':
 			if (m.text) await assistant?.ask(m.text);
 			return;
@@ -583,6 +608,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		appleReason: () => (nucleo?.available ? nucleo.capabilities?.foundationModelsReason : 'il Nucleo non è acceso'),
 		log: s => console.warn(s),
 	});
+	conti = registraConti(ctx);
 
 	assistant = new Assistant({
 		nucleo: nucleo!,
@@ -656,7 +682,12 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			}));
 		},
 		// gli allarmi della stanza App Store: all'iPhone quando Andrea e' lontano (CONTRATTI 13.7)
-		negozio: allarmiAppStore,
+		// in piu' gli avvisi di ricarica dei servizi (src/conti.ts, CONTRATTI 14)
+		negozio: () => {
+			const a = allarmiAppStore();
+			const c = conti?.allarmi() ?? [];
+			return a === null && !c.length ? null : [...(a ?? []), ...c];
+		},
 	});
 	ctx.subscriptions.push(changed.event(() => ponte?.notify()));
 
@@ -839,6 +870,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 					regole: () => showPlancia('vedetta'),
 					lavori: () => showPlancia('lavori'),
 					cruscotto: () => showPlancia('cruscotto'),
+					conti: () => vscode.commands.executeCommand('bottega.apriConti'),
 					continua: () => vscode.commands.executeCommand('bottega.continua'),
 					cerca: () => vscode.commands.executeCommand('bottega.cerca'),
 				};
@@ -848,6 +880,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			sessionBoard: async sid => (memoria ? (await memoria.bacheca(undefined, 180)).filter(r => r.sessionId === sid).slice(0, 12) : []),
 		},
 	);
+	// il Nucleo ha detto cosa sa fare (anche dopo un riavvio): Apple Intelligence si rilegge subito nell'elenco dei cervelli
+	nucleo?.on('capabilities', () => barraView?.refreshBrainNow());
 	ctx.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(BarraView.id, barraView),
 		{ dispose: () => barraView?.dispose() },
@@ -875,6 +909,11 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			if (pick?.detail) await idee?.handle({ type: 'continua.prepare', path: pick.detail }).then(() => showPlancia('plancia'));
 		}),
 		vscode.commands.registerCommand('bottega.openMelissa', () => showPlancia('melissa')),
+		// i conti dei servizi: il Cruscotto, sulla sezione «Servizi» (dalla barra di Melissa e dagli avvisi di ricarica)
+		vscode.commands.registerCommand('bottega.apriConti', () => {
+			showPlancia('cruscotto');
+			panelHost?.send({ type: 'conti.mostra' });
+		}),
 		vscode.commands.registerCommand('bottega.openCruscotto', () => showPlancia('cruscotto')),
 		vscode.commands.registerCommand('bottega.openOsservatorio', async () => {
 			try {

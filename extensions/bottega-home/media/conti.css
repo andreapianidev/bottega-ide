@@ -1,0 +1,14 @@
+/* Servizi: crediti e consumi, sezione del Cruscotto (media/conti.js, CONTRATTI 14). Colori del Cruscotto. */
+.conti-sez .sez-testa { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.conti-sez h3 { margin: 18px 0 6px; font-size: 13px; font-weight: 600; color: var(--calima); }
+.conti-cifre { margin-bottom: 20px; }
+.conti-attesa b { color: var(--sodio); }
+.conti-male b { color: var(--brace); }
+.cs-deepseek { fill: var(--t-in); background: var(--t-in); }
+.cs-deleghe { fill: var(--c-claude); background: var(--c-claude); }
+.cs-voce { fill: var(--c-tu); }
+.cs-ricarica { fill: var(--laurisilva); }
+.chiave.cs-ricarica-k { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--laurisilva); border-radius: 0; background: none; }
+.cs-sopra { fill: transparent; }
+.cs-sopra:hover { fill: var(--evidenza, rgba(143, 152, 173, 0.08)); }
+.conti-sez .grafico { margin-bottom: 8px; }
