@@ -950,7 +950,7 @@ All'avvio l'estensione apre il contenitore una volta (`workbench.view.extension.
 - `board: Record<sessionId, {at, kind, summary, file?}[]>`: le ultime voci della bacheca della Memoria per ogni sessione
   viva (al massimo 4 per sessione, ultime 3 ore)
 - `brain: BrainState`
-- `racconta: boolean` (l'interruttore «racconta», impostazione `bottega.voice.racconta`, spenta di default)
+- `assistant.attivita` e `assistant.raccontando`: il terminale e il pulsante «racconta / ferma» (sotto)
 - separati: `{type:'bacheca.sessione', sessionId, items}` (risposta a «Le ultime tre ore»), `{type:'visibile', visible}`,
   `{type:'fuoco', focused}` (la finestra della Bottega davanti o dietro: a `ready` e a ogni cambio); un campo assente in
   `stato` vuol dire invariato
@@ -981,10 +981,11 @@ interface Account {
 ### Barra -> estensione
 
 `ready`, `converse` (apre o chiude la conversazione a voce), `ask {text}`, `voice.toggle`,
-`brain.set {provider, model}`, `effort.set {effort}`, `racconta.set {on}`,
+`brain.set {provider, model}`, `effort.set {effort}`,
 `job.focus {id}`, `job.write {id, text}` (istruzioni a un lavoro della Bottega), `open {path}`, `claude {path, id}`
 (riprendi qui una sessione aperta altrove), `bacheca.sessione {sessionId}`, `home {view}` (porta la Home su una stanza),
-`comando {id}` (comandi rapidi: `briefing`, `regole`, `lavori`, `cruscotto`, `continua`, `cerca`; `conti` apre la sezione
+`comando {id}` (comandi rapidi: `briefing`, `regole`, `lavori`, `cruscotto`, `continua`, `cerca`; `racconta` e
+`racconta.ferma` dal pulsante «racconta»; `conti` apre la sezione
 «Servizi» del Cruscotto, sezione 14).
 
 ### Cervelli
@@ -1040,25 +1041,28 @@ testo attivo; se davanti c'e' la Home, la barra o un'immagine, l'ultimo file di 
   `.netrc`) non si leggono mai: andrebbero al cervello in rete. Apple Intelligence non ha questo strumento (contesto
   troppo piccolo).
 
-### Il racconto mentre lavora
+### «racconta» e il terminale di Melissa (3/10/2026)
 
-Con l'interruttore «racconta» acceso, a ogni strumento che parte Melissa dice una frase fissa e vera (`src/racconto.ts`,
-`fraseInizio`, come `AgentActivityNarration` della Melissa di Avo): a voce con ElevenLabs, o nel registro se la domanda
-e' scritta; anche verso l'iPhone. Mai il ragionamento del modello, mai comandi, chiavi o risultati grezzi, mai una
-chiamata a un cervello. Uno strumento oltre 8 secondi (`ATTESA_MS`) aggiunge `fraseAttesa`. Spento: come prima, al
-massimo «Un attimo.» una volta per turno se uno strumento passa 1,5 s.
-Finito lo strumento, `fraseFine` dice cosa ha trovato con i dati veri del risultato, letti dal suo testo e mai
-inventati: «Ho letto 420 righe, la parte selezionata e' la 46-50», «Trovati 3 progetti», «2 sessioni aperte, una ti
-aspetta», «La stanza App Store dice: ... Ora te lo spiego.»; un risultato che dice «Non...», «Nessun...» o un errore si
-dice com'e'. Niente frase per gli strumenti che si vedono gia' dalla risposta.
+Il pulsante «racconta» della barra (comando `bottega.racconta`) racconta quello che Andrea ha davanti: il file di codice
+nella scheda attiva (`Occhio.davanti()`, l'ultimo file guardato se davanti c'e' altro), oppure la stanza che la Home sta
+mostrando (la Home manda `{type: "vista", view}` a ogni cambio: Plancia e Melissa il briefing, Lavori l'elenco dei
+lavori, le altre `leggiStanza`). Il contenuto, gia' letto, va con la domanda («Spiegami il codice che ho davanti.»,
+«Raccontami la stanza App Store.») ma non resta nella storia della conversazione. `Assistant.racconta()` pensa con
+DeepSeek (V4.1 Flash, V4 Pro con «profondo»; senza chiave o senza credito torna ad Agnes), ragiona anche se poi parla, e
+racconta con la voce ElevenLabs mentre DeepSeek scrive, frase per frase, anche a voce spenta se il Nucleo c'e'. Durante
+il racconto il pulsante diventa «ferma» (`comando` `racconta.ferma`, comando `bottega.raccontaFerma`): la risposta si
+interrompe e `voice.stopSpeaking` la zittisce. «Spiega con Melissa» (icona nel titolo dell'editor e tasto destro,
+`bottega.spiegaCodice`) fa lo stesso sempre sul codice.
 
-### «Spiega il codice»
+Durante il racconto Melissa dice anche i passi degli strumenti, con frasi fisse e vere (`src/racconto.ts`,
+`fraseInizio`, `fraseFine` con i dati del risultato, `fraseAttesa` oltre 8 s; come `AgentActivityNarration` della
+Melissa di Avo): mai il ragionamento del modello, mai comandi o chiavi, mai una chiamata a un cervello.
 
-Comando `bottega.spiegaCodice` («Spiega con Melissa»): icona nella barra del titolo dell'editor, tasto destro sul
-codice, e `comando` `spiega` dai comandi rapidi della barra di Melissa. Apre la barra e fa un turno «Spiegami il codice
-che ho davanti.» (`Assistant.spiegaCodice()`): Melissa legge con `codice_leggi` (la selezione prima), usa il cervello e
-l'impegno scelti nella barra, ragiona anche se poi parla (`turn(..., {ragiona: true})`: il turno a voce normale va
-senza ragionamento) e racconta con la voce ElevenLabs anche a voce spenta, se il Nucleo c'e'.
+Il terminale (`AssistantState.attivita: {at, testo, stato}[]`, ultimi 40; `stato`: `nota`, `corre`, `fatto`,
+`errore`, `voce`) sta sempre in vista sotto la sfera, a caratteri da terminale, con le ultime quattro righe e le altre
+scorrendo: la domanda, quale cervello pensa, ogni strumento che parte e cosa ha trovato, ogni frase detta, la fine,
+gli errori (voce assente, niente da raccontare, fermata). Si riempie a ogni domanda, anche fuori dal racconto.
+`raccontando: boolean` dice alla barra se mostrare «ferma».
 
 Strumenti sui connettori (5.7), sempre in sola lettura:
 - `connettori_elenco {server?, cerca?}`: senza server, i connettori con stato e tipo (diretti e gratis, oppure via

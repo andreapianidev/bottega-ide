@@ -27,7 +27,9 @@ import { registraStrumentiConnettori, STRUMENTI_CONNETTORI } from './strumenti-c
 import { registerTerminale, STRUMENTI_TERMINALE } from './terminale-host';
 import type { AppStore } from './appstore';
 import { Conti } from './conti';
-import { registraOcchio } from './occhio-host';
+import { Occhio, registraOcchio } from './occhio-host';
+import { leggiStanza } from './strumenti-stanze';
+import type { DaRaccontare } from './assistant';
 import { allarmiAppStore, briefingAppStore, handleAppStore, registerAppStore, STRUMENTI_APPSTORE } from './appstore-host';
 import { registraStrumentiStanze, STRUMENTI_STANZE } from './strumenti-stanze';
 import { buildReport, readClients } from './clienti';
@@ -87,6 +89,9 @@ let appStore: AppStore | undefined;
 let barraView: BarraView | undefined;
 let cervelli: Cervelli | undefined;
 let conti: Conti | undefined;
+/** La stanza mostrata dalla Home (messaggio "vista" di media/plancia.js). */
+let vistaHome = 'plancia';
+let occhioGlobale: Occhio | undefined;
 /** Apple Intelligence attiva sul Mac (capabilities del Nucleo). */
 /** I lavori che aspettavano al giro prima: Melissa avvisa a voce solo dei nuovi. */
 let waitingBefore = new Set<string>();
@@ -418,6 +423,31 @@ function showPlancia(section?: string): void {
 	if (section) panelHost?.send({ type: 'view', view: section.toLowerCase() });
 }
 
+// ---------- «racconta»: cosa c'e' davanti ad Andrea (CONTRATTI 6) ----------
+
+const NOMI_VISTE: Record<string, string> = {
+	plancia: 'la Plancia', lavori: 'i Lavori', memoria: 'la Memoria', melissa: 'la Plancia', cruscotto: 'il Cruscotto',
+	vedetta: 'la Vedetta', appstore: 'la stanza App Store', clienti: 'la stanza Clienti', connettori: 'i Connettori',
+};
+
+/** Il file di codice nella scheda attiva, oppure la stanza che la Home sta mostrando, gia' letti. */
+async function daRaccontare(): Promise<DaRaccontare | undefined> {
+	const o = occhioGlobale;
+	const davanti = o?.davanti() ?? (panelHost?.isOpen ? 'home' : undefined);
+	if (davanti === 'file' && o) {
+		const v = o.vista();
+		if (v) return { tipo: 'codice', titolo: v.nome, testo: o.leggi() };
+	}
+	if (davanti !== 'home' && !(davanti === undefined && panelHost?.isOpen)) return undefined;
+	const view = vistaHome in NOMI_VISTE ? vistaHome : 'plancia';
+	const titolo = NOMI_VISTE[view];
+	let testo: string;
+	if (view === 'plancia' || view === 'melissa') testo = idee ? await idee.briefingFacts() : 'Il briefing non è pronto.';
+	else if (view === 'lavori') testo = snapshot.work.length ? snapshot.work.map(w => `${w.project}: ${w.status}${w.title ? `, "${w.title.slice(0, 80)}"` : ''}`).join('\n') : 'Nessun lavoro in giro.';
+	else testo = await leggiStanza({ stanza: view });
+	return { tipo: 'stanza', titolo, testo };
+}
+
 // ---------- crediti e consumi dei servizi (CONTRATTI 14) ----------
 
 /** Il registro dei conti: una lettura poco dopo l'avvio e poi ogni 30 minuti; gli avvisi di ricarica sul Mac. */
@@ -540,6 +570,10 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 			return;
 		case 'voice.toggle':
 			return void assistant?.toggle();
+		case 'vista':
+			// la stanza che la Home sta mostrando: «racconta» con la Home davanti racconta quella
+			if (typeof m.view === 'string') vistaHome = m.view;
+			return;
 		case 'stats.request':
 			statsWanted = true;
 			return void sendStats(true);
@@ -606,6 +640,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	conti = registraConti(ctx);
 	// gli occhi di Melissa sul codice dell'editor (src/occhio-host.ts)
 	const occhio = registraOcchio(ctx);
+	occhioGlobale = occhio;
 
 	assistant = new Assistant({
 		nucleo: nucleo!,
@@ -623,7 +658,6 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			gitPush: p => push(p),
 			openFile,
 			codice: occhio,
-			racconta: () => cfg().get<boolean>('voice.racconta', false),
 			showPlancia,
 			rulesSummary: p => idee?.rulesSummary(p) ?? 'Il semaforo non è pronto.',
 			briefing: async () => (idee ? idee.briefingFacts() : 'Il briefing non è pronto.'),
@@ -848,7 +882,6 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			workCounts: () => snapshot.workCounts,
 			board: async () => (memoria ? memoria.bacheca(undefined, 180) : []),
 			brain: async () => cervelli!.state(),
-			racconta: () => cfg().get<boolean>('voice.racconta', false),
 		},
 		{
 			converse: () => assistant?.toggleConversation(),
@@ -856,7 +889,6 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			toggleVoice: () => void assistant?.toggle(),
 			setBrain: async (p, m) => void (await cervelli!.set(p, m)),
 			setEffort: async e => void (await cervelli!.setEffort(e)),
-			setRacconta: async on => void (await cfg().update('voice.racconta', on, vscode.ConfigurationTarget.Global)),
 			focusJob: id => jobManager?.focus(id),
 			writeJob: (id, text) => {
 				if (!jobManager?.write(id, text)) void vscode.window.showWarningMessage('Quel lavoro non ha più un terminale aperto.');
@@ -871,7 +903,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
 					lavori: () => showPlancia('lavori'),
 					cruscotto: () => showPlancia('cruscotto'),
 					conti: () => vscode.commands.executeCommand('bottega.apriConti'),
-					spiega: () => vscode.commands.executeCommand('bottega.spiegaCodice'),
+					racconta: () => vscode.commands.executeCommand('bottega.racconta'),
+					'racconta.ferma': () => assistant?.fermaRacconto(),
 					continua: () => vscode.commands.executeCommand('bottega.continua'),
 					cerca: () => vscode.commands.executeCommand('bottega.cerca'),
 				};
@@ -884,7 +917,6 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	// il Nucleo ha detto cosa sa fare (anche dopo un riavvio): Apple Intelligence si rilegge subito nell'elenco dei cervelli
 	nucleo?.on('capabilities', () => barraView?.refreshBrainNow());
 	ctx.subscriptions.push(
-		vscode.workspace.onDidChangeConfiguration(e => e.affectsConfiguration('bottega.voice.racconta') && barraView?.update()),
 		vscode.window.registerWebviewViewProvider(BarraView.id, barraView),
 		{ dispose: () => barraView?.dispose() },
 		changed.event(() => barraView?.update()),
@@ -911,11 +943,19 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			if (pick?.detail) await idee?.handle({ type: 'continua.prepare', path: pick.detail }).then(() => showPlancia('plancia'));
 		}),
 		vscode.commands.registerCommand('bottega.openMelissa', () => showPlancia('melissa')),
-		// «Spiega il codice»: Melissa legge il file davanti (o la selezione) e lo racconta con la sua voce
+		// «racconta» (barra) e «Spiega con Melissa» (editor): quello che Andrea ha davanti, letto, analizzato da DeepSeek e
+		// raccontato con la voce ElevenLabs; il terminale della barra mostra i passi
+		vscode.commands.registerCommand('bottega.racconta', async () => {
+			barraView?.reveal();
+			if (assistant?.getState().raccontando) return assistant.fermaRacconto();
+			void assistant?.racconta(await daRaccontare());
+		}),
 		vscode.commands.registerCommand('bottega.spiegaCodice', () => {
 			barraView?.reveal();
-			void assistant?.spiegaCodice();
+			const v = occhio.vista();
+			void assistant?.racconta(v ? { tipo: 'codice', titolo: v.nome, testo: occhio.leggi() } : undefined);
 		}),
+		vscode.commands.registerCommand('bottega.raccontaFerma', () => assistant?.fermaRacconto()),
 		// i conti dei servizi: il Cruscotto, sulla sezione «Servizi» (dalla barra di Melissa e dagli avvisi di ricarica)
 		vscode.commands.registerCommand('bottega.apriConti', () => {
 			showPlancia('cruscotto');

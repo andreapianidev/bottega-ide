@@ -7,7 +7,7 @@ import { Job, WorkItem } from './jobs';
 import type { Cervelli } from './cervelli';
 import { BrainName, BrainRouter, OpenAiStreamFn, appleInstructions, appleOpenAiStream, appleToolSpecs } from './cervello';
 import { SystemStats } from './nucleo';
-import { ATTESA_MS, fraseAttesa, fraseFine, fraseInizio } from './racconto';
+import { ATTESA_MS, eFallito, fraseAttesa, fraseFine, fraseInizio } from './racconto';
 
 const NUCLEO_LOG = path.join(os.homedir(), '.bottega', 'nucleo.log');
 
@@ -44,6 +44,24 @@ export interface AssistantState {
 	level?: number;
 	log: { role: 'tu' | 'melissa' | 'azione'; text: string; at: number }[];
 	brain: 'agnes' | 'apple' | 'nessuno';
+	/** Il terminale della barra: cosa sta facendo Melissa, passo per passo, in diretta (ultimi 40). */
+	attivita?: Passo[];
+	/** «racconta» in corso: il pulsante della barra diventa «ferma». */
+	raccontando?: boolean;
+}
+
+export interface Passo {
+	at: number;
+	testo: string;
+	stato: 'nota' | 'corre' | 'fatto' | 'errore' | 'voce';
+}
+
+/** Cosa raccontare con «racconta»: il codice davanti o una stanza della Home, gia' letti (src/extension.ts). */
+export interface DaRaccontare {
+	tipo: 'codice' | 'stanza';
+	/** «db.py», «la stanza App Store» */
+	titolo: string;
+	testo: string;
 }
 
 // ---------- tipi OpenAI / streaming ----------
@@ -93,8 +111,6 @@ export interface AssistantActions {
 	openFile(p: string): boolean;
 	/** Il codice davanti ad Andrea (src/occhio-host.ts): la riga per il prompt e la lettura per codice_leggi. */
 	codice?: { riga(): string | undefined; leggi(nome?: string): string };
-	/** Interruttore «racconta» della barra: Melissa dice cosa sta facendo mentre lavora (src/racconto.ts). */
-	racconta?(): boolean;
 	showPlancia(section?: string): void;
 	// Le otto idee (docs/CONTRATTI.md, sezione 4). Facoltative: senza, lo strumento dice che non c'e'.
 	rulesSummary?(project?: string): Promise<string> | string;
@@ -549,7 +565,9 @@ interface Pending {
 
 export class Assistant {
 	readonly deps: AssistantDeps;
-	private state: AssistantState = { enabled: true, conversing: false, state: 'idle', log: [], brain: 'agnes' };
+	private state: AssistantState = { enabled: true, conversing: false, state: 'idle', log: [], brain: 'agnes', attivita: [] };
+	/** Durante «racconta»: DeepSeek per pensare, il contenuto gia' letto attaccato alla domanda, i passi detti a voce. */
+	private racconto?: { allegato: string };
 	private history: LlmMessage[] = [];
 	private pending?: Pending;
 	private statusBar?: vscode.StatusBarItem;
@@ -607,7 +625,7 @@ export class Assistant {
 	// ----- stato -----
 
 	getState(): AssistantState {
-		return { ...this.state, log: this.state.log.slice(-30) };
+		return { ...this.state, log: this.state.log.slice(-30), attivita: (this.state.attivita ?? []).slice(-40), raccontando: !!this.racconto };
 	}
 	private emit(): void {
 		this.deps.onState(this.getState());
@@ -628,7 +646,15 @@ export class Assistant {
 	note(line: string): void {
 		this.out.info(line);
 	}
+	/** Una riga nel terminale della barra. */
+	private passo(testo: string, stato: Passo['stato'] = 'nota'): void {
+		const a = (this.state.attivita ??= []);
+		a.push({ at: Date.now(), testo: testo.replace(/\s+/g, ' ').trim().slice(0, 220), stato });
+		if (a.length > 40) this.state.attivita = a.slice(-40);
+		this.emit();
+	}
 	azione(text: string): void {
+		this.state.attivita?.push({ at: Date.now(), testo: text.slice(0, 220), stato: 'nota' });
 		this.pushLog('azione', text);
 	}
 	setPending(p: Pending): void {
@@ -989,17 +1015,48 @@ export class Assistant {
 		return this.turn(text, this.state.enabled && this.deps.nucleo.available);
 	}
 
-	/** Il pulsante «Spiega il codice» (editor, tasto destro, barra): Melissa legge il codice davanti, lo analizza
-	 *  ragionando anche se poi parla, e lo racconta con la sua voce, anche a voce spenta, se il Nucleo c'e'. */
-	async spiegaCodice(): Promise<string> {
+	/** «racconta» (pulsante della barra) e «Spiega con Melissa» (editor): Melissa prende quello che Andrea ha davanti,
+	 *  gia' letto (il codice, o i dati veri di una stanza), lo fa analizzare a DeepSeek e lo racconta in tempo reale
+	 *  con la voce ElevenLabs, anche a voce spenta, se il Nucleo c'e'. Ogni passo va nel terminale della barra. */
+	async racconta(c: DaRaccontare | undefined): Promise<string> {
 		if (this.remote) return 'Sto rispondendo all\'iPhone: riprova tra un attimo.';
-		return this.turn('Spiegami il codice che ho davanti.', !!this.deps.nucleo.available, { ragiona: true });
+		if (this.racconto) return 'Sto gia\' raccontando.';
+		const voce = !!this.deps.nucleo.available;
+		this.out.info(`racconta: ${c ? `${c.tipo} ${c.titolo}, ${c.testo.length} caratteri` : 'niente davanti'}; voce ${voce ? 'ElevenLabs dal Nucleo' : 'assente (Nucleo non collegato)'}`);
+		if (!voce) this.passo('voce assente: il Nucleo non è collegato, racconto per iscritto', 'errore');
+		if (!c) {
+			this.passo('niente da raccontare: davanti non c\'è un file né una stanza', 'errore');
+			this.pushLog('melissa', 'Non vedo niente da raccontare: apri un file di codice o una stanza della Home e ripremi «racconta».');
+			return '';
+		}
+		this.passo(c.tipo === 'codice' ? `leggo ${c.titolo}: ${c.testo.split('\n').length} righe` : `leggo ${c.titolo}`, 'corre');
+		const domanda = c.tipo === 'codice' ? 'Spiegami il codice che ho davanti.' : `Raccontami ${c.titolo}.`;
+		const allegato =
+			c.tipo === 'codice'
+				? `Il codice davanti ad Andrea, gia' letto (non serve codice_leggi):\n${c.testo}`
+				: `I dati veri di ${c.titolo}, come li vede Andrea adesso:\n${c.testo}\n\nRaccontali a voce: il quadro in una frase, poi le due o tre cose che contano con i loro numeri, poi dove intervenire. Non aggiungere numeri che qui non ci sono; se ti serve il dettaglio, usa gli strumenti.`;
+		this.racconto = { allegato };
+		this.emit();
+		try {
+			return await this.turn(domanda, voce, { ragiona: true });
+		} finally {
+			this.racconto = undefined;
+			this.emit();
+		}
+	}
+
+	/** «ferma»: zitta subito e la risposta in corso si interrompe. */
+	fermaRacconto(): void {
+		this.currentAbort?.abort();
+		this.deps.nucleo.fireAndForget('voice.stopSpeaking');
+		this.passo('fermata', 'errore');
 	}
 
 	async turn(userText: string, speak: boolean, opts: { ragiona?: boolean } = {}): Promise<string> {
 		// a voce Agnes non ragiona (risponde subito); «Spiega il codice» ragiona anche se poi parla
 		this.spokenTurn = speak && !opts.ragiona;
 		this.pushLog('tu', userText);
+		this.passo(`› ${userText}`);
 
 		// Conferma in sospeso: questo turno e' il si/no.
 		if (this.pending) {
@@ -1041,11 +1098,13 @@ export class Assistant {
 			const full = said ? `${said} ${answer}` : answer;
 			this.recordAnswer(full);
 			this.afterTurn(speak);
+			this.passo(speak ? 'risposta pronta, la voce finisce di parlare' : 'risposta pronta', 'fatto');
 			return full;
 		};
 		const interrupted = (): string => {
 			// barge-in: chiudo senza "final" (la voce e' gia' stata fermata dal Nucleo)
 			this.speaking = false;
+			this.passo('interrotta', 'errore');
 			this.markInterrupted(this.turnText);
 			return this.turnText;
 		};
@@ -1172,6 +1231,7 @@ export class Assistant {
 			return;
 		}
 		if (k) this.saidClauses.add(k);
+		this.passo(clause, 'voce');
 		if (this.remote) {
 			if (this.state.state !== 'speaking') this.setState('speaking');
 			this.remote.frase(clause);
@@ -1238,19 +1298,25 @@ export class Assistant {
 		const messages: LlmMessage[] = [
 			{ role: 'system', content: brain === 'apple' ? appleInstructions(MELISSA_CORE, system.slice((this.cachedCore ?? '').length).trim()) : system },
 			...this.history,
-			{ role: 'user', content: userText },
+			// con «racconta» il contenuto gia' letto va con la domanda, ma non resta nella storia
+			{ role: 'user', content: this.racconto ? `${userText}\n\n${this.racconto.allegato}` : userText },
 		];
 		this.history.push({ role: 'user', content: userText });
 		this.trimHistory();
 
 		const agnes: LlmStreamFn = this.deps.stream ?? ((m, t, cb, sig) => this.callAgnesStream(m, t, cb, sig));
 		const choice = this.deps.cervelli?.choice();
+		// «racconta» pensa con DeepSeek (Flash, o V4 Pro con «profondo»); senza chiave o senza credito torna ad Agnes
+		const forzato = this.racconto && brain !== 'apple' && this.deps.cervelli?.key?.('deepseek')
+			? { provider: 'deepseek' as const, model: choice?.effort === 'profondo' ? 'deepseek-v4-pro' : 'deepseek-flash', effort: choice?.effort ?? ('normale' as const) }
+			: undefined;
 		let stream: LlmStreamFn = brain === 'apple'
 			? (this.deps.appleStream ?? this.appleStreamFn())
-			: (choice && choice.provider !== 'agnes' && choice.provider !== 'apple' && this.deps.cervelli!.streamFor(choice)) || agnes;
+			: (forzato && this.deps.cervelli!.streamFor(forzato)) || (choice && choice.provider !== 'agnes' && choice.provider !== 'apple' && this.deps.cervelli!.streamFor(choice)) || agnes;
 		const tools = brain === 'apple' ? (appleToolSpecs(this.specs) as ToolSpec[]) : this.specs;
 		const chosen = stream !== agnes && brain !== 'apple';
-		const chosenName = choice ? brainName(choice.model) : '';
+		const chosenName = forzato ? brainName(forzato.model) : choice ? brainName(choice.model) : '';
+		this.passo(`${chosen ? chosenName : brain === 'apple' ? 'Apple Intelligence' : 'Agnes'} ${this.racconto ? 'analizza' : 'pensa'}`, 'corre');
 
 		// Stesso strumento con gli stessi argomenti nello stesso turno: non si riesegue (niente progetto aperto due
 		// volte, niente lavoro avviato due volte) e al terzo tentativo il giro si chiude.
@@ -1347,17 +1413,16 @@ export class Assistant {
 		const bad = validateArgs(def.spec, args);
 		if (bad) return `Argomenti non validi: ${bad}.`;
 		let filler: NodeJS.Timeout | undefined;
-		const racconta = !!this.deps.actions.racconta?.();
-		const di = (frase: string | undefined) => {
+		// i passi vanno sempre nel terminale; durante «racconta» Melissa li dice anche a voce (src/racconto.ts)
+		const racconta = !!this.racconto;
+		const di = (frase: string | undefined, stato: Passo['stato']) => {
 			if (!frase || signal.aborted) return;
-			if (speak) this.emitClause(frase);
-			else this.azione(frase);
+			if (racconta && speak) this.emitClause(frase);
+			else this.passo(frase, stato);
 		};
+		di(fraseInizio(tc.function.name, args) ?? tc.function.name.replace(/_/g, ' '), 'corre');
 		if (racconta) {
-			// «racconta» acceso: cosa sta facendo, con la sua voce (o nel registro, se si scrive); se lo strumento e' lento,
-			// una frase in piu'. Frasi fisse e vere, come la Melissa di Avo (src/racconto.ts).
-			di(fraseInizio(tc.function.name, args));
-			filler = setTimeout(() => di(fraseAttesa(tc.function.name)), ATTESA_MS);
+			filler = setTimeout(() => di(fraseAttesa(tc.function.name), 'corre'), ATTESA_MS);
 		} else if (speak && !this.filled) {
 			// Riempitivo breve solo se un tool ci mette piu' di 1,5 s, una volta per turno.
 			filler = setTimeout(() => {
@@ -1369,10 +1434,8 @@ export class Assistant {
 		try {
 			const risultato = await def.run(args, this);
 			// cosa ha trovato, con i dati veri del risultato («Ho letto 420 righe», «Trovati 3 progetti»)
-			if (racconta) {
-				clearTimeout(filler);
-				di(fraseFine(tc.function.name, args, risultato));
-			}
+			clearTimeout(filler);
+			di(fraseFine(tc.function.name, args, risultato) ?? 'fatto', eFallito(String(risultato ?? '')) ? 'errore' : 'fatto');
 			return risultato;
 		} catch (e: any) {
 			return `Il tool ${tc.function.name} ha dato errore: ${e?.message ?? e}.`;

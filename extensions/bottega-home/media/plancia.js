@@ -2608,6 +2608,8 @@
 		if (view !== state.view) state.scroll[state.view] = window.scrollY || 0;
 		state.view = view;
 		persist();
+		// all'estensione: «racconta» con la Home davanti racconta questa stanza (CONTRATTI 6)
+		vscode.postMessage({ type: 'vista', view });
 		for (const [id] of VIEWS) $('vista-' + id).hidden = id !== view;
 		renderView();
 		adattaStanze();

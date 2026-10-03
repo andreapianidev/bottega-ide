@@ -373,45 +373,64 @@ function makeAssistant(over = {}) {
 		assert.ok(!/Sul codice/.test(vuoto.a.systemPrompt()));
 	});
 
-	await test('racconta acceso: a voce dice cosa sta facendo prima di rispondere; spento no; per iscritto va nel registro', async () => {
-		const passi = () => scriptedStream([[{ tool_call: { index: 0, id: 'c1', name: 'progetti_cerca', arguments: '{"testo":"peak"}' } }], [{ content: 'Ho trovato Peak.' }]]);
-		const acceso = makeAssistant({ stream: passi(), actions: { racconta: () => true } });
-		await acceso.a.turn('cerca peak', true);
-		const dette = acceso.nucleo.speaks.filter(s => s.append).map(s => s.text);
-		assert.deepStrictEqual(dette, ['Cerco i progetti su «peak».', 'Trovato: Peak.', 'Ho trovato Peak.']);
-		const spento = makeAssistant({ stream: passi(), actions: { racconta: () => false } });
-		await spento.a.turn('cerca peak', true);
-		assert.ok(!spento.nucleo.speaks.some(s => /Cerco i progetti/.test(s.text || '')));
-		const scritto = makeAssistant({ stream: passi(), actions: { racconta: () => true } });
-		await scritto.a.turn('cerca peak', false);
-		assert.ok(scritto.a.getState().log.some(l => l.role === 'azione' && l.text === 'Cerco i progetti su «peak».'));
-		assert.ok(!scritto.nucleo.speaks.length, 'per iscritto non parla');
+	await test('terminale: ogni passo vero va in attivita, anche senza racconto; la voce non lo dice', async () => {
+		const stream = scriptedStream([[{ tool_call: { index: 0, id: 'c1', name: 'progetti_cerca', arguments: '{"testo":"peak"}' } }], [{ content: 'Ho trovato Peak.' }]]);
+		const t = makeAssistant({ stream });
+		await t.a.turn('cerca peak', true);
+		const passi = t.a.getState().attivita.map(p => `${p.stato} ${p.testo}`);
+		assert.deepStrictEqual(passi, ['nota › cerca peak', 'corre Agnes pensa', 'corre Cerco i progetti su «peak».', 'fatto Trovato: Peak.', 'voce Ho trovato Peak.', 'fatto risposta pronta, la voce finisce di parlare']);
+		assert.deepStrictEqual(t.nucleo.speaks.filter(s => s.append).map(s => s.text), ['Ho trovato Peak.'], 'fuori dal racconto i passi non si dicono');
+		assert.strictEqual(t.a.getState().raccontando, false);
 	});
 
-	await test('racconta: dopo lo strumento dice cosa ha trovato, con i dati veri del risultato', async () => {
-		const stream = scriptedStream([[{ tool_call: { index: 0, id: 'c1', name: 'progetti_cerca', arguments: '{"testo":"p"}' } }], [{ content: 'Eccoli.' }]]);
-		const t = makeAssistant({ stream, actions: { racconta: () => true, searchProjects: () => [{ name: 'Peak', path: '/p/Peak' }, { name: 'Woofmap', path: '/p/W' }] } });
-		await t.a.turn('cerca p', true);
-		assert.deepStrictEqual(t.nucleo.speaks.filter(s => s.append).map(s => s.text), ['Cerco i progetti su «p».', 'Trovati 2 progetti.', 'Eccoli.']);
-	});
-
-	await test('«Spiega il codice»: legge con codice_leggi, ragiona anche se parla, e parla anche a voce spenta', async () => {
-		let reasoning;
-		const codice = { riga: () => 'Davanti ad Andrea nell\'editor: db.py, python, 3 righe.', leggi: () => 'File: db.py (python, 3 righe).\n\nIl file intero:\n1| a' };
-		let passo = 0;
-		const stream = async (messages, tools, onDelta) => {
-			reasoning = this_spoken();
-			if (passo++ === 0) return onDelta({ tool_call: { index: 0, id: 'c1', name: 'codice_leggi', arguments: '{}' } });
-			onDelta({ content: 'Questo file crea il database.' });
+	await test('racconta una stanza: DeepSeek, dati attaccati alla domanda ma non alla storia, passi e risposta a voce', async () => {
+		let visto;
+		const ds = async (messages, tools, onDelta) => {
+			visto = messages[messages.length - 1].content;
+			onDelta({ content: 'Il mese va bene: 402 euro. ' });
+			onDelta({ content: 'Sistema QR Scanner.' });
 		};
-		const t = makeAssistant({ stream, actions: { codice, racconta: () => true } });
-		const this_spoken = () => t.a.spokenTurn;
-		t.a.state.enabled = false;
-		await t.a.spiegaCodice();
-		assert.strictEqual(reasoning, false, 'turno che ragiona, non quello rapido della voce');
-		const dette = t.nucleo.speaks.filter(s => s.append).map(s => s.text);
-		assert.deepStrictEqual(dette, ['Leggo il codice che hai davanti.', 'Ho letto 3 righe.', 'Questo file crea il database.']);
-		assert.ok(t.a.getState().log.some(l => l.role === 'tu' && l.text === 'Spiegami il codice che ho davanti.'));
+		const cv = Object.assign(fakeCervelli({ provider: 'agnes', model: 'agnes-3.0-flash', effort: 'normale' }, { stream: ds }), { key: p => (p === 'deepseek' ? 'k' : undefined) });
+		const t = makeAssistant({ stream: scriptedStream([[{ content: 'Agnes non doveva rispondere.' }]]) });
+		t.a.deps.cervelli = cv;
+		t.a.state.enabled = false; // a voce spenta parla lo stesso
+		const out = await t.a.racconta({ tipo: 'stanza', titolo: 'la stanza App Store', testo: 'Ultimi 30 giorni: 402 € in tutto.' });
+		assert.match(out, /402 euro/);
+		assert.match(visto, /^Raccontami la stanza App Store\.\n\nI dati veri di la stanza App Store/);
+		assert.match(visto, /Ultimi 30 giorni: 402 € in tutto\./);
+		assert.ok(!t.a.history.some(m => /402 €/.test(String(m.content))), 'i dati non restano nella storia');
+		assert.deepStrictEqual(t.nucleo.speaks.filter(s => s.append).map(s => s.text), ['Il mese va bene: 402 euro.', 'Sistema QR Scanner.']);
+		const passi = t.a.getState().attivita.map(p => p.testo);
+		assert.ok(passi.includes('leggo la stanza App Store'));
+		assert.ok(passi.includes('DeepSeek V4.1 Flash analizza'), passi.join(' | '));
+		assert.strictEqual(t.a.getState().raccontando, false, 'finito, il pulsante torna «racconta»');
+	});
+
+	await test('racconta il codice: ragiona anche se parla; niente davanti lo dice; ferma zittisce e interrompe', async () => {
+		let parlato;
+		let fermo;
+		const ds = (messages, tools, onDelta, signal) => {
+			parlato = t.a.spokenTurn;
+			onDelta({ content: 'Questo file crea il database. ' });
+			return new Promise((ok, ko) => {
+				fermo = () => ko(Object.assign(new Error('interrotto'), { name: 'AbortError' }));
+				signal.addEventListener('abort', () => fermo());
+			});
+		};
+		const cv = Object.assign(fakeCervelli({ provider: 'agnes', model: 'agnes-3.0-flash', effort: 'normale' }, { stream: ds }), { key: () => 'k' });
+		const t = makeAssistant({ stream: scriptedStream([]) });
+		t.a.deps.cervelli = cv;
+		const corsa = t.a.racconta({ tipo: 'codice', titolo: 'db.py', testo: 'File: db.py (python, 2 righe).\n\nIl file intero:\n1| a\n2| b' });
+		await new Promise(r => setTimeout(r, 20));
+		assert.strictEqual(parlato, false, 'ragiona: non e\' il turno rapido della voce');
+		assert.strictEqual(t.a.getState().raccontando, true, 'durante il racconto il pulsante e\' «ferma»');
+		t.a.fermaRacconto();
+		await corsa;
+		assert.ok(t.nucleo.reqs.some(c => c.cmd === 'voice.stopSpeaking'), 'la voce si zittisce');
+		assert.strictEqual(t.a.getState().raccontando, false);
+		assert.ok(t.a.getState().attivita.some(p => p.testo === 'fermata' && p.stato === 'errore'));
+		await t.a.racconta(undefined);
+		assert.ok(t.a.getState().attivita.some(p => /niente da raccontare/.test(p.testo)));
 	});
 
 	// ---- streaming dei delta + TTS frase per frase ----

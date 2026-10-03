@@ -88,6 +88,16 @@
         "category": "Bottega"
       },
       {
+        "command": "bottega.racconta",
+        "title": "Melissa, racconta quello che ho davanti",
+        "category": "Bottega"
+      },
+      {
+        "command": "bottega.raccontaFerma",
+        "title": "Melissa, ferma il racconto",
+        "category": "Bottega"
+      },
+      {
         "command": "bottega.spiegaCodice",
         "title": "Spiega con Melissa",
         "icon": "$(comment-discussion)",
@@ -494,11 +504,6 @@
           "type": "string",
           "default": "eleven_v4_turbo",
           "description": "Il modello di voce usato dal Nucleo per la sintesi vocale di Melissa."
-        },
-        "bottega.voice.racconta": {
-          "type": "boolean",
-          "default": false,
-          "description": "Melissa racconta cosa sta facendo mentre lavora (legge il file, guarda la stanza, avvia un lavoro), a voce o nel registro. È l'interruttore «racconta» nella barra."
         },
         "bottega.voice.orbAlwaysVisible": {
           "type": "boolean",
