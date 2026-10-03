@@ -307,6 +307,11 @@ function call(port, method, url, { token, body, raw } = {}) {
 		const { certificatoPonte } = require(path.join(OUT, 'ponte-tls.js'));
 		assert.strictEqual(certificatoPonte(dir, 'mac-di-prova.tailnet.ts.net', '127.0.0.1').impronta, st.https.impronta);
 		assert.notStrictEqual(certificatoPonte(dir, 'altro-nome.tailnet.ts.net', '127.0.0.1').impronta, st.https.impronta, 'nome cambiato: certificato nuovo');
+		// una chiave che il TLS non carica (build 71: quella di openssl -newkey in Electron) si rifa'
+		assert.match(fs.readFileSync(k, 'utf8'), /^-----BEGIN PRIVATE KEY-----/, 'PKCS#8, fatta da Node');
+		fs.writeFileSync(k, '-----BEGIN PRIVATE KEY-----\nnonvale\n-----END PRIVATE KEY-----\n');
+		const rifatto = certificatoPonte(dir, 'altro-nome.tailnet.ts.net', '127.0.0.1');
+		assert.ok(rifatto.key.toString().includes('BEGIN PRIVATE KEY') && !rifatto.key.toString().includes('nonvale'), 'chiave illeggibile: rifatta');
 	}
 	ok('https sulla porta accanto: stesse rotte, gettone, impronta nello stato, certificato riusato');
 

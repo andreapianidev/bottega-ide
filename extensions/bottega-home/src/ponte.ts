@@ -360,7 +360,8 @@ export class Ponte {
 				this.pingTimer = setInterval(() => {
 					for (const r of this.flussi) r.write(': ping\n\n');
 				}, 25_000);
-				void this.apriSicuro(ip, server).then(resolve);
+				// l'http e' gia' su: qualunque cosa succeda all'https, il ponte va avanti
+				void this.apriSicuro(ip, server).catch(() => undefined).then(() => resolve());
 			});
 		});
 	}
@@ -375,7 +376,14 @@ export class Ponte {
 				this.deps.log(`ponte: niente https, il certificato non si fa (${e?.message ?? e})`);
 				return resolve();
 			}
-			const server = https.createServer({ key: cert.key, cert: cert.cert, minVersion: 'TLSv1.2' }, (req, res) => void this.gestisci(req, res));
+			let server: https.Server;
+			try {
+				server = https.createServer({ key: cert.key, cert: cert.cert, minVersion: 'TLSv1.2' }, (req, res) => void this.gestisci(req, res));
+			} catch (e: any) {
+				// senza questo un errore qui lasciava appeso il riallineamento del ponte (build 71)
+				this.deps.log(`ponte: niente https, il certificato non si carica (${e?.message ?? e})`);
+				return resolve();
+			}
 			server.on('error', (e: any) => {
 				this.deps.log(`ponte: niente https sulla ${this.porta + 1} (${e?.code ?? e?.message ?? e})`);
 				server.close();

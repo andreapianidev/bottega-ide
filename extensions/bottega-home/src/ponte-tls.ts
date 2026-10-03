@@ -9,6 +9,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as tls from 'tls';
 import { execFileSync } from 'child_process';
 
 export interface CertificatoPonte {
@@ -39,6 +40,8 @@ export function certificatoPonte(dir: string, nome: string, ip: string, ora = Da
 		const san = x.subjectAltName ?? '';
 		const ancora = Date.parse(x.validTo) - ora > RINNOVO_MS;
 		if (ancora && san.includes(`DNS:${nome}`) && (!ip || san.includes(`IP Address:${ip}`)) && x.checkPrivateKey(crypto.createPrivateKey(key))) {
+			// deve caricarsi davvero nel TLS di chi gira (nella Bottega e' Electron, con BoringSSL)
+			tls.createSecureContext({ key, cert });
 			return { key, cert, impronta: improntaDi(cert) };
 		}
 	} catch {
@@ -49,10 +52,14 @@ export function certificatoPonte(dir: string, nome: string, ip: string, ora = Da
 	const san = [`DNS:${nome}`, ...(ip ? [`IP:${ip}`] : [])].join(',');
 	const tmpK = fk + '.nuova';
 	const tmpC = fc + '.nuovo';
+	// La chiave la fa Node, in PKCS#8 con la curva per nome: quella di openssl -newkey (LibreSSL sul Mac) la
+	// BoringSSL di Electron non la legge (DECODE_ERROR, build 71). openssl firma soltanto.
+	const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+	fs.writeFileSync(tmpK, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
 	// P-256 e SHA-256: quello che chiede App Transport Security; serverAuth e il nome nel SAN, come vuole iOS
 	execFileSync(openssl, [
-		'req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-sha256',
-		'-days', String(GIORNI), '-subj', '/CN=Bottega ponte', '-keyout', tmpK, '-out', tmpC,
+		'req', '-new', '-x509', '-key', tmpK, '-sha256',
+		'-days', String(GIORNI), '-subj', '/CN=Bottega ponte', '-out', tmpC,
 		'-addext', `subjectAltName=${san}`, '-addext', 'extendedKeyUsage=serverAuth', '-addext', 'keyUsage=digitalSignature',
 		'-addext', 'basicConstraints=critical,CA:FALSE',
 	], { stdio: 'ignore', timeout: 15_000 });
@@ -62,5 +69,6 @@ export function certificatoPonte(dir: string, nome: string, ip: string, ora = Da
 	fs.renameSync(tmpC, fc);
 	const key = fs.readFileSync(fk);
 	const cert = fs.readFileSync(fc);
+	tls.createSecureContext({ key, cert });
 	return { key, cert, impronta: improntaDi(cert) };
 }

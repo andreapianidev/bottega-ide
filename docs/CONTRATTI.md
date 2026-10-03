@@ -1372,7 +1372,7 @@ nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard,
 - `GET /v1/stato` -> `{versione, mac, ora, vicino (9.9), https?: {porta, impronta}, melissa: {stato, cervello, parziale?, registro: [{chi: tu|melissa|azione,
   testo, alle}]}, lavori: [{chiave, origine: bottega|altrove, stato, progetto, titolo, da, jobId?}], conti: {inCorso,
   tiAspetta, inCoda, vive}}`. `https` (build 71): le stesse rotte cifrate su `porta + 1` (7791), con il
-  certificato fatto dal Mac (`src/ponte-tls.ts`: P-256, SHA-256, 800 giorni, SAN col nome MagicDNS e l'indirizzo,
+  certificato fatto dal Mac (`src/ponte-tls.ts`: chiave P-256 fatta da Node in PKCS#8, perche' quella di `openssl -newkey` la BoringSSL di Electron non la carica (build 72); SHA-256, 800 giorni, SAN col nome MagicDNS e l'indirizzo,
   in `~/.bottega/ponte-tls/`, rifatto se scade tra meno di 30 giorni o cambia il nome) e la sua impronta SHA-256
   del DER in esadecimale minuscolo. Assente se l'https non e' partito: l'http sulla 7790 resta sempre. Registro: gli ultimi 30 della barra di Melissa. Lavori: i primi 40 di `snapshot.work`.
 - `GET /v1/eventi` -> `text/event-stream`: subito una riga `data: <stato>`, poi una a ogni cambio di Melissa o dei
