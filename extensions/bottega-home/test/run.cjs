@@ -14,7 +14,7 @@ const SRC = path.join(__dirname, '..', 'src');
 const OUT = path.join(__dirname, 'test-out');
 
 esbuild.buildSync({
-	entryPoints: ['jobs', 'assistant', 'cervello', 'nucleo', 'memoria', 'claude', 'scan'].map(n => path.join(SRC, n + '.ts')),
+	entryPoints: ['jobs', 'assistant', 'cervello', 'nucleo', 'memoria', 'claude', 'scan', 'racconto'].map(n => path.join(SRC, n + '.ts')),
 	outdir: OUT,
 	format: 'cjs',
 	platform: 'node',
@@ -188,7 +188,6 @@ function makeAssistant(over = {}) {
 			stopJob: id => rec.stopJob.push(id),
 			gitPush: p => rec.gitPush.push(p),
 			openFile: () => true,
-			editorContext: () => ({}),
 			showPlancia: () => {},
 		},
 		over.actions || {},
@@ -348,6 +347,45 @@ function makeAssistant(over = {}) {
 		const out = await a.runAgent('cerca peak', false, ac.signal);
 		assert.deepStrictEqual(rec.searchProjects, ['peak'], 'tool chiamato con gli argomenti riassemblati');
 		assert.ok(out.includes('Peak'));
+	});
+
+	// ---- il codice davanti ad Andrea (src/occhio.ts) e il racconto mentre lavora (src/racconto.ts) ----
+	await test('codice: «spiegami questo» legge il file con codice_leggi; la riga e la regola nel prompt solo con un file aperto', async () => {
+		let letto = 0;
+		const codice = { riga: () => 'Davanti ad Andrea nell\'editor: avo_bnb/db.py, python, 420 righe.', leggi: nome => (letto++, `File: avo_bnb/db.py\n1| import os${nome ? ' ' + nome : ''}`) };
+		let prompts = [];
+		const stream = async (messages, tools, onDelta) => {
+			prompts.push(messages[0].content);
+			if (prompts.length === 1) return onDelta({ tool_call: { index: 0, id: 'c1', name: 'codice_leggi', arguments: '{}' } });
+			const toolMsg = messages.find(m => m.role === 'tool');
+			onDelta({ content: toolMsg && /import os/.test(toolMsg.content) ? 'Importa os, e basta.' : 'non ho letto niente' });
+		};
+		const { a } = makeAssistant({ stream, actions: { codice } });
+		const out = await a.runAgent('spiegami questo', false, new AbortController().signal);
+		assert.strictEqual(letto, 1);
+		assert.strictEqual(out, 'Importa os, e basta.');
+		assert.match(prompts[0], /Davanti ad Andrea nell'editor: avo_bnb\/db\.py/);
+		assert.match(prompts[0], /Sul codice: prima leggi con codice_leggi/);
+		assert.ok(a.specs.some(t => t.function.name === 'codice_leggi'));
+		assert.ok(!a.specs.some(t => t.function.name === 'editor_contesto'), 'lo strumento vecchio non c\'e\' piu\'');
+		// senza file aperto: niente riga e niente regola, il prompt resta leggero
+		const vuoto = makeAssistant({ stream: scriptedStream([[{ content: 'ok' }]]), actions: { codice: { riga: () => undefined, leggi: () => '' } } });
+		assert.ok(!/Sul codice/.test(vuoto.a.systemPrompt()));
+	});
+
+	await test('racconta acceso: a voce dice cosa sta facendo prima di rispondere; spento no; per iscritto va nel registro', async () => {
+		const passi = () => scriptedStream([[{ tool_call: { index: 0, id: 'c1', name: 'progetti_cerca', arguments: '{"testo":"peak"}' } }], [{ content: 'Ho trovato Peak.' }]]);
+		const acceso = makeAssistant({ stream: passi(), actions: { racconta: () => true } });
+		await acceso.a.turn('cerca peak', true);
+		const dette = acceso.nucleo.speaks.filter(s => s.append).map(s => s.text);
+		assert.deepStrictEqual(dette, ['Cerco i progetti su «peak».', 'Ho trovato Peak.']);
+		const spento = makeAssistant({ stream: passi(), actions: { racconta: () => false } });
+		await spento.a.turn('cerca peak', true);
+		assert.ok(!spento.nucleo.speaks.some(s => /Cerco i progetti/.test(s.text || '')));
+		const scritto = makeAssistant({ stream: passi(), actions: { racconta: () => true } });
+		await scritto.a.turn('cerca peak', false);
+		assert.ok(scritto.a.getState().log.some(l => l.role === 'azione' && l.text === 'Cerco i progetti su «peak».'));
+		assert.ok(!scritto.nucleo.speaks.length, 'per iscritto non parla');
 	});
 
 	// ---- streaming dei delta + TTS frase per frase ----

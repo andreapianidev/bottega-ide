@@ -111,6 +111,7 @@
 					<label title="L'equilibrio di sempre"><input type="radio" name="impegno" value="normale"><span>normale</span></label>
 					<label title="Pensa a fondo, ci mette di più"><input type="radio" name="impegno" value="profondo"><span>profondo</span></label>
 				</fieldset>
+				<label class="racconta" title="Melissa dice cosa sta facendo mentre lavora: legge il file, guarda una stanza, avvia un lavoro"><input type="checkbox" id="racconta"><span>racconta</span></label>
 			</div>
 			<details class="conti" id="conti" hidden>
 				<summary><i class="conto-punto" id="conti-punto" aria-hidden="true"></i><span id="conti-riassunto"></span></summary>
@@ -577,6 +578,8 @@
 		const t = /** @type {Node} */ (ev.target);
 		if (!lista.hidden && !lista.contains(t) && !cervello.contains(t)) chiudi(false);
 	});
+	// «racconta»: Melissa dice cosa sta facendo mentre lavora (src/racconto.ts)
+	$('racconta').addEventListener('change', ev => post({ type: 'racconta.set', on: /** @type {HTMLInputElement} */ (ev.target).checked }));
 	$('impegno').addEventListener('change', ev => {
 		const r = /** @type {HTMLInputElement} */ (ev.target);
 		if (r.checked) post({ type: 'effort.set', effort: r.value });
@@ -990,6 +993,7 @@
 				S.brain = m.brain || null;
 				dirty.brain = true;
 			}
+			if ('racconta' in m) $('racconta').checked = !!m.racconta;
 			if ('work' in m) {
 				S.work = Array.isArray(m.work) ? m.work : [];
 				dirty.work = true;

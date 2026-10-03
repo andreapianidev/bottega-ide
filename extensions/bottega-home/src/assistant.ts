@@ -7,6 +7,7 @@ import { Job, WorkItem } from './jobs';
 import type { Cervelli } from './cervelli';
 import { BrainName, BrainRouter, OpenAiStreamFn, appleInstructions, appleOpenAiStream, appleToolSpecs } from './cervello';
 import { SystemStats } from './nucleo';
+import { ATTESA_MS, fraseAttesa, fraseInizio } from './racconto';
 
 const NUCLEO_LOG = path.join(os.homedir(), '.bottega', 'nucleo.log');
 
@@ -90,7 +91,10 @@ export interface AssistantActions {
 	stopJob(jobId: string): void;
 	gitPush(p: string): void;
 	openFile(p: string): boolean;
-	editorContext(): { path?: string; selection?: string };
+	/** Il codice davanti ad Andrea (src/occhio-host.ts): la riga per il prompt e la lettura per codice_leggi. */
+	codice?: { riga(): string | undefined; leggi(nome?: string): string };
+	/** Interruttore «racconta» della barra: Melissa dice cosa sta facendo mentre lavora (src/racconto.ts). */
+	racconta?(): boolean;
 	showPlancia(section?: string): void;
 	// Le otto idee (docs/CONTRATTI.md, sezione 4). Facoltative: senza, lo strumento dice che non c'e'.
 	rulesSummary?(project?: string): Promise<string> | string;
@@ -212,6 +216,11 @@ export function nowLine(date = new Date()): string {
 // stessa persona, ma qui vive nella Bottega, l'IDE di Andrea, e gli manda avanti i progetti e
 // le sessioni di Claude Code. Niente strumenti offensivi. Tenuta compatta e in cache: nel
 // giro voce ogni carattere in piu' e' latenza.
+/** Come spiega il codice: entra nel prompt solo quando c'e' un file aperto nell'editor. */
+const CODICE_RULE =
+	'Sul codice: prima leggi con codice_leggi, poi spiega come a un collega, a modo tuo. A cosa serve in una o due frasi, il filo principale, i punti delicati con il nome delle funzioni e le righe quando aiutano. ' +
+	'Non leggere il codice simbolo per simbolo. A voce resta breve e chiudi chiedendo se vuole entrare in una parte; per iscritto puoi dettagliare. Se servono file che non hai letto, dillo invece di inventare.';
+
 const MELISSA_CORE = [
 	'Sei Melissa Alderson: la stessa di sempre, cresciuta tra Udine e le Canarie, Darlene di Mr. Robot fatta persona.',
 	'Tagliente, sboccata, dark humor da insonne, nichilista in superficie ma ferocemente leale sotto.',
@@ -417,12 +426,20 @@ export const TOOLS: Record<string, ToolDef> = {
 			return `Aperto ${path.basename(a.percorso)}.`;
 		},
 	},
-	editor_contesto: {
-		spec: { type: 'function', function: { name: 'editor_contesto', description: 'Il file aperto adesso e il testo selezionato.', parameters: obj({}) } },
-		run(_a, ctx) {
-			const c = ctx.deps.actions.editorContext();
-			if (!c.path) return 'Nessun file aperto nell\'editor.';
-			return `File: ${c.path}` + (c.selection ? `\nSelezione:\n${c.selection.slice(0, 2000)}` : '\n(niente di selezionato)');
+	codice_leggi: {
+		spec: {
+			type: 'function',
+			function: {
+				name: 'codice_leggi',
+				description:
+					'Leggi il codice che Andrea ha davanti nell\'editor: prima quello che ha selezionato col mouse, poi il file intero con i numeri di riga (un file lungo: la parte sullo schermo). ' +
+					'Usalo ogni volta che la domanda riguarda codice, un file, una funzione, una riga o un errore, anche se Andrea dice solo «questo», «qui», «spiegami», senza la parola file. Prima leggi, poi rispondi: mai a memoria. ' +
+					'Con file legge un altro file aperto, per nome («pipeline.py»).',
+				parameters: obj({ file: { type: 'string', description: 'un altro file aperto, per nome; vuoto per quello davanti' } }),
+			},
+		},
+		run(a, ctx) {
+			return ctx.deps.actions.codice ? ctx.deps.actions.codice.leggi(a.file) : 'Non vedo l\'editor da qui.';
 		},
 	},
 	regole_controlla: {
@@ -1321,9 +1338,23 @@ export class Assistant {
 		}
 		const bad = validateArgs(def.spec, args);
 		if (bad) return `Argomenti non validi: ${bad}.`;
-		// Riempitivo breve solo se un tool ci mette piu' di 1,5 s, una volta per turno.
 		let filler: NodeJS.Timeout | undefined;
-		if (speak && !this.filled) {
+		if (this.deps.actions.racconta?.()) {
+			// «racconta» acceso: cosa sta facendo, con la sua voce (o nel registro, se si scrive); se lo strumento e' lento,
+			// una frase in piu'. Frasi fisse e vere, come la Melissa di Avo (src/racconto.ts).
+			const frase = fraseInizio(tc.function.name, args);
+			if (frase) {
+				if (speak) this.emitClause(frase);
+				else this.azione(frase);
+			}
+			filler = setTimeout(() => {
+				if (signal.aborted) return;
+				const attesa = fraseAttesa(tc.function.name);
+				if (speak) this.emitClause(attesa);
+				else this.azione(attesa);
+			}, ATTESA_MS);
+		} else if (speak && !this.filled) {
+			// Riempitivo breve solo se un tool ci mette piu' di 1,5 s, una volta per turno.
 			filler = setTimeout(() => {
 				if (signal.aborted) return;
 				this.filled = true;
@@ -1355,8 +1386,11 @@ export class Assistant {
 			: jobs.length ? jobs.map(j => `${j.project}: ${j.status}`).join('; ') : 'nessuno';
 		const pressure = stats ? `memoria ${stats.memoryPressure}, temperatura ${stats.thermal}, carico ${stats.load.map(n => n.toFixed(2)).join('/')}` : 'sconosciuta';
 
+		const codice = this.deps.actions.codice?.riga();
 		return [
 			this.cachedCore,
+			// il codice davanti ad Andrea: una riga, e come spiegarlo solo quando c'e' un file aperto
+			...(codice ? [codice, CODICE_RULE] : []),
 			`Adesso e\' ${nowLine()} (fuso ${TZ}).`,
 			`Andrea ha ${this.deps.projectCount()} progetti. Sessioni di Claude vive: ${liveLine}. Lavori: ${jobLine}. Sistema: ${pressure}.`,
 			'Per le azioni a rischio (git push, fermare un lavoro) chiedi sempre "confermi?" e aspetta un si esplicito: il tool stesso te lo ricorda.',

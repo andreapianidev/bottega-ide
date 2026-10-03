@@ -475,6 +475,11 @@
           "default": "eleven_v4_turbo",
           "description": "Il modello di voce usato dal Nucleo per la sintesi vocale di Melissa."
         },
+        "bottega.voice.racconta": {
+          "type": "boolean",
+          "default": false,
+          "description": "Melissa racconta cosa sta facendo mentre lavora (legge il file, guarda la stanza, avvia un lavoro), a voce o nel registro. È l'interruttore «racconta» nella barra."
+        },
         "bottega.voice.orbAlwaysVisible": {
           "type": "boolean",
           "default": true,
@@ -662,7 +667,7 @@
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=out/extension.js",
     "typecheck": "tsc --noEmit",
-    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/whatsapp.cjs && node test/strumenti-connettori.cjs && node test/vercel.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs && node test/ponte-sessioni.cjs && node test/ponte-stanze.cjs && node test/avvisi.cjs && node test/aggiorna.cjs && node test/cline.cjs && node test/terminale.cjs && node test/appstore.cjs && node test/terminale-agnes.cjs && node test/strumenti-stanze.cjs && node test/conti.cjs"
+    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/idee.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/whatsapp.cjs && node test/strumenti-connettori.cjs && node test/vercel.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs && node test/ponte-sessioni.cjs && node test/ponte-stanze.cjs && node test/avvisi.cjs && node test/aggiorna.cjs && node test/cline.cjs && node test/terminale.cjs && node test/appstore.cjs && node test/terminale-agnes.cjs && node test/strumenti-stanze.cjs && node test/conti.cjs && node test/occhio.cjs && node test/racconto.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

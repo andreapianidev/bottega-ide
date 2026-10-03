@@ -302,6 +302,20 @@ function lineette(d) {
 		assert.strictEqual(b.$('#impegno input[value=rapido]').checked, true);
 	});
 
+	await test('racconta: l\'interruttore manda racconta.set e segue lo stato', () => {
+		const b = mount();
+		b.send(stato({ racconta: false }));
+		const r = b.$('#racconta');
+		assert.strictEqual(r.checked, false);
+		r.checked = true;
+		r.dispatchEvent(new b.w.Event('change', { bubbles: true }));
+		assert.deepStrictEqual(b.last('racconta.set'), { type: 'racconta.set', on: true });
+		b.send({ type: 'stato', racconta: false });
+		assert.strictEqual(r.checked, false, 'lo stato vero vince');
+		b.send({ type: 'stato', brain: brain() });
+		assert.strictEqual(r.checked, false, 'un messaggio senza racconta non lo tocca');
+	});
+
 	await test('sfera: stato in parole, frase parziale, clic manda converse, voce', () => {
 		const b = mount();
 		b.send(stato());

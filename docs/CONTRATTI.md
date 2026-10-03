@@ -950,6 +950,7 @@ All'avvio l'estensione apre il contenitore una volta (`workbench.view.extension.
 - `board: Record<sessionId, {at, kind, summary, file?}[]>`: le ultime voci della bacheca della Memoria per ogni sessione
   viva (al massimo 4 per sessione, ultime 3 ore)
 - `brain: BrainState`
+- `racconta: boolean` (l'interruttore «racconta», impostazione `bottega.voice.racconta`, spenta di default)
 - separati: `{type:'bacheca.sessione', sessionId, items}` (risposta a «Le ultime tre ore»), `{type:'visibile', visible}`,
   `{type:'fuoco', focused}` (la finestra della Bottega davanti o dietro: a `ready` e a ogni cambio); un campo assente in
   `stato` vuol dire invariato
@@ -980,7 +981,7 @@ interface Account {
 ### Barra -> estensione
 
 `ready`, `converse` (apre o chiude la conversazione a voce), `ask {text}`, `voice.toggle`,
-`brain.set {provider, model}`, `effort.set {effort}`,
+`brain.set {provider, model}`, `effort.set {effort}`, `racconta.set {on}`,
 `job.focus {id}`, `job.write {id, text}` (istruzioni a un lavoro della Bottega), `open {path}`, `claude {path, id}`
 (riprendi qui una sessione aperta altrove), `bacheca.sessione {sessionId}`, `home {view}` (porta la Home su una stanza),
 `comando {id}` (comandi rapidi: `briefing`, `regole`, `lavori`, `cruscotto`, `continua`, `cerca`; `conti` apre la sezione
@@ -1024,6 +1025,28 @@ sessioni aperte altrove e' sola lettura), `cruscotto_mostra {progetto?, giorni?}
 `{type:'crus.focus', path?, period?}`: il cruscotto cambia periodo e accende il progetto sul cielo e in classifica
 mentre Melissa risponde; un comando arrivato prima dei dati si applica al loro arrivo). In conversazione, quando un
 lavoro comincia ad aspettare, Melissa lo dice una volta («Peak ti aspetta»).
+
+### Il codice davanti ad Andrea (3/10/2026)
+
+`src/occhio.ts` (logica pura, `test/occhio.cjs`) e `src/occhio-host.ts` (VS Code). Il file «davanti» e' l'editor di
+testo attivo; se davanti c'e' la Home, la barra o un'immagine, l'ultimo file di codice guardato (`file:` o `untitled:`).
+- A ogni domanda, solo con un file aperto, il prompt di sistema ha una riga («Davanti ad Andrea nell'editor:
+  avo_bnb/db.py, python, 420 righe; sullo schermo le righe 37-55; selezionate le righe 46-50; accanto: ...») e la regola
+  di come spiegare il codice (`CODICE_RULE` in `assistant.ts`). Il contenuto non entra mai nel prompt da solo.
+- Lo strumento `codice_leggi {file?}` (ha preso il posto di `editor_contesto`): prima la selezione fatta col mouse
+  (fino a 12.000 caratteri), poi il file intero con i numeri di riga (`37| ...`) fino a 60.000 caratteri; un file piu'
+  lungo da' la parte sullo schermo con 150 righe prima e dopo, e dice di non inventare il resto. `file` legge un altro
+  file aperto per nome. I file di segreti (`~/.secrets`, `.env*`, chiavi `.pem .p8 .p12 .key .jks`, `id_*`, `.npmrc`,
+  `.netrc`) non si leggono mai: andrebbero al cervello in rete. Apple Intelligence non ha questo strumento (contesto
+  troppo piccolo).
+
+### Il racconto mentre lavora
+
+Con l'interruttore «racconta» acceso, a ogni strumento che parte Melissa dice una frase fissa e vera (`src/racconto.ts`,
+`fraseInizio`, come `AgentActivityNarration` della Melissa di Avo): a voce con ElevenLabs, o nel registro se la domanda
+e' scritta; anche verso l'iPhone. Mai il ragionamento del modello, mai comandi, chiavi o risultati grezzi, mai una
+chiamata a un cervello. Uno strumento oltre 8 secondi (`ATTESA_MS`) aggiunge `fraseAttesa`. Spento: come prima, al
+massimo «Un attimo.» una volta per turno se uno strumento passa 1,5 s.
 
 Strumenti sui connettori (5.7), sempre in sola lettura:
 - `connettori_elenco {server?, cerca?}`: senza server, i connettori con stato e tipo (diretti e gratis, oppure via

@@ -27,6 +27,7 @@ import { registraStrumentiConnettori, STRUMENTI_CONNETTORI } from './strumenti-c
 import { registerTerminale, STRUMENTI_TERMINALE } from './terminale-host';
 import type { AppStore } from './appstore';
 import { Conti } from './conti';
+import { registraOcchio } from './occhio-host';
 import { allarmiAppStore, briefingAppStore, handleAppStore, registerAppStore, STRUMENTI_APPSTORE } from './appstore-host';
 import { registraStrumentiStanze, STRUMENTI_STANZE } from './strumenti-stanze';
 import { buildReport, readClients } from './clienti';
@@ -411,12 +412,6 @@ function openFile(p: string): boolean {
 	return true;
 }
 
-function editorContext(): { path?: string; selection?: string } {
-	const ed = vscode.window.activeTextEditor;
-	if (!ed) return {};
-	const text = ed.document.getText(ed.selection);
-	return { path: ed.document.uri.fsPath, selection: text || undefined };
-}
 
 function showPlancia(section?: string): void {
 	panelHost?.show();
@@ -609,6 +604,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		log: s => console.warn(s),
 	});
 	conti = registraConti(ctx);
+	// gli occhi di Melissa sul codice dell'editor (src/occhio-host.ts)
+	const occhio = registraOcchio(ctx);
 
 	assistant = new Assistant({
 		nucleo: nucleo!,
@@ -625,7 +622,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			stopJob: id => jobManager!.stop(id),
 			gitPush: p => push(p),
 			openFile,
-			editorContext,
+			codice: occhio,
+			racconta: () => cfg().get<boolean>('voice.racconta', false),
 			showPlancia,
 			rulesSummary: p => idee?.rulesSummary(p) ?? 'Il semaforo non è pronto.',
 			briefing: async () => (idee ? idee.briefingFacts() : 'Il briefing non è pronto.'),
@@ -850,6 +848,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			workCounts: () => snapshot.workCounts,
 			board: async () => (memoria ? memoria.bacheca(undefined, 180) : []),
 			brain: async () => cervelli!.state(),
+			racconta: () => cfg().get<boolean>('voice.racconta', false),
 		},
 		{
 			converse: () => assistant?.toggleConversation(),
@@ -857,6 +856,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			toggleVoice: () => void assistant?.toggle(),
 			setBrain: async (p, m) => void (await cervelli!.set(p, m)),
 			setEffort: async e => void (await cervelli!.setEffort(e)),
+			setRacconta: async on => void (await cfg().update('voice.racconta', on, vscode.ConfigurationTarget.Global)),
 			focusJob: id => jobManager?.focus(id),
 			writeJob: (id, text) => {
 				if (!jobManager?.write(id, text)) void vscode.window.showWarningMessage('Quel lavoro non ha più un terminale aperto.');
@@ -883,6 +883,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	// il Nucleo ha detto cosa sa fare (anche dopo un riavvio): Apple Intelligence si rilegge subito nell'elenco dei cervelli
 	nucleo?.on('capabilities', () => barraView?.refreshBrainNow());
 	ctx.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration(e => e.affectsConfiguration('bottega.voice.racconta') && barraView?.update()),
 		vscode.window.registerWebviewViewProvider(BarraView.id, barraView),
 		{ dispose: () => barraView?.dispose() },
 		changed.event(() => barraView?.update()),
