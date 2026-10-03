@@ -169,7 +169,8 @@ body.sfondo *::after { animation-play-state: paused !important; }
 	z-index: 2;
 }
 
-.cervello { position: relative; }
+/* sopra i selettori dell'impegno: le loro etichette sono posizionate e, venendo dopo, coprivano l'elenco aperto */
+.cervello { position: relative; z-index: 3; }
 
 .cervello-tasto {
 	width: 100%;

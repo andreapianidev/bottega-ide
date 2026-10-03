@@ -9,7 +9,6 @@
 
 	const SPESE = [
 		['deepseek', 'DeepSeek'],
-		['openrouter', 'OpenRouter'],
 		['deleghe', 'Claude, deleghe'],
 	];
 	const GIORNO = 86_400_000;
@@ -75,7 +74,7 @@
 			const t = [];
 			const tessera = (nome, valore, frase, tono) =>
 				`<div class="cifra conti-${tono}"><dt>${esc(nome)}</dt><dd><b>${esc(valore)}</b><small>${esc(frase)}</small></dd></div>`;
-			for (const id of ['deepseek', 'openrouter']) {
+			for (const id of ['deepseek']) {
 				const x = s[id];
 				if (x) t.push(tessera(x.nome, dollari(x.saldo), x.frase.replace(/^restano [^,]+(, )?/, '') || (x.mediaGiorno === null ? 'il ritmo si vede dal secondo giorno' : ''), x.tono));
 			}
@@ -117,12 +116,12 @@
 					svg += `<rect class="cs-${id}" x="${(x - bw / 2).toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, y0 - y1 - (acc > v && y0 - y1 > 3 ? 2 : 0)).toFixed(1)}" rx="2"/>`;
 					righe.push(`${nome} ${dollari(v)}`);
 				}
-				const ric = ['deepseek', 'openrouter'].filter(id => g[id] && g[id].ricarica > 0);
+				const ric = ['deepseek'].filter(id => g[id] && g[id].ricarica > 0);
 				for (const id of ric) {
 					// la ricarica: un segno sopra il giorno
 					const yr = Math.min(y(acc) - 6, T + ph - 6);
 					svg += `<path class="cs-ricarica" d="M${(x - 4).toFixed(1)} ${(yr - 6).toFixed(1)} h8 l-4 6 z"/>`;
-					righe.push(`ricarica ${id === 'deepseek' ? 'DeepSeek' : 'OpenRouter'} ${dollari(g[id].ricarica)}`);
+					righe.push(`ricarica DeepSeek ${dollari(g[id].ricarica)}`);
 				}
 				if (righe.length) svg += `<rect class="cs-sopra" x="${(x - slot / 2).toFixed(1)}" y="${T}" width="${slot.toFixed(1)}" height="${ph}"><title>${esc(`${giornoLungo(k)}: ${righe.join(', ')}`)}</title></rect>`;
 			});
@@ -168,7 +167,7 @@
 			const voce = graficoVoce(lista);
 			const primo = Object.keys(conti.giorni || {}).sort()[0];
 			const n = lista.length;
-			const ric = lista.reduce((a, { g }) => a + ((g.deepseek && g.deepseek.ricarica) || 0) + ((g.openrouter && g.openrouter.ricarica) || 0), 0);
+			const ric = lista.reduce((a, { g }) => a + ((g.deepseek && g.deepseek.ricarica) || 0), 0);
 			let nota = `Negli ultimi ${n} giorni ${dollari(spesa)} di spesa vera${ric ? `, ${dollari(ric)} di ricariche` : ''} e ${intero(voce)} caratteri di voce.`;
 			const claude = host.claude();
 			if (claude) nota += ` Claude Code a listino vale ${dollari(claude)} nello stesso periodo: è l'abbonamento, non una spesa, e sta nei Token qui sopra.`;
@@ -183,7 +182,7 @@
 				$('conti-tabella').innerHTML = btn;
 				return;
 			}
-			const teste = ['Giorno', 'DeepSeek', 'OpenRouter', 'Claude, deleghe', 'Ricariche', 'Caratteri di voce', 'Richieste ad Agnes'];
+			const teste = ['Giorno', 'DeepSeek', 'Claude, deleghe', 'Ricariche', 'Caratteri di voce', 'Richieste ad Agnes'];
 			const righe = lista
 				.slice()
 				.reverse()
@@ -191,9 +190,8 @@
 				.map(({ k, g }) => [
 					giornoLungo(k),
 					dollari(speso(g, 'deepseek')),
-					dollari(speso(g, 'openrouter')),
 					dollari(speso(g, 'deleghe')),
-					dollari(((g.deepseek && g.deepseek.ricarica) || 0) + ((g.openrouter && g.openrouter.ricarica) || 0)),
+					dollari((g.deepseek && g.deepseek.ricarica) || 0),
 					intero(g.elevenlabs && g.elevenlabs.caratteri),
 					intero(g.agnes && g.agnes.richieste),
 				]);

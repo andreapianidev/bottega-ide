@@ -34,17 +34,7 @@ fs.writeFileSync(path.join(secrets, 'agnes-ai.env'), 'AGNES_API_KEY=chiave-finta
 fs.writeFileSync(path.join(secrets, 'openrouter-vision.env'), 'OPENROUTER_API_KEY=chiave-finta-or\n');
 fs.writeFileSync(path.join(secrets, 'deepseek-harness.env'), 'DEEPSEEK_API_KEY=chiave-finta-ds\n');
 for (const k of ['AGNES_API_KEY', 'OPENROUTER_API_KEY', 'DEEPSEEK_API_KEY']) delete process.env[k];
-
-const MODELS = [
-	{ id: 'anthropic/claude-sonnet-5.5', name: 'Anthropic: Claude Sonnet 5.5', created: 30, pricing: { prompt: '0.000002', completion: '0.00001' }, supported_parameters: ['tools', 'reasoning'] },
-	{ id: 'anthropic/claude-sonnet-5', name: 'Anthropic: Claude Sonnet 5', created: 20, pricing: { prompt: '0.000002', completion: '0.00001' }, supported_parameters: ['tools'] },
-	{ id: 'anthropic/claude-sonnet-5.5:batch', created: 31, supported_parameters: ['tools'] },
-	{ id: 'anthropic/claude-opus-5.5', name: 'Anthropic: Claude Opus 5.5', created: 25, pricing: { prompt: '0.000004', completion: '0.00002' }, supported_parameters: ['tools'] },
-	{ id: 'google/gemini-3.8-flash', name: 'Google: Gemini 3.8 Flash', created: 28, pricing: { prompt: '0.00000075', completion: '0.00000375' }, supported_parameters: ['tools'] },
-	{ id: 'openai/gpt-6.1-sol', name: 'OpenAI: GPT-6.1 Sol', created: 29, pricing: { prompt: '0.000002', completion: '0.00001' }, supported_parameters: ['tools'] },
-	{ id: 'openai/gpt-6.1-sol-pro', created: 32, supported_parameters: ['tools'] },
-	{ id: 'openai/gpt-6-luna', created: 33, supported_parameters: ['tools'] },
-];
+// la chiave di OpenRouter resta nel vault (non si cancella niente): la Bottega deve ignorarla
 
 function memento() {
 	const m = new Map();
@@ -61,8 +51,7 @@ function fakeFetch(opts = {}) {
 	const calls = [];
 	const f = async (url, init = {}) => {
 		calls.push({ url, init, body: init.body ? JSON.parse(init.body) : undefined, headers: init.headers });
-		if (url.endsWith('/models')) return { ok: true, status: 200, json: async () => ({ data: MODELS }) };
-		if (url.endsWith('/credits')) return { ok: true, status: 200, json: async () => ({ data: opts.credit ?? { total_credits: 10, total_usage: 7.5 } }) };
+		if (url.includes('openrouter')) throw new Error('OpenRouter non si chiama piu\'');
 		if (url.includes('user/balance')) return { ok: true, status: 200, json: async () => opts.dsBalance ?? { is_available: false, balance_infos: [{ currency: 'USD', total_balance: '-0.01' }] } };
 		if (url.includes('deepseek')) return { ok: opts.dsStatus === 200, status: opts.dsStatus ?? 402, body: null };
 		if (opts.chatStatus && opts.chatStatus !== 200) return { ok: false, status: opts.chatStatus, body: null };
@@ -73,102 +62,98 @@ function fakeFetch(opts = {}) {
 }
 
 (async () => {
-	await test('OpenRouter: il modello piu\' recente per famiglia, con strumenti, senza :batch, -pro, -luna; prezzi per milione', () => {
-		const o = cv.pickOpenRouter(MODELS);
-		assert.deepStrictEqual(o.map(x => x.model), ['anthropic/claude-sonnet-5.5', 'anthropic/claude-opus-5.5', 'google/gemini-3.8-flash', 'openai/gpt-6.1-sol']);
-		assert.strictEqual(o[0].label, 'Claude Sonnet 5.5');
-		assert.deepStrictEqual(o[0].price, { in: 2, out: 10 });
-		assert.deepStrictEqual(o[2].price, { in: 0.75, out: 3.75 });
+	await test('niente OpenRouter: neanche con la chiave nel vault compare tra i cervelli o nei conti, e non si chiama', async () => {
+		const f = fakeFetch({ dsStatus: 200 });
+		const c = new cv.Cervelli({ memento: memento(), fetch: f, secretsDir: secrets, appleAvailable: () => true });
+		const st = await c.state();
+		assert.deepStrictEqual(st.options.map(o => o.provider), ['agnes', 'apple', 'deepseek']);
+		assert.ok(!st.accounts.some(a => a.id === 'openrouter'));
+		assert.ok(!('credit' in st));
+		assert.ok(!f.calls.some(x => x.url.includes('openrouter')));
+		assert.strictEqual(c.key('openrouter'), undefined);
 	});
 
-	await test('impegno tradotto per ogni provider', () => {
+	await test('impegno tradotto per ogni provider; DeepSeek: Flash senza e con poco ragionamento, a fondo V4 Pro', () => {
 		const msgs = [{ role: 'user', content: 'x' }];
 		assert.strictEqual(cv.requestBody({ provider: 'agnes', model: 'agnes-3.0-flash', effort: 'rapido' }, msgs, []).reasoning_effort, 'none');
 		assert.strictEqual(cv.requestBody({ provider: 'agnes', model: 'agnes-3.0-flash', effort: 'profondo' }, msgs, []).reasoning_effort, 'high');
-		assert.deepStrictEqual(cv.requestBody({ provider: 'openrouter', model: 'x', effort: 'normale' }, msgs, []).reasoning, { effort: 'medium' });
-		assert.strictEqual(cv.requestBody({ provider: 'deepseek', model: 'deepseek-chat', effort: 'profondo' }, msgs, []).model, 'deepseek-reasoner');
+		const ds = e => cv.requestBody({ provider: 'deepseek', model: 'deepseek-flash', effort: e }, msgs, []);
+		assert.deepStrictEqual([ds('rapido').model, ds('rapido').reasoning_effort], ['deepseek-flash', 'none']);
+		assert.deepStrictEqual([ds('normale').model, ds('normale').reasoning_effort], ['deepseek-flash', 'low']);
+		assert.deepStrictEqual([ds('profondo').model, ds('profondo').reasoning_effort], ['deepseek-v4-pro', 'high']);
 		const withTools = cv.requestBody({ provider: 'agnes', model: 'a', effort: 'normale' }, msgs, [{ type: 'function', function: { name: 't', description: '', parameters: {} } }]);
 		assert.strictEqual(withTools.tool_choice, 'auto');
 		assert.ok(!('tools' in cv.requestBody({ provider: 'agnes', model: 'a', effort: 'normale' }, msgs, [])), 'senza strumenti niente tools ne\' tool_choice');
 	});
 
-	await test('a voce: «usa Claude», «pensa piu\' a fondo», «torna ad Agnes», «rispondi veloce»', () => {
-		assert.deepStrictEqual(cv.spokenChoice('Melissa, usa Claude'), { provider: 'openrouter', family: 0 });
-		assert.deepStrictEqual(cv.spokenChoice('passa a Opus e pensa più a fondo'), { provider: 'openrouter', family: 1, effort: 'profondo' });
+	await test('a voce: «usa DeepSeek», «pensa piu\' a fondo», «torna ad Agnes», «rispondi veloce»; Claude e Gemini non ci sono piu\'', () => {
+		assert.deepStrictEqual(cv.spokenChoice('Melissa, usa DeepSeek'), { provider: 'deepseek' });
+		assert.deepStrictEqual(cv.spokenChoice('passa a deep seek e pensa più a fondo'), { provider: 'deepseek', effort: 'profondo' });
 		assert.deepStrictEqual(cv.spokenChoice('torna ad Agnes'), { provider: 'agnes' });
 		assert.deepStrictEqual(cv.spokenChoice('rispondi veloce'), { effort: 'rapido' });
-		assert.deepStrictEqual(cv.spokenChoice('usa gemini'), { provider: 'openrouter', family: 2 });
+		assert.deepStrictEqual(cv.spokenChoice('usa Claude'), {});
+		assert.deepStrictEqual(cv.spokenChoice('usa gemini'), {});
 	});
 
-	await test('stato: opzioni, credito, DeepSeek senza credito (402) disabilitato, scelta ricordata', async () => {
+	await test('stato: opzioni, DeepSeek senza credito (402) disabilitato, scelta ricordata', async () => {
 		const f = fakeFetch();
-		const c = new cv.Cervelli({ memento: memento(), fetch: f, secretsDir: secrets, cacheFile: path.join(tmp, 'c1.json'), appleAvailable: () => true });
+		const c = new cv.Cervelli({ memento: memento(), fetch: f, secretsDir: secrets, appleAvailable: () => true });
 		const st = await c.state();
 		assert.strictEqual(st.current.provider, 'agnes');
-		assert.deepStrictEqual(st.credit, { openrouter: 2.5 });
 		const ds = st.options.find(o => o.provider === 'deepseek');
 		assert.strictEqual(ds.available, false);
 		assert.strictEqual(ds.why, 'senza credito');
-		await c.set('openrouter', 'anthropic/claude-opus-5.5');
+		assert.strictEqual(ds.label, 'DeepSeek V4.1 Flash');
+		await c.set('apple');
 		await c.setEffort('profondo');
-		assert.deepStrictEqual(c.choice(), { provider: 'openrouter', model: 'anthropic/claude-opus-5.5', effort: 'profondo' });
+		assert.deepStrictEqual(c.choice(), { provider: 'apple', model: 'apple-on-device', effort: 'profondo' });
 		await assert.rejects(() => c.set('deepseek'), /senza credito/);
 		c.endConversation();
 		assert.deepStrictEqual(c.choice(), { provider: 'agnes', model: 'agnes-3.0-flash', effort: 'profondo' }, 'fine conversazione: Agnes, l\'impegno resta');
-		assert.ok(fs.existsSync(path.join(tmp, 'c1.json')), 'elenco dei modelli in cache');
 	});
 
 	await test('Agnes sempre primaria: la scelta manuale non si salva, scade dopo 15 minuti senza domande, non sopravvive al riavvio', async () => {
 		let now = 1_000_000;
 		const m = memento();
-		const c = new cv.Cervelli({ memento: m, fetch: fakeFetch(), secretsDir: secrets, cacheFile: path.join(tmp, 'c5.json'), now: () => now });
-		await c.set('openrouter', 'google/gemini-3.8-flash');
-		assert.strictEqual(c.choice().provider, 'openrouter');
+		const c = new cv.Cervelli({ memento: m, fetch: fakeFetch({ dsStatus: 200 }), secretsDir: secrets, now: () => now });
+		await c.set('deepseek');
+		assert.strictEqual(c.choice().provider, 'deepseek');
+		assert.strictEqual(c.choice().model, 'deepseek-flash');
 		now += 10 * 60_000;
 		c.touch();
 		now += 10 * 60_000;
-		assert.strictEqual(c.choice().provider, 'openrouter', 'una domanda allunga la scelta');
+		assert.strictEqual(c.choice().provider, 'deepseek', 'una domanda allunga la scelta');
 		now += 16 * 60_000;
 		assert.strictEqual(c.choice().provider, 'agnes', 'dopo 15 minuti senza domande si torna ad Agnes');
-		await c.set('openrouter', 'google/gemini-3.8-flash');
-		const dopo = new cv.Cervelli({ memento: m, fetch: fakeFetch(), secretsDir: secrets, cacheFile: path.join(tmp, 'c5.json'), now: () => now });
+		await c.set('deepseek');
+		const dopo = new cv.Cervelli({ memento: m, fetch: fakeFetch({ dsStatus: 200 }), secretsDir: secrets, now: () => now });
 		assert.strictEqual(dopo.choice().provider, 'agnes', 'al riavvio si riparte da Agnes');
 	});
 
-	await test('saldo OpenRouter negativo: si mostra, ma il cervello resta usabile finche\' l\'API non dice 402', async () => {
-		const c = new cv.Cervelli({ memento: memento(), fetch: fakeFetch({ credit: { total_credits: 45, total_usage: 45.13 } }), secretsDir: secrets, cacheFile: path.join(tmp, 'c2.json') });
-		await c.set('openrouter', 'anthropic/claude-sonnet-5.5');
-		const st = await c.state();
-		assert.deepStrictEqual(st.credit, { openrouter: -0.13 });
-		assert.strictEqual(st.current.provider, 'openrouter');
-		assert.ok(st.options.filter(o => o.provider === 'openrouter').every(o => o.available));
-	});
-
-	await test('conti: Agnes senza saldo ma con richieste e 429, OpenRouter e DeepSeek solo mentre si usano, ElevenLabs contato in locale', async () => {
+	await test('conti: Agnes senza saldo ma con richieste e 429, DeepSeek solo mentre si usa, ElevenLabs contato in locale', async () => {
 		let now = Date.UTC(2026, 9, 2, 9);
 		const usage = path.join(tmp, 'usage.json');
 		fs.writeFileSync(usage, JSON.stringify({ elevenLabsCharsByMonth: { '2026-10': 801 } }));
-		const c = new cv.Cervelli({ memento: memento(), fetch: fakeFetch({ credit: { total_credits: 45, total_usage: 45.13 } }), secretsDir: secrets, cacheFile: path.join(tmp, 'c6.json'), usageFile: usage, now: () => now });
+		const c = new cv.Cervelli({ memento: memento(), fetch: fakeFetch({ dsStatus: 200, dsBalance: { is_available: true, balance_infos: [{ currency: 'USD', total_balance: '9.98' }] } }), secretsDir: secrets, usageFile: usage, now: () => now });
 		c.noteAgnes(200);
 		c.noteAgnes(200);
+		assert.strictEqual(c.agnesOggi(), 2);
 		let st = await c.state();
 		const by = id => st.accounts.find(a => a.id === id);
 		assert.strictEqual(by('agnes').text, 'gratis, nessun saldo da controllare; 2 richieste oggi dalla Bottega');
 		assert.strictEqual(by('agnes').local, true);
-		assert.strictEqual(by('openrouter'), undefined, 'con Agnes il saldo di OpenRouter non compare');
 		assert.strictEqual(by('deepseek'), undefined, 'con Agnes il saldo di DeepSeek non compare');
 		assert.ok(by('elevenlabs').text.startsWith('801 caratteri di voce a ottobre, contati dalla Bottega'));
-		await c.set('openrouter', 'anthropic/claude-sonnet-5.5');
+		await c.set('deepseek');
 		st = await c.state();
-		assert.strictEqual(by('openrouter').text, 'saldo -0,13 $: va ricaricato');
-		assert.strictEqual(by('openrouter').tone, 'male');
+		assert.strictEqual(by('deepseek').text, 'restano 9,98 $');
 		c.endConversation();
 		c.noteAgnes(429);
 		now += 60_000;
 		st = await c.state();
 		assert.strictEqual(by('agnes').tone, 'attesa');
 		assert.ok(by('agnes').text.startsWith('al limite di circa 20 richieste al minuto (un 429'));
-		assert.ok(!st.accounts.some(a => /[\u2014\u2013]/.test(a.text)));
+		assert.ok(!st.accounts.some(a => /[—–]/.test(a.text)));
 	});
 
 	await test('Apple Intelligence: segue il dato del Nucleo in diretta e dice il motivo vero', async () => {
@@ -185,23 +170,34 @@ function fakeFetch(opts = {}) {
 		assert.strictEqual(a.why, undefined);
 	});
 
-	await test('stream: testo e strumenti a pezzi, intestazioni di OpenRouter, chiave dal vault', async () => {
-		const f = fakeFetch({ events: [{ content: 'Apro ' }, { tool_calls: [{ index: 0, id: 'c1', function: { name: 'progetto_apri', arguments: '{"prog' } }] }, { tool_calls: [{ index: 0, function: { arguments: 'etto":"Peak"}' } }] }] });
-		const c = new cv.Cervelli({ memento: memento(), fetch: f, secretsDir: secrets, cacheFile: path.join(tmp, 'c3.json') });
+	await test('stream: testo e strumenti a pezzi, chiave dal vault, DeepSeek con modello e impegno', async () => {
+		const calls = [];
+		const pezzi = [{ content: 'Apro ' }, { tool_calls: [{ index: 0, id: 'c1', function: { name: 'progetto_apri', arguments: '{"prog' } }] }, { tool_calls: [{ index: 0, function: { arguments: 'etto":"Peak"}' } }] }];
+		const c = new cv.Cervelli({
+			memento: memento(),
+			secretsDir: secrets,
+			fetch: async (url, init = {}) => {
+				calls.push({ url, headers: init.headers, body: init.body ? JSON.parse(init.body) : undefined });
+				return { ok: true, status: 200, body: sse(pezzi) };
+			},
+		});
 		const got = [];
-		await c.streamFor({ provider: 'openrouter', model: 'anthropic/claude-sonnet-5.5', effort: 'rapido' })([{ role: 'user', content: 'apri peak' }], [], d => got.push(d), new AbortController().signal);
+		await c.streamFor({ provider: 'deepseek', model: 'deepseek-flash', effort: 'profondo' })([{ role: 'user', content: 'apri peak' }], [], d => got.push(d), new AbortController().signal);
 		assert.deepStrictEqual(got[0], { content: 'Apro ' });
 		assert.strictEqual(got.filter(d => d.tool_call).map(d => d.tool_call.arguments).join(''), '{"progetto":"Peak"}');
-		const call = f.calls.find(x => x.url.includes('chat/completions'));
-		assert.strictEqual(call.headers.authorization, 'Bearer chiave-finta-or');
-		assert.strictEqual(call.headers['X-Title'], 'Bottega');
-		assert.deepStrictEqual(call.body.reasoning, { effort: 'low' });
+		const call = calls.find(x => x.url.includes('api.deepseek.com/chat'));
+		assert.strictEqual(call.headers.authorization, 'Bearer chiave-finta-ds');
+		assert.strictEqual(call.body.model, 'deepseek-v4-pro');
+		assert.strictEqual(call.body.reasoning_effort, 'high');
 		assert.strictEqual(c.streamFor({ provider: 'apple', model: 'x', effort: 'normale' }), undefined, 'Apple passa dal Nucleo');
 	});
 
 	await test('402 durante una risposta: errore chiaro, cervello da parte per un\'ora, scelta tornata ad Agnes', async () => {
-		const c = new cv.Cervelli({ memento: memento(), fetch: fakeFetch({ chatStatus: 402 }), secretsDir: secrets, cacheFile: path.join(tmp, 'c4.json') });
-		await c.set('openrouter', 'google/gemini-3.8-flash');
+		let n = 0;
+		// la prova di DeepSeek (options) passa, la risposta vera dice 402
+		const f = fakeFetch({ dsStatus: 200 });
+		const c = new cv.Cervelli({ memento: memento(), fetch: async (u, i) => (u.includes('api.deepseek.com/chat') && n++ > 0 ? { ok: false, status: 402, body: null } : f(u, i)), secretsDir: secrets });
+		await c.set('deepseek');
 		await assert.rejects(() => c.streamFor()([{ role: 'user', content: 'x' }], [], () => {}, new AbortController().signal), e => e.status === 402 && /senza credito/.test(e.message));
 		assert.strictEqual(c.choice().provider, 'agnes');
 	});

@@ -28,12 +28,12 @@ async function test(name, fn) {
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'bottega-conti-'));
 const giorno = t => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
-/** Una rete finta: saldo DeepSeek e crediti OpenRouter che cambiano a mano; ElevenLabs senza user_read. */
+/** Una rete finta: saldo DeepSeek che cambia a mano; ElevenLabs senza user_read. */
 function rete(stato) {
 	return async (url) => {
 		const ok = (j) => ({ ok: true, status: 200, json: async () => j });
 		if (url.includes('deepseek')) return ok({ is_available: stato.ds > 0, balance_infos: [{ currency: 'USD', total_balance: String(stato.ds) }] });
-		if (url.includes('openrouter')) return ok({ data: { total_credits: stato.orCrediti, total_usage: stato.orUso } });
+		if (url.includes('openrouter')) throw new Error('OpenRouter non si chiama piu\'');
 		if (url.includes('elevenlabs')) return stato.voce ? ok(stato.voce) : { ok: false, status: 401, json: async () => ({}) };
 		throw new Error('url inattesa ' + url);
 	};
@@ -46,7 +46,7 @@ function nuovo(stato, now, nome, extra = {}) {
 	fs.writeFileSync(path.join(dir, 'spesa.json'), JSON.stringify({ giorni: stato.deleghe || {}, storico: [] }));
 	fs.writeFileSync(path.join(dir, 'elevenlabs.env'), 'ELEVENLABS_API_KEY=finta\n');
 	return new C.Conti({
-		chiave: p => (p === 'deepseek' ? 'ds-finta' : stato.conOr ? 'or-finta' : undefined),
+		chiave: () => 'ds-finta',
 		agnesOggi: () => stato.agnes || 0,
 		file: path.join(dir, 'giorni.json'),
 		usageFile: path.join(dir, 'usage.json'),
@@ -89,20 +89,26 @@ function nuovo(stato, now, nome, extra = {}) {
 		assert.strictEqual(C.mediaGiorno(g, 'deepseek', '2026-10-09'), (3 + 4 + 5 + 6 + 7 + 8 + 9) / 7);
 	});
 
-	await test('aggiorna: scrive giorni.json (600), saldi, voce per giorno, deleghe, Agnes; OpenRouter dall\'uso', async () => {
+	await test('aggiorna: scrive giorni.json (600), saldo, voce per giorno, deleghe, Agnes; un vecchio OpenRouter sparisce del tutto', async () => {
 		const now = { t: new Date(2026, 9, 3, 12, 0).getTime() };
 		const oggi = giorno(now.t);
-		const stato = { ds: 9.98, conOr: true, orCrediti: 10, orUso: 4, agnes: 7, giorniVoce: { [oggi]: 1200 }, deleghe: { [oggi]: 0.4 } };
+		const stato = { ds: 9.98, agnes: 7, giorniVoce: { [oggi]: 1200 }, deleghe: { [oggi]: 0.4 } };
+		// un file della build 59, con OpenRouter: saldo, campione e giorni spariscono
+		fs.mkdirSync(path.join(tmp, 'base'), { recursive: true });
+		fs.writeFileSync(path.join(tmp, 'base', 'giorni.json'), JSON.stringify({ schema: 1, aggiornato: 1, servizi: { openrouter: { nome: 'OpenRouter', tono: 'male' } }, giorni: { '2026-10-01': { openrouter: { speso: 1, ricarica: 0, saldo: -0.13 } } }, campioni: { openrouter: { at: 1, crediti: 45, uso: 45.13 } } }));
 		const c = nuovo(stato, now, 'base');
+		assert.strictEqual(c.allarmi().length, 0, 'nessun avviso per OpenRouter');
 		await c.aggiorna();
 		stato.ds = 9.5;
-		stato.orUso = 4.25;
 		stato.agnes = 9;
 		now.t += 30 * 60_000;
 		const d = await c.aggiorna();
 		const g = d.giorni[oggi];
 		assert.deepStrictEqual(g.deepseek, { speso: 0.48, ricarica: 0, saldo: 9.5 });
-		assert.deepStrictEqual(g.openrouter, { speso: 0.25, ricarica: 0, saldo: 5.75 });
+		assert.strictEqual(g.openrouter, undefined);
+		assert.strictEqual(d.servizi.openrouter, undefined);
+		assert.strictEqual(d.campioni.openrouter, undefined);
+		assert.strictEqual(d.giorni['2026-10-01'], undefined, 'anche lo storico di OpenRouter se ne va');
 		assert.deepStrictEqual(g.elevenlabs, { caratteri: 1200 });
 		assert.deepStrictEqual(g.agnes, { richieste: 9 });
 		assert.deepStrictEqual(g.deleghe, { usd: 0.4 });

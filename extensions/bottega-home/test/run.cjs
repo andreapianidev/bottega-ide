@@ -614,7 +614,7 @@ function makeAssistant(over = {}) {
 	}
 
 	await test('cervello scelto che risponde 402: la stessa domanda va ad Agnes, e Melissa lo dice', async () => {
-		const cv = fakeCervelli({ provider: 'openrouter', model: 'anthropic/claude-sonnet-5.5', effort: 'normale' }, {
+		const cv = fakeCervelli({ provider: 'deepseek', model: 'deepseek-flash', effort: 'normale' }, {
 			stream: async () => {
 				throw new Error('senza credito');
 			},
@@ -623,7 +623,7 @@ function makeAssistant(over = {}) {
 		a.deps.cervelli = cv;
 		const answer = await a.turn('come va', false);
 		assert.strictEqual(answer, 'Ciao, sono io.');
-		assert.ok(a.getState().log.some(l => l.role === 'azione' && l.text === 'Claude Sonnet 5.5 non risponde (senza credito): torno ad Agnes'));
+		assert.ok(a.getState().log.some(l => l.role === 'azione' && l.text === 'DeepSeek V4.1 Flash non risponde (senza credito): torno ad Agnes'));
 		assert.strictEqual(cv.rec.ended, 1, 'si torna ad Agnes');
 		assert.strictEqual(cv.rec.touched, 1);
 	});
@@ -657,15 +657,16 @@ function makeAssistant(over = {}) {
 	});
 
 	await test('chiudere la conversazione riporta ad Agnes', async () => {
-		const cv = fakeCervelli({ provider: 'openrouter', model: 'google/gemini-3.8-flash', effort: 'normale' });
+		const cv = fakeCervelli({ provider: 'deepseek', model: 'deepseek-flash', effort: 'normale' });
 		const { a, nucleo } = makeAssistant({ stream: scriptedStream([]) });
 		a.deps.cervelli = cv;
 		a.wire({ subscriptions: [] });
 		nucleo.fire('orb.clicked', {});
 		nucleo.fire('orb.clicked', {});
 		assert.strictEqual(cv.rec.ended, 1);
-		assert.strictEqual(asst.brainName('anthropic/claude-opus-5.5'), 'Claude Opus 5.5');
-		assert.strictEqual(asst.brainName('openai/gpt-6.1-sol'), 'GPT 6.1 Sol');
+		assert.strictEqual(asst.brainName('deepseek-flash'), 'DeepSeek V4.1 Flash');
+		assert.strictEqual(asst.brainName('deepseek-v4-pro'), 'DeepSeek V4 Pro');
+		assert.strictEqual(asst.brainName('apple-on-device'), 'Apple Intelligence');
 	});
 
 	// BOTTEGA_TEST_REALE=1 npm test

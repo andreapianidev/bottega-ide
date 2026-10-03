@@ -1,9 +1,9 @@
 /* Crediti e consumi dei servizi, giorno per giorno (CONTRATTI, sezione 14).
 
-   I servizi non danno lo storico con le chiavi che abbiamo: DeepSeek solo il saldo (/user/balance), OpenRouter crediti
-   e uso totali (/api/v1/credits), ElevenLabs il conteggio del mese solo con il permesso user_read. Quindi la Bottega
-   legge i saldi ogni 30 minuti mentre e' aperta e tiene lei i giorni: quanto e' sceso il saldo e' la spesa, quanto e'
-   salito e' una ricarica. Se la Bottega resta chiusa per giorni, la spesa di quei giorni cade sul giorno della lettura
+   I servizi non danno lo storico con le chiavi che abbiamo: DeepSeek solo il saldo (/user/balance), ElevenLabs il
+   conteggio del mese solo con il permesso user_read. Quindi la Bottega legge il saldo ogni 30 minuti mentre e' aperta
+   e tiene lei i giorni: quanto e' sceso il saldo e' la spesa, quanto e' salito e' una ricarica. OpenRouter c'era fino
+   alla build 60: tolto insieme ai suoi cervelli. Se la Bottega resta chiusa per giorni, la spesa di quei giorni cade sul giorno della lettura
    dopo. In piu': i caratteri di voce per giorno (il Nucleo, usage.json), le richieste ad Agnes (contate dalla Bottega)
    e la spesa delle deleghe a Claude (~/.bottega/connettori/spesa.json).
 
@@ -16,7 +16,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { giornoLocale, scriviPrivato } from './delega';
 
-export type ServizioId = 'deepseek' | 'openrouter' | 'elevenlabs' | 'agnes';
+export type ServizioId = 'deepseek' | 'elevenlabs' | 'agnes';
 export type Tono = 'ok' | 'attesa' | 'male';
 
 export interface ServizioSaldo {
@@ -50,7 +50,6 @@ export interface ServizioGratis {
 
 export interface GiornoConti {
 	deepseek?: { speso: number; ricarica: number; saldo: number };
-	openrouter?: { speso: number; ricarica: number; saldo: number };
 	elevenlabs?: { caratteri: number };
 	agnes?: { richieste: number };
 	deleghe?: { usd: number };
@@ -59,10 +58,10 @@ export interface GiornoConti {
 export interface ContiFile {
 	schema: 1;
 	aggiornato: number;
-	servizi: { deepseek?: ServizioSaldo; openrouter?: ServizioSaldo; elevenlabs?: ServizioVoce; agnes?: ServizioGratis };
+	servizi: { deepseek?: ServizioSaldo; elevenlabs?: ServizioVoce; agnes?: ServizioGratis };
 	giorni: Record<string, GiornoConti>;
 	/** l'ultima lettura di ogni saldo: da li' si conta la prossima differenza */
-	campioni?: { deepseek?: { at: number; saldo: number }; openrouter?: { at: number; crediti: number; uso: number } };
+	campioni?: { deepseek?: { at: number; saldo: number } };
 }
 
 /** Un avviso di ricarica: stessa forma degli allarmi del negozio (avvisi.ts), l'id contiene il giorno. */
@@ -73,7 +72,7 @@ export interface AllarmeConto {
 }
 
 export interface ContiOpzioni {
-	chiave(p: 'deepseek' | 'openrouter'): string | undefined;
+	chiave(p: 'deepseek'): string | undefined;
 	/** richieste ad Agnes di oggi, contate dalla Bottega (cervelli.ts) */
 	agnesOggi(): number;
 	file?: string;
@@ -88,10 +87,7 @@ export interface ContiOpzioni {
 export const SOGLIA_USD = 2;
 export const SOGLIA_GIORNI = 5;
 const GIORNI_TENUTI = 400;
-const RICARICHE: Record<'deepseek' | 'openrouter', string> = {
-	deepseek: 'platform.deepseek.com',
-	openrouter: 'openrouter.ai/settings/credits',
-};
+const RICARICHE: Record<'deepseek', string> = { deepseek: 'platform.deepseek.com' };
 
 const tondo = (n: number) => Math.round(n * 10000) / 10000;
 export const dollari = (n: number) => `${n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
@@ -118,7 +114,7 @@ function leggiEnv(file: string): Record<string, string> {
 }
 
 /** Media di spesa al giorno sugli ultimi 7 giorni che hanno dati per quel servizio (oggi compreso). */
-export function mediaGiorno(giorni: Record<string, GiornoConti>, id: 'deepseek' | 'openrouter', oggi: string): number | null {
+export function mediaGiorno(giorni: Record<string, GiornoConti>, id: 'deepseek', oggi: string): number | null {
 	const chiavi = Object.keys(giorni).filter(k => k <= oggi && giorni[k][id]).sort().slice(-7);
 	if (chiavi.length < 2) return null;
 	const tot = chiavi.reduce((s, k) => s + (giorni[k][id]!.speso || 0), 0);
@@ -141,7 +137,7 @@ export function statoSaldo(nome: string, saldo: number, media: number | null, di
 }
 
 /** Una lettura nuova del saldo: la discesa e' spesa, la salita una ricarica, sul giorno della lettura. */
-export function registraSaldo(g: GiornoConti, id: 'deepseek' | 'openrouter', prima: number | undefined, ora: number, speso?: number, ricarica?: number): void {
+export function registraSaldo(g: GiornoConti, id: 'deepseek', prima: number | undefined, ora: number, speso?: number, ricarica?: number): void {
 	const v = g[id] ?? { speso: 0, ricarica: 0, saldo: ora };
 	if (speso !== undefined || ricarica !== undefined) {
 		v.speso = tondo(v.speso + Math.max(0, speso ?? 0));
@@ -168,6 +164,13 @@ export class Conti {
 		this.now = o.now ?? Date.now;
 		const d = leggiJson(this.file());
 		this.dati = d && d.schema === 1 && d.giorni ? d : { schema: 1, aggiornato: 0, servizi: {}, giorni: {} };
+		// OpenRouter tolto (build 61): via saldo, campione e giorni dal file scritto dalla build 59 e 60
+		delete (this.dati.servizi as any).openrouter;
+		if (this.dati.campioni) delete (this.dati.campioni as any).openrouter;
+		for (const [k, g] of Object.entries(this.dati.giorni)) {
+			delete (g as any).openrouter;
+			if (!Object.keys(g).length) delete this.dati.giorni[k];
+		}
 		// gli avvisi di oggi gia' dati prima di un riavvio non suonano di nuovo
 		for (const a of this.allarmi()) this.allarmiVisti.add(a.id);
 	}
@@ -189,7 +192,7 @@ export class Conti {
 	allarmi(): AllarmeConto[] {
 		const oggi = giornoLocale(this.now());
 		const out: AllarmeConto[] = [];
-		for (const id of ['deepseek', 'openrouter'] as const) {
+		for (const id of ['deepseek'] as const) {
 			const s = this.dati.servizi[id];
 			if (s && s.tono !== 'ok') out.push({ id: `conti:${id}:${oggi}`, app: s.nome, testo: `${cap(s.frase)}. Si ricarica su ${RICARICHE[id]}.` });
 		}
@@ -226,25 +229,6 @@ export class Conti {
 				}
 			} catch (e: any) {
 				this.o.log?.(`conti: DeepSeek non risponde (${e?.message ?? e})`);
-			}
-		}
-
-		// OpenRouter: crediti e uso totali, la differenza dell'uso e' la spesa esatta
-		const ko = this.o.chiave('openrouter');
-		if (ko) {
-			try {
-				const r = await this.fetchFn('https://openrouter.ai/api/v1/credits', { headers: { authorization: `Bearer ${ko}` } });
-				const j: any = r.ok ? await r.json() : null;
-				if (j?.data) {
-					const crediti = Number(j.data.total_credits);
-					const uso = Number(j.data.total_usage);
-					const c = d.campioni.openrouter;
-					registraSaldo(g, 'openrouter', undefined, crediti - uso, c ? uso - c.uso : 0, c ? crediti - c.crediti : 0);
-					d.campioni.openrouter = { at: now, crediti, uso };
-					d.servizi.openrouter = statoSaldo('OpenRouter', crediti - uso, mediaGiorno(d.giorni, 'openrouter', oggi), true, now);
-				}
-			} catch (e: any) {
-				this.o.log?.(`conti: OpenRouter non risponde (${e?.message ?? e})`);
 			}
 		}
 

@@ -955,24 +955,23 @@ All'avvio l'estensione apre il contenitore una volta (`workbench.view.extension.
   `stato` vuol dire invariato
 
 ```ts
-type Provider = 'agnes' | 'openrouter' | 'apple' | 'deepseek';
+type Provider = 'agnes' | 'apple' | 'deepseek';          // OpenRouter tolto il 3/10/2026 (build 61)
 type Effort = 'rapido' | 'normale' | 'profondo';
 interface BrainOption {
-  provider: Provider; model: string; label: string;       // "Claude Sonnet 5.5"
-  note: string;                                            // "gratis", "a consumo", "sul Mac"
-  price?: { in: number; out: number };                     // dollari per milione di token (OpenRouter)
+  provider: Provider; model: string; label: string;       // "DeepSeek V4.1 Flash"
+  note: string;                                            // "gratis", "a consumo, a fondo V4 Pro", "sul Mac"
+  price?: { in: number; out: number };                     // dollari per milione di token, se un servizio li dice
   available: boolean; why?: string;                        // perche' no: "senza credito (402)", ...
 }
 interface BrainState {
   current: { provider: Provider; model: string; label: string };
   effort: Effort;
   options: BrainOption[];
-  credit?: { openrouter?: number };                        // dollari rimasti, se l'API lo dice
   accounts: Account[];                                     // i conti dei servizi, solo dati veri
   checkedAt: number;
 }
 interface Account {
-  id: 'agnes' | 'openrouter' | 'deepseek' | 'elevenlabs';
+  id: 'agnes' | 'deepseek' | 'elevenlabs';
   label: string; text: string; tone: 'ok' | 'attesa' | 'male';
   local?: boolean;                                         // contato dalla Bottega, non letto dal servizio
 }
@@ -984,33 +983,35 @@ interface Account {
 `brain.set {provider, model}`, `effort.set {effort}`,
 `job.focus {id}`, `job.write {id, text}` (istruzioni a un lavoro della Bottega), `open {path}`, `claude {path, id}`
 (riprendi qui una sessione aperta altrove), `bacheca.sessione {sessionId}`, `home {view}` (porta la Home su una stanza),
-`comando {id}` (comandi rapidi: `briefing`, `regole`, `lavori`, `cruscotto`, `continua`, `cerca`).
+`comando {id}` (comandi rapidi: `briefing`, `regole`, `lavori`, `cruscotto`, `continua`, `cerca`; `conti` apre la sezione
+«Servizi» del Cruscotto, sezione 14).
 
 ### Cervelli
 
-Tutti e tre i cervelli in rete parlano l'API compatibile OpenAI con gli strumenti, in streaming:
+I due cervelli in rete parlano l'API compatibile OpenAI con gli strumenti, in streaming. OpenRouter (Claude, Gemini,
+GPT a consumo) c'era fino alla build 60: tolto il 3/10/2026 per scelta di Andrea («Agnes e DeepSeek bastano e avanzano»);
+a voce «usa Claude» risponde che non c'e' piu'. La sua chiave resta nel vault e la Bottega la ignora.
 
 | provider | url | chiave | modelli | impegno |
 |---|---|---|---|---|
 | agnes | `https://apihub.agnes-ai.com/v1/chat/completions` | `AGNES_API_KEY` (`~/.secrets/agnes-ai.env`) | `agnes-3.0-flash` | `reasoning_effort`: none / low / high |
-| openrouter | `https://openrouter.ai/api/v1/chat/completions` | `OPENROUTER_API_KEY` (`~/.secrets/openrouter-vision.env`) | i piu' recenti per famiglia dall'elenco vero (`/api/v1/models`, cache 24 h): Claude Sonnet, Claude Opus, Gemini Flash, GPT | `reasoning: {effort}`: low / medium / high |
-| deepseek | `https://api.deepseek.com/chat/completions` | `DEEPSEEK_API_KEY` (`~/.secrets/deepseek-harness.env`) | `deepseek-chat` | non disponibile finche' l'API risponde 402 |
+| deepseek | `https://api.deepseek.com/chat/completions` | `DEEPSEEK_API_KEY` (`~/.secrets/deepseek-harness.env`) | `deepseek-flash` (DeepSeek-V4.1-Flash) per rapido e normale, `deepseek-v4-pro` per profondo (`GET /models`, 3/10/2026) | `reasoning_effort`: none / low / high; non disponibile finche' l'API risponde 402 |
 | apple | Nucleo, cervello Foundation Models con strumenti (build 16, `src/cervello.ts` della sessione nativo) | | sul Mac | |
 
 **Agnes e' sempre il cervello primario** (decisione di Andrea, 2 ottobre 2026). Un altro cervello si usa solo se Andrea
-lo sceglie (dalla barra o a voce con lo strumento `cervello_cambia {cervello?, impegno?}`: «usa Claude», «pensa piu' a
+lo sceglie (dalla barra o a voce con lo strumento `cervello_cambia {cervello?, impegno?}`: «usa DeepSeek», «pensa piu' a
 fondo», «torna ad Agnes») e vale per quella conversazione: si torna ad Agnes da soli quando la conversazione si chiude,
 dopo 15 minuti senza domande, al riavvio della Bottega e dopo qualsiasi errore (un 401 o un 402 mette anche il cervello
 da parte per un'ora). La scelta manuale non si salva mai; si ricorda solo l'impegno (`globalState`). Apple Intelligence
 resta la riserva automatica solo quando Agnes non risponde (429, rete).
-Il saldo OpenRouter si mostra com'e': l'API accetta un piccolo scoperto, quindi conta solo un 402 vero.
+Con DeepSeek i nomi vecchi `deepseek-chat` e `deepseek-reasoner` portano entrambi a V4.1 Flash, senza e con ragionamento:
+fino alla build 60 rapido e normale erano la stessa cosa e V4 Pro non si usava mai.
 
 ### I conti dei servizi (in testa alla barra)
 
 Solo dati veri, al massimo ogni 5 minuti (mai a ogni domanda):
 - Agnes: nessun endpoint di saldo (`/user/balance` risponde 404). Si mostra se risponde, le richieste fatte oggi dalla
   Bottega (contate in `globalState`) e i 429 degli ultimi 10 minuti (limite di circa 20 richieste al minuto).
-- OpenRouter: `GET /api/v1/credits` (`total_credits - total_usage`); sotto 1 $ in attesa, sotto zero «va ricaricato».
 - DeepSeek: `GET https://api.deepseek.com/user/balance` (`is_available`, `balance_infos`).
 - ElevenLabs: la chiave non puo' leggere l'account; i caratteri del mese da `~/.bottega/nucleo/usage.json`, dichiarati
   come conteggio della Bottega.
@@ -2020,14 +2021,14 @@ massimo una lettura ogni 10 minuti, o subito con «Aggiorna i saldi»). Una lett
 Fonti:
 - **DeepSeek**: `GET https://api.deepseek.com/user/balance` (`balance_infos` USD, `is_available`). La discesa del saldo
   fra due letture e' spesa, la salita e' una ricarica.
-- **OpenRouter**: `GET https://openrouter.ai/api/v1/credits`. Spesa = differenza di `total_usage`, ricarica = differenza
-  di `total_credits`, saldo = crediti meno uso.
 - **ElevenLabs**: i caratteri per giorno dal Nucleo (`elevenLabsCharsByDay`, sezione 1). Il mese, il limite e il giorno
   del rinnovo da `GET /v1/user/subscription` solo se la chiave ha il permesso `user_read` (oggi no: 401
   `missing_permissions`, e resta il conteggio della Bottega).
 - **Agnes**: gratis; le richieste di oggi contate dalla Bottega (`Cervelli.agnesOggi()`).
 - **Deleghe a Claude** (`claude -p`): `~/.bottega/connettori/spesa.json` (sezione 5.4), spesa vera in dollari.
 - **Claude Code a listino** non e' qui: e' l'abbonamento, non una spesa. La sezione lo cita prendendolo dal Cruscotto.
+- **OpenRouter** c'era nelle build 59 e 60: tolto nella 61 con i suoi cervelli. Alla prima lettura la 61 toglie dal file
+  il suo saldo, il suo campione e i suoi giorni.
 
 `~/.bottega/conti/giorni.json` (mode 600, scritto intero: tmp + rename):
 
@@ -2039,7 +2040,6 @@ Fonti:
     "deepseek":   { "nome": "DeepSeek", "valuta": "USD", "saldo": 9.98, "letto": 1759450000000,
                     "mediaGiorno": 0.12, "giorniRimasti": 83, "tono": "ok",
                     "frase": "restano 9,98 $, circa 83 giorni al ritmo attuale" },
-    "openrouter": { "...": "stessi campi di deepseek" },
     "elevenlabs": { "nome": "ElevenLabs", "unita": "caratteri", "usatiMese": 12345, "limiteMese": null,
                     "rinnovo": null, "tono": "ok", "frase": "12.345 caratteri di voce a ottobre, contati dalla Bottega" },
     "agnes":      { "nome": "Agnes", "gratis": true, "tono": "ok", "frase": "gratis, 15 richieste oggi" }
@@ -2047,13 +2047,12 @@ Fonti:
   "giorni": {
     "2026-10-03": {
       "deepseek":   { "speso": 0.12, "ricarica": 10.0, "saldo": 9.98 },
-      "openrouter": { "speso": 0.0, "ricarica": 0, "saldo": 3.2 },
       "elevenlabs": { "caratteri": 1200 },
       "agnes":      { "richieste": 15 },
       "deleghe":    { "usd": 0.4 }
     }
   },
-  "campioni": { "deepseek": { "at": 0, "saldo": 9.98 }, "openrouter": { "at": 0, "crediti": 10, "uso": 6.8 } }
+  "campioni": { "deepseek": { "at": 0, "saldo": 9.98 } }
 }
 ```
 
