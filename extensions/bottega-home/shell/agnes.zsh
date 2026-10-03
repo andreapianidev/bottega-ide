@@ -140,6 +140,9 @@ __bottega_grigio() { print -r -- $'\e[90m'"$*"$'\e[0m' }
 __bottega_ambra() { print -r -- $'\e[33m'"$*"$'\e[0m' }
 
 # ---------- l'indizio mentre si scrive: «Agnes» in grigio dopo la riga ----------
+# A riga vuota, in grigio, cosa si puo' scrivere: sparisce al primo tasto.
+
+typeset -g __bottega_vuota='scrivi un comando o chiedi in italiano'
 
 __bottega_togli_indizio() {
 	region_highlight=(${region_highlight:#*memo=bottega*})
@@ -152,14 +155,15 @@ __bottega_indizio() {
 	(( __bottega_spento )) && return
 	[[ $BUFFER == $__bottega_indizio_riga ]] && return
 	__bottega_indizio_riga=$BUFFER
-	local -i si=0
+	local testo=''
 	if (( __bottega_vivo )) && [[ $KEYMAP != bottega_domanda ]]; then
-		if [[ $BUFFER == ('# '|'? '|'??'|'#!')* ]] || __bottega_naturale "$BUFFER"; then si=1; fi
+		if [[ -z $BUFFER ]]; then testo=$__bottega_vuota
+		elif [[ $BUFFER == ('# '|'? '|'??'|'#!')* ]] || __bottega_naturale "$BUFFER"; then testo="   $__bottega_nome"; fi
 	fi
-	if (( si )); then
+	if [[ -n $testo ]]; then
 		[[ -z $POSTDISPLAY || $POSTDISPLAY == $__bottega_post ]] || return
 		region_highlight=(${region_highlight:#*memo=bottega*})
-		__bottega_post="   $__bottega_nome"
+		__bottega_post=$testo
 		POSTDISPLAY=$__bottega_post
 		region_highlight+=("$#BUFFER $(( $#BUFFER + $#POSTDISPLAY )) fg=8,memo=bottega")
 	else
