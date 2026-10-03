@@ -34,9 +34,16 @@ enum Pezzi {
 
     static func rango(_ stato: String) -> Int { ordine.firstIndex(of: stato) ?? ordine.count }
 
-    /// Da quanto: "12 min", "1 h 5 min". Scorre da sola, senza che il widget chieda niente a nessuno.
+    /// Da quanto: «12 minuti», «1 ora», «2 giorni». Una sola unita': con due («1 giorno e 1 ora») le righe dei widget
+    /// e della Live Activity non ci stanno. Scorre da sola, senza che il widget chieda niente a nessuno.
     static func daQuanto(_ da: Date) -> Text {
-        Text(.currentDate, format: .offset(to: da, allowedFields: [.day, .hour, .minute], maxFieldCount: 2, sign: .never))
+        Text(.currentDate, format: .offset(to: da, allowedFields: [.day, .hour, .minute], maxFieldCount: 1, sign: .never))
+            .monospacedDigit()
+    }
+
+    /// «2 ore fa», «12 minuti fa»: l'eta' di una copia salvata, anche questa scorre da sola.
+    static func fa(_ da: Date) -> Text {
+        Text(.currentDate, format: .reference(to: da, allowedFields: [.day, .hour, .minute], maxFieldCount: 1))
             .monospacedDigit()
     }
 }
