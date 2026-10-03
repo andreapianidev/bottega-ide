@@ -429,7 +429,19 @@ function banco(opz = {}) {
 		assert.strictEqual(la.length, 1, 'riaccese col lavoro in corso: riparte');
 		assert.strictEqual(la[0].payload.aps.event, 'start');
 		assert.strictEqual(la[0].token, avvio);
-		ok('Live Activity: il token tolto dall\'app fa ripartire un\'attivita\' ereditata, non una chiusa a mano; riaccese dall\'app ripartono');
+
+		// spente e riaccese in meno di un secondo, senza un giro in mezzo (build 74): il ponte lo dice subito
+		fondiDispositivo(b.dir, { ambiente: 'sviluppo', attivita: hex(80) });
+		await b.giro(20_000);
+		b.presi('liveactivity');
+		b.av.avvioTolto();
+		fondiDispositivo(b.dir, { ambiente: 'sviluppo', avvio: '', attivita: '' });
+		fondiDispositivo(b.dir, { ambiente: 'sviluppo', avvio });
+		await b.giro(1000);
+		la = b.presi('liveactivity');
+		assert.strictEqual(la.length, 1, 'riaccese di corsa: riparte lo stesso');
+		assert.strictEqual(la[0].payload.aps.event, 'start');
+		ok('Live Activity: il token tolto dall\'app fa ripartire un\'attivita\' ereditata, non una chiusa a mano; riaccese dall\'app ripartono, anche di corsa');
 	}
 	{
 		// oltre le 8 ore iOS l'ha chiusa e APNs risponde 200 lo stesso: il token si toglie e si riparte

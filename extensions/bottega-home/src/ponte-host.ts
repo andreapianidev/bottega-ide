@@ -170,6 +170,7 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 		},
 		scriviLavoro: deps.writeJob,
 		registraDispositivo: d => {
+			if (d.avvio === '') avvisi.avvioTolto();
 			disp = fondiDispositivo(dir, d);
 			avvisa();
 		},

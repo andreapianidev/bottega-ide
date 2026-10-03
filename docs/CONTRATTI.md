@@ -1518,7 +1518,9 @@ prima chi ti aspetta; `da` e `aggiornato` in ms dal 1970).
 - Interruttore «Live Activity e Dynamic Island» nelle impostazioni dell'app (preferenza condivisa
   `liveActivityAccese`, accese se mai scelto). Spente: l'app manda `avvio: ""` e `attivita: ""` e chiude quelle aperte,
   e i nuovi token di avvio restano sull'iPhone. Riaccese: rimanda il token di avvio, e il Mac (che l'aveva visto
-  sparire) la fa ripartire subito se c'e' lavoro, anche se quella di prima era stata chiusa a mano (build 69). Sotto, se servono, il rimando alle
+  sparire) la fa ripartire subito se c'e' lavoro, anche se quella di prima era stata chiusa a mano (build 69). Lo
+  sparire lo dice il ponte appena arriva `avvio: ""` (`Avvisi.avvioTolto`): spente e riaccese in meno di un secondo un
+  giro non le vedeva mai spente (build 75). Sotto, se servono, il rimando alle
   impostazioni di iOS (`ActivityAuthorizationInfo().areActivitiesEnabled`).
 
 **Widget** (`apns-push-type: widgets`, `{aps: {"content-changed": true}}`, priorita' 5) a ogni cambio di `tiAspetta`

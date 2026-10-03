@@ -108,7 +108,7 @@ export class Avvisi {
 	private pausaFino = -Infinity;
 	private livelli?: Map<string, Livello>;
 	private allarmiVisti?: Set<string>;
-	private la = { avviata: false, tentata: -Infinity, ultimoInvio: -Infinity, firma: '', tiAspetta: -1, vuotoDal: undefined as number | undefined, token: '', da: 0, nostra: false, avvio: undefined as string | undefined };
+	private la = { avviata: false, tentata: -Infinity, ultimoInvio: -Infinity, firma: '', tiAspetta: -1, vuotoDal: undefined as number | undefined, token: '', da: 0, nostra: false, spente: false };
 	/** Le push dei widget: l'ultimo invio e quello che dicevano. `rossi` e `negozio` svegliano anche i widget dei
 	 *  guadagni, dei consigli e del semaforo (stesso token, stesso limite di uno ogni 5 minuti). */
 	private wg = { ultimo: -Infinity, inCorso: 0, tiAspetta: 0, rossi: 0, negozio: '' };
@@ -126,6 +126,13 @@ export class Avvisi {
 	 *  suona tutto quello che e' cambiato nel frattempo. */
 	riparti(): void {
 		this.nato = undefined;
+	}
+
+	/** L'iPhone ha tolto il token di avvio (Live Activity spente dall'app): quando torna si riparte subito. Lo dice il
+	 *  ponte nel momento in cui arriva: spente e riaccese in meno di un secondo, un giro non le vedeva mai spente e
+	 *  non ripartiva niente (build 69-74). */
+	avvioTolto(): void {
+		this.la.spente = true;
 	}
 
 	/** Un giro sull'istantanea di adesso. Mai due insieme: se ne arriva un altro durante, si rifa' alla fine. */
@@ -280,13 +287,13 @@ export class Avvisi {
 		// partita da qui e chiusa a mano da Andrea aspetta un giro senza sessioni.
 		// Il token di avvio torna dopo essere stato tolto: Andrea ha riacceso le Live Activity dall'app, che intanto
 		// aveva chiuso quelle aperte. Vale come un giro senza sessioni: se c'e' lavoro si riparte subito.
-		const avvio = disp.avvio ?? '';
-		if (this.la.avvio === '' && avvio) {
+		if (!disp.avvio) this.la.spente = true;
+		else if (this.la.spente) {
 			this.log(`avvisi: Live Activity riaccese dall'iPhone, ne faccio partire una nuova`);
+			this.la.spente = false;
 			this.la.avviata = false;
 			this.la.tentata = -Infinity;
 		}
-		this.la.avvio = avvio;
 		const tok = disp.attivita ?? '';
 		if (tok !== this.la.token) {
 			if (this.la.token && !tok && !this.la.nostra) this.la.avviata = false;
