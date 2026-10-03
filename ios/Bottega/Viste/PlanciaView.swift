@@ -36,6 +36,7 @@ struct PlanciaView: View {
                 switch nav.stanza {
                 case .melissa: ConversazioneView(stato: ponte.stato, melissa: melissa)
                 case .lavori: LavoriView(ponte: ponte)
+                case .stanze: StanzeView(ponte: ponte)
                 }
                 if nav.stanza == .melissa { scrivi }
             }

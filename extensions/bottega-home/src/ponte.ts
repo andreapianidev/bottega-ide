@@ -18,7 +18,8 @@ import { CAMPI_TOKEN, DispositivoParziale, TOKEN_HEX } from './dispositivo';
      POST /v1/voce {testo}        -> audio/wav              la voce di Melissa, sintetizzata sul Mac
      POST /v1/lavoro {id, testo}  -> {ok}                   scrive in un lavoro della Bottega
      POST /v1/dispositivo {...}   -> {ok}                   i token APNs dell'iPhone (9.4): notifiche, Live Activity, widget
-     /v1/sessione...              -> la scheda di una sessione (9.5), in src/ponte-sessioni.ts */
+     /v1/sessione...              -> la scheda di una sessione (9.5), in src/ponte-sessioni.ts
+     GET  /v1/stanza?nome=..      -> una stanza della plancia in sola lettura (9.6), in src/ponte-stanze.ts */
 
 export interface PonteMelissa {
 	stato: string;
@@ -66,6 +67,8 @@ export interface PonteDeps {
 	log(riga: string): void;
 	/** Le rotte della scheda di sessione (/v1/sessione..., docs/CONTRATTI.md 9.5), dopo il gettone. */
 	sessioni?: RotteSessioni;
+	/** Le stanze della plancia in sola lettura (GET /v1/stanza, docs/CONTRATTI.md 9.6), dopo il gettone. */
+	stanze?: RotteStanze;
 	/** Solo per i test: dove ascoltare al posto dell'indirizzo Tailscale. */
 	indirizzo?: () => Promise<Rete | null>;
 	porta?: number;
@@ -82,6 +85,11 @@ export interface RotteSessioni {
 	gestisci(req: http.IncomingMessage, res: http.ServerResponse, aiuti: AiutiRotte): Promise<void>;
 	/** Il ponte si chiude: si chiudono anche i flussi della scheda. */
 	chiudi(): void;
+}
+
+export interface RotteStanze {
+	/** I parametri della richiesta -> il JSON della stanza; un errore porta `status` e una frase in italiano. */
+	leggi(q: URLSearchParams): Promise<unknown>;
 }
 
 export type RigaParla =
@@ -309,6 +317,10 @@ export class Ponte {
 			if (url === '/v1/sessione' || url.startsWith('/v1/sessione/')) {
 				if (!this.deps.sessioni) return json(404, { errore: 'Non c\'e\' niente qui.' });
 				return await this.deps.sessioni.gestisci(req, res, { corpo: () => leggiCorpo(req), occupata: () => this.deps.occupata(), parla: (t, e, s) => this.deps.parla(t, e, s) });
+			}
+			if (url === '/v1/stanza' && this.deps.stanze) {
+				if (req.method !== 'GET') return json(405, { errore: 'Le stanze si leggono soltanto.' });
+				return json(200, await this.deps.stanze.leggi(new URL(req.url ?? '/', 'http://ponte').searchParams));
 			}
 			if (req.method === 'GET' && url === '/v1/stato') return json(200, this.stato());
 			if (req.method === 'GET' && url === '/v1/eventi') return this.eventi(req, res);

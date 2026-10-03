@@ -8,6 +8,7 @@
 //    bottega://collega?...          collega l'iPhone al Mac
 //    bottega://lavori               la stanza Lavori
 //    bottega://melissa[?ascolta=1]  la stanza Melissa, e con ascolta=1 la sfera comincia ad ascoltare
+//    bottega://stanze[?nome=appstore]  le stanze della plancia, e con nome quella stanza aperta (Stanze/)
 //
 
 import Foundation
@@ -18,9 +19,11 @@ import Observation
 final class Navigazione {
     static let shared = Navigazione()
 
-    enum Stanza: String, CaseIterable { case melissa = "Melissa", lavori = "Lavori" }
+    enum Stanza: String, CaseIterable { case melissa = "Melissa", lavori = "Lavori", stanze = "Stanze" }
 
     var stanza: Stanza = .melissa
+    /// La stanza della plancia aperta a tutto schermo (StanzeView), se ce n'e' una.
+    var stanzaAperta: StanzaPlancia?
     /// Messo a vero da un link: la plancia fa partire l'ascolto e lo rimette a falso.
     var ascoltaSubito = false
 
@@ -39,6 +42,10 @@ final class Navigazione {
                URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "ascolta" && $0.value == "1" }) == true {
                 ascoltaSubito = true
             }
+        case "stanze":
+            stanza = .stanze
+            let nome = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "nome" }?.value
+            stanzaAperta = nome.flatMap(StanzaPlancia.init(rawValue:))
         default:
             break
         }

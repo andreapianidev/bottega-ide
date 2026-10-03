@@ -40,6 +40,7 @@ struct BottegaApp: App {
                 } else {
                     Avvisi.shared.dimentica()
                     Navigazione.shared.ascoltaSubito = false
+                    PonteStanze.shared.dimentica()
                 }
             }
             .onChange(of: fase) { _, nuova in

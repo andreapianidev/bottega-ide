@@ -103,6 +103,11 @@ export function registraStrumentiStanze(f: FontiStanze): void {
 	fonti = f;
 }
 
+/** Le stesse fonti per il ponte verso l'iPhone (src/ponte-stanze.ts, CONTRATTI 9.6): undefined finche' non ci sono. */
+export function fontiStanze(): FontiStanze | undefined {
+	return fonti;
+}
+
 export const STANZE = ['cruscotto', 'appstore', 'vedetta', 'siti', 'clienti', 'posta', 'whatsapp', 'dafare', 'memoria', 'connettori', 'notte'] as const;
 export type Stanza = (typeof STANZE)[number];
 export const MASSIMO_VOCE = 1200;

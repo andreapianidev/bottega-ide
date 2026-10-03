@@ -11,6 +11,8 @@ import type { Nucleo } from './nucleo';
 import * as crypto from 'crypto';
 import { Ponte, PonteStato, RigaParla } from './ponte';
 import { creaSessioni } from './ponte-sessioni-host';
+import { StanzePonte } from './ponte-stanze';
+import { fontiStanze } from './strumenti-stanze';
 
 /* Il ponte dentro la Bottega: lo accende con Tailscale, gli passa Melissa e i lavori, e mostra il QR per
    collegare l'iPhone (comando "Collega l'iPhone"). Il protocollo e' in src/ponte.ts e in docs/CONTRATTI.md, 9.
@@ -93,6 +95,8 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 		versione: String(ctx.extension.packageJSON.version ?? ''),
 		stato: () => stato(deps),
 		sessioni,
+		// le stanze della plancia, dalle stesse fonti di stanza_leggi (CONTRATTI 9.6)
+		stanze: new StanzePonte({ fonti: fontiStanze, lavori: deps.work }),
 		// prenotata subito, prima di qualunque await: due domande dall'iPhone non passano insieme il controllo
 		occupata: () => impegnata || (deps.assistant()?.busy() ?? true),
 		confermaAttuale: () => deps.assistant()?.pendingConfirmation(),
