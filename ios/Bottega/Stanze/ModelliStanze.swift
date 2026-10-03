@@ -68,7 +68,8 @@ struct StanzaAppStore: Decodable {
         let app: String
         let testo: String
         let at: Double
-        var id: String { "\(at)-\(app)" }
+        /// Gli allarmi di uno stesso controllo hanno la stessa ora: con la sola app due allarmi avrebbero lo stesso id.
+        var id: String { "\(at)-\(app)-\(testo)" }
     }
     struct Errori: Decodable {
         let store: String?

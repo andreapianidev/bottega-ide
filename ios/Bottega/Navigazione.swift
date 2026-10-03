@@ -45,7 +45,8 @@ final class Navigazione {
         case "stanze":
             stanza = .stanze
             let nome = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "nome" }?.value
-            stanzaAperta = nome.flatMap(StanzaPlancia.init(rawValue:))
+            // come il Mac, che normalizza il nome: anche ?nome=AppStore apre la stanza
+            stanzaAperta = nome.flatMap { StanzaPlancia(rawValue: $0.lowercased()) }
         default:
             break
         }

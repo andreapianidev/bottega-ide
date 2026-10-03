@@ -59,25 +59,33 @@ final class PonteStanze {
         return c
     }
 
-    /// Chiede la stanza al Mac; se risponde, la copia diventa l'ultima vista.
+    /// Chiede la stanza al Mac. La risposta diventa l'ultima copia solo con `conserva`, dopo che l'app l'ha letta:
+    /// una risposta che non si decodifica non prende il posto di quella buona (con il Mac spento resterebbe niente).
     func leggi(_ nome: String, _ query: [String: String]) async throws -> Copia {
         var q = query.filter { !$0.value.isEmpty }
         q["nome"] = nome
         let d = try await dati(try richiesta("/v1/stanza", q))
-        let c = Copia(dati: d, visto: Date())
+        return Copia(dati: d, visto: Date())
+    }
+
+    /// La copia letta diventa l'ultima vista: in memoria e, per le stanze senza dati di altre persone, su disco.
+    func conserva(_ nome: String, _ query: [String: String], _ c: Copia) {
         let k = chiave(nome, query)
         memoria[k] = c
         if Self.suDisco.contains(nome), let f = file(k) {
-            try? d.write(to: f, options: [.atomic, .completeFileProtection])
+            try? c.dati.write(to: f, options: [.atomic, .completeFileProtection])
         }
-        return c
     }
 
-    /// Scollegando l'iPhone le copie non servono piu'.
+    /// Scollegando l'iPhone le copie non servono piu'. La cartella resta (vuota): ricollegando un Mac senza
+    /// riaprire l'app le copie su disco devono ricominciare a salvarsi.
     func dimentica() {
         memoria = [:]
-        if let c = cartella { try? FileManager.default.removeItem(at: c) }
-        cartella = nil
+        usaIP = false
+        if let c = cartella {
+            try? FileManager.default.removeItem(at: c)
+            try? FileManager.default.createDirectory(at: c, withIntermediateDirectories: true)
+        }
     }
 
     private func chiave(_ nome: String, _ query: [String: String]) -> String {
@@ -195,6 +203,7 @@ final class LetturaStanza<T: Decodable> {
             let c = try await ponte.leggi(nome, query)
             guard mio == giro else { return }
             dati = try JSONDecoder().decode(T.self, from: c.dati)
+            ponte.conserva(nome, query, c)
             visto = c.visto
             errore = nil
             vecchio = false

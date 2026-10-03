@@ -39,7 +39,8 @@ struct PostaView: View {
             }
             ForEach(d.progetti) { p in
                 RiquadroStanza(titolo: p.nome, nota: nota(p)) {
-                    ForEach(p.mail) { m in
+                    // per posizione: due mail senza data dallo stesso dominio, o due contatti senza nome, avrebbero lo stesso id
+                    ForEach(Array(p.mail.enumerated()), id: \.offset) { _, m in
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: m.nonLetto ? "envelope.badge" : "envelope")
                                 .font(.caption)
@@ -52,7 +53,7 @@ struct PostaView: View {
                         }
                     }
                     if !p.mail.isEmpty && !p.chat.isEmpty { Divider().overlay(Tinte.bordo) }
-                    ForEach(p.chat) { c in
+                    ForEach(Array(p.chat.enumerated()), id: \.offset) { _, c in
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: c.gruppo ? "person.3" : "message")
                                 .font(.caption)

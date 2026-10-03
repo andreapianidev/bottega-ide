@@ -18,7 +18,7 @@ esbuild.buildSync({
 	outdir: OUT, format: 'cjs', platform: 'node', bundle: false, target: 'node20', logLevel: 'silent',
 });
 const { Ponte } = require(path.join(OUT, 'ponte.js'));
-const { StanzePonte, periodoParam, mittenteSicuro, contattoSicuro, anteprimaSicura } = require(path.join(OUT, 'ponte-stanze.js'));
+const { StanzePonte, periodoParam, mittenteSicuro, contattoSicuro, anteprimaSicura, oggettoSicuro } = require(path.join(OUT, 'ponte-stanze.js'));
 
 let passed = 0;
 const ok = name => (passed++, console.log('  ok  ' + name));
@@ -135,7 +135,7 @@ const POSTA = {
 			path: '/prove/checkin', name: 'CheckIn Facile', nonLetti: 2, chatDaRispondere: 1,
 			fili: [
 				{ id: 'm1', fonte: 'mail', da: 'Mario Prova <mario@esempio.it>', indirizzo: 'mario@esempio.it', oggetto: 'Preventivo – seconda parte', data: new Date(ORA - 2 * H).toISOString(), nonLetto: true, anteprima: 'testo privato che non va mostrato' },
-				{ id: 'm2', fonte: 'mail', da: 'anna@esempio.it', indirizzo: 'anna@esempio.it', oggetto: 'Fattura', data: new Date(ORA - 2 * D).toISOString(), nonLetto: true, anteprima: 'altro testo privato' },
+				{ id: 'm2', fonte: 'mail', da: 'anna@esempio.it', indirizzo: 'anna@esempio.it', oggetto: 'Fattura 2026/0012 del 03/10/2026, ordine #1234-5678, scrivi a anna@esempio.it o al 600 000 000', data: new Date(ORA - 2 * D).toISOString(), nonLetto: true, anteprima: 'altro testo privato' },
 			],
 			chat: [
 				{ id: 'wa:1', gruppo: false, contatto: 'Mario Prova', telefono: '+34600000000', ultimo: 'Chiamami al +34 600 000 000 o scrivi a mario@esempio.it', data: new Date(ORA - H).toISOString(), mio: false },
@@ -211,6 +211,10 @@ function call(port, token, method, url) {
 	const a = anteprimaSicura('Chiamami al +34 600 000 000 o scrivi a mario@esempio.it adesso');
 	assert.ok(!/600|@/.test(a), a);
 	assert.ok(a.length <= 60);
+	// l'oggetto di una mail vera puo' contenere un indirizzo (trovato con i dati veri, 3/10/2026): esce coperto, ma date,
+	// numeri di fattura e d'ordine restano
+	assert.strictEqual(oggettoSicuro('Inoltro da mario@esempio.it, chiama +34 600 000 000 o 3330000000'), 'Inoltro da [indirizzo], chiama [numero] o [numero]');
+	assert.strictEqual(oggettoSicuro('Fattura 2026/0012 del 03/10/2026, ordine #1234-5678, v1.2.3 (45)'), 'Fattura 2026/0012 del 03/10/2026, ordine #1234-5678, v1.2.3 (45)');
 	ok('mittenti, contatti e anteprime senza indirizzi ne\' numeri');
 
 	// ---------- dentro il ponte ----------
@@ -346,6 +350,7 @@ function call(port, token, method, url) {
 	const p = s.progetti[0];
 	assert.deepStrictEqual(p.mail.map(m => m.da), ['Mario Prova', 'esempio.it']);
 	assert.strictEqual(p.mail[0].oggetto, 'Preventivo, seconda parte');
+	assert.strictEqual(p.mail[1].oggetto, 'Fattura 2026/0012 del 03/10/2026, ordine #1234-5678, scrivi a [indirizzo] o al [numero]');
 	assert.deepStrictEqual(p.chat.map(c => c.contatto), ['Mario Prova', 'contatto senza nome']);
 	assert.match(p.chat[0].anteprima, /\[numero\]/);
 	assert.deepStrictEqual(s.conti, { nonLetti: 2, chatDaRispondere: 1, mailDaAssegnare: 3, chatDaAssegnare: 1 });
