@@ -216,7 +216,7 @@ private struct Valore: View {
     let euro: Double
 
     var body: some View {
-        Text("≈ \(FormatiWidget.euro(euro)) al mese")
+        Text("≈ \(FormatiWidget.euroIntero(euro)) al mese")
             .font(.caption.weight(.semibold))
             .monospacedDigit()
             .foregroundStyle(Tinte.ambra)
@@ -227,18 +227,48 @@ private struct Valore: View {
     }
 }
 
-/// La riga sopra la frase: la fonte e di chi parla.
+/// La riga sopra la frase: la fonte e di chi parla. Se non ci stanno tutti e due resta di chi parla (il simbolo
+/// accanto dice gia' la fonte), e solo senza soggetto la fonte.
 private struct Provenienza: View {
     let c: DatiConsigli.Consiglio
 
     var body: some View {
-        Text(c.soggetto.map { "\(c.etichetta), \($0)" } ?? c.etichetta)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(Aspetto.colore(c.fonte))
-            .lineLimit(1)
+        ViewThatFits(in: .horizontal) {
+            riga(c.soggetto.map { "\(c.etichetta), \($0)" } ?? c.etichetta)
+            riga(c.soggetto ?? c.etichetta)
+            Text(c.soggetto ?? c.etichetta).lineLimit(1).minimumScaleFactor(0.75)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(Aspetto.colore(c.fonte))
+    }
+
+    private func riga(_ s: String) -> some View { Text(s).lineLimit(1).fixedSize() }
+}
+
+/// La frase del consiglio e, se c'e' posto, il perche' (o cosa fare): sempre intere.
+private struct Frase: View {
+    let c: DatiConsigli.Consiglio
+    var dimensione: CGFloat = 16
+    var sotto = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(c.titolo)
+                .font(.system(size: dimensione, weight: .semibold))
+                .foregroundStyle(Tinte.testo)
+                .fixedSize(horizontal: false, vertical: true)
+            if sotto, let s = c.perche ?? c.cosa {
+                Text(s)
+                    .font(.caption)
+                    .foregroundStyle(Tinte.tinta)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 
+/// Nel medio la frase intera con il perche', poi la frase sola; solo se nemmeno quella ci sta (oltre le tre righe)
+/// si taglia, ed e' l'unico widget dove succede.
 private struct ConsigliMedio: View {
     let voce: VoceConsigli
 
@@ -251,36 +281,51 @@ private struct ConsigliMedio: View {
                 Spacer(minLength: 4)
                 Scorri(indice: voce.indice, totale: voce.elenco.count)
             }
-            Text(c.titolo)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Tinte.testo)
-                .lineLimit(2)
-                .minimumScaleFactor(0.85)
-                .padding(.top, 2)
-            if let sotto = c.perche ?? c.cosa {
-                Text(sotto)
-                    .font(.caption)
-                    .foregroundStyle(Tinte.tinta)
-                    .lineLimit(2)
+            ViewThatFits(in: .vertical) {
+                Frase(c: c)
+                Frase(c: c, sotto: false)
+                Frase(c: c, dimensione: 14, sotto: false)
+                Text(c.titolo)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Tinte.testo)
+                    .lineLimit(3)
             }
+            .padding(.top, 2)
             Spacer(minLength: 0)
             HStack(alignment: .center) {
                 if let v = c.valore, v >= 1 { Valore(euro: v) }
                 Spacer(minLength: 0)
-                EtaWidget(visto: voce.letto.visto, fonte: voce.letto.fonte)
+                EtaWidget(visto: voce.letto.visto, fonte: voce.letto.fonte).fixedSize()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
+/// Nel grande il consiglio per intero nella sua scheda e sotto i prossimi. Se non ci sta tutto, prima si mostrano
+/// meno consigli dopo, poi si toglie il perche', poi cosa fare: le frasi restano intere. Solo un titolo oltre le
+/// quattro righe (il Mac li tiene sotto i 160 caratteri) verrebbe tagliato.
 private struct ConsigliGrande: View {
     let voce: VoceConsigli
 
     var body: some View {
+        ViewThatFits(in: .vertical) {
+            corpo(perche: true, cosa: true, poi: 3)
+            corpo(perche: true, cosa: true, poi: 2)
+            corpo(perche: true, cosa: true, poi: 1)
+            corpo(perche: true, cosa: true, poi: 0)
+            corpo(perche: false, cosa: true, poi: 1)
+            corpo(perche: false, cosa: true, poi: 0)
+            corpo(perche: false, cosa: false, poi: 0)
+            corpo(perche: false, cosa: false, poi: 0, taglia: true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func corpo(perche: Bool, cosa: Bool, poi quanti: Int, taglia: Bool = false) -> some View {
         let c = voce.elenco[voce.indice]
-        let poi = (1..<voce.elenco.count).map { voce.elenco[(voce.indice + $0) % voce.elenco.count] }.prefix(3)
-        VStack(alignment: .leading, spacing: 8) {
+        let poi = (1..<voce.elenco.count).map { voce.elenco[(voce.indice + $0) % voce.elenco.count] }.prefix(quanti)
+        return VStack(alignment: .leading, spacing: 8) {
             TestataWidget(titolo: "Consigli") { Scorri(indice: voce.indice, totale: voce.elenco.count) }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -291,19 +336,20 @@ private struct ConsigliGrande: View {
                 Text(c.titolo)
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(Tinte.testo)
-                    .lineLimit(3)
-                    .minimumScaleFactor(0.85)
-                if let p = c.perche {
+                    .lineLimit(taglia ? 4 : nil)
+                    .minimumScaleFactor(taglia ? 0.85 : 1)
+                    .fixedSize(horizontal: false, vertical: !taglia)
+                if perche, let p = c.perche {
                     Text(p)
                         .font(.subheadline)
                         .foregroundStyle(Tinte.tinta)
-                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                if let cosa = c.cosa {
+                if cosa, let cosa = c.cosa {
                     Label(cosa, systemImage: "arrow.turn.down.right")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(Tinte.testo)
-                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let v = c.valore, v >= 1 { Valore(euro: v) }
             }
@@ -318,18 +364,19 @@ private struct ConsigliGrande: View {
                     .foregroundStyle(Tinte.tinta)
                 ForEach(Array(poi)) { x in
                     Link(destination: Aspetto.url(x)) {
-                        HStack(spacing: 8) {
+                        HStack(alignment: .top, spacing: 8) {
                             Bollo(fonte: x.fonte, lato: 18)
                             Text(x.titolo)
                                 .font(.caption.weight(.medium))
                                 .foregroundStyle(Tinte.testo)
-                                .lineLimit(1)
+                                .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 4)
                             if let v = x.valore, v >= 1 {
-                                Text("≈ \(FormatiWidget.euro(v))")
+                                Text("≈ \(FormatiWidget.euroIntero(v))")
                                     .font(.caption2)
                                     .monospacedDigit()
                                     .foregroundStyle(Tinte.ambra)
+                                    .fixedSize()
                             }
                         }
                     }
@@ -338,7 +385,6 @@ private struct ConsigliGrande: View {
             Spacer(minLength: 0)
             EtaWidget(visto: voce.letto.visto, fonte: voce.letto.fonte)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 

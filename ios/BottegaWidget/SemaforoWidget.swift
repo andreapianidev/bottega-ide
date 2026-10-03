@@ -118,27 +118,36 @@ private struct SemaforoPiccolo: View {
             .padding(.horizontal, 2)
             Spacer(minLength: 0)
             if let r = d.primoRosso {
-                VStack(alignment: .leading, spacing: 1) {
-                    if let chi = r.chi {
-                        Text(chi)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Tinte.rosso)
-                            .lineLimit(1)
-                    }
-                    Text(r.frase)
-                        .font(.caption2)
-                        .foregroundStyle(Tinte.testo)
-                        .lineLimit(r.chi == nil ? 3 : 2)
+                // la frase della regola se ci sta intera; altrimenti chi e' in rosso, e la frase si legge nella Vedetta
+                ViewThatFits(in: .vertical) {
+                    rosso(r.chi, frase: r.frase)
+                    rosso(r.chi, frase: r.chi == nil ? "Una regola rossa per tutti i progetti." : (rossi == 1 ? "Una regola rossa." : "E altri \(rossi - 1) in rosso."))
                 }
             } else {
                 Text(d.conti.giallo > 0 ? "Nessun rosso. I gialli possono aspettare." : "Tutto in ordine.")
                     .font(.caption2)
                     .foregroundStyle(Tinte.verde)
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if voce.letto.fonte == .salvata { EtaWidget(visto: voce.letto.visto, fonte: voce.letto.fonte) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    }
+
+    private func rosso(_ chi: String?, frase: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            if let chi {
+                Text(chi)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Tinte.rosso)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            Text(frase)
+                .font(.caption2)
+                .foregroundStyle(Tinte.testo)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
