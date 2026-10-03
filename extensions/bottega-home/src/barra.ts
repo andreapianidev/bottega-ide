@@ -19,8 +19,6 @@ export interface BarraSource {
 	/** Bacheca delle ultime 3 ore: puo' essere lenta (CLI della Memoria), si chiede ogni 20 s a vista aperta. */
 	board(): Promise<(BoardEntry & { sessionId?: string })[]>;
 	brain(): Promise<BrainState>;
-	/** interruttore «racconta» (bottega.voice.racconta) */
-	racconta(): boolean;
 }
 
 export interface BarraActions {
@@ -30,7 +28,6 @@ export interface BarraActions {
 	/** `sempre`: diventa il predefinito (CONTRATTI 9.8), altrimenti vale per questa conversazione */
 	setBrain(provider: Provider, model: string, sempre?: boolean): Promise<void>;
 	setEffort(effort: Effort): Promise<void>;
-	setRacconta(on: boolean): Promise<void>;
 	focusJob(id: string): void;
 	writeJob(id: string, text: string): void;
 	open(path: string): void;
@@ -122,9 +119,6 @@ export class BarraView implements vscode.WebviewViewProvider {
 					void vscode.window.showWarningMessage(e?.message ?? String(e));
 				}
 				await this.refreshBrain();
-				return this.push(true);
-			case 'racconta.set':
-				await this.act.setRacconta(!!m.on);
 				return this.push(true);
 			case 'effort.set':
 				if (['rapido', 'normale', 'profondo'].includes(m.effort)) await this.act.setEffort(m.effort);
@@ -220,7 +214,6 @@ export class BarraView implements vscode.WebviewViewProvider {
 			workCounts: this.src.workCounts(),
 			board: this.board,
 			brain: this.brain,
-			racconta: this.src.racconta(),
 		};
 		const sig = JSON.stringify(msg);
 		if (!force && sig === this.lastSent) return;

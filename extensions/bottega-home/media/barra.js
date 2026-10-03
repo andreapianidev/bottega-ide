@@ -111,8 +111,8 @@
 					<label title="L'equilibrio di sempre"><input type="radio" name="impegno" value="normale"><span>normale</span></label>
 					<label title="Pensa a fondo, ci mette di più"><input type="radio" name="impegno" value="profondo"><span>profondo</span></label>
 				</fieldset>
-				<label class="racconta" title="Il cervello scelto resta anche dopo questa conversazione, come dall'iPhone; tolto, si torna ad Agnes"><input type="checkbox" id="sempre"><span>sempre</span></label>
-				<label class="racconta" title="Melissa dice cosa sta facendo mentre lavora: legge il file, guarda una stanza, avvia un lavoro"><input type="checkbox" id="racconta"><span>racconta</span></label>
+				<label class="sempre" title="Il cervello scelto resta anche dopo questa conversazione, come dall'iPhone; tolto, si torna ad Agnes"><input type="checkbox" id="sempre"><span>sempre</span></label>
+				<button type="button" class="racconta" id="racconta" title="Melissa legge quello che hai davanti (il file di codice o la stanza della Home), lo fa analizzare a DeepSeek e te lo racconta a voce">racconta</button>
 			</div>
 			<details class="conti" id="conti" hidden>
 				<summary><i class="conto-punto" id="conti-punto" aria-hidden="true"></i><span id="conti-riassunto"></span></summary>
@@ -132,6 +132,9 @@
 				<p class="parziale" id="parziale"></p>
 				<button type="button" class="voce" id="voce" hidden></button>
 			</div>
+		</section>
+		<section class="terminale-m" id="attivita" aria-label="Cosa sta facendo Melissa, in diretta">
+			<ol class="terminale-righe" id="attivita-righe" role="log" aria-live="polite"></ol>
 		</section>
 		<section class="dialogo" aria-labelledby="dialogo-titolo">
 			<h2 class="sr" id="dialogo-titolo">Conversazione</h2>
@@ -160,7 +163,6 @@
 			<button type="button" data-comando="cruscotto">Cruscotto</button>
 			<button type="button" data-comando="continua">Continua</button>
 			<button type="button" data-comando="cerca">Cerca</button>
-			<button type="button" data-comando="spiega" title="Melissa legge il file aperto (o quello che hai selezionato) e te lo racconta">Spiega il codice</button>
 			<button type="button" class="casa" id="casa">Apri la Home</button>
 		</nav>
 		<div class="sr" id="annuncio" role="status" aria-live="polite"></div>`;
@@ -584,8 +586,9 @@
 		const t = /** @type {Node} */ (ev.target);
 		if (!lista.hidden && !lista.contains(t) && !cervello.contains(t)) chiudi(false);
 	});
-	// «racconta»: Melissa dice cosa sta facendo mentre lavora (src/racconto.ts)
-	$('racconta').addEventListener('change', ev => post({ type: 'racconta.set', on: /** @type {HTMLInputElement} */ (ev.target).checked }));
+	// «racconta»: quello che hai davanti, analizzato e raccontato a voce; durante il racconto diventa «ferma»
+	$('racconta').addEventListener('click', () => post({ type: 'comando', id: S.assistant && S.assistant.raccontando ? 'racconta.ferma' : 'racconta' }));
+	// «sempre»: il cervello di adesso diventa il predefinito; tolto, si torna ad Agnes (CONTRATTI 9.8)
 	$('sempre').addEventListener('change', ev => {
 		const cur = (S.brain && S.brain.current) || {};
 		const on = /** @type {HTMLInputElement} */ (ev.target).checked;
@@ -602,6 +605,47 @@
 	const registro = $('registro');
 	/** @type {Map<string, HTMLLIElement>} */ const righe = new Map();
 	let primoRegistro = true;
+
+	// ---------- il terminale: cosa fa Melissa, passo per passo (AssistantState.attivita, CONTRATTI 6) ----------
+
+	const SEGNI = { nota: '›', corre: '▸', fatto: '✓', errore: '✕', voce: '♪' };
+	let firmaTerminale = '';
+	function renderTerminale() {
+		const a = S.assistant;
+		const passi = (a && Array.isArray(a.attivita) ? a.attivita : []).slice(-24);
+		const vivo = !!(a && (a.state === 'thinking' || a.state === 'speaking' || a.raccontando));
+		const firma = JSON.stringify(passi) + vivo;
+		if (firma === firmaTerminale) return;
+		firmaTerminale = firma;
+		const ol = $('attivita-righe');
+		const ora = t => {
+			const d = new Date(t);
+			return [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => String(n).padStart(2, '0')).join(':');
+		};
+		const righe = passi.length ? passi : [{ at: Date.now(), testo: 'pronta. Premi «racconta» con un file o una stanza davanti.', stato: 'nota' }];
+		ol.replaceChildren(
+			...righe.map((p, i) => {
+				const li = document.createElement('li');
+				const ultimo = i === righe.length - 1;
+				li.className = 't-' + (p.stato in SEGNI ? p.stato : 'nota') + (ultimo && vivo ? ' vivo' : '');
+				const t = document.createElement('time');
+				t.textContent = ora(p.at);
+				const s = document.createElement('b');
+				s.textContent = SEGNI[p.stato] || '›';
+				s.setAttribute('aria-hidden', 'true');
+				const x = document.createElement('span');
+				x.textContent = p.testo;
+				li.append(t, s, x);
+				return li;
+			}),
+		);
+		ol.scrollTop = ol.scrollHeight;
+		const r = $('racconta');
+		const inCorso = !!(a && a.raccontando);
+		r.textContent = inCorso ? 'ferma' : 'racconta';
+		r.classList.toggle('attiva', inCorso);
+		r.setAttribute('aria-pressed', String(inCorso));
+	}
 
 	function renderAssistant() {
 		const a = S.assistant;
@@ -988,7 +1032,10 @@
 	function disegna() {
 		if (!visible()) return;
 		if (dirty.brain) renderBrain();
-		if (dirty.assistant) renderAssistant();
+		if (dirty.assistant) {
+			renderAssistant();
+			renderTerminale();
+		}
 		if (dirty.work) renderWork();
 		dirty = { assistant: false, brain: false, work: false };
 	}
@@ -1004,7 +1051,6 @@
 				S.brain = m.brain || null;
 				dirty.brain = true;
 			}
-			if ('racconta' in m) $('racconta').checked = !!m.racconta;
 			if ('work' in m) {
 				S.work = Array.isArray(m.work) ? m.work : [];
 				dirty.work = true;

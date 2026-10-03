@@ -302,18 +302,35 @@ function lineette(d) {
 		assert.strictEqual(b.$('#impegno input[value=rapido]').checked, true);
 	});
 
-	await test('racconta: l\'interruttore manda racconta.set e segue lo stato', () => {
+	await test('racconta: il pulsante manda il comando, durante il racconto diventa «ferma»; il terminale mostra i passi', () => {
 		const b = mount();
-		b.send(stato({ racconta: false }));
+		b.send(stato());
 		const r = b.$('#racconta');
-		assert.strictEqual(r.checked, false);
-		r.checked = true;
-		r.dispatchEvent(new b.w.Event('change', { bubbles: true }));
-		assert.deepStrictEqual(b.last('racconta.set'), { type: 'racconta.set', on: true });
-		b.send({ type: 'stato', racconta: false });
-		assert.strictEqual(r.checked, false, 'lo stato vero vince');
-		b.send({ type: 'stato', brain: brain() });
-		assert.strictEqual(r.checked, false, 'un messaggio senza racconta non lo tocca');
+		assert.strictEqual(r.textContent, 'racconta');
+		// senza passi il terminale dice che e' pronta
+		assert.match(b.$('#attivita-righe').textContent, /pronta/);
+		b.click(r);
+		assert.deepStrictEqual(b.last('comando'), { type: 'comando', id: 'racconta' });
+		const passi = [
+			{ at: Date.UTC(2026, 9, 3, 0, 40, 1), testo: '› Raccontami la stanza App Store.', stato: 'nota' },
+			{ at: Date.UTC(2026, 9, 3, 0, 40, 2), testo: 'leggo la stanza App Store', stato: 'corre' },
+			{ at: Date.UTC(2026, 9, 3, 0, 40, 3), testo: 'DeepSeek V4.1 Flash analizza', stato: 'corre' },
+			{ at: Date.UTC(2026, 9, 3, 0, 40, 5), testo: 'Il mese va bene: 402 euro.', stato: 'voce' },
+		];
+		b.send({ type: 'stato', assistant: assistant({ state: 'speaking', raccontando: true, attivita: passi }) });
+		assert.strictEqual(r.textContent, 'ferma');
+		assert.ok(r.classList.contains('attiva'));
+		const li = b.$$('#attivita-righe li');
+		assert.strictEqual(li.length, 4);
+		assert.ok(li[3].classList.contains('t-voce') && li[3].classList.contains('vivo'), 'l\'ultima riga e\' quella viva');
+		assert.match(li[3].textContent, /♪Il mese va bene: 402 euro\./);
+		assert.ok(li[1].classList.contains('t-corre'));
+		b.click(r);
+		assert.deepStrictEqual(b.last('comando'), { type: 'comando', id: 'racconta.ferma' });
+		b.send({ type: 'stato', assistant: assistant({ state: 'idle', raccontando: false, attivita: passi }) });
+		assert.strictEqual(r.textContent, 'racconta');
+		assert.ok(!b.$$('#attivita-righe li')[3].classList.contains('vivo'));
+		assert.match(CSS, /\.terminale-righe \{[^}]*height: calc\(4 \* 17px\)/, 'quattro righe sempre in vista');
 	});
 
 	await test('sfera: stato in parole, frase parziale, clic manda converse, voce', () => {

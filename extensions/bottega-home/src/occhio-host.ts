@@ -11,6 +11,8 @@ export interface Occhio {
 	riga(): string | undefined;
 	/** il codice per lo strumento codice_leggi: il file attivo, o un altro per nome */
 	leggi(nome?: string): string;
+	/** cosa c'e' nella scheda attiva dell'editor: un file di codice, la Home, o niente («racconta») */
+	davanti(): 'file' | 'home' | undefined;
 }
 
 /** Solo file veri o nuovi: non il pannello Output, non i diff di git, non le impostazioni. */
@@ -62,6 +64,12 @@ export function registraOcchio(ctx: vscode.ExtensionContext): Occhio {
 	};
 
 	return {
+		davanti() {
+			const inp: unknown = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+			if (inp instanceof vscode.TabInputWebview && /bottega\.plancia/.test(inp.viewType)) return 'home';
+			// un file, o qualcos'altro davanti (immagine, impostazioni): l'ultimo file di codice guardato, se c'e'
+			return attuale() ? 'file' : undefined;
+		},
 		vista,
 		riga: () => rigaContesto(vista()),
 		leggi(nomeFile) {
