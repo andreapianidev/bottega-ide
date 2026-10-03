@@ -1540,6 +1540,80 @@ primo piano, «Riassumimelo», «Segui»), da li' `ModificheView` / `DiffView` e
 `PonteSessioni` (stesso collegamento di `Ponte`, sue connessioni). La diretta vive solo con la scheda aperta e
 l'app davanti.
 
+### 9.6 Le stanze della plancia (`src/ponte-stanze.ts`)
+
+Una rotta sola, in sola lettura, dietro il gettone come le altre: `src/ponte.ts` la gira a `PonteDeps.stanze`
+(`RotteStanze.leggi(searchParams)`) dopo il controllo del gettone; un metodo diverso da GET prende 405. Le fonti sono
+quelle di `stanza_leggi` (sezione 6): `fontiStanze()` di `src/strumenti-stanze.ts`, cioe' lo stato che la plancia
+mostra (`AppStore.state()`, il calcolo del cruscotto, `idee.rules`, `idee.radar` con `vercel`, le ore per cliente, la
+Memoria, `statoPosta()` della stanza Connettori, `idee.night`), piu' i lavori per la fila della notte. Nessuna
+chiamata di rete, nessuna delega, nessuna scrittura. Elenchi tagliati: una risposta sta sotto i 40 KB anche con
+centinaia di progetti. Testi gia' ripuliti dalle lineette lunghe e medie (`pulisci`).
+
+`GET /v1/stanza?nome=<appstore|cruscotto|vedetta|dafare|posta|clienti|notte>&periodo=..&progetto=..&mese=..`
+
+- `periodo`: `ieri`/`oggi` (1), `settimana` (7), `mese` (30), `trimestre` (90), `anno` (365) o i giorni, ricondotti
+  da `periodoDa`. `progetto`: risolto con `resolveProject` (per `appstore` anche il nome di un'app). `mese`:
+  `YYYY-MM` o come lo dice Andrea (`meseDa`), per `appstore` e `clienti`.
+- Ogni risposta: `{stanza, ora, aggiornatoAt, ...}`; `aggiornatoAt` e' l'ora del dato sul Mac (0 se non si sa).
+- Errori `{errore}` in italiano: 400 stanza sconosciuta, 404 progetto o app che non c'e', 503 stanza non pronta
+  (prima lettura in corso, calcolo oltre 20 s, Memoria o Connettori assenti, Bottega che si avvia). La frase si
+  mostra cosi' com'e'.
+
+Forme (tempi in ms dal 1970, euro, minuti):
+
+- `appstore` (predefinito 30 giorni): `{aggiornando, valuta, periodo, mese, quale: giorni|mesi, etichetta, progetto,
+  cifre: {totale, admob, store, download}, prima: Cifre|null, grafico: [{chiave, admob, store|null, download,
+  nelPeriodo}], storeFinoA, storeIncompleto, abbonamenti: {finoA, attivi, prove, mrr, ritardo, attiviPrima,
+  giorniPrima, eventi: {categoria: n}}|null, app: [{chiave, nome, piattaforma, path, progetto, totale, admob, store,
+  download}] (le prime 8 con almeno 50 centesimi o un download), buchi: [{id, app, gravita, titolo, perche, cosa,
+  stima, stimaNota, path, progetto, daQuando}] (i primi 10), buchiTotali, stimaTotale, allarmi: [{app, testo, at}]
+  (3), errori: {store?, admob?}}`. Giorni fino a 30 (per `ieri` il grafico e' la settimana con ieri in fondo), mesi
+  oltre (90 = 3 mesi, anno = 12 compreso quello in corso; il grafico ha sempre 12 mesi). `store: null` = il report
+  di quel giorno non c'e' ancora (dopo `storeFinoA`) o Apple non lo da' piu' (`storeSenzaDati`): non e' zero.
+  `storeIncompleto`: il periodo arriva oltre l'ultimo report dello Store. Abbonati: l'ultimo giorno con il report
+  (`abbFinoA`) contro almeno sette giorni prima; eventi sommati sui giorni del periodo (al massimo 30), quelli a
+  zero non viaggiano.
+- `cruscotto` (predefinito 7; 1 e 7 danno 7, 365 da' 90 con `anno`): `{periodo, progetto: {nome, path}|null, cifre:
+  {tu, claude, sessioni, token, valore, giorniAttivi}, prima: {tu, claude, token, valore}|null, oggi: {tu, claude,
+  sessioni, token}, settimana: {tu, claude, primaFinOra, inizio}|null, grafico: [{giorno, tu, claude|null}] (un
+  punto per giorno del periodo), progetti: [{nome, path, tu, claude, sessioni, token, valore, vive, ultimo}] (8),
+  vive, anno?}`. Con un progetto il grafico ha solo le sue ore tue (`claude: null`) e `progetti` e' vuoto.
+- `vedetta`: `{conti: {rosso, giallo, verde}, globali: [Regola], progetti: [{path, nome, livello, regole: [Regola]
+  (3), altre}] (25, prima i rossi; i verdi no), progettiTotali, siti: {aggiornatoAt, errore?, conti: {male,
+  attesa, ok}, elenco: [{nome, path, progetto, stato, etichetta, tono, at, dominio?, errore?, onlineDal?}] (25,
+  prima le fallite, poi in corso, poi le piu' recenti)}|null}`, `Regola = {id, livello, frase, rimedio}`.
+- `dafare`: `{progetti: [{nome, path, at, cose: [..8], altre}] (25), riassunti}`: la riga «Da fare:» dell'ultimo
+  riassunto di ogni progetto che ne ha una, dagli ultimi 25 riassunti (5 con un progetto). Non di piu': la CLI
+  della Memoria taglia l'uscita a 64 KB (vedi sotto).
+- `posta`: `{giorni, posta: {aggiornatoAt, errore?}, whatsapp: {aggiornatoAt, errore?}, conti: {nonLetti,
+  chatDaRispondere, mailDaAssegnare, chatDaAssegnare}, progetti: [{nome, path, nonLetti, chatDaRispondere, mail:
+  [{da, oggetto, at, nonLetto}] (5), mailTotali, chat: [{contatto, gruppo, at, mio, anteprima?}] (5), chatTotali}]
+  (20, solo quelli con posta o chat)}`. Privacy: `da` e' il nome del mittente, o il solo dominio se manca il nome;
+  `contatto` che sia solo un numero diventa «contatto senza nome»; l'anteprima (60 caratteri, solo se l'ultimo
+  messaggio non e' tuo) ha indirizzi e numeri sostituiti da «[indirizzo]» e «[numero]». Mai indirizzi, numeri,
+  corpi delle mail.
+- `clienti`: `{mese, mesi, inCorso, arrotondamento, configurati, clienti: [{id, nome, minuti, importo?, tariffa?,
+  giorni, progetti: [{nome, path, minuti}] (4)}] (30), fuori: [{nome, path, minuti}] (6), totale: {minuti,
+  importo?}}`.
+- `notte`: `{finestra: {da, a}, insieme, inFila, inCorso, corrente, perche, fila: [{progetto, path, titolo, stato,
+  chiave}] (15, i lavori «stanotte»), resoconto: {giorno, lavori: [{progetto, compito, stato, riassunto?}] (15)}|null}`.
+
+Niente di quello che passa di qui finisce nel registro del ponte: si scrivono solo le frasi d'errore della rotta
+(«Non trovo il progetto ...»). Niente nelle notifiche APNs.
+
+App (`ios/Bottega/Stanze/`): terza voce «Stanze» accanto a Melissa e Lavori (`Navigazione.Stanza.stanze`), una
+griglia di sette tessere; ogni stanza si apre a tutto schermo (`StanzaPlancia`, `AppStoreView`, `CruscottoView`,
+`VedettaView`, `DaFareView`, `PostaView`, `ClientiView`, `NotteView`), si tira giu' per aggiornare. Cliente a parte
+`PonteStanze` (stesso collegamento di `Ponte`, sue connessioni, 45 s). Ogni risposta buona resta come ultima copia con
+l'ora in cui l'iPhone l'ha vista: con il Mac spento la stanza mostra quella con la frase dell'errore e «Questo è
+l'ultimo dato visto, 2 ore fa». In memoria sempre; su disco (cache dell'app, protezione completa) solo `appstore`,
+`cruscotto`, `vedetta`, `dafare`, `notte`; `posta` e `clienti` solo in memoria. Scollegando l'iPhone le copie si
+cancellano. Un tocco su un progetto che ha una sessione aperta nei Lavori apre la sua scheda (9.5). Link:
+`bottega://stanze[?nome=appstore]`.
+
+Aggiungere anche alla riga di intestazione di 9.1 / all'elenco delle rotte: `GET /v1/stanza?nome=..` (9.6).
+
 ## 10. Gli aggiornamenti: VS Code solo quando serve, Claude Code sempre
 
 Regola di Andrea (2/10/2026): VS Code sotto la Bottega si aggiorna solo quando l'estensione Claude Code lo chiede, mai

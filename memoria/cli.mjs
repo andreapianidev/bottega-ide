@@ -234,8 +234,11 @@ async function status() {
 	};
 }
 
+// si esce solo dopo che stdout ha scritto tutto: su una pipe l'uscita e' asincrona, e un process.exit() subito dopo
+// la troncava a 64 KB (JSON rotto oltre ~35 riassunti)
+const esci = (code) => process.stdout.write('', () => process.exit(code));
 main().then(
-	() => process.exit(process.exitCode ?? 0),
+	() => esci(process.exitCode ?? 0),
 	e => {
 		if (cmd === 'worker') {
 			// il processo staccato non ha un terminale: si annota e basta
@@ -244,6 +247,6 @@ main().then(
 		}
 		if (json) process.stdout.write(JSON.stringify({ error: String(e?.message || e) }) + '\n');
 		else process.stderr.write(`Memoria: ${e?.message || e}\n`);
-		process.exit(1);
+		esci(1);
 	},
 );

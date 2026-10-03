@@ -302,6 +302,13 @@ Bottega rispondi con Sì, No o due parole, le altre le leggi soltanto. Da lì ve
 colorato, il terminale dei lavori della Bottega in diretta, Melissa che te la riassume a voce in due frasi, e puoi
 scegliere la sessione da seguire nella Live Activity.
 
+Dalla voce «Stanze» l'iPhone apre anche le stanze della plancia, in sola lettura e dagli stessi dati del Mac:
+l'App Store con il totale, AdMob, lo Store, i download e gli abbonati per ieri, la settimana, il mese e l'anno, un
+grafico e i buchi da sistemare con la stima; il cruscotto con le ore tue e di Claude, i token e il valore a
+listino; la Vedetta con il semaforo e i siti su Vercel; le cose da fare della Memoria; chi ha scritto per ogni
+progetto, per posta e su WhatsApp; le ore e gli importi dei clienti; la coda della notte. Con il Mac spento vedi
+l'ultimo dato, con la sua età.
+
 iPhone e Mac si parlano solo dentro [Tailscale](https://tailscale.com), senza server in mezzo: la Bottega apre un
 piccolo ponte sull'indirizzo Tailscale del Mac, invisibile dal Wi-Fi e da internet, e ogni richiesta porta un
 gettone. Il Mac deve essere acceso, con la Bottega aperta. Per collegare l'iPhone: comando «Collega l'iPhone» nella
