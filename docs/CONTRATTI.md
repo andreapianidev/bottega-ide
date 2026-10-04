@@ -194,7 +194,8 @@ Estensione -> plancia:
   Anche il cruscotto (`stats`) si ricalcola solo con la Home visibile.
 - `{type: "fuoco", focused}`: la finestra della Bottega davanti o dietro, a `ready` e a ogni cambio (la sfera riposa)
 - `{type: "focus", path}`
-- `{type: "memoria", query, results: MemoryItem[]}` risposta a una ricerca
+- `{type: "memoria", query, project, results: MemoryItem[], checkedAt, bacheca}` risposta a una ricerca.
+  `checkedAt` e' l'ora del controllo, distinta da `createdAt` dei ricordi. In caso di errore: `{type: "memoria", query, project, error}`; la plancia conserva i risultati precedenti e mostra il problema. Risposte con query o progetto superati vengono scartate.
 - `{type: "assistant", state: AssistantState}` aggiornamento leggero mentre Melissa parla
 - `{type: "view", view}` apre una stanza: `plancia`, `lavori`, `memoria`, `melissa`, `cruscotto`
   (comandi `bottega.openMelissa`, `bottega.openCruscotto`)
@@ -684,9 +685,12 @@ Da `registro ~/.claude/sessions`: `busy` = in corso, `idle` = ti aspetta, `shell
 ancora il suo jsonl in `~/.claude/projects` (`LiveSession.empty`, da `readLiveSessions`) e non `busy` non e' lavoro: e' il
 pannello di Claude Code nell'editor, che avvia il processo appena si apre anche se nessuno scrive. Un lavoro della
 Bottega appena partito, che non ha ancora la sua sessione, assorbe la sessione nata dopo nella stessa cartella (niente
-doppioni). `workItems` e `workCounts` (in `src/jobs.ts`) sono le sole funzioni che contano: frasi della Home e di
-Lavori, numero sulla scheda Lavori, barra di stato, barra dei menu del Nucleo, `stato.json` e gli strumenti di Melissa
-`lavori_elenco` e `sessioni_attive`. Messaggio `bacheca.sessione {sessionId}` -> `{type:'bacheca.sessione', sessionId,
+doppioni). `workItems` e `workCounts` (in `src/jobs.ts`) producono lavori e code Claude. Dalla build 102,
+`conteggiOsservati(activity, workCounts(work))` calcola `inCorso` e `tiAspetta` sul registro comune Claude, Codex,
+Cline e terminali, preservando `inCoda`, `stanotte` e `nelTerminale`. `vive` somma i due contatori attivi e
+`nelTerminale`. Frase, KPI e grafici della Home e di Lavori usano questo stesso registro; un array vuoto azzera
+i contatori attivi. Senza `activity`, le vecchie istantanee mantengono il comportamento precedente. Gli strumenti
+Claude `lavori_elenco` e `sessioni_attive` continuano a descrivere le sessioni azionabili di Claude. Messaggio `bacheca.sessione {sessionId}` -> `{type:'bacheca.sessione', sessionId,
 items}`: cosa ha fatto quella sessione nelle ultime tre ore, dalla bacheca della Memoria.
 
 ### 4.10 Worktree git
@@ -1441,8 +1445,8 @@ iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
   ripulito e stato della fonte. `steps` (ultimi 8 passi, massimo 180 caratteri ciascuno) ed `evidence`
   (massimo 300 caratteri) sono opzionali e passano dalla stessa redazione del testo riservato. `activityKey` collega una sessione Claude azionabile alla stessa attivita',
   per non contarla due volte sull'iPhone. Un Mac precedente non manda questi campi.
-  `conti` usa gli stessi cinque stati Claude Code di `snapshot.workCounts`; `quadroLavori.progetti` conta
-  i lavori in corso o in attesa per percorso sull'elenco completo, prima di limitare `lavori` a 40 righe.
+  `conti` usa `snapshot.workCounts`, con attivi da tutte le fonti osservate; `quadroLavori.progetti` conta
+  le attivita' in corso o in attesa per percorso sul registro completo, deduplicato per chiave, prima dei limiti del ponte.
   Nomi di progetto uguali sono distinti con la cartella superiore. Il campo non viene inviato prima della prima scansione del Mac.
   `quadroLavori.giorni` contiene gli ultimi sette giorni nel fuso del Mac: ciascuna sessione osservata di Claude,
   Cline, Codex o terminale compare solo nel giorno del suo ultimo aggiornamento, non come lavoro concluso.
@@ -2553,3 +2557,21 @@ per la compatibilita' delle estensioni. `CFBundleShortVersionString` e
 `CFBundleVersion` in Info.plist seguono invece versione e build di Bottega.
 Test del formatter nativo: `node scripts/test-about-dialog.cjs` dopo aver applicato
 `scripts/patch-source.py` ai sorgenti VS Code.
+
+### Memoria Codex (build 102)
+
+`memoria/lib/codex.mjs` importa le trascrizioni locali prima delle letture CLI `recent` e `search`; comando
+manuale `import-codex --json`. Nessuna rete o generazione: le richieste utente e `task_complete.last_agent_message`
+sono note (`origin: codex`, `sessionId: codex:<uuid>`) con data originale, fonte nel titolo e testo redatto.
+Non vengono importati ragionamenti, strumenti, immagini, contesto del client o conversazioni degli agenti delegati.
+La ricerca non propone di riprendere una nota Codex con il comando Claude.
+
+Lettura incrementale per inode e offset, transazione per file, deduplicazione degli eventi anche dopo rotazione;
+ultimi sette giorni nelle cartelle giornaliere (oggi e otto giorni precedenti), massimo 100 file recenti e 32 MiB
+per chiamata. Righe oltre 256 KiB saltate senza bloccare le successive, note limitate a 8.000 caratteri. Il prossimo
+controllo prosegue il recupero. Questo importatore non acquisisce ancora le conversazioni Cline o i terminali.
+Gli hook Claude e il loro limite di 150 ms restano invariati.
+
+Il parser dello stato Codex riconosce richieste esplicite di input o approvazione e le risposte associate per
+`call_id`; completamento, interruzione e nuovo turno cancellano le attese. Le domande asincrone non fermano
+l'agente e non sono classificate come attesa. Un turno finito non diventa automaticamente «ti aspetta».

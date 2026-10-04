@@ -64,6 +64,10 @@ async function main() {
 			await runWorker({ motivo: flags.motivo, sessione: flags.sessione || undefined });
 			return;
 		}
+		case 'import-codex': {
+			const { importCodex } = await import('./lib/codex.mjs');
+			return print(importCodex());
+		}
 		case 'ingest': {
 			const { ingest } = await import('./lib/core.mjs');
 			const r = ingest();
@@ -73,6 +77,8 @@ async function main() {
 		case 'cerca': {
 			const { search, ingest } = await import('./lib/core.mjs');
 			ingest();
+			const { importCodex } = await import('./lib/codex.mjs');
+			importCodex();
 			const q = pos.join(' ').trim();
 			if (!q) throw new Error('scrivi cosa cercare');
 			return print(search(q, { progetto, limite: num(flags.limite, 10) }), listText);
@@ -83,11 +89,13 @@ async function main() {
 			ingest();
 			return print(grafici({ giorni: num(flags.giorni, 30) }), g => JSON.stringify(g, null, 2));
 		}
-				case 'recent':
+		case 'recent':
 		case 'recenti': {
 			const { openStore } = await import('./lib/store.mjs');
 			const { ingest } = await import('./lib/core.mjs');
 			ingest();
+			const { importCodex } = await import('./lib/codex.mjs');
+			importCodex();
 			const kinds = typeof flags.tipo === 'string' ? flags.tipo.split(',') : undefined;
 			return print(openStore().recent({ progetto, limite: num(flags.limite, 10), ...(kinds ? { kinds } : {}) }), listText);
 		}

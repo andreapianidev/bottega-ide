@@ -36,6 +36,17 @@ assert.equal(stale.status, 'sconosciuto');
 const aborted = parseCodexRollout(meta, start + row(now - 10_000, 'event_msg', { type: 'turn_aborted' }), filename, now - 10_000, now);
 assert.equal(aborted.status, 'sconosciuto');
 
+const ask = row(now - 10_000, 'response_item', { type: 'function_call', name: 'functions.request_user_input', call_id: 'q1' });
+assert.equal(parseCodexRollout(meta, start + ask, filename, now, now).status, 'ti aspetta');
+const answered = row(now, 'response_item', { type: 'function_call_output', call_id: 'q1', output: '{}' });
+assert.equal(parseCodexRollout(meta, start + ask + answered, filename, now, now).status, 'in corso');
+assert.equal(parseCodexRollout(meta, start + ask + finish, filename, now, now).status, 'finito');
+const asyncAsk = row(now, 'response_item', { type: 'function_call', name: 'functions.request_user_input_async', call_id: 'q2' });
+assert.equal(parseCodexRollout(meta, start + asyncAsk, filename, now, now).status, 'in corso');
+const approval = row(now, 'event_msg', { type: 'exec_approval_request', call_id: 'cmd' });
+assert.equal(parseCodexRollout(meta, start + approval, filename, now, now).status, 'ti aspetta');
+assert.equal(parseCodexRollout(meta, start + approval + row(now, 'event_msg', { type: 'exec_command_begin', call_id: 'cmd' }), filename, now, now).status, 'in corso');
+
 const secretPrompt = row(now - 59_000, 'response_item', { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Usa il token abcdefgh12345678 per il test' }] });
 const redacted = parseCodexRollout(meta, start + secretPrompt, filename, now - 20_000, now);
 assert.equal(redacted.title, 'Sessione Codex');

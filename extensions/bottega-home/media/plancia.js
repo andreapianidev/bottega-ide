@@ -53,6 +53,8 @@
 			/** I numeri di «Come lavora la memoria» (memoria/lib/grafici.mjs) e quando sono arrivati. */
 			/** @type {any} */ grafici: null,
 			graficiChiesti: 0,
+			checkedAt: 0,
+			error: '',
 			tabelle: new Set(),
 		},
 		/** «Dove l'ho gia' risolto?»: ricerca nei ricordi e nel codice. */
@@ -378,12 +380,18 @@
 
 	function workCounts() {
 		const wc = snap('workCounts');
-		if (wc && typeof wc === 'object') return wc;
+		const activity = activityList();
+		if (wc && typeof wc === 'object') {
+			if (activity === null) return wc;
+			const inCorso = activity.filter(a => a.status === 'in corso').length;
+			const tiAspetta = activity.filter(a => a.status === 'ti aspetta').length;
+			return { ...wc, inCorso, tiAspetta, vive: inCorso + tiAspetta + (wc.nelTerminale || 0) };
+		}
 		const w = workList();
 		const c = st => w.filter(x => x.status === st).length;
 		const s = state.snapshot;
 		return {
-			inCorso: c('in corso'), tiAspetta: c('ti aspetta'), nelTerminale: c('nel terminale'), inCoda: c('in coda'), stanotte: c('stanotte'),
+			inCorso: activity ? activity.filter(a => a.status === 'in corso').length : c('in corso'), tiAspetta: activity ? activity.filter(a => a.status === 'ti aspetta').length : c('ti aspetta'), nelTerminale: c('nel terminale'), inCoda: c('in coda'), stanotte: c('stanotte'),
 			vive: s && Array.isArray(s.live) ? s.live.length : 0,
 		};
 	}
@@ -529,6 +537,7 @@
 
 	<section class="vista" id="vista-memoria" role="tabpanel" aria-labelledby="tab-memoria" hidden>
 		<h1 class="sentence media" id="frase-memoria"></h1>
+		<p id="mem-aggiornamento" class="invito" role="status"></p>
 		<section class="mem-grafici" id="mem-grafici" aria-labelledby="mem-grafici-titolo" hidden>
 			<h2 class="mem-grafici-titolo" id="mem-grafici-titolo">Come lavora la memoria</h2>
 			<div id="mem-tessere"></div>
@@ -1550,9 +1559,11 @@
 
 	function renderLavoriQuadro(counts, work) {
 		const countOf = value => Math.max(0, Number(value) || 0);
+		const observedActivity = activityList();
+		const activityTarget = observedActivity === null ? null : 'attivita-lavori';
 		const metrics = [
-			['aspetta', 'Ti aspettano', counts.tiAspetta, 'da riprendere', 'g-aspetta'],
-			['corso', 'In corso', counts.inCorso, 'già al lavoro', 'g-corso'],
+			['aspetta', 'Ti aspettano', counts.tiAspetta, 'da riprendere', activityTarget || 'g-aspetta'],
+			['corso', 'In corso', counts.inCorso, 'già al lavoro', activityTarget || 'g-corso'],
 			['coda', 'In coda', counts.inCoda, 'per il prossimo turno', 'g-coda'],
 			['stanotte', 'Stanotte', counts.stanotte, 'nella finestra notturna', 'g-stanotte'],
 		];
@@ -1568,7 +1579,7 @@
 			{ label: 'Stanotte', count: countOf(counts.stanotte) },
 		];
 		const active = new Map();
-		for (const w of work) {
+		for (const w of observedActivity ?? work) {
 			if (w.status !== 'ti aspetta' && w.status !== 'in corso') continue;
 			const key = String(w.path || w.project || '');
 			if (!key) continue;
@@ -1846,7 +1857,7 @@
 	 *  ogni minuto (i grafici ogni cinque). Una ricerca scritta resta com'e'. */
 	function rinfrescaMemoria(entrando) {
 		if (state.view !== 'memoria' || document.hidden || state.mem.mode !== 'ricordi') return;
-		if (!state.mem.query.trim() && (entrando || !state.mem.waiting)) runSearch(true);
+		if ((!state.mem.query.trim() || state.mem.error) && (entrando || !state.mem.waiting)) runSearch(true);
 		chiediGrafici(entrando);
 	}
 
@@ -1970,7 +1981,7 @@
 				const when = it.createdAt ? `${dayLabel(it.createdAt)}, ${clock(it.createdAt)}` : '';
 				const sess = it.sessionId ? `sessione ${String(it.sessionId).slice(0, 8)}` : '';
 				const resume =
-					it.sessionId && it.projectPath
+					it.sessionId && it.projectPath && !String(it.sessionId).startsWith('codex:')
 						? `<button type="button" class="link" data-act="resume" data-path="${esc(it.projectPath)}" data-id="${esc(it.sessionId)}" data-fk="ric-resume:${esc(it.sessionId)}:${i}">Riprendi la sessione</button>`
 						: '';
 				return `<li class="ric-voce">
@@ -2017,6 +2028,7 @@
 			}
 		}
 		setHTML($('frase-memoria'), head);
+		$('mem-aggiornamento').textContent = '';
 		if (!res) {
 			setHTML(
 				box,
@@ -2075,20 +2087,21 @@
 				: `Gli ultimi ${c === 1 ? 'ricordo' : `${n(c)} ricordi`}${where}.`;
 		}
 		setHTML($('frase-memoria'), head);
+		$('mem-aggiornamento').textContent = m.error || (m.checkedAt ? `Controllata alle ${new Date(m.checkedAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}. Ricordi di Claude Code e conversazioni Codex; gli orari sotto sono quelli originali.` : '');
 
 		const box = $('mem-risultati');
 		box.classList.toggle('in-attesa', m.waiting);
 		if (m.results === null) {
 			setHTML(
 				box,
-				`<p class="invito">La memoria si riempie da sola mentre lavori con Claude: riassunti delle sessioni, decisioni, fatti. Cerca una parola qui sopra, o scrivi accanto una cosa da ricordare.</p>`,
+				`<p class="invito">La memoria raccoglie riassunti, decisioni e fatti di Claude Code, richieste e risposte concluse di Codex. Cerca una parola qui sopra, o scrivi accanto una cosa da ricordare.</p>`,
 			);
 		} else if (!m.results.length) {
 			setHTML(
 				box,
 				q
 					? `<p class="invito">Prova con parole diverse${m.sent && m.sent.project ? ', o cerca in tutti i progetti' : ''}. La ricerca guarda titoli e testi, non il codice.</p>`
-					: `<p class="invito">I ricordi arrivano da soli alla fine di ogni sessione Claude. Intanto puoi scriverne uno qui accanto.</p>`,
+					: `<p class="invito">I ricordi di Claude Code e le conversazioni Codex si aggiornano automaticamente. Intanto puoi scriverne uno qui accanto.</p>`,
 			);
 		} else {
 			setHTML(box, timelineHTML(m.results, q));
@@ -3421,7 +3434,12 @@
 				const sent = state.mem.sent;
 				// una risposta arrivata dopo che la ricerca e' cambiata non deve coprire quella nuova
 				if (sent && typeof m.query === 'string' && m.query.trim() !== sent.query) return;
-				state.mem.results = Array.isArray(m.results) ? m.results : [];
+				if (sent && typeof m.project === 'string' && m.project !== (sent.project || '')) return;
+				state.mem.error = m.error || '';
+				if (!m.error) {
+					state.mem.results = Array.isArray(m.results) ? m.results : [];
+					state.mem.checkedAt = Number(m.checkedAt) || Date.now();
+				}
 				if (Array.isArray(m.bacheca)) state.mem.bacheca = m.bacheca;
 				state.mem.waiting = false;
 				if (state.view === 'memoria') renderMemoria();

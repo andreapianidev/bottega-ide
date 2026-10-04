@@ -1084,6 +1084,38 @@ test('Home e Lavori mostrano tutte le fonti osservate, gli stati e la provenienz
 	assert.deepStrictEqual(t.errors, []);
 });
 
+test('contatori e grafici Lavori usano Codex e Cline anche con contatori legacy a zero', () => {
+	const t = boot();
+	const activity = [
+		{ key: 'codex:1', source: 'codex', id: '1', project: 'Faro', status: 'in corso', updatedAt: NOW },
+		{ key: 'cline:2', source: 'cline', id: '2', project: 'Vela', status: 'ti aspetta', updatedAt: NOW },
+	];
+	const zero = { inCorso: 0, tiAspetta: 0, nelTerminale: 0, inCoda: 2, stanotte: 1, vive: 0 };
+	t.send({ type: 'snapshot', snapshot: snapshot({ work: [], workCounts: zero, activity }) });
+	t.click(t.$('#tab-lavori'));
+	assert.deepStrictEqual(t.$$('#lavori-cifre li button').map(x => [...x.children].map(c => c.textContent).join(' ')), [
+		'Ti aspettano 1 da riprendere', 'In corso 1 già al lavoro', 'In coda 2 per il prossimo turno', 'Stanotte 1 nella finestra notturna',
+	]);
+	assert.deepStrictEqual(t.$$('.lavori-grafico-progetti li').map(x => x.getAttribute('aria-label')), ['Faro: 1 lavoro', 'Vela: 1 lavoro']);
+	t.send({ type: 'snapshot', snapshot: snapshot({ work: [], workCounts: zero, activity: [] }) });
+	assert.match(t.$('#lavori-cifre').textContent, /In corso0/);
+	assert.deepStrictEqual(t.errors, []);
+});
+
+test('Memoria distingue il controllo dall’orario dei ricordi e conserva i risultati se fallisce', () => {
+	const t = boot();
+	t.send({ type: 'snapshot', snapshot: snapshot() });
+	t.click(t.$('#tab-memoria'));
+	const results = [{ id: 1, kind: 'nota', project: 'Faro', title: 'Codex · Risposta', text: 'Correzione completata', createdAt: NOW - 9 * H }];
+	t.send({ type: 'memoria', query: '', results, checkedAt: NOW });
+	assert.match(t.$('#mem-aggiornamento').textContent, /Controllata alle/);
+	assert.match(t.$('#mem-risultati').textContent, /Correzione completata/);
+	t.send({ type: 'memoria', query: '', error: 'Aggiornamento non riuscito' });
+	assert.match(t.$('#mem-aggiornamento').textContent, /non riuscito/);
+	assert.match(t.$('#mem-risultati').textContent, /Correzione completata/);
+	assert.deepStrictEqual(t.errors, []);
+});
+
 test('il registro compatto tiene tutte le attività urgenti e le ultime dodici finite; espansione stabile tra snapshot', () => {
 	const t = boot();
 	const activity = [

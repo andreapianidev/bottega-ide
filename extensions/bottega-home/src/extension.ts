@@ -35,7 +35,7 @@ import type { DaRaccontare } from './assistant';
 import { allarmiAppStore, briefingAppStore, handleAppStore, registerAppStore, STRUMENTI_APPSTORE } from './appstore-host';
 import { registraStrumentiStanze, STRUMENTI_STANZE } from './strumenti-stanze';
 import { buildReport, readClients } from './clienti';
-import type { AgentActivity } from './attivita-tipi';
+import { conteggiOsservati, type AgentActivity } from './attivita-tipi';
 import { readCodexActivities } from './attivita-codex';
 import { readClineActivities } from './attivita-cline';
 import { registerTerminalActivity, TerminalActivityMonitor } from './attivita-terminale';
@@ -139,10 +139,10 @@ function projectOfLive(projects: Project[], l: LiveSession): Project | undefined
 }
 
 function allActivity(base: Pick<Snapshot, 'projects' | 'elsewhere' | 'live'>, work: WorkItem[]): AgentActivity[] {
-	const claude = work.filter(w => w.sessionId || w.pid).map(w => ({
+	const claude = work.filter(w => w.status === 'in corso' || w.status === 'ti aspetta' || w.status === 'nel terminale').map(w => ({
 		key: `claude:${w.sessionId ?? w.key}`, source: 'claude' as const, id: w.sessionId ?? w.key,
 		project: w.project, path: w.path, title: w.title || 'Sessione Claude Code',
-		status: w.status === 'ti aspetta' ? 'ti aspetta' as const : 'in corso' as const,
+		status: w.status === 'ti aspetta' ? 'ti aspetta' as const : w.status === 'in corso' ? 'in corso' as const : 'sconosciuto' as const,
 		updatedAt: w.since, evidence: w.source === 'bottega' ? 'Claude Code: lavoro avviato dalla Bottega' : 'Claude Code: registro delle sessioni vive',
 	}));
 	const liveIds = new Set(base.live.map(s => s.sessionId));
@@ -168,12 +168,13 @@ function withDynamic(base: Omit<Snapshot, 'jobs' | 'work' | 'activity' | 'workCo
 	const stats = nucleo?.lastStats;
 	const jobs = jobManager ? jobManager.list() : snapshot.jobs;
 	const work = workItems(jobs, base.live, l => projectOfLive(base.projects, l), base.home);
+	const activity = allActivity(base, work);
 	return {
 		...base,
 		jobs,
 		work,
-		activity: allActivity(base, work),
-		workCounts: workCounts(work),
+		activity,
+		workCounts: conteggiOsservati(activity, workCounts(work)),
 		jobLimit: computeLimit(setting, stats),
 		jobLimitReason: limitReason(setting, stats),
 		system: stats ?? null,
@@ -682,11 +683,15 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 			const query = m.query ?? '';
 			// senza testo: gli ultimi ricordi, quanti ne chiede la plancia («Mostra altri ricordi»)
 			const limit = Math.max(10, Math.min(200, Number(m.limite) || 10));
-			const results = memoria ? (query.trim() ? await memoria.search(query, m.project) : await memoria.recent(m.project, { limit })) : [];
-			const board = memoria ? await memoria.bacheca(m.project, 30) : [];
-			const bacheca = board.map(r => ({ at: r.at, project: r.project, sessionId: r.sessionId, kind: r.kind, summary: r.summary }));
-			// La risposta riporta sempre `query`: le risposte vecchie vengono scartate dalla plancia.
-			panelHost?.send({ type: 'memoria', query, results, bacheca });
+			try {
+				if (!memoria?.available) throw new Error('Memoria non disponibile');
+				const results = query.trim() ? await memoria.search(query, m.project, true) : await memoria.recent(m.project, { limit, strict: true });
+				const board = await memoria.bacheca(m.project, 30);
+				const bacheca = board.map(r => ({ at: r.at, project: r.project, sessionId: r.sessionId, kind: r.kind, summary: r.summary }));
+				panelHost?.send({ type: 'memoria', query, project: m.project || '', results, bacheca, checkedAt: Date.now() });
+			} catch {
+				panelHost?.send({ type: 'memoria', query, project: m.project || '', error: 'Aggiornamento della memoria non riuscito. Riprovo tra un minuto.' });
+			}
 			return;
 		}
 		case 'memoria.grafici': {

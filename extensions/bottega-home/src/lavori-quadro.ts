@@ -5,7 +5,7 @@ import { summarizeObservedActivity } from './stats';
 /** Gli stessi dati del quadro Lavori del Mac, aggregati prima del limite di 40 righe del ponte. */
 export function quadroLavori(work: readonly WorkItem[], activity: readonly AgentActivity[], now = Date.now()) {
 	const active = new Map<string, { nome: string; path: string; conteggio: number }>();
-	for (const w of work) {
+	for (const w of new Map(activity.map(a => [a.key, a])).values()) {
 		if (w.status !== 'ti aspetta' && w.status !== 'in corso') continue;
 		const key = String(w.path || w.project || '');
 		if (!key) continue;

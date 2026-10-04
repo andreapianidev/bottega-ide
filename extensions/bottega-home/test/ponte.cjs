@@ -27,14 +27,20 @@ const workForChart = Array.from({ length: 41 }, (_, i) => ({ key: `job:${i}`, st
 workForChart.push({ key: 'job:altro', status: 'ti aspetta', path: '/altro/Faro', project: 'Faro' });
 workForChart.push({ key: 'job:coda', status: 'in coda', path: '/prova/Faro', project: 'Faro' });
 const activityForChart = [
+	...workForChart.filter(w => w.status !== 'in coda').map(w => ({ ...w, source: 'codex', updatedAt: midday })),
 	{ key: 'claude:uno', source: 'claude', status: 'in corso', updatedAt: midday },
 	{ key: 'claude:uno', source: 'claude', status: 'in corso', updatedAt: midday },
 	{ key: 'codex:due', source: 'codex', status: 'finito', updatedAt: midday - 2 * 86_400_000 },
 ];
+esbuild.buildSync({ entryPoints: [path.join(SRC, 'attivita-tipi.ts')], outfile: path.join(OUT, 'attivita-tipi.js'), format: 'cjs', platform: 'node', logLevel: 'silent' });
+const { conteggiOsservati } = require(path.join(OUT, 'attivita-tipi.js'));
+const legacyCounts = { inCorso: 0, tiAspetta: 0, nelTerminale: 2, inCoda: 3, stanotte: 4, vive: 2 };
+assert.deepStrictEqual(conteggiOsservati(workForChart, legacyCounts), { inCorso: 41, tiAspetta: 1, nelTerminale: 2, inCoda: 3, stanotte: 4, vive: 44 });
+assert.deepStrictEqual(conteggiOsservati([], legacyCounts), legacyCounts);
 const chart = quadroLavori(workForChart, activityForChart, midday);
 assert.deepStrictEqual(chart.progetti, [{ nome: 'Faro · prova', conteggio: 41 }, { nome: 'Faro · altro', conteggio: 1 }], 'aggregazione prima del limite ponte, per path');
 assert.strictEqual(chart.giorni.length, 7);
-assert.deepStrictEqual(chart.giorni.map(d => d.conteggio), [0, 0, 0, 0, 1, 0, 1], 'sessioni distinte nel giorno dell’ultimo aggiornamento');
+assert.deepStrictEqual(chart.giorni.map(d => d.conteggio), [0, 0, 0, 0, 1, 0, 43], 'sessioni distinte nel giorno dell’ultimo aggiornamento');
 ok('quadro Lavori iPhone: progetti completi e attività per giorno del Mac');
 
 function call(port, method, url, { token, body, raw } = {}) {

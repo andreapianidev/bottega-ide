@@ -1,4 +1,30 @@
-# Passaggio di consegne, build 101
+# Passaggio di consegne, build 102
+
+## Dati dei Lavori e Memoria, build 102
+
+- Risolto il disallineamento dello screenshot: riepilogo da tutte le fonti, KPI e grafici prima
+  soltanto dai lavori Claude. Ora `inCorso` e `tiAspetta` usano il registro osservato comune;
+  code e finestra notturna restano quelle dello scheduler. Anche i progetti del ponte iPhone
+  usano tutte le fonti. Gli array vuoti cancellano correttamente i contatori precedenti.
+- Codex riconosce richieste esplicite di input/approvazione non ancora risposte. Le domande
+  asincrone non significano che l'agente sia fermo; i turni completati non diventano attese.
+  Non e' ancora arrivato un esempio concreto dell'attesa mancante segnalata da Andrea.
+- Memoria era realmente ferma alle 14:30 nei ricordi: gli hook acquisivano Claude, non Codex.
+  Aggiunta importazione locale incrementale di richieste e risposte concluse Codex, come note
+  con fonte e orari originali. Nessuna rete o riassunto inventato, nessun output degli strumenti.
+  Recupero eseguito sul database locale dopo backup privato in /tmp. Anche la CLI della copia
+  installata 99 ora legge gli ultimi dieci ricordi Codex, il piu' recente alle 23:37 del 4 ottobre.
+  Cline e terminali non sono ancora sorgenti della Memoria: la copertura e' dichiarata nella UI/docs.
+- La UI mostra l'ora del controllo e conserva i risultati con errore visibile se la lettura fallisce.
+  Il collegamento permanente a Codex entra con l'installazione della 102; il database recuperato
+  e' gia' disponibile alla copia attuale. Nessun riavvio effettuato.
+- Verifiche: suite npm completa e typecheck passati; prove finali Plancia 37/37, ponte 24/24,
+  Memoria 13/13 (inclusi importazione incrementale, redazione, righe parziali/enormi, rotazione,
+  CLI completa e deduplicazione), formatter Informazioni passato. Pacchetto Mac 102 firmato,
+  hash di UI, estensione e Memoria corrispondenti ai sorgenti verificati.
+- `dist/Bottega.app` pronta alla 102. `/Applications/Bottega.app` ancora 99; iPhone e Watch
+  ancora 100. Il via libera al riavvio e lo sblocco del Watch richiesti in precedenza sono pendenti.
+  Ripristinato `~/.bottega/bin/nucleo` verso il Nucleo installato dopo il confezionamento.
 
 ## Informazioni macOS, build 101
 

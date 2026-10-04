@@ -23,6 +23,19 @@ Le sessioni partite dalla home vengono attribuite al progetto in cui hanno tocca
 fa la plancia. I progetti sono le sottocartelle di `~/prototipi` e delle cartelle iCloud Prototipi,
 Avo Agency e Progetti xCode (si cambiano in `~/.bottega/memoria/config.json`, chiave `roots`).
 
+## Conversazioni Codex
+
+Dalla build 102, aprire la linea del tempo o cercare importa anche le conversazioni Codex locali recenti.
+Richieste e risposte concluse diventano note con fonte e orario originali, senza generazione o chiamate in rete.
+L'importazione e' incrementale: un controllo continua dove il precedente si e' fermato, senza duplicare le note.
+Sono esclusi strumenti, ragionamenti, immagini, contesto del client e agenti delegati. Le note hanno un limite di
+8.000 caratteri; vengono letti al massimo 100 file recenti, negli ultimi sette giorni, 32 MiB per controllo.
+Cline e terminali sono osservati nei Lavori ma non vengono ancora importati nella Memoria.
+
+```sh
+node memoria/cli.mjs import-codex --json
+```
+
 ## Sessioni in parallelo: la bacheca
 
 Ogni richiesta e ogni modifica finiscono anche in `bacheca/<progetto>.jsonl` (al massimo qualche

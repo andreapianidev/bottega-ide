@@ -76,6 +76,7 @@ export function parseCodexRollout(head: string, tail: string, file: string, mtim
 	let reply: string | undefined;
 	let statusEvent: 'start' | 'complete' | 'abort' | undefined;
 	const steps: string[] = [];
+	const pending = new Set<string>();
 
 	const consume = (line: string, metaOnly: boolean): void => {
 		if (!line.startsWith('{') || line.length > MAX_LINE) return;
@@ -95,14 +96,19 @@ export function parseCodexRollout(head: string, tail: string, file: string, mtim
 		if (Number.isFinite(t) && t > lastEventAt && t <= now + 60_000) lastEventAt = t;
 		if (row.type === 'turn_context' && typeof p.cwd === 'string' && path.isAbsolute(p.cwd)) cwd = p.cwd;
 		if (row.type === 'event_msg') {
-			if (p.type === 'task_started') statusEvent = 'start';
-			if (p.type === 'task_complete') statusEvent = 'complete';
-			if (p.type === 'turn_aborted') statusEvent = 'abort';
+			if (p.type === 'task_started') { statusEvent = 'start'; pending.clear(); }
+			if (p.type === 'task_complete') { statusEvent = 'complete'; pending.clear(); }
+			if (p.type === 'turn_aborted') { statusEvent = 'abort'; pending.clear(); }
+			// Richieste esplicite del protocollo; un normale messaggio finale non e' un'attesa.
+			if (['request_user_input', 'exec_approval_request', 'apply_patch_approval_request', 'request_permissions'].includes(p.type) && typeof p.call_id === 'string') pending.add(p.call_id);
+			if (['exec_command_begin', 'exec_command_end', 'patch_apply_begin', 'patch_apply_end'].includes(p.type) && typeof p.call_id === 'string') pending.delete(p.call_id);
 			if (p.type === 'item_completed' && isRecord(p.item)) {
 				const step = stepOf(p.item);
 				if (step) addStep(steps, step);
 			}
 		}
+		if (row.type === 'response_item' && p.type === 'function_call' && /^(?:functions\.)?request_user_input$/.test(p.name) && typeof p.call_id === 'string') pending.add(p.call_id);
+		if (row.type === 'response_item' && p.type === 'function_call_output' && typeof p.call_id === 'string') pending.delete(p.call_id);
 		if (row.type === 'response_item' && p.type === 'message') {
 			if (p.role === 'user') prompt = safeText(messageText(p), 140) ?? prompt;
 			if (p.role === 'assistant' && p.phase === 'final_answer') reply = safeText(messageText(p), 180) ?? reply;
@@ -112,7 +118,7 @@ export function parseCodexRollout(head: string, tail: string, file: string, mtim
 	for (const line of head.split('\n')) consume(line, true);
 	for (const line of tail.split('\n')) consume(line, false);
 	const updatedAt = lastEventAt || mtime;
-	const status: AgentActivity['status'] = statusEvent === 'complete' ? 'finito' :
+	const status: AgentActivity['status'] = pending.size ? 'ti aspetta' : statusEvent === 'complete' ? 'finito' :
 		statusEvent === 'start' && !!lastEventAt && now - lastEventAt <= ACTIVE_MS && now >= lastEventAt - 60_000 ? 'in corso' : 'sconosciuto';
 	const project = cwd ? path.basename(cwd) : 'Progetto sconosciuto';
 	const title = prompt ?? (parentId ? 'Attività di un agente Codex' : 'Sessione Codex');
@@ -122,7 +128,7 @@ export function parseCodexRollout(head: string, tail: string, file: string, mtim
 		...(startedAt ? { startedAt } : {}),
 		...(reply ? { summary: reply } : {}),
 		...(steps.length ? { steps } : {}),
-		evidence: statusEvent === 'complete' ? 'Codex: fine del turno nella trascrizione locale' :
+		evidence: status === 'ti aspetta' ? 'Codex: richiesta esplicita senza risposta nella trascrizione locale' : statusEvent === 'complete' ? 'Codex: fine del turno nella trascrizione locale' :
 			status === 'in corso' ? 'Codex: turno avviato e trascrizione aggiornata di recente' :
 			'Codex: trascrizione locale; stato attuale non verificato',
 	};

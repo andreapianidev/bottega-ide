@@ -130,18 +130,18 @@ export class Memoria {
 		return arr as MemoryItem[];
 	}
 
-	async search(query: string, project?: string): Promise<MemoryItem[]> {
+	async search(query: string, project?: string, strict = false): Promise<MemoryItem[]> {
 		const args = ['search', query];
 		if (project) args.push('--progetto', project);
-		return Memoria.items(await this.runJson<any>(args, []));
+		return Memoria.items(strict ? JSON.parse(await this.run([...args, '--json'])) : await this.runJson<any>(args, []));
 	}
 
-	async recent(project?: string, opts: { kinds?: string[]; limit?: number } = {}): Promise<MemoryItem[]> {
+	async recent(project?: string, opts: { kinds?: string[]; limit?: number; strict?: boolean } = {}): Promise<MemoryItem[]> {
 		const args = ['recent'];
 		if (project) args.push('--progetto', project);
 		if (opts.kinds?.length) args.push('--tipo', opts.kinds.join(','));
 		if (opts.limit) args.push('--limite', String(opts.limit));
-		return Memoria.items(await this.runJson<any>(args, []));
+		return Memoria.items(opts.strict ? JSON.parse(await this.run([...args, '--json'])) : await this.runJson<any>(args, []));
 	}
 
 	/** I numeri della stanza Memoria: scritti e letti per giorno, progetti, totali (memoria/lib/grafici.mjs). */
