@@ -12,13 +12,30 @@ const esbuild = require('esbuild');
 const SRC = path.join(__dirname, '..', 'src');
 const OUT = path.join(__dirname, 'test-out', 'ponte');
 esbuild.buildSync({ entryPoints: ['ponte.ts', 'ponte-tls.ts', 'dispositivo.ts', 'cervelli.ts'].map(f => path.join(SRC, f)), outdir: OUT, format: 'cjs', platform: 'node', bundle: false, target: 'node20', logLevel: 'silent' });
+esbuild.buildSync({ entryPoints: [path.join(SRC, 'lavori-quadro.ts')], outfile: path.join(OUT, 'lavori-quadro.js'), format: 'cjs', platform: 'node', bundle: true, external: ['vscode'], target: 'node20', logLevel: 'silent' });
 const { Ponte, inTailnet, leggiGettone, rotteCervelli, sceltaDi, leggiSceltaCervello, nomeCervello, direttiInCasa, vicinoDi } = require(path.join(OUT, 'ponte.js'));
 const { Cervelli } = require(path.join(OUT, 'cervelli.js'));
 const { fondiDispositivo, leggiDispositivo } = require(path.join(OUT, 'dispositivo.js'));
+const { quadroLavori } = require(path.join(OUT, 'lavori-quadro.js'));
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bottega-ponte-'));
 let passed = 0;
 const ok = name => (passed++, console.log('  ok  ' + name));
+
+const midday = new Date(2026, 9, 4, 12).getTime();
+const workForChart = Array.from({ length: 41 }, (_, i) => ({ key: `job:${i}`, status: 'in corso', path: '/prova/Faro', project: 'Faro' }));
+workForChart.push({ key: 'job:altro', status: 'ti aspetta', path: '/altro/Faro', project: 'Faro' });
+workForChart.push({ key: 'job:coda', status: 'in coda', path: '/prova/Faro', project: 'Faro' });
+const activityForChart = [
+	{ key: 'claude:uno', source: 'claude', status: 'in corso', updatedAt: midday },
+	{ key: 'claude:uno', source: 'claude', status: 'in corso', updatedAt: midday },
+	{ key: 'codex:due', source: 'codex', status: 'finito', updatedAt: midday - 2 * 86_400_000 },
+];
+const chart = quadroLavori(workForChart, activityForChart, midday);
+assert.deepStrictEqual(chart.progetti, [{ nome: 'Faro · prova', conteggio: 41 }, { nome: 'Faro · altro', conteggio: 1 }], 'aggregazione prima del limite ponte, per path');
+assert.strictEqual(chart.giorni.length, 7);
+assert.deepStrictEqual(chart.giorni.map(d => d.conteggio), [0, 0, 0, 0, 1, 0, 1], 'sessioni distinte nel giorno dell’ultimo aggiornamento');
+ok('quadro Lavori iPhone: progetti completi e attività per giorno del Mac');
 
 function call(port, method, url, { token, body, raw } = {}) {
 	return new Promise((resolve, reject) => {

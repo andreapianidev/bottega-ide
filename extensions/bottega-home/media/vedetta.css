@@ -51,6 +51,19 @@ body.vscode-high-contrast .ved, body.vscode-high-contrast-light .ved { --ved-col
 .ved-timbro[aria-busy='true'] span { color: var(--sodio); }
 .ved-timbro button:disabled { opacity: 0.5; cursor: default; }
 
+.ved-apri-mappa {
+	border: 1px solid color-mix(in srgb, var(--sodio) 55%, transparent);
+	border-radius: 8px;
+	padding: 6px 10px;
+	background: color-mix(in srgb, var(--sodio) 12%, transparent);
+	color: var(--sodio);
+	font: inherit;
+	cursor: pointer;
+}
+
+.ved-apri-mappa:hover { background: color-mix(in srgb, var(--sodio) 20%, transparent); }
+.ved-apri-mappa:focus-visible { outline: 2px solid var(--sodio); outline-offset: 2px; }
+
 .ved-h2 {
 	font-family: var(--serif);
 	font-size: 20px;

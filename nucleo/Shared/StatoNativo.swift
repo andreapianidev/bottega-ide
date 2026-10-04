@@ -21,6 +21,8 @@ struct StatoNativo: Sendable {
         var ieri: Int?
         var settimana: Int?
         var giorni: [Giorno] = []   // last 7, oldest first
+        var aggiornato: Date?
+        var fonti: [String] = []
     }
 
     struct Voce: Sendable, Hashable {
@@ -76,6 +78,8 @@ struct StatoNativo: Sendable {
 
         if let r = o["ore"] as? [String: Any] {
             var ore = Ore(oggi: int(r["oggi"]), ieri: int(r["ieri"]), settimana: int(r["settimana"]))
+            ore.aggiornato = date(r["aggiornato"])
+            ore.fonti = r["fonti"] as? [String] ?? ["claude"]
             ore.giorni = (r["giorni"] as? [[String: Any]] ?? []).compactMap { g in
                 guard let d = g["date"] as? String, d.count == 10 else { return nil }
                 return Giorno(date: d, minuti: max(0, int(g["minuti"]) ?? 0))
@@ -135,7 +139,7 @@ struct StatoNativo: Sendable {
     func minutiOggi(_ now: Date = Date()) -> Int {
         let today = Self.day(now)
         if let g = ore?.giorni.first(where: { $0.date == today }) { return g.minuti }
-        if let a = aggiornato, Self.day(a) == today { return ore?.oggi ?? 0 }
+        if let a = oreAggiornate, Self.day(a) == today { return ore?.oggi ?? 0 }
         return 0
     }
 
@@ -143,7 +147,7 @@ struct StatoNativo: Sendable {
     func minutiIeri(_ now: Date = Date()) -> Int? {
         let yesterday = Self.day(now.addingTimeInterval(-86_400))
         if let g = ore?.giorni.first(where: { $0.date == yesterday }) { return g.minuti }
-        guard let a = aggiornato else { return nil }
+        guard let a = oreAggiornate else { return nil }
         if Self.day(a) == Self.day(now) { return ore?.ieri }
         if Self.day(a) == yesterday { return ore?.oggi }
         return nil
@@ -163,11 +167,26 @@ struct StatoNativo: Sendable {
 
     /// Minutes of the last seven days: the extension's figure when it is fresh, else the sum.
     func minutiSettimana(_ now: Date = Date()) -> Int {
-        if let a = aggiornato, Self.day(a) == Self.day(now), let w = ore?.settimana { return w }
+        if let a = oreAggiornate, Self.day(a) == Self.day(now), let w = ore?.settimana { return w }
         return ultimiSette(now).reduce(0) { $0 + $1.minuti }
     }
 
     var hasOre: Bool { ore != nil }
+
+    /// State can be republished for work/rules without recomputing the hours.
+    /// Use their computation time rather than claiming they were just refreshed.
+    var oreAggiornate: Date? { ore?.aggiornato ?? aggiornato }
+
+    var fontiOre: String {
+        let names = (ore?.fonti ?? []).compactMap { fonte -> String? in
+            switch fonte {
+            case "claude": return "Claude Code"
+            case "codex": return "Codex"
+            default: return nil
+            }
+        }
+        return names.isEmpty ? "Ore di lavoro" : names.joined(separator: " + ")
+    }
 
     // MARK: work
 

@@ -21,7 +21,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().delegate = self
         UNUserNotificationCenter.current().setNotificationCategories(Avvisi.categorie)
         // anche lanciata dietro dal sistema (push-to-start della Live Activity), quando una scena non c'e'
-        MainActor.assumeIsolated { Avvisi.shared.osserva() }
+        MainActor.assumeIsolated {
+            Avvisi.shared.osserva()
+            OrologioTelefono.shared.avvia()
+        }
         return true
     }
 

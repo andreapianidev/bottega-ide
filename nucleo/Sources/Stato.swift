@@ -28,9 +28,13 @@ struct Stato {
     }
 
     static func load(from url: URL = fileURL) -> Stato {
-        var s = Stato()
         guard let data = try? Data(contentsOf: url),
-              let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return s }
+              let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return Stato() }
+        return parse(o)
+    }
+
+    static func parse(_ o: [String: Any]) -> Stato {
+        var s = Stato()
         s.present = true
         if let ms = (o["aggiornato"] as? NSNumber)?.doubleValue { s.updated = Date(timeIntervalSince1970: ms / 1000) }
         if let b = o["briefing"] as? [String: Any] {

@@ -109,7 +109,9 @@ export interface PonteStato {
 	lavori: PonteLavoro[];
 	/** Assente nei Mac precedenti; quando presente comprende anche Codex, Cline e terminali integrati. */
 	attivita?: PonteAttivita[];
-	conti: { inCorso: number; tiAspetta: number; inCoda: number; vive: number };
+	conti: { inCorso: number; tiAspetta: number; nelTerminale: number; inCoda: number; stanotte: number; vive: number };
+	/** Aggregati Lavori calcolati sul Mac: progetti prima del limite delle righe, giorni nel fuso del Mac. */
+	quadroLavori?: { progetti: { nome: string; conteggio: number }[]; giorni: { data: string; conteggio: number }[] };
 }
 
 export interface PonteDeps {

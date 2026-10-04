@@ -115,7 +115,10 @@ final class Ponte {
         collegamento = c
         usaIP = false
         stato = nil
-        if prima == nil || prima?.host != c.host || prima?.token != c.token { StatoMac.dimenticaUltimo() }
+        if prima == nil || prima?.host != c.host || prima?.token != c.token {
+            StatoMac.dimenticaUltimo()
+            OrologioTelefono.shared.dimentica()
+        }
         riavvia()
         // un altro Mac o un gettone nuovo: quel Mac non ha i token di questo iPhone, si rimandano tutti
         if prima == nil || prima?.host != c.host || prima?.token != c.token {
@@ -135,6 +138,7 @@ final class Ponte {
         collegamento = nil
         stato = nil
         StatoMac.dimenticaUltimo()
+        OrologioTelefono.shared.dimentica()
         linea = .scollegato
         Avvisi.shared.dimentica()
         AssistenteTelefono.shared.cancella()
@@ -243,6 +247,7 @@ final class Ponte {
         stato = s
         ultimoSuccesso = Date()
         s.salvaComeUltimo()
+        OrologioTelefono.shared.aggiorna(s)
         Collegamento.ricordaSicuro(s.sicuro)
         AssistenteTelefono.shared.aggiornaSceltaDalMac(s.melissa.scelta)
         if AssistenteTelefono.shared.sceltaInAttesa && !sincronizzandoScelta {

@@ -124,16 +124,24 @@ echo "== installazione in /Applications"
 # Andrea deve avere sempre l'ultima versione: se la Bottega e' aperta la si chiude con calma
 # (VS Code ritrova schede e file non salvati), la si sostituisce e la si riapre.
 WAS_RUNNING=0
-MAIN='/Applications/Bottega.app/Contents/MacOS/Bottega( |$)'
+MAIN='^/Applications/Bottega[.]app/Contents/MacOS/Bottega( |$)'
 # La Bottega di Andrea (senza argomenti) si riapre alla fine; qualsiasi altra istanza lanciata da
 # /Applications (misure, prove) va chiusa comunque: togliere l'app sotto un processo vivo lo fa cadere.
-pgrep -f '/Applications/Bottega.app/Contents/MacOS/Bottega$' >/dev/null && WAS_RUNNING=1
-if pgrep -f "$MAIN" >/dev/null; then
+# macOS excludes ancestors from pgrep/pkill unless -a is supplied. A package
+# launched from Bottega's own terminal must still detect its containing app.
+pgrep -a -f '^/Applications/Bottega[.]app/Contents/MacOS/Bottega$' >/dev/null && WAS_RUNNING=1
+if pgrep -a -f "$MAIN" >/dev/null; then
   osascript -e 'tell application "Bottega" to quit' >/dev/null 2>&1 || true
-  for i in {1..30}; do pgrep -f "$MAIN" >/dev/null || break; sleep 1; done
-  pkill -TERM -f "$MAIN" 2>/dev/null || true
-  for i in {1..10}; do pgrep -f "$MAIN" >/dev/null || break; sleep 1; done
+  for i in {1..30}; do pgrep -a -f "$MAIN" >/dev/null || break; sleep 1; done
+  pkill -TERM -a -f "$MAIN" 2>/dev/null || true
+  for i in {1..10}; do pgrep -a -f "$MAIN" >/dev/null || break; sleep 1; done
 fi
+if pgrep -a -f "$MAIN" >/dev/null; then
+  echo "Bottega è ancora aperta; installazione interrotta prima di sostituire l'app." >&2
+  exit 1
+fi
+source "$ROOT/scripts/widget-lifecycle.sh"
+stop_installed_bottega_widget
 rm -rf /Applications/Bottega.app
 ditto $DIST /Applications/Bottega.app
 touch /Applications/Bottega.app   # Finder e Dock rileggono l'icona
@@ -145,7 +153,6 @@ mkdir -p ~/.bottega/bin && chmod 700 ~/.bottega
 mkdir -p ~/.local/bin
 ln -sf /Applications/Bottega.app/Contents/Resources/app/bin/code ~/.local/bin/bottega
 echo "Bottega $VERSION (build $BUILD) su VS Code $(python3 -c "import json;print(json.load(open('$DIST/Contents/Resources/app/package.json'))['version'])") installata."
-if (( WAS_RUNNING )); then open -a /Applications/Bottega.app && echo "Bottega riaperta"; fi
 
 # Comandi rapidi, Spotlight e il widget trovano il Nucleo solo se LaunchServices lo conosce: si
 # registra la copia installata e si dimentica quella di sviluppo (stesso bundle id, widget doppio).
@@ -157,6 +164,10 @@ if [[ -d "$NUCLEO_APP" ]]; then
   $LSREG -f "$NUCLEO_APP" && echo "Nucleo registrato (Comandi rapidi, Spotlight)"
   [[ -d "$NUCLEO_APP/Contents/PlugIns/BottegaWidget.appex" ]] && pluginkit -a "$NUCLEO_APP/Contents/PlugIns/BottegaWidget.appex" || true
 fi
+# Registration must finish before the app publishes its first widget reload. Also
+# retire an extension that WidgetKit may have relaunched while the copy was running.
+stop_installed_bottega_widget
+if (( WAS_RUNNING )); then open -a /Applications/Bottega.app && echo "Bottega riaperta"; fi
 
 # La copia di lavoro in dist/ ha gia' fatto il suo dovere: resta una sola Bottega sul Mac, quella in
 # /Applications (Spotlight e LaunchServices non devono trovarne due). Si ricrea al prossimo package.

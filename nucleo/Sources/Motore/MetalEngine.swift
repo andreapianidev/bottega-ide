@@ -30,6 +30,7 @@ final class MetalEngine: @unchecked Sendable {
         case orb = "sfera"
         case orbDocked = "sferaAgganciata"
         case sky = "cielo"
+        case vedetta = "vedetta"
     }
 
     /// Posted on main when something that changes a picture without animation changed:
@@ -217,13 +218,14 @@ final class MetalEngine: @unchecked Sendable {
         if reduceMotion {
             switch client {
             case .orb, .orbDocked: return lively ? 30 : 0
-            case .sky: return 0
+            case .sky, .vedetta: return 0
             }
         }
         switch client {
         case .orb: return lively ? 60 : 30
         case .orbDocked: return lively ? 30 : 0   // at rest in the dock: still, one frame on change
         case .sky: return lively ? 30 : 15
+        case .vedetta: return lively ? 30 : 12
         }
     }
 

@@ -21,7 +21,7 @@ esbuild.buildSync({
 	target: 'node20',
 	logLevel: 'silent',
 });
-const { StatsEngine, mergeSpans, minutesIn, costOf, whereOf, concurrency, lengthsOf, summarizeObservedActivity, collectSourceMetrics } = require(path.join(OUT, 'stats.js'));
+const { StatsEngine, mergeSpans, minutesIn, costOf, whereOf, concurrency, lengthsOf, summarizeObservedActivity, collectSourceMetrics, summarizeWorkTime } = require(path.join(OUT, 'stats.js'));
 
 let passed = 0, failed = 0;
 async function test(name, fn) {
@@ -145,6 +145,129 @@ const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}
 		assert.strictEqual(s['7'].cline.durationMinutes, null);
 		assert.strictEqual(s['7'].codex.records, 1);
 		assert.strictEqual(s['90'].cline.tokens, 155);
+	});
+	await test('ore osservate: unione Claude/Codex, giorno locale e settimane mobili uguali per widget e Home', () => {
+		const midnight = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate()).getTime();
+		const minute = n => midnight + n * 60_000;
+		const previous = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - 7, 10).getTime();
+		const work = summarizeWorkTime([minute(-20), minute(10)], [minute(-10), minute(20), previous, previous + 30 * 60_000], NOW);
+		assert.strictEqual(work.today.minutes, 20, 'dieci minuti in parallelo contano una volta');
+		assert.strictEqual(work.days.at(-2).minutes, 20, 'intervallo spezzato a mezzanotte locale');
+		assert.strictEqual(work.weekMinutes, 40);
+		assert.strictEqual(work.previousWeekMinutes, 30);
+		assert.deepStrictEqual(work.sources, ['claude', 'codex']);
+		assert.strictEqual(work.days.length, 90);
+	});
+
+	await test('ore Codex in corso: cache viva, pause escluse, sessioni parallele e registro morto fermo', async () => {
+		const root = path.join(TMP, 'work-codex');
+		const timestamp = n => NOW - (60 - n) * 60_000;
+		const date = new Date(timestamp(0));
+		const dir = path.join(root, String(date.getUTCFullYear()), String(date.getUTCMonth() + 1).padStart(2, '0'), String(date.getUTCDate()).padStart(2, '0'));
+		const ev = (min, type, extra = {}) => JSON.stringify({ type: 'event_msg', timestamp: new Date(timestamp(min)).toISOString(), payload: { type, ...extra } });
+		const progress = min => JSON.stringify({ type: 'response_item', timestamp: new Date(timestamp(min)).toISOString(), payload: { type: 'function_call_output', output: 'ok' } });
+		write(dir, 'rollout-working.jsonl', [ev(0, 'task_started'), progress(10)]);
+		write(dir, 'rollout-parallel.jsonl', [ev(5, 'task_started'), ev(15, 'task_complete')]);
+		const claude = path.join(TMP, 'work-claude');
+		write(path.join(claude, '-test'), 'work.jsonl', [0, 10].map(min => JSON.stringify({ type: 'user', timestamp: new Date(timestamp(min)).toISOString(), message: { role: 'user', content: 'test' } })));
+		const engine = new StatsEngine({ projectsDir: claude, codexSessionsDir: root });
+		const first = await engine.compute({ projects: [], live: [], now: NOW });
+		assert.strictEqual(first.today.you, 10, 'le metriche Claude restano compatibili');
+		assert.strictEqual(first.workTime.today.minutes, 15, 'unione delle tre sessioni');
+		assert.deepStrictEqual(first.workTime.sources, ['claude', 'codex']);
+		let cachedReads = 0;
+		const createReadStream = fs.createReadStream;
+		fs.createReadStream = function (file, ...args) {
+			if (String(file).startsWith(root)) cachedReads++;
+			return createReadStream.call(this, file, ...args);
+		};
+		try {
+			const cached = await engine.compute({ projects: [], live: [], now: NOW + 500 });
+			assert.strictEqual(cachedReads, 0, 'giro caldo non riapre alcun rollout invariato');
+			assert.strictEqual(StatsEngine.signature(cached), StatsEngine.signature(first));
+		} finally { fs.createReadStream = createReadStream; }
+		const file = path.join(dir, 'rollout-working.jsonl');
+		fs.appendFileSync(file, progress(20) + '\n');
+		const second = await engine.compute({ projects: [], live: [], now: NOW + 1000 });
+		assert.strictEqual(second.workTime.today.minutes, 20, 'append visibile senza aspettare il vecchio TTL di due minuti');
+		assert.notStrictEqual(StatsEngine.signature(first), StatsEngine.signature(second));
+		fs.appendFileSync(file, ev(50, 'agent_message') + '\n' + progress(55) + '\n');
+		const third = await engine.compute({ projects: [], live: [], now: NOW + 2000 });
+		assert.strictEqual(third.workTime.today.minutes, 25, "pausa di mezz'ora non contata");
+		const dead = await engine.compute({ projects: [], live: [], now: NOW + 2 * 3_600_000 });
+		assert.strictEqual(dead.workTime.today.minutes, 25, 'lasciare il file aperto non inventa altre due ore');
+		fs.appendFileSync(file, ev(56, 'turn_aborted') + '\n' + progress(58) + '\n');
+		const aborted = await engine.compute({ projects: [], live: [], now: NOW + 2 * 3_600_000 });
+		assert.strictEqual(aborted.workTime.today.minutes, 26, 'eventi dopo la chiusura non allungano il turno');
+	});
+
+	await test('ore osservate: ricalcolo dopo mezzanotte locale senza nuovi eventi', async () => {
+		const root = path.join(TMP, 'midnight-codex');
+		const midnight = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate()).getTime();
+		const date = new Date(midnight - 10 * 60_000);
+		const dir = path.join(root, String(date.getUTCFullYear()), String(date.getUTCMonth() + 1).padStart(2, '0'), String(date.getUTCDate()).padStart(2, '0'));
+		const ev = (minute, type) => JSON.stringify({ type: 'event_msg', timestamp: new Date(midnight + minute * 60_000).toISOString(), payload: { type } });
+		write(dir, 'rollout-midnight.jsonl', [ev(-10, 'task_started'), ev(-1, 'agent_reasoning')]);
+		const engine = new StatsEngine({ projectsDir: path.join(TMP, 'empty'), codexSessionsDir: root });
+		const before = await engine.compute({ projects: [], live: [], now: midnight - 1 });
+		const after = await engine.compute({ projects: [], live: [], now: midnight + 1 });
+		assert.strictEqual(before.workTime.today.minutes, 9);
+		assert.strictEqual(after.workTime.today.minutes, 0);
+		assert.strictEqual(after.workTime.days.at(-2).minutes, 9);
+	});
+	await test('orologio unico: attraversare mezzanotte durante la scansione non mescola due giornate', async () => {
+		const midnight = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate()).getTime();
+		const original = Date.now;
+		let calls = 0;
+		Date.now = () => calls++ === 0 ? midnight - 1 : midnight + 1;
+		try {
+			const engine = new StatsEngine({ projectsDir: path.join(TMP, 'clock-empty'), codexSessionsDir: path.join(TMP, 'clock-codex-empty') });
+			const s = await engine.compute({ projects: [], live: [] });
+			assert.strictEqual(s.computedAt, midnight - 1);
+			assert.strictEqual(s.today.date, s.workTime.today.date);
+			assert.strictEqual(calls, 1, 'istante del calcolo catturato una volta sola');
+		} finally { Date.now = original; }
+	});
+
+	await test('errori Codex transitori: compute rifiuta il dato parziale e conserva lo snapshot precedente', async () => {
+		const root = path.join(TMP, 'errors-codex');
+		const date = new Date(BASE);
+		const dir = path.join(root, String(date.getUTCFullYear()), String(date.getUTCMonth() + 1).padStart(2, '0'), String(date.getUTCDate()).padStart(2, '0'));
+		const ev = (minute, type) => JSON.stringify({ type: 'event_msg', timestamp: at(minute), payload: { type } });
+		write(dir, 'rollout-errors.jsonl', [ev(0, 'task_started'), ev(10, 'task_complete')]);
+		const file = path.join(dir, 'rollout-errors.jsonl');
+		const engine = new StatsEngine({ projectsDir: path.join(TMP, 'errors-empty'), codexSessionsDir: root });
+		let published = await engine.compute({ projects: [], live: [], now: NOW });
+		const previous = published;
+		const signature = StatsEngine.signature(previous);
+		const failure = code => Object.assign(new Error('simulated read failure'), { code });
+		for (const [method, code] of [['readdir', 'EACCES'], ['stat', 'EIO'], ['stat', 'ENOENT']]) {
+			const original = fs.promises[method];
+			fs.promises[method] = async function (target, ...args) {
+				if (String(target).startsWith(root)) throw failure(code);
+				return original.call(this, target, ...args);
+			};
+			try {
+				await assert.rejects(async () => { published = await engine.compute({ projects: [], live: [], now: NOW + 1000 }); }, { code });
+				assert.strictEqual(published, previous, 'il chiamante mantiene il dato precedente');
+			} finally { fs.promises[method] = original; }
+		}
+		fs.appendFileSync(file, '\n'); // il file cambiato obbliga a rileggerlo
+		const originalStream = fs.createReadStream;
+		fs.createReadStream = function (target, ...args) {
+			if (String(target).startsWith(root)) {
+				return new (require('stream').Readable)({ read() { this.destroy(failure('EIO')); } });
+			}
+			return originalStream.call(this, target, ...args);
+		};
+		try {
+			await assert.rejects(async () => { published = await engine.compute({ projects: [], live: [], now: NOW + 1000 }); }, { code: 'EIO' });
+			assert.strictEqual(published, previous);
+		} finally { fs.createReadStream = originalStream; }
+		const recovered = await engine.compute({ projects: [], live: [], now: NOW + 2000 });
+		const warm = await engine.compute({ projects: [], live: [], now: NOW + 3000 });
+		assert.strictEqual(StatsEngine.signature(recovered), signature, 'ripresa senza cali artificiali delle ore');
+		assert.strictEqual(StatsEngine.signature(warm), signature, 'cache calda identica dopo il recupero');
 	});
 	console.log('cruscotto');
 	let s1;

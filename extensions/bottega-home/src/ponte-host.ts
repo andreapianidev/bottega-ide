@@ -17,6 +17,7 @@ import { StanzePonte } from './ponte-stanze';
 import { fontiStanze } from './strumenti-stanze';
 import { pulisciTesto } from './attivita-sicurezza';
 import type { AgentActivity } from './attivita-tipi';
+import { quadroLavori } from './lavori-quadro';
 
 /* Il ponte dentro la Bottega: lo accende con Tailscale, gli passa Melissa e i lavori, e mostra il QR per
    collegare l'iPhone (comando "Collega l'iPhone"). Il protocollo e' in src/ponte.ts e in docs/CONTRATTI.md, 9.
@@ -25,6 +26,8 @@ import type { AgentActivity } from './attivita-tipi';
 export interface PonteHostDeps {
 	assistant(): Assistant | undefined;
 	nucleo(): Nucleo | undefined;
+	/** La prima scansione e' conclusa: prima i contatori vuoti non sono ancora una misura. */
+	ready?(): boolean;
 	work(): WorkItem[];
 	activity(): AgentActivity[];
 	counts(): WorkCounts;
@@ -327,6 +330,8 @@ async function parla(deps: PonteHostDeps, testo: string, emetti: (r: RigaParla) 
 function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora' | 'vicino' | 'https'> {
 	const a = deps.assistant()?.getState();
 	const c = deps.counts();
+	const work = deps.work();
+	const activity = deps.activity();
 	const cv = deps.cervelli?.();
 	return {
 		melissa: {
@@ -337,7 +342,7 @@ function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora'
 			risposta: a?.answerPartial,
 			registro: (a?.log ?? []).slice(-30).map(l => ({ chi: l.role, testo: l.text, alle: l.at })),
 		},
-		lavori: deps.work().slice(0, 40).map(w => ({
+		lavori: work.slice(0, 40).map(w => ({
 			chiave: w.key,
 			...(w.sessionId ? { activityKey: `claude:${w.sessionId}` } : {}),
 			origine: w.source,
@@ -347,7 +352,7 @@ function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora'
 			da: w.since,
 			jobId: w.jobId,
 		})),
-		attivita: deps.activity().map(a => ({
+		attivita: activity.map(a => ({
 			key: a.key,
 			source: a.source,
 			project: a.project,
@@ -358,7 +363,8 @@ function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora'
 			...(a.evidence ? { evidence: pulisciTesto(a.evidence, 300) } : {}),
 			updatedAt: a.updatedAt,
 		})),
-		conti: { inCorso: c.inCorso, tiAspetta: c.tiAspetta, inCoda: c.inCoda, vive: c.vive },
+		conti: { inCorso: c.inCorso, tiAspetta: c.tiAspetta, nelTerminale: c.nelTerminale, inCoda: c.inCoda, stanotte: c.stanotte, vive: c.vive },
+		...(deps.ready?.() === false ? {} : { quadroLavori: quadroLavori(work, activity) }),
 	};
 }
 

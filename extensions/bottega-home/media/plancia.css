@@ -1517,8 +1517,19 @@ mark {
 .andamento-giorno { display: flex; gap: 3px; color: var(--calima); font-size: 11px; white-space: nowrap; }
 .andamento-giorno small { color: var(--tinta); font-size: inherit; }
 
+.lavori-quadro { margin-top: 20px; }
+.lavori-barre { display: grid; gap: 12px; list-style: none; padding: 0; margin: 22px 0 4px; }
+.lavori-barre li { display: grid; grid-template-columns: minmax(90px, 135px) minmax(0, 1fr) max-content; align-items: center; gap: 10px; font-variant-numeric: tabular-nums; }
+.lavori-barra-nome { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--tinta); font-size: 12px; }
+.lavori-barra-binario { display: block; height: 12px; background: var(--cielo); border-radius: 3px; }
+.lavori-barra-binario svg { display: block; width: 100%; height: 100%; }
+.lavori-barra-binario rect { fill: var(--sodio); }
+.lavori-grafico-progetti .lavori-barra-binario rect { fill: var(--laurisilva); }
+.lavori-barre b { font-size: 12px; font-weight: 600; text-align: right; }
+
 @media (max-width: 900px) { .andamenti-griglia { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 460px) { .andamento { padding: 17px 14px; } .andamento-barre { gap: 3px; } .andamento-binario { padding: 0 3px; } }
+@media (max-width: 460px) { .lavori-barre li { grid-template-columns: minmax(72px, 100px) minmax(0, 1fr) max-content; gap: 7px; } }
 
 /* ---------- i progetti fermi ---------- */
 

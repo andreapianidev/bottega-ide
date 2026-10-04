@@ -18,6 +18,7 @@ enum Nativo {
         wire()
         if try await CervelloComandi.handle(r) { return true }
         if try await OsservatorioComandi.handle(r) { return true }
+        if try await VedettaComandi.handle(r) { return true }
         if try await VistaComandi.handle(r) { return true }
         if try await PonteComandi.handle(r) { return true }
         return false

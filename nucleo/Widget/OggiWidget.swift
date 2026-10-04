@@ -38,7 +38,13 @@ struct OggiProvider: TimelineProvider {
     }
 
     static func vero(_ now: Date) -> OggiEntry {
-        OggiEntry(date: now, stato: Stato.load(), nativo: StatoNativo.load())
+        // Read once: the writer replaces the file atomically. Two reads could mix
+        // the rules of one generation with the hours of the following generation.
+        guard let data = try? Data(contentsOf: Stato.fileURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return OggiEntry(date: now, stato: Stato(), nativo: StatoNativo())
+        }
+        return OggiEntry(date: now, stato: Stato.parse(object), nativo: StatoNativo.parse(object))
     }
 
     /// Plausible, invented data for the gallery and the placeholder.
@@ -298,6 +304,7 @@ struct OggiWidgetView: View {
                 SemaforoPiccolo(stato: entry.stato)
             }
             OreGrandi(minuti: oggi, size: 30)
+            aggiornamento
             if waitingCount > 0 {
                 Text(waitingCount == 1 ? "1 lavoro ti aspetta" : "\(waitingCount) lavori ti aspettano")
                     .font(.system(size: 11, weight: .medium, design: .rounded))
@@ -336,6 +343,7 @@ struct OggiWidgetView: View {
                     .frame(maxWidth: .infinity)
             }
             .frame(maxHeight: .infinity)
+            aggiornamento
             ViewThatFits(in: .horizontal) {
                 Pulsanti(corti: false)
                 Pulsanti(corti: true)
@@ -378,6 +386,7 @@ struct OggiWidgetView: View {
             }
             GraficoSettimana(giorni: giorni, today: today, assi: .brevi, annota: true)
                 .frame(height: 96)
+            aggiornamento
             Divider().overlay(Notte.faint)
             attesaLista
             regole
@@ -442,6 +451,29 @@ struct OggiWidgetView: View {
     }
 
     // MARK: helpers
+
+    private var aggiornamento: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 4) {
+                Text(n.fontiOre)
+                if let date = n.oreAggiornate { Text("· \(Self.dataAggiornamento(date))") }
+            }
+            if let date = n.oreAggiornate { Text("Dati del \(Self.dataAggiornamento(date))") }
+        }
+        .font(.system(size: 9, design: .rounded))
+        .foregroundStyle(Notte.dim)
+        .lineLimit(1)
+        .accessibilityLabel("\(n.fontiOre). \(n.oreAggiornate.map { "Dati del " + Self.dataAggiornamento($0) } ?? "Aggiornamento sconosciuto")")
+    }
+
+    private static func dataAggiornamento(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "it_IT")
+        // Keep the date even for today's snapshot: if WidgetKit cannot replace it,
+        // the archived view still tells the truth tomorrow.
+        formatter.dateFormat = "d/M HH:mm"
+        return formatter.string(from: date)
+    }
 
     private func etichetta(_ s: String) -> some View {
         Text(s)

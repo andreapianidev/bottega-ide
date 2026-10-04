@@ -420,16 +420,18 @@ test('consigli: frasi, origine dichiarata, età, azione e «Rifalli»', () => {
 
 test('quadro in cifre: chiede le ore, legge stats, soldi, regole, lavori, tutto cliccabile', () => {
 	const t = boot();
-	t.send({ type: 'snapshot', snapshot: snapshot() });
+	const current = snapshot();
+	current.radar.admobAt = Date.now();
+	t.send({ type: 'snapshot', snapshot: current });
 	assert.ok(t.last('stats.request'), 'la Home chiede le ore');
 	const n = t.posted.filter(m => m.type === 'stats.request').length;
-	t.send({ type: 'snapshot', snapshot: snapshot() });
+	t.send({ type: 'snapshot', snapshot: current });
 	assert.strictEqual(t.posted.filter(m => m.type === 'stats.request').length, n, 'non le richiede a ogni snapshot');
 	t.send({ type: 'stats', stats: STATS });
 	const cells = t.$$('.quadro-cifre li');
 	const txt = cells.map(c => [...c.querySelector('button').children].map(x => x.textContent.trim()).join(' '));
-	assert.match(txt[0], /^Oggi 2 h 5 min questa settimana 10 h$/);
-	assert.match(txt[1], /^Ieri 12,3.*7 giorni 80,1.*dato di 2 h fa$/);
+	assert.match(txt[0], /^Oggi 2 h 5 min ultimi 7 giorni 10 h\. Claude Code$/);
+	assert.match(txt[1], /^Ieri 12,3.*7 giorni 80,1.*dato di adesso$/);
 	assert.match(txt[2], /^Regole 1 rossa, 2 gialle da sistemare subito$/);
 	assert.ok(cells[2].classList.contains('rosso'));
 	assert.match(txt[3], /^Lavori 1 in corso 2 ti aspettano, 1 nel terminale, 1 stanotte$/);
@@ -446,7 +448,9 @@ test('quadro in cifre: chiede le ore, legge stats, soldi, regole, lavori, tutto 
 
 test('la Home apre con KPI e grafici dei sette giorni, da dati reali e facoltativi', () => {
 	const t = boot();
-	t.send({ type: 'snapshot', snapshot: snapshot() });
+	const current = snapshot();
+	current.radar.admobAt = Date.now();
+	t.send({ type: 'snapshot', snapshot: current });
 	const top = t.$('#plancia-corpo');
 	assert.ok([...top.children].indexOf(t.$('#quadro')) < [...top.children].indexOf(t.$('#lampade')));
 	assert.ok([...top.children].indexOf(t.$('#andamenti')) < [...top.children].indexOf(t.$('#mattino')));
@@ -475,6 +479,76 @@ test('la Home apre con KPI e grafici dei sette giorni, da dati reali e facoltati
 	t.send({ type: 'snapshot', snapshot: stale });
 	assert.match(t.$('#quadro-cifre .cifra-h:nth-child(2) .cifra-nome').textContent, /^Il \d/);
 	assert.doesNotMatch(t.$('.andamento-ricavi .andamento-testa p').textContent, /fino a ieri/);
+	assert.deepStrictEqual(t.errors, []);
+});
+
+test('Home usa lo stesso tempo multi-fonte del widget, anche senza avanzamenti Claude', () => {
+	const t = boot();
+	t.send({ type: 'snapshot', snapshot: snapshot() });
+	const days = Array.from({ length: 7 }, (_, i) => {
+		const d = new Date(); d.setDate(d.getDate() - 6 + i);
+		return { date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`, minutes: i === 6 ? 440 : 60 };
+	});
+	const workTime = { today: { date: days[6].date, minutes: 440 }, days, weekMinutes: 800, previousWeekMinutes: 700, sources: ['claude', 'codex'] };
+	t.send({ type: 'stats', stats: { ...STATS, workTime } });
+	assert.match(t.$('#quadro-cifre').textContent, /7 h 20 min/);
+	assert.match(t.$('#quadro-cifre').textContent, /Claude Code \+ Codex/);
+	assert.match(t.$('.andamento-ore .andamento-kpi').textContent, /13 h 20 min/);
+	assert.match(t.$$('.andamento-ore .andamento-barre li').at(-1).getAttribute('aria-label'), /7 h 20 min/);
+	assert.match(t.$('.andamento-ore').textContent, /Cline e terminali: durata non disponibile/);
+	workTime.today.minutes = 441; workTime.days[6].minutes = 441; workTime.weekMinutes = 801;
+	t.send({ type: 'stats', stats: { ...STATS, workTime } });
+	assert.match(t.$('#quadro-cifre').textContent, /7 h 21 min/);
+	assert.deepStrictEqual(t.errors, []);
+});
+
+test('la Home mostra i centesimi, scala le barre piccole e descrive le ore uguali', () => {
+	const t = boot();
+	const s = snapshot();
+	s.radar.admobAt = Date.now();
+	s.radar.totals = { yesterday: 0.01, last7: 0.1, daily: [0.01, 0, 0.02, 0.03, 0.04, 0, 0.1], currency: 'EUR' };
+	t.send({ type: 'snapshot', snapshot: s });
+	assert.strictEqual(t.$$('.andamento-ricavi .andamento-valore')[0].textContent, '0,01');
+	assert.strictEqual(t.$$('.andamento-ricavi .andamento-valore')[1].textContent, '0,00');
+	assert.strictEqual(t.$$('.andamento-ricavi .andamento-barra').at(-1).getAttribute('height'), '100');
+	const days = Array.from({ length: 7 }, (_, i) => {
+		const d = new Date();
+		d.setDate(d.getDate() - 6 + i);
+		return { date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`, you: 10 };
+	});
+	t.send({ type: 'stats', stats: { ...STATS, days, periods: { '7': { you: 70, prev: { you: 70 } } } } });
+	assert.match(t.$('.andamento-ore .andamento-kpi').textContent, /come nei sette giorni prima/);
+	assert.doesNotMatch(t.$('.andamento-ore .andamento-kpi').textContent, /in più/);
+	assert.deepStrictEqual(t.errors, []);
+});
+
+test('a mezzanotte la Home nasconde le ore vecchie e richiede subito quelle nuove', () => {
+	const t = boot();
+	const NativeDate = t.w.Date;
+	let virtualNow = new NativeDate(2026, 9, 4, 23, 59, 50).getTime();
+	t.w.Date = class extends NativeDate {
+		constructor(...args) { super(...(args.length ? args : [virtualNow])); }
+		static now() { return virtualNow; }
+	};
+	const key = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	const days = Array.from({ length: 7 }, (_, i) => {
+		const d = new NativeDate(virtualNow);
+		d.setDate(d.getDate() - 6 + i);
+		return { date: key(d), you: 10 };
+	});
+	const stats = { ...STATS, computedAt: virtualNow, today: { ...STATS.today, date: key(new NativeDate(virtualNow)) }, days, periods: { '7': { you: 70, prev: { you: 60 } } } };
+	t.send({ type: 'snapshot', snapshot: snapshot() });
+	t.send({ type: 'stats', stats });
+	assert.strictEqual(t.$$('.andamento-ore').length, 1);
+	assert.match(t.$('#quadro-cifre').textContent, /ultimi 7 giorni/);
+	assert.strictEqual(t.posted.filter(m => m.type === 'stats.request').length, 1);
+	virtualNow = new NativeDate(2026, 9, 5, 0, 0, 10).getTime();
+	t.send({ type: 'snapshot', snapshot: snapshot() });
+	assert.strictEqual(t.$$('.andamento-ore').length, 0);
+	assert.doesNotMatch(t.$('#quadro-cifre').textContent, /ultimi 7 giorni/);
+	assert.strictEqual(t.posted.filter(m => m.type === 'stats.request').length, 2);
+	t.send({ type: 'snapshot', snapshot: snapshot() });
+	assert.strictEqual(t.posted.filter(m => m.type === 'stats.request').length, 2, 'nessuna richiesta ripetuta nello stesso minuto');
 	assert.deepStrictEqual(t.errors, []);
 });
 
@@ -649,6 +723,51 @@ test('Lavori: gruppo Stanotte, perché, finestra modificabile, promemoria, resoc
 	t2.key('2');
 	assert.strictEqual(t2.$('#composer-notte-riga').hidden, true);
 	assert.strictEqual(t2.$('#g-stanotte').hidden, true);
+});
+
+test('Lavori apre con quattro KPI e grafici fedeli allo snapshot attuale', () => {
+	const t = boot();
+	t.key('2');
+	assert.strictEqual(t.$('#lavori-quadro').hidden, true, 'prima della scansione non mostra zeri come dati');
+	assert.strictEqual(t.$('#lavori-grafici').hidden, true);
+	t.send({ type: 'snapshot', snapshot: snapshot() });
+	const top = t.$('#vista-lavori');
+	assert.ok([...top.children].indexOf(t.$('.lavori-quadro')) < [...top.children].indexOf(t.$('#attivita-lavori')));
+	assert.ok([...top.children].indexOf(t.$('.lavori-grafici')) < [...top.children].indexOf(t.$('.lavori')));
+	assert.deepStrictEqual(t.$$('#lavori-cifre li button').map(x => [...x.children].map(c => c.textContent).join(' ')), [
+		'Ti aspettano 2 da riprendere', 'In corso 1 già al lavoro', 'In coda 0 per il prossimo turno', 'Stanotte 1 nella finestra notturna',
+	]);
+	assert.deepStrictEqual(t.$$('.lavori-grafico-stati li').map(x => x.getAttribute('aria-label')), [
+		'Ti aspettano: 2 lavori', 'In corso: 1 lavoro', 'Nel terminale: 1 lavoro', 'In coda: 0 lavori', 'Stanotte: 1 lavoro',
+	]);
+	assert.strictEqual(t.$('.lavori-grafico-stati li svg rect').getAttribute('width'), '100');
+	assert.deepStrictEqual(t.$$('.lavori-grafico-progetti li').map(x => x.getAttribute('aria-label')), [
+		'Faro: 1 lavoro', 'Gabbiano: 1 lavoro', 'Vela: 1 lavoro',
+	]);
+	const observedDays = Array.from({ length: 7 }, (_, i) => {
+		const d = new Date();
+		d.setDate(d.getDate() - 6 + i);
+		return { date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`, claude: i === 6 ? 1 : 0, cline: i === 6 ? 2 : 0, codex: i === 5 ? 3 : 0, terminale: 0 };
+	});
+	t.send({ type: 'stats', stats: { ...STATS, observedActivity: { days: observedDays } } });
+	assert.strictEqual(t.$('.lavori-grafico-settimana .andamento-kpi strong').textContent, '6');
+	assert.deepStrictEqual(t.$$('.lavori-grafico-settimana .andamento-valore').map(x => x.textContent), ['0', '0', '0', '0', '0', '3', '3']);
+	assert.match(t.$('.lavori-grafico-settimana').textContent, /Giorno dell'ultimo aggiornamento/);
+	t.click(t.$('[data-fk="lavori-cifra:aspetta"]'));
+	assert.strictEqual(t.d.activeElement, t.$('#g-aspetta-titolo'));
+	t.$('[data-fk="lavori-cifra:aspetta"]').focus();
+	const changed = snapshot();
+	changed.workCounts = { inCorso: 4, tiAspetta: 0, nelTerminale: 0, inCoda: 2, stanotte: 0, vive: 3 };
+	t.send({ type: 'snapshot', snapshot: changed });
+	assert.strictEqual(t.d.activeElement, t.$('[data-fk="lavori-cifra:aspetta"]'), 'il fuoco resta sul KPI quando va a zero');
+	assert.deepStrictEqual(t.$$('.lavori-grafico-stati li b').map(x => x.textContent), ['0', '4', '0', '2', '0']);
+	const empty = oldSnapshot({ projects: [], live: [], jobs: [] });
+	t.send({ type: 'snapshot', snapshot: empty });
+	assert.deepStrictEqual(t.$$('.lavori-grafico-stati li b').map(x => x.textContent), ['0', '0', '0', '0', '0']);
+	assert.strictEqual(t.$$('.lavori-grafico-progetti').length, 0);
+	t.send({ type: 'stats', stats: { ...STATS, today: { ...STATS.today, date: observedDays[5].date }, observedActivity: { days: observedDays } } });
+	assert.strictEqual(t.$$('.lavori-grafico-settimana').length, 0, 'nessuno storico vecchio presentato come attuale');
+	assert.deepStrictEqual(t.errors, []);
 });
 
 test('«Dove l\'ho già risolto?»: due blocchi, risposte vecchie scartate, evidenziazione sicura, file.open', () => {

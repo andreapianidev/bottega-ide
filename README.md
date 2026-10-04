@@ -120,7 +120,9 @@ Controllo.
 
 ![Il cruscotto: i numeri del mese e il cielo dei progetti](docs/screenshot/cruscotto.jpg)
 
-Quanto lavori, letto dai registri che Claude Code scrive sul Mac, senza niente da configurare. In cima le tue ore,
+In cima le ore osservate di Claude Code e Codex, oggi e negli ultimi sette giorni, come nella Home e nel widget.
+Le sessioni in parallelo contano una volta; i registri fermi non fanno crescere il tempo. Cline e terminali
+restano nei conteggi delle attività, ma non forniscono durate affidabili. Sotto, il dettaglio Claude Code mostra
 le ore di Claude (che crescono quando lavorano più sessioni insieme), le sessioni, i token e il valore a listino, cioè
 quanto costerebbero quei token alle tariffe delle API: una stima, non quello che paghi con un abbonamento. Ogni numero
 ha accanto il periodo prima e una piccola curva, su 7, 30 o 90 giorni.
@@ -140,7 +142,9 @@ chiaro, come si contano le ore.
 
 La plancia è la Home dell'app: una scheda appuntata che si apre sempre, anche con una cartella aperta, e che si
 ritrova al riavvio. In cima mostra i numeri che contano e due grafici degli ultimi sette giorni: il tempo passato nelle
-sessioni Claude Code, confrontato con i sette giorni precedenti, e i ricavi AdMob giorno per giorno. Seguono il briefing
+sessioni Claude Code e Codex senza duplicare il lavoro in parallelo, confrontato con i sette giorni precedenti,
+e i ricavi AdMob giorno per giorno. Le ore si aggiornano ogni minuto anche lasciando la finestra in background.
+Il widget legge lo stesso riepilogo e mostra fonti e data dei dati; macOS gestisce quando ridisegnarlo. Seguono il briefing
 del giorno e i consigli scritti da Apple Intelligence sul Mac (senza Apple Intelligence restano consigli fissi ricavati
 dalle regole), i progetti dimenticati e l'elenco dei progetti con il loro semaforo.
 

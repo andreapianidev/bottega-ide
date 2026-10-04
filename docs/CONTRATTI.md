@@ -434,7 +434,7 @@ interface RadarApp {
 interface RadarState {
   apps: RadarApp[];
   totals: { yesterday: number; last7: number; daily: number[]; currency: string } | null;
-  ascAt: number; admobAt: number;   // 0 = mai letto
+  ascAt: number; admobAt: number;   // 0 = mai letto; admobAt fissa il giorno usato per il report AdMob (sette giorni fino a ieri)
   ascError?: string; admobError?: string;
   refreshing: boolean;
   vercel?: VercelState;   // assente se il radar non legge Vercel (prove con dir o fetch finti)
@@ -554,7 +554,7 @@ somma dei giorni arrotondati.
 | `power.release` | `token` | | errore in italiano se il token non esiste |
 | `spotlight.index` | `items: [{id, kind: 'progetto'\|'ricordo', title, text?, url, keywords?, date?}]`, `replace?: bool` | `count` | CoreSpotlight, `domainIdentifier` = kind, `uniqueIdentifier` = `kind:id`. `date`: millisecondi, secondi o `YYYY-MM-DD`. `replace` svuota prima i domini dei kind presenti. Ogni chiamata ha 10 s; se Spotlight e' spento (`mdutil`) risponde con un errore in italiano (CoreSpotlight -1003). Gli url stanno anche in `~/.bottega/nucleo/spotlight.json` (600), perche' il clic su un risultato porta solo l'identificatore |
 | `spotlight.clear` | `kind?` | | senza `kind` svuota tutto |
-| `widget.reload` | | | WidgetKit ridisegna subito il widget: l'estensione lo manda dopo aver riscritto `stato.json` |
+| `widget.reload` | | | Chiede a WidgetKit una nuova timeline; il sistema decide quando visualizzarla. Invalidazioni aggregate, al massimo una ogni 5 minuti salvo riconnessione del Nucleo |
 
 Eventi nuovi: `power.changed {ac, battery, charging}` (notifica di IOKit, nessun polling).
 `menubar.update` accetta anche `lines?: [{id?, title, tone?: 'rosso'\|'giallo'\|'ok'}]` (righe in cima al menu: soldi di
@@ -598,8 +598,24 @@ Nucleo installato con `lsregister -f` e il widget con `pluginkit -a`.
 
 Widget: `Bottega Nucleo.app/Contents/PlugIns/BottegaWidget.appex` (`com.andreapiani.bottega.nucleo.widget`, kind
 `com.andreapiani.bottega.stato`), piccolo, medio e grande: semaforo delle regole, conteggi, prime tre voci, briefing.
-Sandbox con sola lettura di `~/.bottega/stato.json`. Si aggiorna ogni 15 minuti, o subito con `widget.reload`. Un tocco
+Sandbox con sola lettura di `~/.bottega/stato.json`. La timeline richiede un rinnovo ogni 15 minuti; `widget.reload` chiede un aggiornamento anticipato, soggetto al budget di WidgetKit. Un tocco
 apre `bottega://andreapiani.bottega-home/briefing` (lo riceve il Nucleo e lo gira alla Bottega).
+
+Aggiornamento continuo (4 ottobre 2026): Idee ricalcola le ore ogni 60 secondi anche con la Home
+nascosta o la finestra senza focus. Il risultato pubblicato alla Home e quello scritto nel widget
+sono lo stesso snapshot; un calcolo più vecchio non può sostituirne uno più recente. Gli eventi
+continui vengono aggregati senza rimandare la scrittura indefinitamente. La sola riscrittura del
+heartbeat non consuma una nuova invalidazione WidgetKit. `ore.aggiornato` identifica il calcolo,
+indipendentemente da `aggiornato` del file; un errore conserva i dati precedenti con la loro data.
+Il widget Oggi legge regole e ore dallo stesso file letto una sola volta e mostra fonti e data/ora.
+I conteggi e le voci attive dei lavori usano il registro multi-fonte anche sul widget Mac.
+
+Installazione: `scripts/widget-lifecycle.sh` termina esclusivamente l'appex Bottega installato
+prima di sostituire il bundle, anche se sospeso. Dopo la registrazione LaunchServices/pluginkit
+ripete il controllo per coprire un riavvio automatico; solo dopo riapre Bottega. Questo evita
+`WidgetArchiver.ValidationError.bundleStubNotSupported: Bundle version did not match`:
+il vecchio processo del widget sopravviveva agli aggiornamenti dell'app e macOS scartava tutte
+le nuove timeline. `--stage-only` non termina processi e non modifica l'installazione.
 
 ### 4.7 La Plancia e' la Home, fissa
 
@@ -1247,7 +1263,7 @@ la ricerca resta quella della sezione 2. Il lavoro sta nel ramo `nativo-ricerca-
 
 `stato.json` (4.6) si allarga:
 ```json
-"ore": { "oggi": 135, "ieri": 220, "settimana": 1180, "giorni": [{ "date": "YYYY-MM-DD", "minuti": 80 }] },
+"ore": { "aggiornato": 1790900000000, "fonti": ["claude", "codex"], "oggi": 135, "ieri": 220, "settimana": 1180, "giorni": [{ "date": "YYYY-MM-DD", "minuti": 80 }] },
 "lavori": { "...": "campi di 4.6", "nelTerminale": 0,
             "voci": [{ "key": "job:<id>|sess:<sid>", "progetto": "", "path": "", "titolo": "", "stato": "ti aspetta", "da": 0 }] },
 "progetti": [{ "nome": "", "path": "", "ramo": "main", "daSpingere": 2, "modifiche": 3, "livello": "rosso|giallo|verde|null", "ultima": 0 }]
@@ -1413,11 +1429,19 @@ iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
   chiuso fuori dai widget col gettone vecchio). Corpo al massimo 16 KB, testo al massimo 2000 caratteri.
 - `GET /v1/stato` -> `{versione, mac, ora, vicino (9.9), https?: {porta, impronta}, melissa: {stato, cervello, parziale?, risposta?, registro: [{chi: tu|melissa|azione,
   testo, alle}]}, lavori: [{chiave, activityKey?, origine: bottega|altrove, stato, progetto, titolo, da, jobId?}],
-  attivita: [{key, source, project, status, title, summary?, steps?, evidence?, updatedAt}], conti: {inCorso, tiAspetta, inCoda, vive}}`.
+  attivita: [{key, source, project, status, title, summary?, steps?, evidence?, updatedAt}],
+  conti: {inCorso, tiAspetta, nelTerminale, inCoda, stanotte, vive},
+  quadroLavori?: {progetti: [{nome, conteggio}], giorni: [{data, conteggio}]}}`.
   `attivita` e' il registro osservato dalla Home: Claude Code, Cline, Codex e terminali integrati, con testo
   ripulito e stato della fonte. `steps` (ultimi 8 passi, massimo 180 caratteri ciascuno) ed `evidence`
   (massimo 300 caratteri) sono opzionali e passano dalla stessa redazione del testo riservato. `activityKey` collega una sessione Claude azionabile alla stessa attivita',
   per non contarla due volte sull'iPhone. Un Mac precedente non manda questi campi.
+  `conti` usa gli stessi cinque stati Claude Code di `snapshot.workCounts`; `quadroLavori.progetti` conta
+  i lavori in corso o in attesa per percorso sull'elenco completo, prima di limitare `lavori` a 40 righe.
+  Nomi di progetto uguali sono distinti con la cartella superiore. Il campo non viene inviato prima della prima scansione del Mac.
+  `quadroLavori.giorni` contiene gli ultimi sette giorni nel fuso del Mac: ciascuna sessione osservata di Claude,
+  Cline, Codex o terminale compare solo nel giorno del suo ultimo aggiornamento, non come lavoro concluso.
+  L'iPhone mostra i nuovi grafici solo se riceve questo campo; uno stato salvato conserva l'ora di origine.
   `https` (build 71): le stesse rotte cifrate su `porta + 1` (7791), con il
   certificato fatto dal Mac (`src/ponte-tls.ts`: chiave P-256 fatta da Node in PKCS#8, perche' quella di `openssl -newkey` la BoringSSL di Electron non la carica (build 72); SHA-256, 800 giorni, SAN col nome MagicDNS e l'indirizzo,
   in `~/.bottega/ponte-tls/`, rifatto se scade tra meno di 30 giorni o cambia il nome) e la sua impronta SHA-256
@@ -2458,3 +2482,18 @@ Plancia: la webview chiede `{type: "conti.request", aggiorna?: bool}` a ogni ric
 (e con «Aggiorna i saldi»); l'estensione risponde subito con `{type: "conti", conti: ContiFile | null}` e, se i dati
 hanno piu' di 10 minuti o `aggiorna` e' vero, di nuovo dopo la lettura. `{type: "conti.mostra"}` porta la vista sulla
 sezione. Nella barra di Melissa, sotto i conti, «Crediti e consumi, giorno per giorno» manda `comando` `conti`.
+
+### Ore osservate condivise tra Home e widget (4 ottobre 2026)
+
+`Stats.workTime` contiene `today: {date, minutes}`, `days: {date, minutes}[]` (90 giorni locali),
+`weekMinutes` (ultimi sette giorni incluso oggi), `previousWeekMinutes` (sette precedenti) e
+`sources: ("claude" | "codex")[]`. È l'unione degli intervalli: le sessioni parallele non si
+sommano. Claude conserva il criterio esistente di pausa; Codex usa i progressi registrati dentro
+un turno esplicito, interrompe gli intervalli oltre 15 minuti e non prolunga file fermi fino
+all'ora corrente. Cline e terminali non hanno durate affidabili e sono dichiarati esclusi dalle
+ore; restano presenti nei conteggi delle attività. Non è una misura del tempo personale al Mac.
+
+La Home e `stato.json.ore` usano questo riepilogo. `today.you`, `days.you`, periodi, token e costi
+preesistenti restano specifici di Claude; `sourceMetrics` conserva i consumi separati per fonte.
+La cache Codex è per file, dimensione e modifica: i progressi nuovi compaiono al giro successivo
+senza il precedente TTL di due minuti; i file invariati non vengono riletti.

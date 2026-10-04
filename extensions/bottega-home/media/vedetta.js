@@ -119,7 +119,7 @@
 			<section class="ved-regole" aria-labelledby="ved-frase">
 				<div class="ved-testa">
 					<h1 class="sentence media ved-frase" id="ved-frase">Sto guardando i progetti.</h1>
-					<p class="ved-timbro" id="ved-timbro-regole"><span id="ved-controllo"></span><button type="button" class="ghost" data-v="ricontrolla" data-fk="v:ricontrolla">Ricontrolla</button></p>
+					<p class="ved-timbro" id="ved-timbro-regole"><span id="ved-controllo"></span><button type="button" class="ghost" data-v="ricontrolla" data-fk="v:ricontrolla">Ricontrolla</button><button type="button" class="ved-apri-mappa" data-v="nativa" data-fk="v:nativa">Apri la mappa Metal</button></p>
 				</div>
 				<figure class="ved-crinale" id="ved-crinale">
 					<div class="ved-crinale-svg" id="ved-crinale-svg" aria-hidden="true"></div>
@@ -813,6 +813,9 @@
 					post({ type: 'rules.refresh' });
 					say('Ricontrollo le regole su tutti i progetti.');
 					return renderTimbroRegole();
+				case 'nativa':
+					post({ type: 'vedetta.nativa.open' });
+					return;
 				case 'radar':
 					askedRadar = now();
 					post({ type: 'radar.refresh' });

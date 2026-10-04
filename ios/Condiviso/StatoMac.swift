@@ -54,6 +54,21 @@ struct StatoMac: Codable, Equatable {
         let tiAspetta: Int
         let inCoda: Int
         let vive: Int
+        /// Assenti se il Mac usa ancora il ponte precedente al quadro Lavori.
+        var nelTerminale: Int? = nil
+        var stanotte: Int? = nil
+    }
+    struct QuadroLavori: Codable, Equatable {
+        struct Progetto: Codable, Equatable {
+            let nome: String
+            let conteggio: Int
+        }
+        struct Giorno: Codable, Equatable {
+            let data: String
+            let conteggio: Int
+        }
+        let progetti: [Progetto]
+        let giorni: [Giorno]
     }
     /// Attivita' osservate dal Mac: Claude Code, Cline, Codex e terminali.
     /// Disponibile dal ponte nuovo; quello precedente continua a decodificarsi senza questo campo.
@@ -85,6 +100,8 @@ struct StatoMac: Codable, Equatable {
     let melissa: Melissa
     let lavori: [Lavoro]
     let conti: Conti
+    /// Aggregati dal Mac prima che la lista Lavori venga limitata a 40 righe.
+    var quadroLavori: QuadroLavori? = nil
     var attivita: [Attivita]? = nil
     /// Dov'e' l'iPhone rispetto al Mac (docs/CONTRATTI.md, 9.9): usb (attaccato col cavo), casa (stessa rete,
     /// Tailscale diretto), lontano. Assente con una Bottega sul Mac che non lo manda ancora.

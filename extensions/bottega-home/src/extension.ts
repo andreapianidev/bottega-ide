@@ -10,7 +10,7 @@ import { Nucleo, SystemStats } from './nucleo';
 import { Job, JobManager, computeLimit, limitReason, WorkCounts, WorkItem, workCounts, workItems } from './jobs';
 import { Memoria } from './memoria';
 import { Assistant, AssistantState } from './assistant';
-import { StatsEngine, summarizeObservedActivity } from './stats';
+import { StatsEngine, summarizeObservedActivity, type Stats } from './stats';
 import { Idee, IdeeDynamic } from './idee';
 import { handleConnettori, registerConnettori, stanzaConnettori } from './connettori-host';
 import { BarraView } from './barra';
@@ -18,6 +18,7 @@ import { brainName } from './assistant';
 import { Cervelli, Effort, Provider, spokenChoice } from './cervelli';
 import { digest, digestText } from './mani';
 import { CategorieMinuti, Osservatorio, categorieMinuti, fraseCategorie } from './osservatorio';
+import { VedettaNativa, datiVedetta } from './vedetta-nativa';
 import { registerPonte } from './ponte-host';
 import { registerAggiornamenti } from './aggiorna-host';
 import { registerCline } from './cline-host';
@@ -105,6 +106,7 @@ let occhioGlobale: Occhio | undefined;
 /** I lavori che aspettavano al giro prima: Melissa avvisa a voce solo dei nuovi. */
 let waitingBefore = new Set<string>();
 let osservatorio: Osservatorio | undefined;
+let vedettaNativa: VedettaNativa | undefined;
 let aggiornamenti: Aggiornamenti | undefined;
 let ponte: { notify(): void } | undefined;
 let categorieCache: { at: number; value: CategorieMinuti | null } = { at: 0, value: null };
@@ -115,6 +117,7 @@ let externalReading: Promise<void> | undefined;
 /** Il cruscotto si calcola solo dopo che la plancia l'ha chiesto almeno una volta. */
 let statsWanted = false;
 let statsSent = '';
+let statsPublishedAt = 0;
 let statsActivitySignature = '';
 let statsActivityTimer: NodeJS.Timeout | undefined;
 
@@ -232,7 +235,9 @@ function liveScan(): void {
 /** Ricalcola solo i campi dinamici e li manda alla plancia, senza ripassare git e trees. */
 function refreshDynamic(): void {
 	snapshot = withDynamic(snapshot);
+	idee?.activityChanged();
 	panelHost?.pushSnapshot(snapshot);
+	vedettaNativa?.push();
 	const activitySignature = snapshot.activity.map(a => `${a.key}:${a.status}:${a.updatedAt}`).join('|');
 	if (activitySignature !== statsActivitySignature) {
 		statsActivitySignature = activitySignature;
@@ -583,20 +588,29 @@ async function sendStats(force: boolean): Promise<void> {
 	if (!snapshot.scannedAt) await fullScan();
 	try {
 		const computed = await statsEngine.compute({ projects: snapshot.projects, live: snapshot.live });
-		const categorie = await categorieDelLavoro();
-		const stats = {
-			...computed,
-			...(categorie ? { categorie, categorieFrase: fraseCategorie(categorie) } : {}),
-			observedActivity: summarizeObservedActivity(snapshot.activity),
-		};
-		const sig = StatsEngine.signature(stats as typeof computed);
-		if (!force && sig === statsSent) return;
-		statsSent = sig;
-		panelHost.send({ type: 'stats', stats });
-		void osservatorio?.push();
+		await publishStats(computed, force);
 	} catch (e: any) {
 		panelHost.send({ type: 'stats', stats: null, error: `Non riesco a leggere le sessioni di Claude Code: ${e?.message ?? e}` });
 	}
+}
+
+/** Home e widget condividono l'ultimo calcolo, anche quando la finestra non ha il focus. */
+async function publishStats(computed: Stats, force = false): Promise<void> {
+	idee?.acceptStats(computed);
+	if (!panelHost?.isOpen) return;
+	const categorie = await categorieDelLavoro();
+	const stats = {
+		...computed,
+		...(categorie ? { categorie, categorieFrase: fraseCategorie(categorie) } : {}),
+		observedActivity: summarizeObservedActivity(snapshot.activity),
+	};
+	const sig = StatsEngine.signature(stats);
+	if (computed.computedAt < statsPublishedAt) return;
+	if (!force && sig === statsSent && computed.computedAt - statsPublishedAt < 60_000) return;
+	statsSent = sig;
+	statsPublishedAt = computed.computedAt;
+	panelHost.send({ type: 'stats', stats });
+	void osservatorio?.push();
 }
 
 /** Minuti per categoria (correzione, funzione, ...): categorie decise sul Mac sessione per sessione
@@ -701,6 +715,8 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 			return;
 		case 'osservatorio.open':
 			return void vscode.commands.executeCommand('bottega.openOsservatorio');
+		case 'vedetta.nativa.open':
+			return void vscode.commands.executeCommand('bottega.openVedettaMetal');
 		case 'cielo.diag':
 		case 'sfera.diag': {
 			// Perche' il cielo del cruscotto o la sfera non usano WebGPU (docs/CONTRATTI.md, 7.7): una riga nel registro.
@@ -818,6 +834,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	ponte = registerPonte(ctx, {
 		assistant: () => assistant,
 		nucleo: () => nucleo,
+		ready: () => snapshot.scannedAt > 0,
 		work: () => snapshot.work,
 		activity: () => snapshot.activity,
 		counts: () => snapshot.workCounts,
@@ -858,6 +875,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		jobs: jobManager!,
 		assistant: () => assistant,
 		stats: statsEngine!,
+		statsUpdated: stats => { void publishStats(stats).catch(e => console.warn(`ore: ${e}`)); },
 		send: msg => panelHost?.send(msg),
 		showHome: (view, focusPath) => showHome(view, focusPath, true),
 		push,
@@ -867,6 +885,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		appstore: briefingAppStore,
 	});
 	idee.start(ctx);
+	ctx.subscriptions.push(changed.event(() => idee?.activityChanged()));
 	appStore = registerAppStore(ctx, {
 		radar: () => idee?.radar,
 		projects: () => snapshot.projects,
@@ -891,6 +910,13 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	// La parte nativa (docs/CONTRATTI.md, 7 e 8): Osservatorio, bacheca viva, categorie del lavoro (Apple
 	// Intelligence), schermate delle trascrizioni lette con Vision e rese cercabili nella Memoria.
 	osservatorio = new Osservatorio(nucleo!, datiOsservatorio, s => console.warn(s));
+	vedettaNativa = new VedettaNativa(
+		nucleo!,
+		() => datiVedetta(snapshot.projects, snapshot.rules),
+		p => showHome('vedetta', p, true),
+		() => void idee?.rules.check(snapshot.projects, { force: true }),
+	);
+	ctx.subscriptions.push(changed.event(() => vedettaNativa?.push()));
 	const inFondo = () => {
 		if (nucleo?.capabilities?.foundationModels !== false) memoria?.classificaInFondo();
 		memoria?.immaginiInFondo();
@@ -1052,6 +1078,13 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		changed.event(() => barraView?.update()),
 		vscode.commands.registerCommand('bottega.barra.apri', () => barraView?.reveal()),
 		vscode.commands.registerCommand('bottega.openVedetta', () => showPlancia('vedetta')),
+		vscode.commands.registerCommand('bottega.openVedettaMetal', async () => {
+			try {
+				await vedettaNativa?.show();
+			} catch (e: any) {
+				vscode.window.showWarningMessage(e?.message ?? String(e));
+			}
+		}),
 		vscode.commands.registerCommand('bottega.openClienti', () => showPlancia('clienti')),
 		vscode.commands.registerCommand('bottega.openAppStore', () => showPlancia('appstore')),
 		vscode.commands.registerCommand('bottega.briefing', () => {

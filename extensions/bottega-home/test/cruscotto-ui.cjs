@@ -397,6 +397,39 @@ const finale = (t, k) => t.$(`.cifra[data-k="${k}"] dd > .sr`).textContent;
 		assert.deepStrictEqual(t.errori, []);
 	});
 
+	await test('riepilogo ore condiviso con Home e widget, dettagli Claude distinti e periodo indipendente', () => {
+		const t = ambiente({ ridotto: true });
+		t.api.show();
+		const s = fintiStats({ extra: { workTime: { today: { date: '2026-10-04', minutes: 440.7 }, weekMinutes: 3133.8, previousWeekMinutes: 1000, sources: ['claude', 'codex'], days: [] } } });
+		t.api.setStats(s);
+		assert.strictEqual(t.$('#crus-ore-oggi').textContent, '7 h 21 min');
+		assert.strictEqual(t.$('#crus-ore-settimana').textContent, '52 h 14 min');
+		assert.match(t.$('#crus-frase').textContent, /Ore osservate degli agenti/);
+		assert.match(t.$('#crus-ore-fonti').textContent, /Claude Code e Codex.*parallelo contano una volta.*Cline e terminali esclusi/);
+		assert.strictEqual(t.$('#crus-dettaglio-titolo').textContent, 'Dettaglio Claude Code');
+		assert.strictEqual(t.root.querySelectorAll('.cifra').length, 5, 'dettagli Claude conservati');
+		t.click(t.$('[data-c="periodo"][data-id="90"]'));
+		assert.strictEqual(t.$('#crus-ore-settimana').textContent, '52 h 14 min', 'riepilogo ultimi7giorni indipendente dal filtro dei dettagli');
+		s.workTime.today.minutes = 450;
+		s.computedAt += 60000;
+		t.api.setStats(s);
+		assert.strictEqual(t.$('#crus-ore-oggi').textContent, '7 h 30 min', 'nuovo snapshot aggiorna il riepilogo');
+		t.api.hide();
+		assert.deepStrictEqual(t.errori, []);
+	});
+
+	await test('vecchi Stats senza ore unificate: riepilogo Claude esplicito, nessun dato inventato', () => {
+		const t = ambiente({ ridotto: true });
+		t.api.show();
+		t.api.setStats(fintiStats());
+		assert.match(t.$('#crus-frase').textContent, /Questa settimana hai lavorato/);
+		assert.strictEqual(t.$('#crus-ore-fonti').textContent, 'Riepilogo delle sessioni Claude Code.');
+		assert.strictEqual(t.$('#crus-ore-oggi'), null);
+		assert.strictEqual(t.$('#crus-ore-settimana'), null);
+		t.api.hide();
+		assert.deepStrictEqual(t.errori, []);
+	});
+
 	await test('attivita multi-fonte: grafico degli aggiornamenti, stati osservati e ore Claude separate', () => {
 		const t = ambiente({ ridotto: true });
 		t.api.show();
@@ -420,7 +453,7 @@ const finale = (t, k) => t.$(`.cifra[data-k="${k}"] dd > .sr`).textContent;
 		assert.strictEqual(t.root.querySelectorAll('.attivita-fonte').length, 4);
 		assert.match(t.$('#attivita-fonti').textContent, /Codex.*3.*aggiornate nel periodo.*3 aperte/s);
 		assert.strictEqual(t.root.querySelectorAll('#attivita-grafico .attivita-barra').length, 4);
-		assert.match(t.$('#attivita-nota').textContent, /cifre principali.*Claude Code/);
+		assert.match(t.$('#attivita-nota').textContent, /cifre del dettaglio.*Claude Code/);
 		assert.match(t.$('.attivita-fonte.codex').textContent, /Token 190.*Turni conclusi 10 min.*Costo N\/D/s);
 		assert.match(t.$('.attivita-fonte.cline').textContent, /Token 155.*Durata N\/D.*Costo Cline 0,13 \$/s);
 		assert.match(t.$('.attivita-fonte.terminale').textContent, /Token N\/D.*Durata N\/D.*Costo N\/D/s);

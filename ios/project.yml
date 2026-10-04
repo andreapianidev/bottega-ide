@@ -5,6 +5,7 @@ options:
   bundleIdPrefix: com.andreapiani
   deploymentTarget:
     iOS: "27.0"
+    watchOS: "26.0"
   createIntermediateGroups: true
 configFiles:
   Debug: Version.xcconfig
@@ -23,6 +24,7 @@ targets:
     sources:
       - path: Bottega
       - path: Condiviso
+      - path: WatchCondiviso
       - path: ../nucleo/Sources/Orb/OrbRenderer.swift
         group: Bottega/Sfera/Nucleo
       - path: ../nucleo/Sources/Orb/OrbShaders.metal
@@ -32,6 +34,10 @@ targets:
     dependencies:
       - target: BottegaWidget
         embed: true
+      - target: BottegaWatch
+        embed: true
+        copy:
+          destination: plugins
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.andreapiani.bottega.ios
@@ -68,3 +74,34 @@ targets:
         INFOPLIST_FILE: BottegaWidget/Info.plist
         CODE_SIGN_ENTITLEMENTS: BottegaWidget/BottegaWidget.entitlements
         SKIP_INSTALL: YES
+  BottegaWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - path: BottegaWatch
+      - path: WatchCondiviso
+    dependencies:
+      - target: BottegaWatchWidget
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.andreapiani.bottega.ios.watchkitapp
+        PRODUCT_NAME: BottegaWatch
+        INFOPLIST_FILE: BottegaWatch/Info.plist
+        CODE_SIGN_ENTITLEMENTS: BottegaWatch/BottegaWatch.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "4"
+  BottegaWatchWidget:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - path: BottegaWatchWidget
+      - path: WatchCondiviso
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.andreapiani.bottega.ios.watchkitapp.widget
+        PRODUCT_NAME: BottegaWatchWidget
+        INFOPLIST_FILE: BottegaWatchWidget/Info.plist
+        CODE_SIGN_ENTITLEMENTS: BottegaWatchWidget/BottegaWatchWidget.entitlements
+        SKIP_INSTALL: YES
+        TARGETED_DEVICE_FAMILY: "4"

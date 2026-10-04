@@ -319,7 +319,7 @@ export class Radar {
 		if (admob.status === 'fulfilled') {
 			this.cache.money = admob.value.perApp;
 			st.totals = admob.value.totals;
-			st.admobAt = this.now();
+			st.admobAt = admob.value.reportAt;
 			delete st.admobError;
 		} else {
 			st.admobError = this.message(admob.reason, 'AdMob');
@@ -581,7 +581,7 @@ export class Radar {
 		return res.json();
 	}
 
-	private async readAdmob(): Promise<{ perApp: Record<string, Money>; totals: RadarState['totals'] }> {
+	private async readAdmob(): Promise<{ perApp: Record<string, Money>; totals: RadarState['totals']; reportAt: number }> {
 		if (!this.publisher) {
 			const acc = await this.admob('GET', '/accounts');
 			const name = acc?.account?.[0]?.name;
@@ -602,7 +602,8 @@ export class Radar {
 		}
 		// i sette giorni fino a ieri, dal piu' vecchio
 		const days: Date[] = [];
-		const today = new Date(this.now());
+		const reportAt = this.now();
+		const today = new Date(reportAt);
 		for (let k = 7; k >= 1; k--) days.push(new Date(today.getFullYear(), today.getMonth(), today.getDate() - k));
 		const idx = new Map(days.map((d, i) => [ymdKey(d), i]));
 		const rep = await this.admob('POST', `/${this.publisher}/networkReport:generate`, {
@@ -640,7 +641,7 @@ export class Radar {
 		};
 		const perApp: Record<string, Money> = {};
 		for (const [k, d] of per) perApp[k] = money(d);
-		return { perApp, totals: money(total) };
+		return { perApp, totals: money(total), reportAt };
 	}
 }
 

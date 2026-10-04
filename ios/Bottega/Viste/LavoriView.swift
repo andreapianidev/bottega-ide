@@ -6,6 +6,7 @@
 //  collegate a un lavoro conservano la scheda con le azioni; le altre hanno un dettaglio di sola lettura.
 //
 
+import Charts
 import SwiftUI
 
 struct LavoriView: View {
@@ -34,6 +35,11 @@ struct LavoriView: View {
                 Text("Ultimo registro ricevuto dal Mac alle \(Date(timeIntervalSince1970: stato.ora / 1000).formatted(date: .abbreviated, time: .shortened)). Le sessioni potrebbero essere cambiate.")
                     .font(.caption)
                     .foregroundStyle(Tinte.tinta)
+                    .listRowBackground(Color.clear)
+            }
+            if let stato = statoVisibile, let quadro = stato.quadroLavori {
+                QuadroLavoriIPhone(conti: stato.conti, quadro: quadro, salvato: datoSalvato)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 14, trailing: 16))
                     .listRowBackground(Color.clear)
             }
             Section {
@@ -196,6 +202,87 @@ struct LavoriView: View {
         return ordine.compactMap { s in
             let l = lavori.filter { $0.stato == s }
             return l.isEmpty ? nil : (s.prefix(1).uppercased() + s.dropFirst(), l)
+        }
+    }
+}
+
+private struct QuadroLavoriIPhone: View {
+    let conti: StatoMac.Conti
+    let quadro: StatoMac.QuadroLavori
+    let salvato: Bool
+
+    private var stati: [(String, Int)] {
+        [("Ti aspettano", conti.tiAspetta), ("In corso", conti.inCorso),
+         ("Nel terminale", conti.nelTerminale ?? 0), ("In coda", conti.inCoda),
+         ("Stanotte", conti.stanotte ?? 0)]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            RiquadroStanza(titolo: "Lavori Claude Code") {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 14) {
+                    Cifra(etichetta: "Ti aspettano", valore: "\(conti.tiAspetta)", colore: Tinte.ambra)
+                    Cifra(etichetta: "In corso", valore: "\(conti.inCorso)")
+                    Cifra(etichetta: "In coda", valore: "\(conti.inCoda)")
+                    Cifra(etichetta: "Stanotte", valore: "\(conti.stanotte ?? 0)")
+                }
+            }
+            RiquadroStanza(titolo: "Stato dei lavori", nota: salvato ? "Ultimo registro" : "Adesso") {
+                barre(stati, colore: Tinte.ambra)
+            }
+            if !quadro.progetti.isEmpty {
+                RiquadroStanza(titolo: "Progetti impegnati", nota: "In corso o in attesa") {
+                    barre(quadro.progetti.map { ($0.nome, $0.conteggio) }, colore: Tinte.verde)
+                }
+            }
+            if quadro.giorni.count == 7 {
+                RiquadroStanza(titolo: "Attività osservate", nota: salvato ? "Ultimo registro" : "Ultimi 7 giorni") {
+                    Text("\(quadro.giorni.reduce(0) { $0 + $1.conteggio }) sessioni nel registro")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(Tinte.testo)
+                    Text("Ogni sessione compare nel giorno del suo ultimo aggiornamento. Claude Code, Cline, Codex e terminali.")
+                        .font(.caption2)
+                        .foregroundStyle(Tinte.tinta)
+                    Text("Sette giorni fino al \(Formati.chiaveDetta(quadro.giorni[6].data)).")
+                        .font(.caption2)
+                        .foregroundStyle(Tinte.tinta)
+                    Chart(quadro.giorni, id: \.data) { giorno in
+                        if let data = Formati.data(giorno.data) {
+                            BarMark(x: .value("Giorno", data, unit: .day), y: .value("Attività", giorno.conteggio))
+                                .foregroundStyle(Tinte.ambra)
+                        }
+                    }
+                    .chartLegend(.hidden)
+                    .environment(\.locale, Formati.it)
+                    .frame(height: 150)
+                    .accessibilityLabel("Attività osservate per giorno: " + quadro.giorni.map { "\(Formati.chiaveDetta($0.data)): \($0.conteggio)" }.joined(separator: ", "))
+                }
+            }
+        }
+    }
+
+    private func barre(_ righe: [(String, Int)], colore: Color) -> some View {
+        let massimo = max(1, righe.map(\.1).max() ?? 0)
+        return VStack(spacing: 10) {
+            ForEach(righe.indices, id: \.self) { indice in
+                let (nome, valore) = righe[indice]
+                HStack(spacing: 8) {
+                    Text(nome).font(.caption).foregroundStyle(Tinte.tinta)
+                        .lineLimit(1).frame(width: 100, alignment: .leading)
+                    GeometryReader { area in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 3).fill(Tinte.notte)
+                            RoundedRectangle(cornerRadius: 3).fill(colore)
+                                .frame(width: area.size.width * CGFloat(max(0, valore)) / CGFloat(massimo))
+                        }
+                    }
+                    .frame(height: 10)
+                    Text("\(valore)").font(.caption.weight(.semibold)).monospacedDigit()
+                        .foregroundStyle(Tinte.testo)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(nome): \(valore) \(valore == 1 ? "lavoro" : "lavori")")
+            }
         }
     }
 }

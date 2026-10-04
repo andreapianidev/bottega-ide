@@ -1211,8 +1211,11 @@ struct VG {
 			<div id="crus-corpo" hidden>
 				<div class="crus-testa">
 					<h1 class="sentence media" id="crus-frase"></h1>
+					<p class="nota" id="crus-ore-fonti"></p>
 					<p class="crus-timbro"><span id="crus-letto"></span><button type="button" class="ghost" data-c="aggiorna" data-fk="c:aggiorna">Aggiorna</button></p>
 				</div>
+				<div class="sez-testa"><h2 id="crus-dettaglio-titolo">Dettaglio Claude Code</h2></div>
+				<p class="nota">Le cifre e i grafici qui sotto descrivono le sessioni Claude Code. I consumi delle altre fonti sono nella sezione Attività osservate.</p>
 				<div class="crus-filtri" id="crus-filtri"></div>
 				<dl class="cifre" id="crus-cifre"></dl>
 				<section class="crus-sez crus-attivita" id="crus-attivita" aria-labelledby="attivita-titolo" hidden>
@@ -1629,7 +1632,11 @@ struct VG {
 
 		// ---------- intestazione ----------
 
+		const lavoroOsservato = () => stats.workTime && Number.isFinite(stats.workTime.today?.minutes) && Number.isFinite(stats.workTime.weekMinutes) ? stats.workTime : null;
+
 		function frase() {
+			const work = lavoroOsservato();
+			if (work) return `Ore osservate degli agenti: oggi <span class="n" id="crus-ore-oggi">${hm(work.today.minutes)}</span>, ultimi 7 giorni <span class="n" id="crus-ore-settimana">${hm(work.weekMinutes)}</span>.`;
 			const w = stats.week;
 			const n = s => `<span class="n">${s}</span>`;
 			let out;
@@ -1654,6 +1661,11 @@ struct VG {
 
 		function renderTesta() {
 			put($('crus-frase'), frase());
+			const work = lavoroOsservato();
+			const sources = work && Array.isArray(work.sources) ? work.sources.map(source => ({ claude: 'Claude Code', codex: 'Codex' })[source]).filter(Boolean) : [];
+			$('crus-ore-fonti').textContent = work
+				? `${sources.length ? `Fonti: ${sources.join(' e ')}.` : 'Nessun intervallo di lavoro osservato.'} Le sessioni in parallelo contano una volta. Cline e terminali esclusi dal conteggio delle ore.`
+				: 'Riepilogo delle sessioni Claude Code.';
 			$('crus-letto').textContent = `Aggiornato alle ${ora(stats.computedAt)}`;
 			$('crus-letto').title = `Calcolo in ${it(stats.ms / 1000, 2)} s: ${stats.files.read} file letti (${it(stats.files.mb, 1)} MB), ${stats.files.cached} dalla cache`;
 			const okG = GRUPPI_OK[ui.period];
@@ -1722,7 +1734,7 @@ struct VG {
 			const bySource = Object.fromEntries(sources.map(([source]) => [source, days.reduce((n, d) => n + (Number(d[source]) || 0), 0)]));
 			const latest = Object.fromEntries((observed.sources || []).map(s => [s.source, s]));
 			put($('attivita-legenda'), sources.map(([source, name]) => `<li><i class="attivita-colore ${source}" aria-hidden="true"></i>${name}</li>`).join(''));
-			$('attivita-nota').textContent = `Ultimo aggiornamento negli ultimi ${ui.period} giorni. Ogni attività conta una volta nel giorno in cui è stata vista l'ultima volta. Il registro delle attività copre fino a 7 giorni e 100 sessioni Codex, 45 giorni Cline e i soli terminali aperti; i consumi locali sotto possono coprire fino a 90 giorni. Le cifre principali e gli altri grafici riguardano Claude Code.`;
+			$('attivita-nota').textContent = `Ultimo aggiornamento negli ultimi ${ui.period} giorni. Ogni attività conta una volta nel giorno in cui è stata vista l'ultima volta. Il registro delle attività copre fino a 7 giorni e 100 sessioni Codex, 45 giorni Cline e i soli terminali aperti; i consumi locali sotto possono coprire fino a 90 giorni. Le cifre del dettaglio e gli altri grafici riguardano Claude Code.`;
 			const sourceMetrics = stats.sourceMetrics && stats.sourceMetrics[ui.period] || {};
 			const claudePeriod = P();
 			const metriche = source => {

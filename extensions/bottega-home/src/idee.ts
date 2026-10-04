@@ -50,6 +50,8 @@ export interface IdeeHost {
 	jobs: JobManager;
 	assistant: () => Assistant | undefined;
 	stats: StatsEngine;
+	/** Pubblica lo stesso calcolo anche alla Home, inclusi i refresh in background. */
+	statsUpdated?(stats: Stats): void;
 	/** Manda un messaggio alla Home (se aperta). */
 	send(msg: unknown): void;
 	/** Apre la Home, eventualmente su una stanza o un progetto. */
@@ -92,6 +94,10 @@ export class Idee {
 	private writeTimer?: NodeJS.Timeout;
 	private timers: NodeJS.Timeout[] = [];
 	private lastStats: Stats | null = null;
+	private writing?: Promise<void>;
+	private disposed = false;
+	private widgetSignature = '';
+	private widgetReloadAt = 0;
 	private rulesSig = '';
 	private rulesAt = 0;
 
@@ -145,6 +151,8 @@ export class Idee {
 			} else if (item === 'open') this.h.showHome('plancia');
 		});
 		this.timers.push(
+			// Widget e ore continuano ad aggiornarsi anche con Home nascosta o finestra senza focus.
+			setInterval(() => void this.writeStato(), 60_000),
 			setInterval(() => void this.night.tick(), 5 * 60_000),
 			// il radar si aggiorna da solo ogni 45 minuti (il controllo vero lo fa Radar.refresh)
 			setInterval(() => void this.radar.refresh(this.h.projects()), 15 * 60_000),
@@ -155,9 +163,17 @@ export class Idee {
 			vscode.window.onDidChangeWindowState(s => s.focused && void this.ensureBriefing()),
 		);
 		void this.night.tick();
+		n.on('ready', () => {
+			this.widgetSignature = '';
+			this.widgetReloadAt = 0;
+			this.scheduleState();
+		});
+		this.scheduleState();
 	}
 
 	dispose(): void {
+		this.disposed = true;
+		clearTimeout(this.writeTimer);
 		for (const t of this.timers) clearInterval(t);
 		this.night.dispose();
 	}
@@ -176,8 +192,23 @@ export class Idee {
 	private changed(): void {
 		this.h.refresh();
 		this.paintMenubar();
-		clearTimeout(this.writeTimer);
-		this.writeTimer = setTimeout(() => this.writeStato(), 2000);
+		this.scheduleState();
+	}
+
+	/** Coalescenza, non debounce: eventi continui non rinviano la scrittura per sempre. */
+	activityChanged(): void { this.scheduleState(); }
+
+	acceptStats(stats: Stats): void {
+		if (!this.lastStats || stats.computedAt >= this.lastStats.computedAt) this.lastStats = stats;
+		this.scheduleState();
+	}
+
+	private scheduleState(): void {
+		if (this.disposed || this.writeTimer) return;
+		this.writeTimer = setTimeout(() => {
+			this.writeTimer = undefined;
+			void this.writeStato();
+		}, 2000);
 	}
 
 	/** Dopo ogni scansione dei progetti: regole (incrementali), radar (si limita da solo), dimenticati, Spotlight. */
@@ -232,15 +263,23 @@ export class Idee {
 		this.h.nucleo.fireAndForget('menubar.update', { ...this.menubarCounts, lines, tone });
 	}
 
-	private writeStato(): void {
-		// Le ore del giorno vengono dal cruscotto: ricalcolate al massimo ogni 5 minuti (solo i file cambiati).
-		if (!this.lastStats || Date.now() - this.lastStats.computedAt > 5 * 60_000) {
-			this.h.stats.compute({ projects: this.h.projects(), live: this.h.live() })
-				.then(st => (this.lastStats = st), () => undefined)
-				.finally(() => this.writeStatoNow());
-			return;
-		}
-		this.writeStatoNow();
+	private writeStato(): Promise<void> {
+		if (this.disposed) return Promise.resolve();
+		if (this.writing) return this.writing;
+		this.writing = (async () => {
+			if (!this.lastStats || Date.now() - this.lastStats.computedAt >= 60_000 || this.lastStats.today.date !== today()) {
+				try {
+					const stats = await this.h.stats.compute({ projects: this.h.projects(), live: this.h.live() });
+					if (this.disposed) return;
+					if (!this.lastStats || stats.computedAt >= this.lastStats.computedAt) {
+						this.lastStats = stats;
+						this.h.statsUpdated?.(stats);
+					}
+				} catch (e) { this.h.log(`ore: ${e}`); }
+			}
+			if (!this.disposed) this.writeStatoNow();
+		})().finally(() => { this.writing = undefined; });
+		return this.writing;
 	}
 
 	private writeStatoNow(): void {
@@ -252,6 +291,9 @@ export class Idee {
 		voci.sort((a, b) => (a.livello === b.livello ? 0 : a.livello === 'rosso' ? -1 : 1));
 		const rad = this.radar.state();
 		const w = this.h.workCounts();
+		const activity = this.h.activity?.();
+		const working = activity?.filter(a => a.status === 'in corso');
+		const waiting = activity?.filter(a => a.status === 'ti aspetta');
 		const st = this.lastStats;
 		const round = (n: number | undefined) => Math.round(n ?? 0);
 		const data = {
@@ -260,15 +302,20 @@ export class Idee {
 			regole: { ...r.counts, voci: voci.slice(0, 12) },
 			soldi: rad.totals ? { ieri: rad.totals.yesterday, sette: rad.totals.last7, valuta: rad.totals.currency, aggiornato: rad.admobAt } : null,
 			lavori: {
-				inCorso: w.inCorso, tiAspetta: w.tiAspetta, nelTerminale: w.nelTerminale, inCoda: w.inCoda, stanotte: w.stanotte, vive: w.vive,
+				inCorso: working?.length ?? w.inCorso, tiAspetta: waiting?.length ?? w.tiAspetta, nelTerminale: w.nelTerminale, inCoda: w.inCoda, stanotte: w.stanotte,
+				vive: activity ? working!.length + waiting!.length : w.vive,
 				// Widget "Oggi" e Siri (CosaMiAspetta, LavoroEntity): docs/CONTRATTI.md, 7.5.
-				voci: (this.h.work?.() ?? []).slice(0, 20).map(x => ({ key: x.key, progetto: x.project, path: x.path, titolo: x.title, stato: x.status, da: x.since })),
+				voci: activity
+					? [...waiting!, ...working!].slice(0, 20).map(x => ({ key: x.key, progetto: x.project, path: x.path, titolo: x.title, stato: x.status, da: x.updatedAt }))
+					: (this.h.work?.() ?? []).slice(0, 20).map(x => ({ key: x.key, progetto: x.project, path: x.path, titolo: x.title, stato: x.status, da: x.since })),
 			},
 			ore: st ? {
-				oggi: round(st.today.you),
-				ieri: round(st.days[st.days.length - 2]?.you),
-				settimana: round(st.week.now.you),
-				giorni: st.days.slice(-7).map(d => ({ date: d.date, minuti: round(d.you) })),
+				aggiornato: st.computedAt,
+				fonti: st.workTime.sources,
+				oggi: round(st.workTime.today.minutes),
+				ieri: round(st.workTime.days[st.workTime.days.length - 2]?.minutes),
+				settimana: round(st.workTime.weekMinutes),
+				giorni: st.workTime.days.slice(-7).map(d => ({ date: d.date, minuti: round(d.minutes) })),
 			} : null,
 			progetti: this.h.projects().filter(p => p.git).map(p => ({
 				nome: p.name, path: p.path, ramo: p.git!.branch, daSpingere: p.git!.ahead, modifiche: p.git!.changes,
@@ -277,10 +324,18 @@ export class Idee {
 		};
 		try {
 			fs.mkdirSync(path.dirname(STATO_FILE), { recursive: true, mode: 0o700 });
-			const tmp = STATO_FILE + '.tmp';
+			const tmp = STATO_FILE + `.${process.pid}.tmp`;
 			fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
 			fs.renameSync(tmp, STATO_FILE);
-			this.h.nucleo.fireAndForget('widget.reload');
+			// Non consumare il budget WidgetKit per il solo heartbeat o per ogni evento di un agente.
+			const { aggiornato: _at, ore, ...rest } = data;
+			const { aggiornato: _oreAt, ...hours } = ore ?? {};
+			const signature = JSON.stringify({ ...rest, ore: hours });
+			if (this.h.nucleo.available && signature !== this.widgetSignature && Date.now() - this.widgetReloadAt >= 5 * 60_000) {
+				this.widgetSignature = signature;
+				this.widgetReloadAt = Date.now();
+				this.h.nucleo.fireAndForget('widget.reload');
+			}
 		} catch (e) {
 			this.h.log(`stato.json: ${e}`);
 		}
@@ -324,7 +379,7 @@ export class Idee {
 
 	private async facts(): Promise<Facts> {
 		try {
-			this.lastStats = await this.h.stats.compute({ projects: this.h.projects(), live: this.h.live() });
+			this.acceptStats(await this.h.stats.compute({ projects: this.h.projects(), live: this.h.live() }));
 		} catch {
 			// senza registri di Claude Code il briefing va avanti senza ore
 		}

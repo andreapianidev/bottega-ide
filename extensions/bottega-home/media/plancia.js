@@ -70,6 +70,7 @@
 		/** numeri del cruscotto per il quadro della Home (messaggio stats) */
 		/** @type {any} */ stats: null,
 		statsAskedAt: 0,
+		statsAskedDay: '',
 		briefOpen: false,
 		/** progetto per cui si sta preparando «Continua da dove eri» */
 		contWaiting: '',
@@ -456,6 +457,14 @@
 
 	<section class="vista" id="vista-lavori" role="tabpanel" aria-labelledby="tab-lavori" hidden>
 		<h1 class="sentence media" id="frase-lavori"></h1>
+		<section class="quadro lavori-quadro" id="lavori-quadro" aria-labelledby="lavori-quadro-titolo" hidden>
+			<h2 class="sr" id="lavori-quadro-titolo">I lavori in cifre</h2>
+			<ul class="quadro-cifre" id="lavori-cifre"></ul>
+		</section>
+		<section class="andamenti lavori-grafici" id="lavori-grafici" aria-labelledby="lavori-grafici-titolo" hidden>
+			<div class="andamenti-testa"><h2 id="lavori-grafici-titolo">Situazione dei lavori</h2><p>Lavori attuali e attività osservate.</p></div>
+			<div class="andamenti-griglia" id="lavori-grafici-griglia"></div>
+		</section>
 		<section class="attivita attivita-lavori" id="attivita-lavori" aria-labelledby="attivita-lavori-titolo" hidden>
 			<div class="attivita-intro"><h2 id="attivita-lavori-titolo">Sessioni in tutti gli strumenti</h2><p id="attivita-lavori-sunto"></p></div>
 			<ul class="attivita-lista" id="attivita-lavori-lista"></ul>
@@ -1223,9 +1232,11 @@
 
 	/** Il cruscotto sa le ore: se non le ho, le chiedo io (al massimo ogni due minuti). */
 	function askStats() {
-		const fresh = state.stats && Date.now() - (state.stats.computedAt || 0) < 15 * 60_000;
-		if (fresh || Date.now() - state.statsAskedAt < 120_000) return;
+		const today = dayKey();
+		const fresh = state.stats && state.stats.today?.date === today && Date.now() - (state.stats.computedAt || 0) < 15 * 60_000;
+		if (fresh || (state.statsAskedDay === today && Date.now() - state.statsAskedAt < 120_000)) return;
 		state.statsAskedAt = Date.now();
+		state.statsAskedDay = today;
 		vscode.postMessage({ type: 'stats.request' });
 	}
 
@@ -1238,11 +1249,12 @@
 	function renderQuadro() {
 		const s = state.snapshot;
 		const cells = [];
-		const st = state.stats;
+		const st = state.stats?.today?.date === dayKey() ? state.stats : null;
 		if (st && st.today) {
-			const today = st.today.date === dayKey() ? st.today.you : 0;
-			const week = st.week && st.week.now ? st.week.now.you : null;
-			cells.push(cifra('oggi', 'cruscotto', 'Oggi', esc(hm(today)), week != null ? `questa settimana ${esc(hm(week))}` : '', ''));
+			const today = st.workTime?.today.minutes ?? st.today.you;
+			const week = st.workTime?.weekMinutes ?? (st.week && st.week.now ? st.week.now.you : null);
+			const sources = st.workTime?.sources?.map(s => s === 'claude' ? 'Claude Code' : 'Codex').join(' + ') || 'Claude Code';
+			cells.push(cifra('oggi', 'cruscotto', 'Oggi', esc(hm(today)), `${week != null ? `ultimi 7 giorni ${esc(hm(week))}. ` : ''}${esc(sources)}`, ''));
 		}
 		const radar = snap('radar');
 		if (radar && radar.totals) {
@@ -1290,7 +1302,7 @@
 
 	/** Barre con scala comune nel pannello: il testo di ogni giorno resta leggibile anche senza colore. */
 	function barreSette(rows, value, format, dateOf, shortFormat = format) {
-		const top = Math.max(1, ...rows.map((r, i) => Math.abs(Number(value(r, i)) || 0)));
+		const top = Math.max(...rows.map((r, i) => Math.abs(Number(value(r, i)) || 0))) || 1;
 		return `<ol class="andamento-barre">${rows.map((r, i) => {
 			const date = dateOf(r, i);
 			const amount = Number(value(r, i)) || 0;
@@ -1304,16 +1316,17 @@
 
 	function renderAndamenti() {
 		const cards = [];
-		const st = state.stats;
-		const days = st && Array.isArray(st.days) ? st.days.slice(-7) : [];
-		if (days.length === 7 && days.every(d => d && /^\d{4}-\d{2}-\d{2}$/.test(d.date))) {
+		const st = state.stats?.today?.date === dayKey() ? state.stats : null;
+		const days = st?.workTime ? st.workTime.days.slice(-7).map(d => ({ date: d.date, you: d.minutes })) : st && Array.isArray(st.days) ? st.days.slice(-7) : [];
+		if (days.length === 7 && days.every(d => d && /^\d{4}-\d{2}-\d{2}$/.test(d.date)) && days[6].date === dayKey()) {
 			const p = st.periods && st.periods['7'];
-			const total = p && Number.isFinite(p.you) ? p.you : days.reduce((sum, d) => sum + (Number(d.you) || 0), 0);
-			const previous = p && p.prev && Number.isFinite(p.prev.you) ? p.prev.you : null;
-			const change = previous == null ? '' : `, ${hm(Math.abs(total - previous))} ${total >= previous ? 'in più' : 'in meno'} dei sette giorni prima`;
+			const total = st.workTime?.weekMinutes ?? (p && Number.isFinite(p.you) ? p.you : days.reduce((sum, d) => sum + (Number(d.you) || 0), 0));
+			const previous = st.workTime?.previousWeekMinutes ?? (p && p.prev && Number.isFinite(p.prev.you) ? p.prev.you : null);
+			const change = previous == null ? '' : total === previous ? ', come nei sette giorni prima' : `, ${hm(Math.abs(total - previous))} ${total > previous ? 'in più' : 'in meno'} dei sette giorni prima`;
 			const active = days.filter(d => Number(d.you) > 0).length;
 			cards.push(`<article class="andamento andamento-ore">
-				<div class="andamento-testa"><div><h3>Ore di lavoro</h3><p>Tempo tuo nelle sessioni Claude Code</p></div><button type="button" class="link" data-view="cruscotto" data-fk="andamento:ore">Apri il Cruscotto</button></div>
+				<div class="andamento-testa"><div><h3>Ore di lavoro</h3><p>${st.workTime ? 'Attività registrata di Claude Code e Codex, senza contare due volte il lavoro in parallelo' : 'Tempo tuo nelle sessioni Claude Code'}</p></div><button type="button" class="link" data-view="cruscotto" data-fk="andamento:ore">Apri il Cruscotto</button></div>
+				${st.workTime ? `<p class="muted">Cline e terminali: durata non disponibile. Aggiornato ${esc(ago(st.computedAt))}.</p>` : ''}
 				<p class="andamento-kpi"><strong>${esc(hm(total))}</strong><span>${active} ${active === 1 ? 'giorno attivo' : 'giorni attivi'}${esc(change)}</span></p>
 				${barreSette(days, d => d.you, hm, d => d.date, hmCorto)}
 			</article>`);
@@ -1330,7 +1343,7 @@
 			cards.push(`<article class="andamento andamento-ricavi">
 				<div class="andamento-testa"><div><h3>Ricavi AdMob</h3><p>Sette giorni fino a ${esc(dateWords(dates[6]))}</p></div><button type="button" class="link" data-view="appstore" data-fk="andamento:ricavi">Apri App Store</button></div>
 				<p class="andamento-kpi"><strong>${esc(money(last7, currency))}</strong><span>${esc(lastDay)} ${esc(money(totals.yesterday, currency))}. ${esc(age)}</span></p>
-				${barreSette(totals.daily, n => n, n => money(n, currency), (_, i) => dates[i], num)}
+				${barreSette(totals.daily, n => n, n => money(n, currency), (_, i) => dates[i], n => Number(n).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
 			</article>`);
 		}
 		$('andamenti').hidden = !cards.length;
@@ -1526,8 +1539,72 @@
 
 	const cssId = x => String(x || '').replace(/[^A-Za-z0-9_-]/g, '_');
 
+	function lavoriBarre(rows) {
+		const top = Math.max(1, ...rows.map(r => r.count));
+		return `<ol class="lavori-barre">${rows.map(r => {
+			const count = Number(r.count) || 0;
+			const label = `${r.label}: ${count} ${count === 1 ? 'lavoro' : 'lavori'}`;
+			return `<li aria-label="${esc(label)}"><span class="lavori-barra-nome" title="${esc(r.label)}">${esc(r.label)}</span><span class="lavori-barra-binario"><svg viewBox="0 0 100 12" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="0" width="${Math.round(count / top * 100)}" height="12" rx="3" /></svg></span><b>${count}</b></li>`;
+		}).join('')}</ol>`;
+	}
+
+	function renderLavoriQuadro(counts, work) {
+		const countOf = value => Math.max(0, Number(value) || 0);
+		const metrics = [
+			['aspetta', 'Ti aspettano', counts.tiAspetta, 'da riprendere', 'g-aspetta'],
+			['corso', 'In corso', counts.inCorso, 'già al lavoro', 'g-corso'],
+			['coda', 'In coda', counts.inCoda, 'per il prossimo turno', 'g-coda'],
+			['stanotte', 'Stanotte', counts.stanotte, 'nella finestra notturna', 'g-stanotte'],
+		];
+		setHTML($('lavori-cifre'), metrics.map(([key, label, value, detail, target]) => {
+			const count = countOf(value);
+			return `<li class="cifra-h"><button type="button" data-act="work-jump" data-target="${target}" data-fk="lavori-cifra:${key}"><span class="cifra-nome">${label}</span><b>${count}</b><small>${detail}</small></button></li>`;
+		}).join(''));
+		const statuses = [
+			{ label: 'Ti aspettano', count: countOf(counts.tiAspetta) },
+			{ label: 'In corso', count: countOf(counts.inCorso) },
+			{ label: 'Nel terminale', count: countOf(counts.nelTerminale) },
+			{ label: 'In coda', count: countOf(counts.inCoda) },
+			{ label: 'Stanotte', count: countOf(counts.stanotte) },
+		];
+		const active = new Map();
+		for (const w of work) {
+			if (w.status !== 'ti aspetta' && w.status !== 'in corso') continue;
+			const key = String(w.path || w.project || '');
+			if (!key) continue;
+			const entry = active.get(key) || { label: String(w.project || key.split('/').pop()), path: key, count: 0 };
+			entry.count++;
+			active.set(key, entry);
+		}
+		const sorted = [...active.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'it')).slice(0, 5);
+		const names = new Map();
+		for (const p of sorted) names.set(p.label, (names.get(p.label) || 0) + 1);
+		const used = new Map();
+		const projects = sorted.map(p => {
+			const parent = p.path.split('/').filter(Boolean).at(-2) || 'altrove';
+			const base = names.get(p.label) > 1 ? `${p.label} · ${parent}` : p.label;
+			const n = (used.get(base) || 0) + 1;
+			used.set(base, n);
+			return { label: n > 1 ? `${base} ${n}` : base, count: p.count };
+		});
+		const cards = [`<article class="andamento lavori-grafico-stati"><div class="andamento-testa"><div><h3>Stato dei lavori</h3><p>La distribuzione adesso, comprese le sessioni nel terminale</p></div></div>${lavoriBarre(statuses)}</article>`];
+		if (projects.length) cards.push(`<article class="andamento lavori-grafico-progetti"><div class="andamento-testa"><div><h3>Progetti impegnati</h3><p>Fino a cinque progetti con lavori in corso o in attesa</p></div></div>${lavoriBarre(projects)}</article>`);
+		const observed = state.stats?.today?.date === dayKey() ? state.stats.observedActivity : null;
+		const days = Array.isArray(observed?.days) ? observed.days.slice(-7) : [];
+		if (days.length === 7 && days.every(d => d && /^\d{4}-\d{2}-\d{2}$/.test(d.date)) && days[6].date === dayKey()) {
+			const recent = days.map(d => ({ date: d.date, count: ['claude', 'cline', 'codex', 'terminale'].reduce((sum, source) => sum + Math.max(0, Number(d[source]) || 0), 0) }));
+			const total = recent.reduce((sum, d) => sum + d.count, 0);
+			cards.push(`<article class="andamento lavori-grafico-settimana"><div class="andamento-testa"><div><h3>Attività osservate</h3><p>Giorno dell'ultimo aggiornamento di ogni sessione nel registro</p></div></div><p class="andamento-kpi"><strong>${total}</strong><span>negli ultimi sette giorni</span></p>${barreSette(recent, d => d.count, n => `${n} attività`, d => d.date, n => String(n))}</article>`);
+		}
+		setHTML($('lavori-grafici-griglia'), cards.join(''));
+	}
+
 	function renderLavori() {
 		const s = state.snapshot;
+		if (s && s.scannedAt) askStats();
+		const ready = !!(s && s.scannedAt);
+		$('lavori-quadro').hidden = !ready;
+		$('lavori-grafici').hidden = !ready;
 		const all = jobs();
 		const work = workList();
 		const c = workCounts();
@@ -1539,6 +1616,7 @@
 		by.finito.sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0));
 		by.fermato.sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0));
 		const done = by.finito.length + by.fermato.length;
+		if (ready) renderLavoriQuadro(c, work);
 
 		const activity = activityList();
 		setHTML($('frase-lavori'), activity !== null ? esc(activity.length ? activitySummary(activity) : 'Nessuna sessione osservata al momento.') : lavoriSentence(c, by['ti aspetta'], done));
@@ -2839,6 +2917,15 @@
 		const p = b.getAttribute('data-path') || '';
 		const id = b.getAttribute('data-id') || '';
 		switch (act) {
+			case 'work-jump': {
+				const target = $(b.getAttribute('data-target'));
+				if (target && !target.hidden) {
+					target.scrollIntoView?.({ block: 'start', behavior: reduced.matches ? 'auto' : 'smooth' });
+					target.querySelector('h2')?.setAttribute('tabindex', '-1');
+					target.querySelector('h2')?.focus();
+				} else announce('Nessun lavoro in questa categoria.');
+				return;
+			}
 			case 'activity.new':
 				return vscode.postMessage({ type: 'activity.new', id });
 			case 'session.new':
@@ -3341,10 +3428,11 @@
 				return;
 			}
 			case 'stats':
-				// il cruscotto riceve tutto come prima; la Home mostra il quadro e gli ultimi sette giorni
+				// il cruscotto riceve tutto come prima; Plancia e Lavori mostrano i loro grafici
 				if (m.stats) state.stats = m.stats;
 				room('cruscotto', 'setStats', m.stats || null, m.error);
 				if (state.view === 'plancia' && state.snapshot && state.snapshot.scannedAt) { renderQuadro(); renderAndamenti(); }
+				if (state.view === 'lavori' && state.snapshot && state.snapshot.scannedAt) renderLavoriQuadro(workCounts(), workList());
 				return;
 			case 'conti':
 				// crediti e consumi dei servizi: una sezione del cruscotto (media/conti.js, CONTRATTI 14)

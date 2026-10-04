@@ -55,6 +55,30 @@ final class SessioniWidgetTests: XCTestCase {
         XCTAssertEqual(s.conteggiAttivita.inCorso, 1)
     }
 
+    func testQuadroLavoriDecodificaConteggiEStoricoSenzaRompereIlPontePrecedente() throws {
+        let precedente = try JSONEncoder().encode(stato(nil))
+        let vecchio = try JSONDecoder().decode(StatoMac.self, from: precedente)
+        XCTAssertNil(vecchio.quadroLavori)
+        XCTAssertNil(vecchio.conti.nelTerminale)
+        XCTAssertNil(vecchio.conti.stanotte)
+
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: precedente) as? [String: Any])
+        var conti = try XCTUnwrap(payload["conti"] as? [String: Any])
+        conti["nelTerminale"] = 2
+        conti["stanotte"] = 3
+        payload["conti"] = conti
+        payload["quadroLavori"] = [
+            "progetti": [["nome": "Faro", "conteggio": 4]],
+            "giorni": [["data": "2026-10-04", "conteggio": 5]],
+        ]
+        let nuovo = try JSONDecoder().decode(StatoMac.self, from: JSONSerialization.data(withJSONObject: payload))
+        XCTAssertEqual(nuovo.conti.nelTerminale, 2)
+        XCTAssertEqual(nuovo.conti.stanotte, 3)
+        XCTAssertEqual(nuovo.quadroLavori?.progetti.first?.conteggio, 4)
+        XCTAssertEqual(nuovo.quadroLavori?.giorni.first?.data, "2026-10-04")
+        XCTAssertEqual(try JSONDecoder().decode(StatoMac.self, from: JSONEncoder().encode(nuovo)), nuovo)
+    }
+
     func testPassiEdEvidenzaSonoOpzionaliERestanoNelPayload() throws {
         let vecchia = attivita("codex:a", "codex", "in corso")
         let copia = try JSONDecoder().decode(StatoMac.Attivita.self, from: JSONEncoder().encode(vecchia))

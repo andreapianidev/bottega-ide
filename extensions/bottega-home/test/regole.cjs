@@ -452,6 +452,29 @@ const hit = (st, dir, id) => st.projects[dir]?.hits.find(h => h.id === id);
 		assert.ok(reqs.some(r => r.host === 'oauth2.googleapis.com' && /grant_type=refresh_token/.test(r.body)));
 	});
 
+	await test('radar: il report AdMob resta ancorato al giorno richiesto se termina dopo mezzanotte', async () => {
+		const before = new Date(2026, 9, 4, 23, 59, 59).getTime();
+		const after = new Date(2026, 9, 5, 0, 0, 1).getTime();
+		let virtualNow = before;
+		let requested;
+		const crossing = new Radar({
+			...radarOpts,
+			dir: path.join(TMP, 'casa', 'radar-mezzanotte'),
+			now: () => virtualNow,
+			fetch: async (url, init) => {
+				if (String(url).endsWith('networkReport:generate')) {
+					requested = JSON.parse(init.body).reportSpec.dateRange;
+					virtualNow = after;
+				}
+				return fakeFetch(url, init);
+			},
+		});
+		const result = await crossing.refresh([proj]);
+		assert.deepStrictEqual(requested.startDate, { year: 2026, month: 9, day: 27 });
+		assert.deepStrictEqual(requested.endDate, { year: 2026, month: 10, day: 3 });
+		assert.strictEqual(result.admobAt, before);
+	});
+
 	await test('radar: cache 700/600 su disco, senza segreti; token.json di admob-mcp intatto', () => {
 		const f = path.join(RDIR, 'stato.json');
 		assert.strictEqual(fs.statSync(RDIR).mode & 0o777, 0o700);
