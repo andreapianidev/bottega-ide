@@ -65,6 +65,8 @@ struct StatoMac: Codable, Equatable {
         let title: String
         let summary: String?
         let updatedAt: Double
+        var steps: [String]? = nil
+        var evidence: String? = nil
         var id: String { key }
 
         var fonte: String {
@@ -98,10 +100,60 @@ struct StatoMac: Codable, Equatable {
     /// Quello che lo stato dice dell'https, da ricordare (Collegamento.ricordaSicuro).
     var sicuro: Collegamento.Sicuro? { https.map { Collegamento.Sicuro(porta: $0.porta, impronta: $0.impronta) } }
 
+    /// Un'unica proiezione per righe, progetti e contatori dei widget. Il registro nuovo,
+    /// anche vuoto, e' autorevole: non si somma alla vecchia lista Claude.
+    struct SessioneWidget: Equatable, Identifiable {
+        let id: String
+        let fonte: String
+        let stato: String
+        let progetto: String
+        let titolo: String
+        let da: Double
+
+        var attiva: Bool { stato == "ti aspetta" || stato == "in corso" }
+        fileprivate var rango: Int {
+            let ordine = ["ti aspetta", "in corso", "nel terminale", "in coda", "stanotte", "errore", "sconosciuto", "finito"]
+            return ordine.firstIndex(of: stato) ?? ordine.count
+        }
+    }
+
+    var sessioniWidget: [SessioneWidget] {
+        let righe: [SessioneWidget]
+        if let attivita {
+            righe = attivita.map {
+                SessioneWidget(id: $0.key, fonte: $0.fonte, stato: $0.status,
+                               progetto: $0.project, titolo: $0.title, da: $0.updatedAt)
+            }
+        } else {
+            righe = lavori.map {
+                SessioneWidget(id: $0.activityKey ?? $0.chiave, fonte: "Claude Code", stato: $0.stato,
+                               progetto: $0.progetto, titolo: $0.titolo, da: $0.da)
+            }
+        }
+        // Se una sorgente ripete la chiave, conta una sola sessione e conserva il dato piu' recente.
+        var uniche: [String: SessioneWidget] = [:]
+        for riga in righe {
+            if let precedente = uniche[riga.id], precedente.da >= riga.da { continue }
+            uniche[riga.id] = riga
+        }
+        return uniche.values.sorted {
+            if $0.rango != $1.rango { return $0.rango < $1.rango }
+            if $0.da != $1.da { return $0.da > $1.da }
+            return $0.id < $1.id
+        }
+    }
+
+    var progettiWidget: [String] {
+        var visti = Set<String>()
+        return sessioniWidget.filter { attivita == nil || $0.attiva }
+            .map(\.progetto).filter { visti.insert($0).inserted }
+    }
+
     var conteggiAttivita: (totale: Int, inCorso: Int, tiAspetta: Int) {
-        guard let attivita else { return (conti.vive, conti.inCorso, conti.tiAspetta) }
-        return (attivita.count, attivita.filter { $0.status == "in corso" }.count,
-                attivita.filter { $0.status == "ti aspetta" }.count)
+        guard attivita != nil else { return (conti.vive, conti.inCorso, conti.tiAspetta) }
+        let sessioni = sessioniWidget
+        return (sessioni.count, sessioni.filter { $0.stato == "in corso" }.count,
+                sessioni.filter { $0.stato == "ti aspetta" }.count)
     }
 
     /// Snapshot breve per il modello sul telefono. I titoli e i riassunti sono dati osservati,

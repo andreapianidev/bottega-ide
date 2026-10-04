@@ -1127,6 +1127,9 @@ export class Assistant {
 	}
 
 	async turn(userText: string, speak: boolean, opts: { ragiona?: boolean } = {}): Promise<string> {
+		// Il limite di inattivita' vale mentre ascolto Andrea. Durante generazione e
+		// riproduzione una risposta lunga non deve chiudere la conversazione.
+		if (this.state.conversing) clearTimeout(this.silenceTimer);
 		// a voce Agnes non ragiona (risponde subito); «Spiega il codice» ragiona anche se poi parla
 		this.spokenTurn = speak && !opts.ragiona;
 		this.pushLog('tu', userText);
@@ -1276,8 +1279,8 @@ export class Assistant {
 			this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });
 			void this.deps.nucleo.request('voice.listen', { mode: 'utterance' }, 15_000).catch((e: any) => this.voiceFailed(e?.message ?? String(e)));
 		} else if (this.state.conversing) {
-			this.armSilence();
 			if (this.attesaVoce) return;
+			this.armSilence();
 			this.setState('listening');
 			// Turno senza voce: il Nucleo riapre il microfono, chiuso da quando la frase e' stata chiusa.
 			this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });
@@ -1289,7 +1292,10 @@ export class Assistant {
 		clearTimeout(this.attesaVoceTimer);
 		this.raccontoAudio = false;
 		if (!this.speaking && this.state.state === 'speaking') {
-			if (this.state.conversing) this.setState('listening');
+			if (this.state.conversing) {
+				this.setState('listening');
+				this.armSilence();
+			}
 			else if (this.pending) {
 				this.setState('listening');
 				this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });
@@ -1328,6 +1334,7 @@ export class Assistant {
 	// ----- voce in streaming -----
 
 	private beginSpeech(): void {
+		if (this.state.conversing) clearTimeout(this.silenceTimer);
 		this.speaking = true;
 		this.attesaVoce = false;
 		this.vocePartita = false;

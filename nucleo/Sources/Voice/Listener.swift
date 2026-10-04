@@ -2,14 +2,14 @@
 //  Listener.swift
 //  Bottega Nucleo
 //
-//  The microphone side. Transcription is ElevenLabs realtime (STT.swift): no local
-//  speech model, nothing to download. Modes:
+//  The microphone side. Transcription defaults to Apple's SFSpeechRecognizer;
+//  ElevenLabs realtime is available with BOTTEGA_STT=elevenlabs. Modes:
 //   - push:      open until voice.stop (push-to-talk): manual commit, then voice.final;
-//   - utterance: ends at the first utterance the server closes (~0.8 s of silence);
-//   - converse:  mic always open, every utterance the server closes is a user turn
-//                (voice.final); barge-in stops Melissa when the user talks over her;
+//   - utterance: ends at the first committed utterance;
+//   - converse:  every committed utterance is a user turn (voice.final); with Apple
+//                recognition the mic closes while Melissa thinks and speaks;
 //   - wake:      waits for a phrase ("melissa"), event wake.detected.
-//  Wake sends only the audio around the voice; conversation sends everything (see open()).
+//  Wake gates audio around speech; conversation sends everything while the mic is open.
 //
 //  Lessons kept from Melissa (Avo Agency AI, VoiceSession.swift):
 //   - a FRESH AVAudioEngine per listening window (a reused one fails with -10868 after
@@ -19,8 +19,8 @@
 //   - open the HAL OFF the main thread: it blocked main up to 4.4 s;
 //   - outside conversation mode the mic stays CLOSED while Melissa speaks.
 //
-//  The STT socket stays warm while voice is in use and closes 30 s after the last
-//  listening window.
+//  The recognizer/session stays warm while voice is in use and closes 30 s after
+//  the last listening window.
 //
 
 import AppKit
@@ -158,7 +158,10 @@ final class Listener {
     private var partialText = ""
     private var commitArrived = false
     private var limitWork: DispatchWorkItem?
+    private var windowID = 0
     private var starting = false
+    private var finishing = false
+    private var conversationRequestID = 0
 
     // Conversation echo bookkeeping
     private var speechEndedAt = Date.distantPast
@@ -298,12 +301,29 @@ final class Listener {
 
     // MARK: - push / utterance
 
+    /// Opening the HAL and closing a turn both cross suspension points. A second command
+    /// must wait for that transition, otherwise two microphone engines can open together.
+    private func waitForAudioTransition(conversationRequest requestID: Int? = nil) async throws -> Bool {
+        let deadline = Date().addingTimeInterval(12)
+        while starting || finishing {
+            if let requestID, requestID != conversationRequestID { return false }
+            guard Date() < deadline else {
+                throw NucleoError("Il microfono sta ancora cambiando modalità. Riprova tra un momento.")
+            }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        return requestID == nil || requestID == conversationRequestID
+    }
+
     func listen(mode newMode: Mode, locale loc: String?) async throws {
         guard newMode == .push || newMode == .utterance else { return }
+        _ = try await waitForAudioTransition()
         if conversing {
             throw NucleoError("La conversazione e' attiva: il microfono e' gia' aperto.")
         }
-        if isCapturing || starting { return }
+        if isCapturing { return }
+        starting = true
+        defer { starting = false }
         // Outside conversation the mic stays closed while Melissa speaks.
         if Speaker.shared.isSpeaking { Speaker.shared.stopSpeaking() }
         await suspendWake()
@@ -322,23 +342,49 @@ final class Listener {
     func converseStart(locale loc: String?) async throws {
         Log.info("conversazione richiesta\(conversing ? ": era gia' aperta" : "")")
         if conversing { return }
+        conversationRequestID &+= 1
+        let requestID = conversationRequestID
+        guard try await waitForAudioTransition(conversationRequest: requestID) else { return }
+        if conversing { return }
+        starting = true
+        defer { starting = false }
         if isCapturing { await finishWindow(emit: true, commitFirst: true) }
+        guard requestID == conversationRequestID else { return }
         await suspendWake()
+        guard requestID == conversationRequestID else { return }
         // Avo: no voice processing on macOS (VPIO starves SFSpeechRecognizer: "No speech detected").
-        try await open(mode: .converse, locale: loc ?? locale, duplex: Self.usaElevenLabs)
+        do {
+            try await open(mode: .converse, locale: loc ?? locale, duplex: Self.usaElevenLabs)
+        } catch {
+            if requestID != conversationRequestID { return }
+            throw error
+        }
+        if requestID != conversationRequestID {
+            await closeConversationWindow()
+            return
+        }
         Speaker.shared.prewarm()
     }
 
     func converseStop() async {
+        // A stop may arrive while converseStart is still waiting for HAL/microphone
+        // permission, before mode becomes .converse. Invalidate that pending start.
+        conversationRequestID &+= 1
+        await closeConversationWindow()
+    }
+
+    private func closeConversationWindow() async {
         guard conversing else { return }
+        mode = nil
+        finishing = true
         Log.info("conversazione chiusa dal Nucleo, audio inviato in questa sessione: \(String(format: "%.1f", sttSecondsSent)) s")
         // Chiudere la conversazione la chiude davvero: la frase a meta' non diventa una domanda.
         await closeWindowAudio()
-        mode = nil
         resetWindow()
         VoiceHub.shared.refresh()
         scheduleSTTClose()
         await resumeWakeIfNeeded()
+        finishing = false
     }
 
     // MARK: - Wake word
@@ -416,6 +462,7 @@ final class Listener {
         }
         usingDuplex = duplexOK
         mode = newMode
+        windowID &+= 1
         Log.info("microfono aperto: modo \(newMode.rawValue), \(Self.backend)\(wantDuplex ? ", eco \(echoCancellation)" : "")")
         // Three seconds later: does the mic deliver sound, or the silence of a capture macOS does not allow?
         let healthTap = tap
@@ -502,10 +549,13 @@ final class Listener {
 
     private func finishWindow(emit: Bool, commitFirst: Bool) async {
         guard let m = mode else { return }
+        // Claim the window before the first await. Apple may still deliver its committed
+        // transcript while the mic is closing; keep collecting it until voice.final.
+        mode = nil
+        finishing = true
         // Stop feeding audio, then (push-to-talk) close the utterance by hand and give
         // the server a moment to answer with the committed text.
         await closeWindowAudio()
-        mode = nil
         if emit, commitFirst, let s = stt, !partialText.isEmpty || committedText.isEmpty {
             VoiceHub.shared.setState("processing")
             commitArrived = false
@@ -529,15 +579,19 @@ final class Listener {
         VoiceHub.shared.refresh()
         scheduleSTTClose()
         if m != .wake { await resumeWakeIfNeeded() }
+        finishing = false
     }
 
     private func armLimits() {
         limitWork?.cancel()
-        let limit: Double = mode == .utterance ? 60 : 120
+        let id = windowID
+        // A held push-to-talk key can carry a long explanation; AppleSTT rotates its
+        // 45-second recognition requests and RollingTranscript joins the pieces.
+        let limit: Double = mode == .utterance ? 60 : 600
         let work = DispatchWorkItem {
             MainActor.assumeIsolated {
                 let me = Listener.shared
-                guard me.mode == .push || me.mode == .utterance else { return }
+                guard me.windowID == id, me.mode == .push || me.mode == .utterance else { return }
                 Log.info("ascolto chiuso per durata massima")
                 Task { await me.finishWindow(emit: true, commitFirst: true) }
             }
@@ -549,7 +603,8 @@ final class Listener {
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
                 MainActor.assumeIsolated {
                     let me = Listener.shared
-                    guard me.mode == .utterance, me.partialText.isEmpty, me.committedText.isEmpty else { return }
+                    guard me.windowID == id, me.mode == .utterance,
+                          me.partialText.isEmpty, me.committedText.isEmpty else { return }
                     Task { await me.finishWindow(emit: true, commitFirst: false) }
                 }
             }
@@ -566,8 +621,9 @@ final class Listener {
         case .partial(let text):
             handlePartial(text.trimmingCharacters(in: .whitespacesAndNewlines))
         case .committed(let text):
-            commitArrived = true
-            handleCommitted(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !clean.isEmpty { commitArrived = true }
+            handleCommitted(clean)
         case .failed(let message):
             sttFailed(message)
         }
@@ -611,6 +667,9 @@ final class Listener {
             Log.info("prima trascrizione parziale ricevuta (\(text.count) caratteri)")
         }
         guard let m = mode, !text.isEmpty, text != partialText else { return }
+        // Apple's microphone is physically closed during a reply. A result already
+        // queued before that close is stale user audio, never a barge-in.
+        if m == .converse, micPaused, !Self.usaElevenLabs { return }
         switch m {
         case .wake:
             partialText = text
@@ -634,7 +693,15 @@ final class Listener {
     }
 
     private func handleCommitted(_ text: String) {
+        if finishing, mode == nil {
+            if !text.isEmpty {
+                committedText += committedText.isEmpty ? text : " " + text
+                partialText = ""
+            }
+            return
+        }
         guard let m = mode else { return }
+        if m == .converse, micPaused, !Self.usaElevenLabs { return }
         partialText = ""
         guard !text.isEmpty else { return }
         switch m {

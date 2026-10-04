@@ -1,7 +1,9 @@
 #!/bin/zsh
 # Prende l'app compilata da gulp, aggiunge le estensioni della Bottega, versione e firma,
-# e la installa in /Applications/Bottega.app.
+# e la installa in /Applications/Bottega.app. Con --stage-only lascia la copia
+# firmata in dist/ senza chiudere l'app in esecuzione.
 set -euo pipefail
+[[ $# == 0 || ($# == 1 && $1 == --stage-only) ]] || { echo "Uso: scripts/package.sh [--stage-only]" >&2; exit 2; }
 ROOT=${0:A:h:h}
 BUILT=$ROOT/vendor/VSCode-darwin-arm64/Bottega.app
 DIST=$ROOT/dist/Bottega.app
@@ -112,6 +114,11 @@ NUCLEO_APP="$DIST/Contents/Resources/app/extensions/bottega-home/nucleo/Bottega 
 [[ -d "$NUCLEO_APP" ]] && codesign --force --timestamp=none --sign "$IDENTITY" "$NUCLEO_APP" 2>&1 | tail -2
 codesign --force --deep --timestamp=none --sign "$IDENTITY" $DIST 2>&1 | tail -2
 codesign --verify --deep $DIST && echo "firma ok"
+
+if [[ ${1:-} == --stage-only ]]; then
+  echo "Bottega $VERSION (build $BUILD) pronta in $DIST; /Applications non modificata."
+  exit 0
+fi
 
 echo "== installazione in /Applications"
 # Andrea deve avere sempre l'ultima versione: se la Bottega e' aperta la si chiude con calma

@@ -817,6 +817,51 @@ function makeAssistant(over = {}) {
 		}
 	});
 
+	await test('una risposta vocale lunga sospende il limite di silenzio fino alla fine dell audio', async () => {
+		let finishStream;
+		const { a, nucleo } = makeAssistant({ stream: async (_m, _t, onDelta) => {
+			onDelta({ content: 'Prima frase. ' });
+			await new Promise(resolve => { finishStream = resolve; });
+			onDelta({ content: 'Seconda frase.' });
+		} });
+		const originalSet = global.setTimeout;
+		const originalClear = global.clearTimeout;
+		const armed = [], cleared = [];
+		try {
+			global.setTimeout = (fn, ms, ...args) => {
+				if (ms === 60_000) {
+					const token = 200_000 + armed.length;
+					armed.push({ token, fn });
+					return token;
+				}
+				return originalSet(fn, ms, ...args);
+			};
+			global.clearTimeout = token => {
+				if (typeof token === 'number' && token >= 200_000) cleared.push(token);
+				else originalClear(token);
+			};
+			a.wire({ subscriptions: [] });
+			a.toggleConversation();
+			assert.strictEqual(armed.length, 1);
+			nucleo.fire('voice.final', { text: 'spiegami tutto', mode: 'converse' });
+			await tick();
+			assert.ok(finishStream, 'la risposta ha iniziato lo stream');
+			assert.ok(cleared.includes(armed[0].token), 'il timer iniziale e annullato');
+			assert.strictEqual(armed.length, 2, 'nessun timer nuovo durante la generazione');
+			finishStream();
+			await tick();
+			assert.strictEqual(armed.length, 2, 'nessun timer mentre la voce riproduce');
+			assert.strictEqual(a.getState().conversing, true);
+			nucleo.fire('voice.state', { state: 'speaking' });
+			nucleo.fire('voice.state', { state: 'idle' });
+			assert.strictEqual(armed.length, 3, 'il timer torna dopo l ultima frase');
+			a.toggleConversation();
+		} finally {
+			global.setTimeout = originalSet;
+			global.clearTimeout = originalClear;
+		}
+	});
+
 	// ---- i cervelli: Agnes primaria, gli altri solo se scelti, ritorno ad Agnes a ogni problema ----
 	function fakeCervelli(choice, opts = {}) {
 		const rec = { ended: 0, touched: 0, agnes: [] };

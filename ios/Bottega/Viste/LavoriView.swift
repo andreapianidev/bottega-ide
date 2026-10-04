@@ -114,7 +114,7 @@ struct LavoriView: View {
             case .lavoro(let l):
                 if ponte.linea == .collegato { SessioneView(ponte: ponte, lavoro: l) }
                 else { SchedaLavoroSalvato(lavoro: l, ora: statoVisibile?.ora) }
-            case .attivita(let a): SchedaAttivita(attivita: a)
+            case .attivita(let a): SchedaAttivita(ponte: ponte, iniziale: a)
             }
         }
         .onChange(of: fase) { _, nuova in if nuova == .background { riassunto.ferma() } }
@@ -262,12 +262,37 @@ private struct RigaAttivita: View {
 }
 
 private struct SchedaAttivita: View {
-    let attivita: StatoMac.Attivita
+    let ponte: Ponte
+    let iniziale: StatoMac.Attivita
     @Environment(\.dismiss) private var chiudi
+    @State private var ultima: StatoMac.Attivita?
+
+    /// La selezione della lista e' uno snapshot. Gli eventi del ponte aggiornano questa scheda
+    /// anche mentre resta aperta, senza una seconda connessione per ogni sessione.
+    private var attivitaCorrente: StatoMac.Attivita? {
+        ponte.stato?.attivita?.first { $0.key == iniziale.key }
+    }
+
+    private var attivita: StatoMac.Attivita { attivitaCorrente ?? ultima ?? iniziale }
+
+    private var scomparsa: Bool {
+        ponte.linea == .collegato && ponte.stato?.attivita != nil && attivitaCorrente == nil
+    }
 
     var body: some View {
         NavigationStack {
             Form {
+                if scomparsa {
+                    Section {
+                        Text("Questa sessione non compare più nel registro attuale del Mac. Qui vedi l'ultimo stato ricevuto.")
+                            .foregroundStyle(Tinte.ambra)
+                    }
+                } else if ponte.linea != .collegato {
+                    Section {
+                        Text("Il Mac non è collegato ora. Qui vedi l'ultimo stato ricevuto.")
+                            .foregroundStyle(Tinte.tinta)
+                    }
+                }
                 Section("Stato") {
                     LabeledContent("Fonte", value: attivita.fonte)
                     LabeledContent("Progetto", value: attivita.project)
@@ -278,10 +303,24 @@ private struct SchedaAttivita: View {
                     Text(attivita.title)
                     if let summary = attivita.summary, !summary.isEmpty { Text(summary) }
                 }
+                if let passi = attivita.steps, !passi.isEmpty {
+                    Section("Ultimi passi osservati") {
+                        ForEach(Array(passi.enumerated()), id: \.offset) { _, passo in
+                            Text(passo)
+                        }
+                    }
+                }
+                if let evidenza = attivita.evidence, !evidenza.isEmpty {
+                    Section("Origine dello stato") { Text(evidenza) }
+                }
                 Section { Text("Lo stato è stato osservato dal Mac all'ora indicata. Apri la sessione sul Mac per vedere i dettagli o intervenire.") }
             }
+            .refreshable { await ponte.aggiornaStato() }
             .navigationTitle(attivita.fonte)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fatto") { chiudi() } } }
+        }
+        .onChange(of: attivitaCorrente, initial: true) { _, nuova in
+            if let nuova { ultima = nuova }
         }
     }
 }

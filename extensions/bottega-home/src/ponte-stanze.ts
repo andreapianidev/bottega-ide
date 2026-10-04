@@ -35,6 +35,7 @@ import type { BucoChiuso, FormatoApp, RepoEsito, Scheda, UnitaApp, Verifica } fr
 import { readBriefing } from './briefing';
 import { splitSummary } from './continua';
 import type { WorkItem } from './jobs';
+import type { AgentActivity } from './attivita-tipi';
 import type { RotteStanze } from './ponte';
 import { FontiStanze, meseDa, periodoDa, pulisci, SerieStore, StatoStore } from './strumenti-stanze';
 
@@ -46,6 +47,8 @@ export interface StanzeDeps {
 	fonti(): FontiStanze | undefined;
 	/** Il lavoro in giro: per la notte, i lavori in fila per stanotte. */
 	lavori?(): WorkItem[];
+	/** Registro di tutte le sessioni osservate; i lavori Claude non rappresentati restano disponibili. */
+	attivita?(): AgentActivity[] | undefined;
 	ora?(): number;
 	/** Quanto aspettare un calcolo lento (cruscotto, clienti, Memoria). */
 	tempoMs?: number;
@@ -936,16 +939,35 @@ async function consigli(f: FontiStanze, d: StanzeDeps, now: number, tempo: numbe
 		}
 	}
 
-	// 3. un lavoro che ti aspetta
-	const aspettano = (d.lavori?.() ?? []).filter(w => w.status === 'ti aspetta');
+	// 3. sessioni di ogni fonte che aspettano, senza duplicare Claude nel registro e nei lavori.
+	const lavori = d.lavori?.() ?? [];
+	const osservate = new Map<string, AgentActivity>();
+	for (const a of d.attivita?.() ?? []) {
+		const prima = osservate.get(a.key);
+		if (!prima || a.updatedAt >= prima.updatedAt) osservate.set(a.key, a);
+	}
+	const fonte = { claude: 'Claude Code', cline: 'Cline', codex: 'Codex', terminale: 'Terminale' };
+	const keyLavoro = (w: WorkItem) => `claude:${w.sessionId ?? w.key}`;
+	const aspettano = [
+		...[...osservate.values()].filter(a => a.status === 'ti aspetta').map(a => {
+			const lavoro = a.source === 'claude' ? lavori.find(w => keyLavoro(w) === a.key) : undefined;
+			return { key: lavoro?.key ?? a.key, project: a.project, title: a.title, since: a.updatedAt,
+				etichetta: fonte[a.source], rispondi: Boolean(lavoro?.jobId && lavoro.sessionId) };
+		}),
+		...lavori.filter(w => w.status === 'ti aspetta' && !osservate.has(keyLavoro(w))).map(w => ({
+			key: w.key, project: w.project, title: w.title, since: w.since,
+			etichetta: 'Claude Code', rispondi: Boolean(w.jobId),
+		})),
+	].sort((a, b) => b.since - a.since || a.key.localeCompare(b.key));
+	if (aspettano.length) aggiornatoAt = Math.max(aggiornatoAt, ...aspettano.map(w => w.since));
 	for (const w of aspettano.slice(0, 2)) {
 		out.push({
 			id: `lavori:${w.key}`,
 			fonte: 'lavori',
-			etichetta: 'Lavori',
+			etichetta: w.etichetta,
 			titolo: `${testo(w.project, 60)} ti aspetta`,
 			perche: w.title ? testo(w.title, 140) : undefined,
-			cosa: 'Rispondi dalla scheda della sessione.',
+			cosa: w.rispondi ? 'Rispondi dalla scheda della sessione.' : `Controlla la sessione sul Mac in ${w.etichetta}.`,
 			soggetto: testo(w.project, 60),
 			apri: 'lavori',
 			chiave: w.key,

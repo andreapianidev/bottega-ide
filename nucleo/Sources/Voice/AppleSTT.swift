@@ -66,7 +66,6 @@ final class AppleSTT: Trascrittore, @unchecked Sendable {
     private var waitingCommit = false
     private var silenceWork: DispatchWorkItem?
     private var rolloverWork: DispatchWorkItem?
-    private var unmuteWork: DispatchWorkItem?
 
     init(language: String) {
         let id = language.contains("-") ? language : (language == "it" ? "it-IT" : language)
@@ -122,7 +121,7 @@ final class AppleSTT: Trascrittore, @unchecked Sendable {
         opened = false
         silenceWork?.cancel(); silenceWork = nil
         rolloverWork?.cancel(); rolloverWork = nil
-        unmuteWork?.cancel(); unmuteWork = nil
+        lock.withLock { muted = false }
         transcript.reset()
         waitingCommit = false
         endRequest()
@@ -144,6 +143,7 @@ final class AppleSTT: Trascrittore, @unchecked Sendable {
     func commit() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard self.opened else { return }
             if !self.transcript.isEmpty { self.finalize() } else { self.waitingCommit = true }
         }
     }
@@ -151,8 +151,9 @@ final class AppleSTT: Trascrittore, @unchecked Sendable {
     func setMuted(_ on: Bool) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.unmuteWork?.cancel(); self.unmuteWork = nil
+            guard self.opened else { return }
             if on {
+                guard !self.lock.withLock({ self.muted }) else { return }
                 self.lock.withLock { self.muted = true }
                 self.silenceWork?.cancel(); self.silenceWork = nil
                 self.rolloverWork?.cancel(); self.rolloverWork = nil
@@ -160,13 +161,12 @@ final class AppleSTT: Trascrittore, @unchecked Sendable {
                 self.waitingCommit = false
                 self.endRequest()
             } else {
-                let work = DispatchWorkItem { [weak self] in
-                    guard let self, self.opened else { return }
-                    self.lock.withLock { self.muted = false }
-                    self.startRequest()
-                }
-                self.unmuteWork = work
-                DispatchQueue.main.asyncAfter(deadline: .now() + Self.rearmDelay, execute: work)
+                // connect() already starts an unmuted request. Restarting it here drops
+                // the first words captured while the microphone is opening. Listener
+                // already waits 250 ms before reopening the mic after Melissa speaks.
+                guard self.lock.withLock({ self.muted }) else { return }
+                self.lock.withLock { self.muted = false }
+                self.startRequest()
             }
         }
     }

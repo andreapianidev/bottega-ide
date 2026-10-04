@@ -2,7 +2,7 @@
 //  BottegaAttivita.swift
 //  Bottega per iPhone (app e widget)
 //
-//  La Live Activity delle sessioni Claude: nella Dynamic Island e sulla schermata di blocco. La avvia e la
+//  La Live Activity delle sessioni osservate sul Mac: nella Dynamic Island e sulla schermata di blocco. La avvia e la
 //  aggiorna il Mac con le push (docs/CONTRATTI.md, 9.4): i nomi dei campi sono quelli del JSON che manda.
 //
 
@@ -17,6 +17,8 @@ struct BottegaAttivita: ActivityAttributes {
             var stato: String
             /// Da quando, in millisecondi dal 1970 (come il ponte).
             var da: Double
+            /// Nome leggibile della sorgente. Assente nelle push delle Botteghe precedenti.
+            var fonte: String? = nil
         }
         var inCorso: Int
         var tiAspetta: Int

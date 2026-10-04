@@ -255,6 +255,8 @@ function call(port, token, method, url, corpo) {
 	const port = 20000 + Math.floor(Math.random() * 20000);
 	const registro = [];
 	let f = fonti();
+	let attivita;
+	let lavoriConsigli = LAVORI;
 	// le azioni finte: si guarda solo chi viene chiamato e con cosa, niente tocca i dati veri
 	const chiamate = [];
 	let lavoriPronti = true;
@@ -271,7 +273,7 @@ function call(port, token, method, url, corpo) {
 		occupata: () => false, chiedi: async () => '', parla: async () => '', voce: async () => Buffer.alloc(0),
 		scriviLavoro: () => false, registraDispositivo: () => undefined,
 		log: r => registro.push(r),
-		stanze: new StanzePonte({ fonti: () => f, lavori: () => LAVORI, tempoMs: 200, contiFile: path.join(dir, 'conti', 'giorni.json'), consigliHome: () => casa, azioni: finte }),
+		stanze: new StanzePonte({ fonti: () => f, lavori: () => lavoriConsigli, attivita: () => attivita, tempoMs: 200, contiFile: path.join(dir, 'conti', 'giorni.json'), consigliHome: () => casa, azioni: finte }),
 	});
 	await ponte.start();
 	const token = JSON.parse(fs.readFileSync(path.join(dir, 'ponte.json'), 'utf8')).token;
@@ -576,6 +578,8 @@ function call(port, token, method, url, corpo) {
 	assert.strictEqual(aspetta.titolo, 'CheckIn Facile ti aspetta');
 	assert.strictEqual(aspetta.perche, 'Rivedere i prezzi, subito');
 	assert.strictEqual(aspetta.chiave, 'sess:a1');
+	assert.strictEqual(aspetta.etichetta, 'Claude Code');
+	assert.match(aspetta.cosa, /sul Mac/, 'una sessione esterna non promette di rispondere da iPhone');
 	assert.strictEqual(daFare.titolo, 'provare la voce');
 	assert.match(daFare.perche, /Bottega, con altre 2/);
 	assert.strictEqual(primoHome.etichetta, 'Apple Intelligence');
@@ -592,6 +596,44 @@ function call(port, token, method, url, corpo) {
 	assert.deepStrictEqual(s.consigli.map(c => c.fonte), ['lavori']);
 	assert.deepStrictEqual(s.conti, { buchi: null, stimaTotale: null, rossi: null, tiAspetta: 1 });
 	ok('consigli: il buco, la regola rossa, chi aspetta, le cose da fare e la Home, nell\'ordine');
+
+	// Ogni sorgente osservata compare, con il lavoro Claude una volta sola e istruzioni compatibili.
+	f = fonti({ appStore: () => undefined, regole: () => undefined, memoria: () => undefined });
+	const osservata = (source, id, extra = {}) => ({ key: `${source}:${id}`, source, id,
+		project: 'Progetto prova', title: 'Una scelta da verificare', status: 'ti aspetta',
+		updatedAt: ORA, evidence: 'prova', ...extra });
+	lavoriConsigli = [{ ...LAVORI[2], sessionId: 'a1', jobId: 'job-risposta' }];
+	const claude = osservata('claude', 'a1', { updatedAt: ORA - 1000 });
+	for (const [source, nome] of [['cline', 'Cline'], ['codex', 'Codex'], ['terminale', 'Terminale']]) {
+		attivita = [claude, osservata(source, 'esterno')];
+		s = pulita(await get('nome=consigli'));
+		assert.strictEqual(s.conti.tiAspetta, 2, 'Claude nel registro e nei lavori conta una volta');
+		assert.deepStrictEqual(s.consigli.map(c => c.etichetta), [nome, 'Claude Code']);
+		assert.strictEqual(s.consigli[0].chiave, `${source}:esterno`);
+		assert.strictEqual(s.consigli[0].cosa, `Controlla la sessione sul Mac in ${nome}.`);
+		assert.strictEqual(s.consigli[1].cosa, 'Rispondi dalla scheda della sessione.');
+		assert.strictEqual(s.aggiornatoAt, ORA);
+	}
+	// Uno stato recente terminato sostituisce quello in attesa; niente resurrezione dal vecchio lavoro.
+	attivita = [claude, { ...claude, status: 'finito', updatedAt: ORA }];
+	s = pulita(await get('nome=consigli'));
+	assert.strictEqual(s.conti.tiAspetta, 0);
+	assert.deepStrictEqual(s.consigli, []);
+	// I lavori appena creati, non ancora nel registro delle sessioni, rimangono visibili.
+	attivita = [osservata('codex', 'esterno')];
+	lavoriConsigli = [{ ...LAVORI[2], key: 'job:nuovo', jobId: 'nuovo' }];
+	s = pulita(await get('nome=consigli'));
+	assert.strictEqual(s.conti.tiAspetta, 2);
+	assert.strictEqual(s.consigli[1].chiave, 'job:nuovo');
+	// Registro vuoto e nessun lavoro: non si ripropongono consigli di sessioni precedenti.
+	attivita = [];
+	lavoriConsigli = [];
+	s = pulita(await get('nome=consigli'));
+	assert.strictEqual(s.conti.tiAspetta, 0);
+	assert.deepStrictEqual(s.consigli, []);
+	attivita = undefined;
+	lavoriConsigli = LAVORI;
+	ok('consigli: Cline, Codex e Terminale, Claude senza duplicati, istruzioni e stato aggiornato');
 
 	// stanze non pronte
 	f = undefined;

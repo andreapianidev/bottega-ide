@@ -1413,9 +1413,10 @@ iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
   chiuso fuori dai widget col gettone vecchio). Corpo al massimo 16 KB, testo al massimo 2000 caratteri.
 - `GET /v1/stato` -> `{versione, mac, ora, vicino (9.9), https?: {porta, impronta}, melissa: {stato, cervello, parziale?, risposta?, registro: [{chi: tu|melissa|azione,
   testo, alle}]}, lavori: [{chiave, activityKey?, origine: bottega|altrove, stato, progetto, titolo, da, jobId?}],
-  attivita: [{key, source, project, status, title, summary?, updatedAt}], conti: {inCorso, tiAspetta, inCoda, vive}}`.
+  attivita: [{key, source, project, status, title, summary?, steps?, evidence?, updatedAt}], conti: {inCorso, tiAspetta, inCoda, vive}}`.
   `attivita` e' il registro osservato dalla Home: Claude Code, Cline, Codex e terminali integrati, con testo
-  ripulito e stato della fonte. `activityKey` collega una sessione Claude azionabile alla stessa attivita',
+  ripulito e stato della fonte. `steps` (ultimi 8 passi, massimo 180 caratteri ciascuno) ed `evidence`
+  (massimo 300 caratteri) sono opzionali e passano dalla stessa redazione del testo riservato. `activityKey` collega una sessione Claude azionabile alla stessa attivita',
   per non contarla due volte sull'iPhone. Un Mac precedente non manda questi campi.
   `https` (build 71): le stesse rotte cifrate su `porta + 1` (7791), con il
   certificato fatto dal Mac (`src/ponte-tls.ts`: chiave P-256 fatta da Node in PKCS#8, perche' quella di `openssl -newkey` la BoringSSL di Electron non la carica (build 72); SHA-256, 800 giorni, SAN col nome MagicDNS e l'indirizzo,
@@ -1558,14 +1559,18 @@ primi 60 secondi fanno da linea di partenza: quello che c'e' gia' non suona. `ma
 Activity e widget restano.
 
 **Live Activity** (`apns-push-type: liveactivity`, attributi `BottegaAttivita` in `ios/Condiviso/BottegaAttivita.swift`).
-`content-state` = `{inCorso, tiAspetta, vive, righe: [{progetto, stato, da}], segui?: {progetto, passo, stato}, aggiornato}` (al massimo tre righe,
-prima chi ti aspetta; `da` e `aggiornato` in ms dal 1970).
+`content-state` = `{inCorso, tiAspetta, vive, righe: [{progetto, stato, da, fonte?}], segui?: {progetto, passo, stato}, aggiornato}` (al massimo tre righe,
+prima chi ti aspetta; `da` e `aggiornato` in ms dal 1970). Dalla build 92 contatori e righe
+provengono dal registro `attivita` di tutte le fonti (Claude Code, Cline, Codex e Terminale), deduplicato
+per chiave; `vive` conta quelle in corso o in attesa, non lo storico. `fonte` e' il nome visibile del programma,
+facoltativo per leggere anche i payload precedenti. Il registro vuoto e' autorevole; soltanto se manca
+si usa `lavori` con i contatori precedenti. Le notifiche con azioni restano legate ai lavori controllabili.
 - Vive finche' ci sono sessioni AL LAVORO (`inCorso`) o una sessione seguita dall'iPhone (`segui`, 9.5, anche se
   aspetta; allora l'avvio dice «Segui <progetto>»): quelle ferme contano come «ti aspetta» tutto il giorno e
   non la farebbero mai finire. Chi aspetta resta nel contenuto, in ambra, finche' l'attivita' vive.
 - Avvio con il token `avvio` quando ci sono sessioni al lavoro e non c'e' un'attivita' aperta:
   `{aps: {timestamp, event: "start", "content-state", "attributes-type": "BottegaAttivita", attributes: {mac},
-  alert: {title: "Bottega", body: "<n> sessioni Claude al lavoro"}}}`, priorita' 10. Vale anche con Andrea al Mac.
+  alert: {title: "Bottega", body: "<n> sessioni al lavoro"}}}`, priorita' 10. Vale anche con Andrea al Mac.
 - Aggiornamento con il token `attivita` a ogni cambio, al massimo ogni 15 s (priorita' 5; 10 se cambia `tiAspetta`):
   `{aps: {timestamp, event: "update", "content-state", "stale-date": ora + 15 min}}`.
 - Se non cambia niente, un aggiornamento ogni 10 minuti comunque, cosi' l'attivita' non diventa vecchia.
@@ -1586,7 +1591,8 @@ prima chi ti aspetta; `da` e `aggiornato` in ms dal 1970).
   impostazioni di iOS (`ActivityAuthorizationInfo().areActivitiesEnabled`).
 
 **Widget** (`apns-push-type: widgets`, `{aps: {"content-changed": true}}`, priorita' 5) a ogni cambio di `tiAspetta`
-o `inCorso`, al massimo uno ogni 5 minuti (salvo `tiAspetta` che sale). Il widget rilegge `GET /v1/stato` dal ponte
+o `inCorso`, e quando cambiano identita', fonte, progetto, titolo o stato delle sessioni osservate,
+al massimo uno ogni 5 minuti (salvo `tiAspetta` che sale). Il widget rilegge `GET /v1/stato` dal ponte
 con il collegamento condiviso; se il Mac non risponde mostra l'ultimo stato salvato dall'app (`StatoMac.ultimo()`)
 con la sua eta'. La stessa push parte anche quando cambia il numero dei rossi del semaforo o cambiano gli allarmi in
 `Istantanea.negozio` (App Store e avvisi di ricarica dei servizi), sempre al massimo una ogni 5 minuti; quei due
@@ -1598,7 +1604,8 @@ pezzi della firma contano solo quando semaforo e negozio sono stati letti.
 **Estensione dei widget** (`ios/BottegaWidget/`, bundle `com.andreapiani.bottega.ios.widget`, con app group,
 portachiavi condiviso e `aps-environment` per le push dei widget; il token lo scrive in `Condiviso.chiaveTokenWidget`
 e l'app lo manda al Mac): widget «Sessioni»
-(piccolo, medio, schermata di blocco), la Live Activity (Dynamic Island e schermata di blocco), il controllo
+(piccolo, medio, schermata di blocco): conteggi, progetti e righe usano la stessa proiezione multi-fonte
+deduplicata di `StatoMac`; nel medio compare il programma di ogni riga. La Live Activity (Dynamic Island e schermata di blocco), il controllo
 «Parla con Melissa» del Centro di Controllo (apre `bottega://melissa?ascolta=1`), e quattro widget che vengono dalle
 stanze del Mac (9.6):
 
@@ -1610,7 +1617,10 @@ stanze del Mac (9.6):
   nella stanza. Un tocco apre `bottega://stanze?nome=appstore`.
 - «Consigli» (medio, grande): `GET /v1/stanza?nome=consigli`. Un tocco apre `bottega://stanze?nome=<apri>` (o
   `bottega://lavori`); con piu' consigli la freccia (`ProssimoConsiglio`, App Intent interattivo) passa al successivo
-  leggendo solo la copia, senza rete.
+  leggendo solo la copia, senza rete. I consigli dei lavori in attesa comprendono tutte le fonti,
+  con il nome del programma; Claude presente nel registro non viene contato due volte. I lavori appena
+  creati non ancora rappresentati restano disponibili. Per le sessioni osservate in sola lettura
+  il consiglio rimanda al programma sul Mac, senza promettere una risposta remota.
 - «Crediti» (piccolo, medio): `GET /v1/stanza?nome=servizi`, ogni ora. DeepSeek con il saldo e i giorni al ritmo di
   adesso, ElevenLabs con i caratteri del mese, Agnes gratis, ognuno col suo tono; nel medio la spesa di DeepSeek dei
   14 giorni. Un tocco apre `bottega://stanze?nome=cruscotto`.

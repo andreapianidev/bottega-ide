@@ -1,4 +1,31 @@
-# Passaggio di consegne, build 91
+# Passaggio di consegne, build 93
+
+## Aggiornamento del 4 ottobre 2026, build 93
+
+- iPhone: Release 93 firmata, installata e avviata sul dispositivo fisico; `devicectl` conferma la
+  build 93. Il ponte Mac ancora alla 91 ha una connessione HTTPS Tailscale stabilita dopo l'avvio.
+  La prova Xcode di integrazione sul dispositivo non è partita perché il telefono era bloccato al
+  controllo iniziale. I test Widget 8/8 su simulatore e la compilazione Release 93 sono superati.
+- Mac: pacchetto 93 firmato e verificato in `dist/Bottega.app`, con Nucleo 93 e bundle estensione
+  identico a quello compilato. La copia in `/Applications` e il processo in esecuzione sono ancora
+  alla 91. Il pacchetto è stato preparato con `scripts/package.sh --stage-only`; non è stata chiusa
+  l'app. Andrea ha chiesto espressamente di essere consultato prima del riavvio.
+- Voce Mac: corretto il timer di inattività che poteva fermare una risposta dopo 60 secondi di
+  generazione o riproduzione. Nel Nucleo, il commit finale della trascrizione non viene più perso
+  durante la chiusura del microfono; il limite push passa da 120 a 600 secondi; start/stop, vecchi
+  timer e callback tardivi non devono più aprire un doppio microfono o interrompere la voce.
+  Test mirato 36/36, suite completa estensione, typecheck, build Nucleo e firma del pacchetto passati.
+  Resta da ascoltare un racconto lungo dall'interfaccia Mac e provare fisicamente una richiesta >2 min.
+- iPhone Lavori: la scheda Codex/Cline/Terminale segue gli aggiornamenti SSE mentre è aperta e
+  mostra ultimi passi ed evidenza redatti. Home, widget, Live Activity e Consigli ricevono le quattro
+  fonti; test Widget 8/8, APNs 18/18, Consigli 22/22 e barra Terminale 7/7 passati. La schermata
+  di blocco della Live Activity non è stata osservata fisicamente: issue #1 resta aperta.
+- Il dettaglio profondo (trascrizioni, diff, azioni remote) è disponibile per Claude Code; Codex e
+  Cline forniscono estratti recenti e i terminali sono osservati solo tramite shell integration.
+  Non dichiarare che Melissa vede indistintamente tutto il Mac o ogni sessione storica.
+- Una chiave Cline è comparsa in un output di tool in un turno precedente. Il diff e il repository
+  non contengono chiavi; per una dichiarazione di produzione ruotare le chiavi DeepSeek/OpenRouter
+  di Cline e aggiornare eventuali copie usate da Melissa, senza pubblicarle nei log.
 
 ## Aggiornamento del 4 ottobre 2026
 

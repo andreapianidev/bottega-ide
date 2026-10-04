@@ -2,6 +2,7 @@ import { execFile } from 'child_process';
 import { Invio, Push, tokenMorto } from './apns';
 import type { CampoToken, Dispositivo } from './dispositivo';
 import type { WorkItem } from './jobs';
+import type { AgentActivity } from './attivita-tipi';
 import type { Livello } from './tipi';
 
 /* Quando e cosa mandare all'iPhone (docs/CONTRATTI.md, 9.4). Una classe senza rete ne' orologio propri: riceve
@@ -34,6 +35,8 @@ export interface RegolaProgetto {
 
 export interface Istantanea {
 	lavori: WorkItem[];
+	/** Registro multi-fonte autorevole, anche vuoto. Le notifiche azionabili restano sui lavori. */
+	attivita?: AgentActivity[];
 	conti: { inCorso: number; tiAspetta: number; vive: number };
 	/** La domanda di Melissa in attesa di un si' o un no, con il suo numero. */
 	conferma?: { id: number; testo: string };
@@ -98,6 +101,26 @@ interface Attesa {
 	avvisata: boolean;
 }
 
+function osservate(ist: Istantanea): AgentActivity[] | undefined {
+	if (ist.attivita === undefined) return undefined;
+	const uniche = new Map<string, AgentActivity>();
+	for (const a of ist.attivita) {
+		const prima = uniche.get(a.key);
+		if (!prima || a.updatedAt > prima.updatedAt) uniche.set(a.key, a);
+	}
+	return [...uniche.values()].sort((a, b) => b.updatedAt - a.updatedAt || a.key.localeCompare(b.key));
+}
+
+function conteggi(ist: Istantanea): Istantanea['conti'] {
+	const elenco = osservate(ist);
+	if (elenco === undefined) return ist.conti;
+	const inCorso = elenco.filter(a => a.status === 'in corso').length;
+	const tiAspetta = elenco.filter(a => a.status === 'ti aspetta').length;
+	return { inCorso, tiAspetta, vive: inCorso + tiAspetta };
+}
+
+const fonti: Record<AgentActivity['source'], string> = { claude: 'Claude Code', cline: 'Cline', codex: 'Codex', terminale: 'Terminale' };
+
 export class Avvisi {
 	private nato?: number;
 	private prec = new Map<string, WorkItem>();
@@ -111,7 +134,7 @@ export class Avvisi {
 	private la = { avviata: false, tentata: -Infinity, ultimoInvio: -Infinity, firma: '', tiAspetta: -1, vuotoDal: undefined as number | undefined, token: '', da: 0, nostra: false, spente: false };
 	/** Le push dei widget: l'ultimo invio e quello che dicevano. `rossi` e `negozio` svegliano anche i widget dei
 	 *  guadagni, dei consigli e del semaforo (stesso token, stesso limite di uno ogni 5 minuti). */
-	private wg = { ultimo: -Infinity, inCorso: 0, tiAspetta: 0, rossi: 0, negozio: '' };
+	private wg = { ultimo: -Infinity, inCorso: 0, tiAspetta: 0, rossi: 0, negozio: '', sessioni: '' };
 	private corsa?: Promise<void>;
 	private ancora = false;
 	private readonly ora: () => number;
@@ -187,7 +210,7 @@ export class Avvisi {
 		}
 
 		const disp = this.d.dispositivo();
-		if (primo) this.wg = { ultimo: -Infinity, inCorso: ist.conti.inCorso, tiAspetta: ist.conti.tiAspetta, ...this.firmaWidget(ist) };
+		if (primo) this.wg = { ultimo: -Infinity, ...conteggi(ist), ...this.firmaWidget(ist) };
 		if (!disp) return;
 		await this.notifiche(disp, ist, now, finiti, rossi, negozio);
 		await this.attivita(this.d.dispositivo() ?? disp, ist, now);
@@ -273,8 +296,9 @@ export class Avvisi {
 	// ---------- Live Activity ----------
 
 	private async attivita(disp: Dispositivo, ist: Istantanea, now: number): Promise<void> {
+		const conti = conteggi(ist);
 		// una sessione seguita dall'iPhone tiene viva l'attivita' anche quando aspetta (o e' l'unica)
-		const attive = ist.conti.inCorso + (ist.segui ? 1 : 0);
+		const attive = conti.inCorso + (ist.segui ? 1 : 0);
 		if (attive > 0) this.la.vuotoDal = undefined;
 		else this.la.vuotoDal ??= now;
 		const finita = this.la.vuotoDal !== undefined && now - this.la.vuotoDal >= LA_FINE_MS;
@@ -314,7 +338,7 @@ export class Avvisi {
 			if (finita) {
 				if (now - this.la.ultimoInvio < LA_OGNI_MS) return;
 				this.la.ultimoInvio = now;
-				const vuoto = { inCorso: 0, tiAspetta: 0, vive: ist.conti.vive, righe: [], aggiornato: now };
+				const vuoto = { inCorso: 0, tiAspetta: 0, vive: conti.vive, righe: [], aggiornato: now };
 				const e = await this.manda('attivita', {
 					tipo: 'liveactivity', token: disp.attivita, ambiente: disp.ambiente, priorita: 10,
 					payload: { aps: { timestamp: sec, event: 'end', 'content-state': vuoto, 'dismissal-date': Math.floor((now + LA_CONGEDO_MS) / 1000) } },
@@ -343,13 +367,13 @@ export class Avvisi {
 		if (finita) this.la.avviata = false; // un giro senza sessioni chiude il ciclo: la prossima volta riparte
 		if (attive === 0 || !disp.avvio || this.la.avviata || now - this.la.tentata < LA_FINE_MS) return;
 		this.la.tentata = now;
-		const n = ist.conti.inCorso;
+		const n = conti.inCorso;
 		const e = await this.manda('avvio', {
 			tipo: 'liveactivity', token: disp.avvio, ambiente: disp.ambiente, priorita: 10,
 			payload: {
 				aps: {
 					timestamp: sec, event: 'start', 'content-state': stato, 'attributes-type': 'BottegaAttivita', attributes: { mac: this.d.mac },
-					alert: { title: 'Bottega', body: n === 0 && ist.segui ? `Segui ${pulisci(ist.segui.progetto, 40)}` : n === 1 ? '1 sessione Claude al lavoro' : `${n} sessioni Claude al lavoro` },
+					alert: { title: 'Bottega', body: n === 0 && ist.segui ? `Segui ${pulisci(ist.segui.progetto, 40)}` : n === 1 ? '1 sessione al lavoro' : `${n} sessioni al lavoro` },
 				},
 			},
 		});
@@ -363,21 +387,27 @@ export class Avvisi {
 	}
 
 	private contenuto(ist: Istantanea, now: number) {
-		const righe = ist.lavori
+		const elenco = osservate(ist);
+		const righe = elenco !== undefined ? elenco
+			.filter(a => a.status === 'ti aspetta' || a.status === 'in corso')
+			.sort((a, b) => a.status === b.status ? 0 : a.status === 'ti aspetta' ? -1 : 1)
+			.slice(0, 3)
+			.map(a => ({ progetto: pulisci(a.project, 40), stato: a.status, da: a.startedAt ?? a.updatedAt, fonte: fonti[a.source] })) : ist.lavori
 			.filter(w => w.status === 'ti aspetta' || w.status === 'in corso')
 			.sort((a, b) => (a.status === b.status ? 0 : a.status === 'ti aspetta' ? -1 : 1))
 			.slice(0, 3)
 			.map(w => ({ progetto: pulisci(w.project, 40), stato: w.status, da: w.since }));
 		// `segui` e' facoltativo: le Live Activity di prima lo ignorano
 		const segui = ist.segui ? { segui: { progetto: pulisci(ist.segui.progetto, 40), passo: pulisci(ist.segui.passo, 60), stato: ist.segui.stato } } : {};
-		return { inCorso: ist.conti.inCorso, tiAspetta: ist.conti.tiAspetta, vive: ist.conti.vive, righe, ...segui, aggiornato: now };
+		return { ...conteggi(ist), righe, ...segui, aggiornato: now };
 	}
 
 	// ---------- widget ----------
 
 	/** Quanti rossi nel semaforo e quali allarmi del negozio: finche' non sono letti restano quelli di prima. */
-	private firmaWidget(ist: Istantanea): { rossi: number; negozio: string } {
+	private firmaWidget(ist: Istantanea): { rossi: number; negozio: string; sessioni: string } {
 		return {
+			sessioni: JSON.stringify((osservate(ist) ?? ist.lavori).map(a => [a.key, a.source, a.project, a.status, a.title])),
 			rossi: ist.regole ? ist.regole.filter(r => r.livello === 'rosso').length : this.wg.rossi,
 			negozio: ist.negozio ? ist.negozio.map(a => a.id).sort().join('|') : this.wg.negozio,
 		};
@@ -385,15 +415,15 @@ export class Avvisi {
 
 	private async widget(disp: Dispositivo, ist: Istantanea, now: number): Promise<void> {
 		if (!disp.widget) return;
-		const { inCorso, tiAspetta } = ist.conti;
-		const { rossi, negozio } = this.firmaWidget(ist);
-		if (inCorso === this.wg.inCorso && tiAspetta === this.wg.tiAspetta && rossi === this.wg.rossi && negozio === this.wg.negozio) return;
+		const { inCorso, tiAspetta } = conteggi(ist);
+		const { rossi, negozio, sessioni } = this.firmaWidget(ist);
+		if (inCorso === this.wg.inCorso && tiAspetta === this.wg.tiAspetta && rossi === this.wg.rossi && negozio === this.wg.negozio && sessioni === this.wg.sessioni) return;
 		if (now - this.wg.ultimo < WIDGET_OGNI_MS && tiAspetta <= this.wg.tiAspetta) return;
 		const e = await this.manda('widget', {
 			tipo: 'widgets', token: disp.widget, ambiente: disp.ambiente, priorita: 5, scadenza: Math.floor((now + 15 * 60_000) / 1000),
 			payload: { aps: { 'content-changed': true } },
 		});
-		this.wg = e.ok ? { ultimo: now, inCorso, tiAspetta, rossi, negozio } : { ...this.wg, ultimo: now };
+		this.wg = e.ok ? { ultimo: now, inCorso, tiAspetta, rossi, negozio, sessioni } : { ...this.wg, ultimo: now };
 	}
 
 	private async manda(campo: CampoToken, p: Push) {

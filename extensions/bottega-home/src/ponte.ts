@@ -90,6 +90,8 @@ export interface PonteAttivita {
 	status: 'in corso' | 'ti aspetta' | 'finito' | 'errore' | 'sconosciuto';
 	title: string;
 	summary?: string;
+	steps?: string[];
+	evidence?: string;
 	updatedAt: number;
 }
 

@@ -57,7 +57,7 @@ function banco(opz = {}) {
 		dir: fs.mkdtempSync(path.join(dir, 'b-')),
 	};
 	b.av = new Avvisi({
-		istantanea: () => ({ lavori: b.lavori, conti: conti(b.lavori), conferma: b.conferma, regole: b.regole, ...(b.negozio !== undefined ? { negozio: b.negozio } : {}), ...(b.segui ? { segui: b.segui } : {}) }),
+		istantanea: () => ({ lavori: b.lavori, attivita: b.attivita, conti: conti(b.lavori), conferma: b.conferma, regole: b.regole, ...(b.negozio !== undefined ? { negozio: b.negozio } : {}), ...(b.segui ? { segui: b.segui } : {}) }),
 		invio: { manda: async p => (b.inviati.push(p), b.risposta(p)) },
 		dispositivo: () => leggiDispositivo(b.dir),
 		togliToken: (campo, token) => togliToken(b.dir, campo, token),
@@ -337,7 +337,7 @@ function banco(opz = {}) {
 		assert.strictEqual(aps.timestamp, Math.floor(b.ora / 1000));
 		assert.strictEqual(aps['attributes-type'], 'BottegaAttivita');
 		assert.deepStrictEqual(aps.attributes, { mac: 'mac-di-prova' });
-		assert.deepStrictEqual(aps.alert, { title: 'Bottega', body: '3 sessioni Claude al lavoro' });
+		assert.deepStrictEqual(aps.alert, { title: 'Bottega', body: '3 sessioni al lavoro' });
 		const cs = aps['content-state'];
 		assert.deepStrictEqual({ ...cs, aggiornato: 0 }, { inCorso: 3, tiAspetta: 1, vive: 5, righe: [{ progetto: 'Due', stato: 'ti aspetta', da: 1000 }, { progetto: 'Uno', stato: 'in corso', da: 1000 }, { progetto: 'Bottega', stato: 'in corso', da: 1000 }], aggiornato: 0 });
 		assert.strictEqual(cs.aggiornato, b.ora);
@@ -387,7 +387,7 @@ function banco(opz = {}) {
 		await b.giro(1000);
 		la = b.presi('liveactivity');
 		assert.strictEqual(la[0].payload.aps.event, 'start');
-		assert.strictEqual(la[0].payload.aps.alert.body, '1 sessione Claude al lavoro');
+		assert.strictEqual(la[0].payload.aps.alert.body, '1 sessione al lavoro');
 		ok('Live Activity: avvio, aggiornamenti ogni 15 s al massimo, fine dopo 2 minuti, nuovo avvio');
 	}
 
@@ -484,6 +484,59 @@ function banco(opz = {}) {
 		assert.ok(b.presi('liveactivity').some(p => p.payload.aps.event === 'end'), 'non piu\' seguita e nessuno al lavoro: finisce');
 		ok('Live Activity: una sessione seguita la tiene viva, passo corto, sotto i 4 KB');
 	}
+
+	// Registro multi-fonte: stessi dati del Mac, senza trasformare osservazioni in lavori azionabili.
+	{
+		const b = banco();
+		fondiDispositivo(b.dir, { ambiente: 'sviluppo', avvio: hex(80), widget: hex(40), token: hex(32) });
+		b.attivita = [];
+		await b.giro();
+		const a = (source, status, updatedAt = 1000) => ({ key: source + ':1', id: '1', source,
+			project: 'Progetto comune', title: 'Attivita di prova', status, updatedAt, evidence: 'test' });
+		b.attivita = [a('claude', 'in corso'), a('cline', 'ti aspetta', 3000), a('codex', 'in corso', 2000),
+			a('terminale', 'in corso'), a('codex', 'finito', 1000)];
+		await b.giro(MIN);
+		const push = b.presi('liveactivity')[0];
+		const cs = push.payload.aps['content-state'];
+		assert.strictEqual(cs.inCorso, 3);
+		assert.strictEqual(cs.tiAspetta, 1);
+		assert.strictEqual(cs.vive, 4, 'storico e duplicati non gonfiano le vive');
+		assert.deepStrictEqual(cs.righe.map(r => r.fonte), ['Cline', 'Codex', 'Claude Code']);
+		assert.strictEqual(b.presi('alert').length, 0, 'le osservate non generano notifiche con risposte a job inesistenti');
+		assert.strictEqual(b.presi('widgets').length, 1);
+		assert.ok(Buffer.byteLength(JSON.stringify(push.payload)) < 4096);
+		fondiDispositivo(b.dir, { ambiente: 'sviluppo', attivita: hex(80) });
+		b.attivita = [a('terminale', 'in corso', 4000)];
+		await b.giro(5 * MIN);
+		const solo = b.presi('liveactivity')[0].payload.aps['content-state'];
+		assert.strictEqual(solo.inCorso, 1);
+		assert.strictEqual(solo.righe[0].fonte, 'Terminale');
+		b.presi('widgets');
+		b.attivita[0].project = 'Nuovo progetto';
+		await b.giro(5 * MIN);
+		assert.strictEqual(b.presi('widgets').length, 1, 'stessi contatori, progetto diverso: aggiorna widget');
+		b.attivita[0].title = 'Nuovo compito';
+		await b.giro(1000);
+		assert.strictEqual(b.presi('widgets').length, 0, 'il cambio testo rispetta il limite');
+		await b.giro(5 * MIN);
+		assert.strictEqual(b.presi('widgets').length, 1, 'cambio testo differito, non perso');
+		b.presi('liveactivity');
+		b.lavori = [lavoro('sess:vecchia', 'in corso')];
+		b.attivita = [];
+		await b.giro(15_000);
+		assert.strictEqual(b.presi('liveactivity')[0].payload.aps['content-state'].inCorso, 0, 'registro vuoto autorevole');
+		await b.giro(2 * MIN);
+		assert.strictEqual(b.presi('liveactivity')[0].payload.aps.event, 'end');
+		ok('Live Activity e widget: quattro fonti, deduplica, aggiornamento contenuti e fine multi-fonte');
+	}
+	for (const source of ['cline', 'codex', 'terminale']) {
+		const b = banco();
+		fondiDispositivo(b.dir, { ambiente: 'sviluppo', avvio: hex(80) });
+		b.attivita = [{ key: source + ':solo', id: 'solo', source, project: 'Prova', title: 'Prova', status: 'in corso', updatedAt: 1000, evidence: 'test' }];
+		await b.giro();
+		assert.strictEqual(b.presi('liveactivity')[0].payload.aps.event, 'start', source + ' avvia da solo la Live Activity');
+	}
+	ok('Live Activity avviata anche senza alcun lavoro Claude');
 
 	// ---------- widget ----------
 	{

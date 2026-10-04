@@ -2,7 +2,7 @@
 //  AttivitaWidget.swift
 //  Bottega per iPhone, estensione dei widget
 //
-//  La Live Activity delle sessioni Claude (attributi BottegaAttivita, docs/CONTRATTI.md, 9.4): schermata di blocco e
+//  La Live Activity delle sessioni osservate sul Mac (attributi BottegaAttivita, docs/CONTRATTI.md, 9.4): schermata di blocco e
 //  Dynamic Island. La avvia e la aggiorna il Mac con le push; i tempi scorrono da soli, senza aggiornamenti.
 //  Compatta: la sferetta e «2 al lavoro»; ambra con «1 ti aspetta» quando qualcuno aspetta.
 //
@@ -175,7 +175,7 @@ private struct RigaSeguita: View {
     }
 }
 
-/// Una sessione: il punto del colore dello stato, il progetto, lo stato (se ci sta: il colore del punto lo dice gia')
+/// Una sessione: il punto del colore dello stato, il progetto, la fonte (lo stato per i Mac precedenti)
 /// e da quanto.
 private struct RigaAttivita: View {
     let riga: BottegaAttivita.ContentState.Riga
@@ -192,8 +192,8 @@ private struct RigaAttivita: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .layoutPriority(1)
-            // lo stato cede per primo (il colore del punto lo dice gia'); solo per l'isola, vedi RigaBlocco (issue #1)
-            Text(riga.stato)
+            // La fonte distingue gli agenti sullo stesso progetto senza aggiungere righe verticali.
+            Text(riga.fonte ?? riga.stato)
                 .font(.caption)
                 .foregroundStyle(riga.stato == "ti aspetta" ? Tinte.ambra : Tinte.tinta)
                 .lineLimit(1)
@@ -205,6 +205,8 @@ private struct RigaAttivita: View {
                 .lineLimit(1)
                 .fixedSize()
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([riga.fonte, riga.progetto, riga.stato].compactMap { $0 }.joined(separator: ", "))
     }
 }
 
@@ -285,7 +287,7 @@ private struct SeguitaBlocco: View {
     }
 }
 
-/// Una sessione sulla schermata di blocco: il punto del colore dello stato, il progetto, lo stato e da quanto. Come
+/// Una sessione sulla schermata di blocco: il punto del colore dello stato, il progetto, la fonte e da quanto. Come
 /// prima di 2b6fa49: il tempo con due campi e senza .fixedSize.
 private struct RigaBlocco: View {
     let riga: BottegaAttivita.ContentState.Riga
@@ -299,7 +301,7 @@ private struct RigaBlocco: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Tinte.testo)
                 .lineLimit(1)
-            Text(riga.stato)
+            Text(riga.fonte ?? riga.stato)
                 .font(.caption)
                 .foregroundStyle(riga.stato == "ti aspetta" ? Tinte.ambra : Tinte.tinta)
                 .lineLimit(1)
@@ -310,6 +312,8 @@ private struct RigaBlocco: View {
                 .font(.caption)
                 .foregroundStyle(Tinte.tinta)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([riga.fonte, riga.progetto, riga.stato].compactMap { $0 }.joined(separator: ", "))
     }
 }
 
@@ -337,9 +341,9 @@ extension BottegaAttivita.ContentState {
     /// Solo per le anteprime di Xcode: progetti di fantasia.
     static func esempio(aspetta: Int) -> Self {
         let ora = Date().timeIntervalSince1970 * 1000
-        var righe = [Riga(progetto: "Bottega", stato: "in corso", da: ora - 24 * 60_000),
-                     Riga(progetto: "Appunti", stato: "in corso", da: ora - 75 * 60_000)]
-        if aspetta > 0 { righe.insert(Riga(progetto: "Sito", stato: "ti aspetta", da: ora - 6 * 60_000), at: 0) }
+        var righe = [Riga(progetto: "Bottega", stato: "in corso", da: ora - 24 * 60_000, fonte: "Codex"),
+                     Riga(progetto: "Appunti", stato: "in corso", da: ora - 75 * 60_000, fonte: "Terminale")]
+        if aspetta > 0 { righe.insert(Riga(progetto: "Sito", stato: "ti aspetta", da: ora - 6 * 60_000, fonte: "Cline"), at: 0) }
         return Self(inCorso: 2, tiAspetta: aspetta, vive: 2 + aspetta, righe: righe, aggiornato: ora)
     }
 }

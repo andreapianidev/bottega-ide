@@ -32,22 +32,10 @@ struct VoceSessioni: TimelineEntry {
     var quando: Date? { stato.map { Pezzi.data($0.ora) } }
 
     /// Le sessioni nell'ordine della stanza Lavori: prima chi ti aspetta.
-    var lavori: [StatoMac.Lavoro] {
-        (stato?.lavori ?? []).enumerated()
-            .sorted { (Pezzi.rango($0.element.stato), $0.offset) < (Pezzi.rango($1.element.stato), $1.offset) }
-            .map(\.element)
-    }
+    var lavori: [StatoMac.SessioneWidget] { stato?.sessioniWidget ?? [] }
 
     /// I progetti, ognuno una volta sola, nello stesso ordine.
-    var progetti: [String] {
-        var visti = Set<String>()
-        if let attivita = stato?.attivita {
-            return attivita.filter { $0.status == "ti aspetta" || $0.status == "in corso" }
-                .sorted { (Pezzi.rango($0.status), -$0.updatedAt) < (Pezzi.rango($1.status), -$1.updatedAt) }
-                .map(\.project).filter { visti.insert($0).inserted }
-        }
-        return lavori.map(\.progetto).filter { visti.insert($0).inserted }
-    }
+    var progetti: [String] { stato?.progettiWidget ?? [] }
 
     static var esempio: VoceSessioni {
         let ora = Date().timeIntervalSince1970 * 1000
@@ -55,13 +43,17 @@ struct VoceSessioni: TimelineEntry {
             StatoMac.Lavoro(chiave: chiave, origine: "bottega", stato: stato, progetto: progetto, titolo: titolo,
                             da: ora - minuti * 60_000, jobId: nil)
         }
-        let stato = StatoMac(
+        var stato = StatoMac(
             versione: "", mac: "Mac", ora: ora,
             melissa: StatoMac.Melissa(stato: "riposo", cervello: "", parziale: nil, registro: []),
             lavori: [lavoro("a", "ti aspetta", "Sito", "Rivedere la pagina dei prezzi", 6),
                      lavoro("b", "in corso", "Bottega", "Widget per iPhone", 24),
                      lavoro("c", "in corso", "Appunti", "Riordino delle note", 52)],
             conti: StatoMac.Conti(inCorso: 2, tiAspetta: 1, inCoda: 0, vive: 3))
+        stato.attivita = zip(stato.lavori, ["cline", "codex", "terminale"]).map { lavoro, fonte in
+            .init(key: "\(fonte):\(lavoro.chiave)", source: fonte, project: lavoro.progetto,
+                  status: lavoro.stato, title: lavoro.titolo, summary: nil, updatedAt: lavoro.da)
+        }
         return VoceSessioni(date: .now, stato: stato, fonte: .diretta)
     }
 }
@@ -501,7 +493,7 @@ private struct SessioniMedio: View {
 }
 
 private struct RigaLavoro: View {
-    let lavoro: StatoMac.Lavoro
+    let lavoro: StatoMac.SessioneWidget
 
     var body: some View {
         let colore = Pezzi.colore(lavoro.stato)
@@ -525,16 +517,18 @@ private struct RigaLavoro: View {
                         .lineLimit(1)
                         .fixedSize()
                 }
-                // il titolo della sessione solo se ci sta intero: il progetto e il tempo bastano
-                ViewThatFits(in: .horizontal) {
-                    Text(lavoro.titolo).lineLimit(1).fixedSize()
-                    Color.clear.frame(width: 0, height: 0)
-                }
-                .font(.caption2)
-                .foregroundStyle(Tinte.tinta)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // Fonte sempre visibile: due agenti possono lavorare sullo stesso progetto.
+                // Per le sessioni storiche lo stato spiega perche' non entrano nei contatori attivi.
+                Text("\(lavoro.fonte) · \(lavoro.attiva ? lavoro.titolo : lavoro.stato)")
+                    .font(.caption2)
+                    .foregroundStyle(Tinte.tinta)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(lavoro.fonte), \(lavoro.progetto), \(lavoro.stato), \(lavoro.titolo)")
     }
 }
 

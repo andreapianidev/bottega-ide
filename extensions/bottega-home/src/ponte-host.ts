@@ -82,6 +82,7 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 			const c = deps.counts();
 			return {
 				lavori: deps.work(),
+				attivita: deps.activity(),
 				conti: { inCorso: c.inCorso, tiAspetta: c.tiAspetta, vive: c.vive },
 				conferma: deps.assistant()?.pendingQuestion(),
 				regole: deps.regole?.() ?? null,
@@ -145,6 +146,7 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 		stanze: new StanzePonte({
 			fonti: fontiStanze,
 			lavori: deps.work,
+			attivita: deps.activity,
 			// le azioni della stanza App Store (9.7): gli stessi gestori della plancia, e i lavori come lavoro_nuovo di Melissa
 			azioni: {
 				ignora: (id, motivo) => void handleAppStore({ type: 'appstore.ignora', id, motivo }, { send: () => undefined }),
@@ -352,6 +354,8 @@ function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora'
 			status: a.status,
 			title: a.title.slice(0, 140),
 			...(a.summary ? { summary: a.summary.slice(0, 300) } : {}),
+			...(a.steps ? { steps: a.steps.slice(-8).map(s => pulisciTesto(s, 180)).filter(Boolean) } : {}),
+			...(a.evidence ? { evidence: pulisciTesto(a.evidence, 300) } : {}),
 			updatedAt: a.updatedAt,
 		})),
 		conti: { inCorso: c.inCorso, tiAspetta: c.tiAspetta, inCoda: c.inCoda, vive: c.vive },
