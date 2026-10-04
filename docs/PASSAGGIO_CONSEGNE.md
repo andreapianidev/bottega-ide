@@ -1,4 +1,33 @@
-# Passaggio di consegne, build 94
+# Passaggio di consegne, build 100
+
+## Ripresa del 4 ottobre 2026, build 100
+
+- Ricostruiti i commit 95–98 e il lavoro locale della 99. All'inizio di questa sessione
+  `/Applications/Bottega.app` era gia' alla 99, ma Osservatorio Metal, controllo SAN TLS
+  e incremento build erano ancora modifiche non committate. Il codice e' conservato e verificato.
+- Watch: corretti reinvio su attivazione/installazione/cambio orologio, retry dopo errore,
+  precedenza della cancellazione e refresh manuale a contenuti invariati. Un dato piu' vecchio
+  dello stesso Mac non sostituisce quello recente. Il pulsante mostra quando l'iPhone non e'
+  raggiungibile. Le complicazioni smettono di presentare conteggi correnti dopo 20 minuti;
+  la rettangolare espone l'ora dell'ultimo dato.
+- iPhone e Apple Watch fisici: Release 100 firmata e installazione confermata da devicectl.
+  iPhone avviato, schermata reale con ponte Tailscale collegato e 208 attivita' ricevute.
+  Avvio Watch respinto da watchOS per dispositivo bloccato: richiesta all'utente di sbloccarlo.
+  Non dichiarare ancora verificati ricezione sul polso, aggiornamento in background o quadrante.
+- Verifiche: suite npm completa e typecheck; test lifecycle widget, processi installer e build;
+  StatoNativo (mezzanotte/cache/compatibilita'); 162 layout Osservatorio con picking e collisioni;
+  build Watch simulatore e Release iOS/watchOS firmate. XCTest registra 54 test offline senza errori,
+  inclusi 5 OrologioTests. Xcode resta nel completamento del report con `invalidDigitCount`
+  per l'SDK 27.1: il log XCTest e' passato, l'export xcresult non e' disponibile.
+  I test di integrazione AssistenteTelefono richiedono abbinamento reale e sono esclusi dalla
+  suite offline finale; il primo tentativo sul simulatore privo di abbinamento non e' superato.
+- Renderer Metal Release 100: shader precompilati, benchmark GPU completato con 40 progetti
+  e 1.800 stelle a 1440×900, 1920×1230 e 3840×2160 (30 frame, circa 1,75–1,97 ms medi sotto carico).
+  I numeri nel contratto precedente sono misure della 99 in condizioni diverse.
+- Mac: pacchetto 100 firmato in `dist/Bottega.app`; copia in esecuzione ancora 99.
+  Prima di riavviare rispettare la richiesta di Andrea riportata sotto. Il file dei widget
+  risulta aggiornato ogni minuto; la correttezza delle classificazioni delle singole sessioni
+  non si deduce dalla sola freschezza del file.
 
 ## Installazione del 4 ottobre 2026, build 94
 

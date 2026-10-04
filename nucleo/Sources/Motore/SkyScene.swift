@@ -142,19 +142,14 @@ enum SkyGeometry {
     /// Top of the ridge, as a fraction of the height from the bottom (the domes stand on
     /// it, a little higher). The shader draws the same line.
     static let horizon: Float = 0.13
-    /// Stars stay above this line (fraction of the height from the top).
-    static let fieldBottom: CGFloat = 0.76
 
     /// Where the project stars may go, in view points (y from the top), given the room
     /// the glass panels take on each side.
     static func fieldRect(size: CGSize, insets: NSEdgeInsets) -> CGRect {
-        var left = insets.left, right = insets.right
-        // Too narrow for the side columns: the stars use the whole width.
-        if size.width - left - right < 320 { left = 40; right = 40 }
         let top = max(insets.top, 24)
-        let bottom = size.height * fieldBottom
-        return CGRect(x: left, y: top, width: max(40, size.width - left - right),
-                      height: max(40, bottom - top))
+        return CGRect(x: insets.left, y: top,
+                      width: max(1, size.width - insets.left - insets.right),
+                      height: max(1, size.height - top - max(insets.bottom, 50)))
     }
 
     /// Point of a star in the view (points, y from the top).
@@ -208,5 +203,89 @@ enum SkyGeometry {
             }
             if !moved { break }
         }
+    }
+}
+
+/// A small perspective camera. The same projected scene feeds Metal, labels and picking.
+/// Depth is stable by project key, so changing the period never shuffles the universe.
+struct SkyCamera: Equatable {
+    var yaw: Float = 0
+    var pitch: Float = 0
+    var zoom: Float = 1
+
+    mutating func orbit(dx: Float, dy: Float) {
+        yaw = min(0.85, max(-0.85, yaw + dx * 0.004))
+        pitch = min(0.55, max(-0.55, pitch + dy * 0.004))
+    }
+
+    mutating func magnify(_ delta: Float) { zoom = min(1.4, max(0.7, zoom + delta)) }
+
+    func project(_ scene: SkyScene) -> SkyScene {
+        var result = scene
+        for i in result.stars.indices {
+            let star = scene.stars[i]
+            let seed = SkyGeometry.stablePosition(for: star.key + "/depth")
+            let p = SIMD3<Float>((star.position.x - 0.5) * 1.65,
+                                 (star.position.y - 0.5) * 1.5, (seed.x - 0.5) * 0.85)
+            let x = p.x * cos(yaw) + p.z * sin(yaw)
+            let z = -p.x * sin(yaw) + p.z * cos(yaw)
+            let y = p.y * cos(pitch) - z * sin(pitch)
+            let depth = p.y * sin(pitch) + z * cos(pitch)
+            let perspective = 2.5 / (2.5 + depth) * zoom
+            result.stars[i].position = SIMD2(0.5 + x * perspective * 0.48,
+                                             0.5 + y * perspective * 0.48)
+            result.stars[i].size *= perspective
+            result.stars[i].brightness *= min(1.15, max(0.55, perspective))
+        }
+        return result
+    }
+}
+
+/// Labels have explicit rectangles: priority first, four placements, collision rejection.
+/// Hidden names remain available through picking and the keyboard-accessible project list.
+enum SkyLabelLayout {
+    struct Label: Identifiable {
+        var id: Int
+        var text: String
+        var frame: CGRect
+        var focused: Bool
+    }
+
+    static func place(scene: SkyScene, field: CGRect, selected: Int?, hovered: Int?, big: Bool) -> [Label] {
+        guard field.width > 60, field.height > 40 else { return [] }
+        let font = NSFont.systemFont(ofSize: big ? 16 : 11, weight: .medium)
+        let ordered = scene.stars.indices.sorted {
+            func rank(_ i: Int) -> Int { i == selected ? -3 : i == hovered ? -2 : scene.stars[i].live ? -1 : i }
+            return rank($0) < rank($1)
+        }
+        let starBounds = scene.stars.map { star -> CGRect in
+            let p = SkyGeometry.point(of: star, in: field)
+            let r = CGFloat(star.size) + 5
+            return CGRect(x: p.x-r, y: p.y-r, width: r*2, height: r*2)
+        }
+        var labels: [Label] = []
+        for i in ordered {
+            let star = scene.stars[i]
+            let focus = i == selected || i == hovered
+            guard focus || star.live || i < (big ? 12 : 8) else { continue }
+            let text = focus ? "\(star.name)  ·  \(Fmt.hm(star.minutes))" : star.name
+            let width = min(field.width, min(big ? 280 : 210, ceil((text as NSString).size(withAttributes: [.font: font]).width) + 16))
+            let height: CGFloat = big ? 30 : 25
+            let p = SkyGeometry.point(of: star, in: field)
+            let gap = CGFloat(star.size) * 1.7 + 8
+            let candidates = [
+                CGRect(x: p.x + gap, y: p.y-height/2, width: width, height: height),
+                CGRect(x: p.x-gap-width, y: p.y-height/2, width: width, height: height),
+                CGRect(x: p.x-width/2, y: p.y+gap, width: width, height: height),
+                CGRect(x: p.x-width/2, y: p.y-gap-height, width: width, height: height)
+            ]
+            if let rect = candidates.first(where: { candidate in
+                field.contains(candidate) && !labels.contains { $0.frame.insetBy(dx: -5, dy: -4).intersects(candidate) }
+                    && !starBounds.contains { $0.intersects(candidate) }
+            }) {
+                labels.append(Label(id: i, text: text, frame: rect, focused: focus))
+            }
+        }
+        return labels
     }
 }

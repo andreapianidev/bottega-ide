@@ -35,6 +35,7 @@ struct SkyUniforms {
     var line: SIMD4<Float>
     var reticle: SIMD4<Float>
     var live: SIMD4<Float>
+    var camera: SIMD4<Float>
 }
 
 private struct SkyInstance {
@@ -52,7 +53,7 @@ private struct SkyLineInstance {
 
 final class SkyRenderer: NSObject, MTKViewDelegate {
     static let pixelFormat: MTLPixelFormat = .rgba16Float
-    static let fieldStarCount = 720
+    static let fieldStarCount = 1800
     private static let ringSize = 3
 
     private let engine: MetalEngine
@@ -76,7 +77,8 @@ final class SkyRenderer: NSObject, MTKViewDelegate {
     private var ringIndex = 0
     private let inFlight = DispatchSemaphore(value: SkyRenderer.ringSize)
 
-    private let startTime = CACurrentMediaTime()
+    private var startTime: CFTimeInterval?
+    private var entranceSettled = false
     private var frozenTime: Float = 0
 
     // Written by the view on main, read in draw on main.
@@ -86,6 +88,8 @@ final class SkyRenderer: NSObject, MTKViewDelegate {
     /// Points per pixel of the drawable (set by the view from the backing scale).
     var pixelsPerPoint: Float = 1.5
     var headroom: Float = 1
+    var camera = SkyCamera()
+    var isEntering: Bool { startTime.map { CACurrentMediaTime() - $0 < 2.8 } ?? true }
 
     init?(engine: MetalEngine = .shared) {
         guard let device = engine.device, let queue = engine.queue,
@@ -136,7 +140,7 @@ final class SkyRenderer: NSObject, MTKViewDelegate {
             let a = scene.stars[e.a].position, b = scene.stars[e.b].position
             let width: Float = e.strength >= 0.5 ? 1.4 : 1.0
             lines.append(SkyLineInstance(ab: SIMD4(a.x, a.y, b.x, b.y),
-                                         style: SIMD4(width, 0.10 + 0.22 * e.strength, Float(e.a), Float(e.b)),
+                                         style: SIMD4(width, 0.045 + 0.12 * e.strength, Float(e.a), Float(e.b)),
                                          extra: SIMD4(Float(n) * 0.137, e.strength, 0, 0)))
         }
         lineCount = lines.count
@@ -154,11 +158,15 @@ final class SkyRenderer: NSObject, MTKViewDelegate {
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     func draw(in view: MTKView) {
+        if !isEntering && !entranceSettled {
+            entranceSettled = true
+            (view as? SkyMTKView)?.updateRhythm()
+        }
         let size = view.drawableSize
         guard size.width > 0, size.height > 0,
               let rpd = view.currentRenderPassDescriptor,
               let drawable = view.currentDrawable else { return }
-        inFlight.wait()
+        guard inFlight.wait(timeout: .now()) == .success else { return }
         guard let cmd = queue.makeCommandBuffer() else { inFlight.signal(); return }
         let token = engine.beginFrame(.sky)
         encode(cmd: cmd, target: rpd, width: Int(size.width), height: Int(size.height))
@@ -173,7 +181,9 @@ final class SkyRenderer: NSObject, MTKViewDelegate {
 
     private func uniforms(width: Int, height: Int) -> SkyUniforms {
         let still = engine.reduceMotion
-        let now = Float(CACurrentMediaTime() - startTime)
+        let clock = CACurrentMediaTime()
+        if startTime == nil { startTime = clock }
+        let now = Float(clock - (startTime ?? clock))
         if !still { frozenTime = now }
         let phase = Float(engine.breathPhase())
         func c(_ hex: Int, _ k: Float = 1) -> SIMD4<Float> { SIMD4(Roque.linear(hex) * k, 1) }
@@ -191,7 +201,8 @@ final class SkyRenderer: NSObject, MTKViewDelegate {
             brace: c(Roque.brace),
             line: c(0x8fa6f0),
             reticle: c(Roque.focus),
-            live: c(Roque.sodio))
+            live: c(Roque.sodio),
+            camera: SIMD4(camera.yaw, camera.pitch, camera.zoom, still ? 3 : now))
     }
 
     /// Encodes one frame into `rpd` (the drawable, or an offscreen texture for the bench).
@@ -210,7 +221,7 @@ final class SkyRenderer: NSObject, MTKViewDelegate {
         for (i, s) in scene.stars.enumerated() {
             let (pi, age) = pulseByStar[i] ?? (0, 0)
             let col = Self.starColor(warmth: s.warmth, hollow: s.hollow)
-            var ext = max(s.size * 5.0, s.size * 2.6 + 12, s.size * 2.3 + 6)
+            var ext = max(s.size * 8.0, s.size * 2.6 + 12, s.size * 2.3 + 6)
             if pi > 0 { ext = max(ext, s.size * 1.6 + Float(age) * 24 + 8) }
             let seed = Float((i * 37) % 97) / 97 * 6.28
             stars.append(SkyInstance(a: SIMD4(s.position.x, s.position.y, s.size, 1),
@@ -227,6 +238,7 @@ final class SkyRenderer: NSObject, MTKViewDelegate {
         enc.label = "cielo"
         enc.setRenderPipelineState(copyPipeline)
         enc.setFragmentTexture(bg, index: 0)
+        enc.setFragmentBytes(&u, length: MemoryLayout<SkyUniforms>.stride, index: 0)
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
 
         if let lb = lineBuffer, lineCount > 0 {
@@ -382,6 +394,19 @@ final class SkyMTKView: MTKView {
     var renderer: SkyRenderer?
     var onHover: ((Int?) -> Void)?
     var onSelect: ((Int?) -> Void)?
+    var onOrbit: ((Float, Float) -> Void)?
+    var onZoom: ((Float) -> Void)?
+    var isMounted = true
+    var pendingScene = SkyScene()
+    var pendingSelection: Int?
+    var camera = SkyCamera()
+    private var dragOrigin: CGPoint?
+    private var dragLast: CGPoint?
+    private var dragged = false
+    private var interactionUntil: CFTimeInterval = 0
+    private var settleTask: Task<Void, Never>?
+    private var entranceTask: Task<Void, Never>?
+
     /// Room taken by the glass panels, in points (the stars stay out of it).
     var fieldInsets = NSEdgeInsets(top: 70, left: 360, bottom: 0, right: 360) {
         didSet { updateField(); redrawIfStill() }
@@ -413,13 +438,23 @@ final class SkyMTKView: MTKView {
 
     deinit {
         for o in observers { NotificationCenter.default.removeObserver(o) }
+        settleTask?.cancel()
+        entranceTask?.cancel()
     }
 
     func attach(_ r: SkyRenderer) {
         renderer = r
+        r.setScene(pendingScene)
+        r.selected = pendingSelection
+        r.camera = camera
         delegate = r
         updateDrawableSize()
         updateRhythm()
+        entranceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2.9))
+            guard !Task.isCancelled else { return }
+            self?.updateRhythm()
+        }
     }
 
     override func viewDidMoveToWindow() {
@@ -428,7 +463,8 @@ final class SkyMTKView: MTKView {
         observers.removeAll()
         guard let w = window else { isPaused = true; return }
         let nc = NotificationCenter.default
-        for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didExposeNotification,
+                     NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
                      NSWindow.didDeminiaturizeNotification, NSWindow.didChangeScreenNotification,
                      NSWindow.didChangeBackingPropertiesNotification] {
             observers.append(nc.addObserver(forName: name, object: w, queue: .main) { [weak self] _ in
@@ -467,7 +503,10 @@ final class SkyMTKView: MTKView {
         let engine = MetalEngine.shared
         let visible = visibleOnScreen
         let lively = (renderer?.isLively ?? false) || hoverIndex != nil
-        let fps = engine.fps(for: .sky, visible: visible, lively: lively)
+        let interacting = CACurrentMediaTime() < interactionUntil || (renderer?.isEntering ?? false)
+        let fps = visible && !engine.reduceMotion && interacting
+            ? (ProcessInfo.processInfo.isLowPowerModeEnabled ? 30 : 60)
+            : engine.fps(for: .sky, visible: visible, lively: lively)
         let onDemand = engine.onDemand(for: .sky, visible: visible, lively: lively)
         engine.noteRhythm(.sky, fps: fps, visible: visible)
         if fps > 0 {
@@ -542,10 +581,56 @@ final class SkyMTKView: MTKView {
         redrawIfStill()
     }
 
-    override func mouseUp(with event: NSEvent) {
-        onSelect?(starIndex(at: event))
+    override func mouseDown(with event: NSEvent) {
+        dragOrigin = event.locationInWindow
+        dragLast = event.locationInWindow
+        dragged = false
     }
 
+    override func mouseDragged(with event: NSEvent) {
+        guard let start = dragOrigin else { return }
+        if hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) > 3 { dragged = true }
+        guard dragged else { return }
+        NSCursor.closedHand.set()
+        let current = event.locationInWindow
+        let previous = dragLast ?? start
+        onOrbit?(Float(current.x - previous.x), Float(previous.y - current.y))
+        dragLast = current
+        boostInteraction()
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if !dragged { onSelect?(starIndex(at: event)) }
+        dragOrigin = nil
+        dragLast = nil
+        dragged = false
+        NSCursor.openHand.set()
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        onZoom?(Float(event.scrollingDeltaY) * (event.hasPreciseScrollingDeltas ? 0.003 : 0.025))
+        boostInteraction()
+    }
+
+    override func magnify(with event: NSEvent) {
+        onZoom?(Float(event.magnification))
+        boostInteraction()
+    }
+
+    private func boostInteraction() {
+        interactionUntil = CACurrentMediaTime() + 0.3
+        updateRhythm()
+        settleTask?.cancel()
+        settleTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            self?.updateRhythm()
+        }
+    }
+
+    override var isOpaque: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override var acceptsFirstResponder: Bool { false }
 }
 
@@ -555,6 +640,9 @@ struct SkyView: NSViewRepresentable {
     var scene: SkyScene
     var selected: Int?
     var insets: NSEdgeInsets
+    var camera: SkyCamera = SkyCamera()
+    var onOrbit: (Float, Float) -> Void = { _, _ in }
+    var onZoom: (Float) -> Void = { _ in }
     var onHover: (Int?) -> Void
     var onSelect: (Int?) -> Void
 
@@ -563,18 +651,19 @@ struct SkyView: NSViewRepresentable {
         v.fieldInsets = insets
         v.onHover = onHover
         v.onSelect = onSelect
-        let scene = self.scene
-        let selected = self.selected
+        v.pendingScene = scene
+        v.pendingSelection = selected
+        v.camera = camera
+        v.onOrbit = onOrbit
+        v.onZoom = onZoom
         Task.detached(priority: .userInitiated) {
             _ = MetalEngine.shared.library
             await MainActor.run {
-                guard v.renderer == nil else { return }
+                guard v.isMounted, v.renderer == nil else { return }
                 guard let r = SkyRenderer() else {
                     Log.error("Il cielo non riesce a preparare la sua pipeline Metal.")
                     return
                 }
-                r.setScene(scene)
-                r.selected = selected
                 v.attach(r)
             }
         }
@@ -584,21 +673,26 @@ struct SkyView: NSViewRepresentable {
     func updateNSView(_ v: SkyMTKView, context: Context) {
         v.onHover = onHover
         v.onSelect = onSelect
+        v.onOrbit = onOrbit
+        v.onZoom = onZoom
+        v.pendingScene = scene
+        v.pendingSelection = selected
+        v.camera = camera
         let ins = v.fieldInsets
         if ins.top != insets.top || ins.left != insets.left || ins.right != insets.right || ins.bottom != insets.bottom {
             v.fieldInsets = insets
         }
         guard let r = v.renderer else { return }
-        let changed = r.currentScene.version != scene.version || r.selected != selected
+        let changed = r.currentScene != scene || r.selected != selected || r.camera != camera
         r.setScene(scene)
         r.selected = selected
-        if changed {
-            v.updateRhythm()
-            v.redrawIfStill()
-        }
+        r.camera = camera
+        v.updateRhythm()
+        if changed { v.redrawIfStill() }
     }
 
     static func dismantleNSView(_ v: SkyMTKView, coordinator: ()) {
+        v.isMounted = false
         v.isPaused = true
         v.delegate = nil
         v.renderer = nil

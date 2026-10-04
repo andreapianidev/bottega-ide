@@ -11,12 +11,17 @@ contiene i contatori, lo stato di Melissa e fino a 12 sessioni ordinate per prio
 Non contiene chiavi o token. A contenuto invariato si invia al massimo un aggiornamento
 ogni dieci minuti, cosi' il Watch mostra l'eta' reale dello stato senza ricevere ogni
 evento del flusso. Il pulsante sull'orologio chiede una lettura all'iPhone quando questo
-e' raggiungibile. Con l'iPhone lontano l'ultima copia resta visibile con la sua eta'.
+e' raggiungibile. Con l'iPhone lontano l'ultima copia resta visibile con la sua eta'. Il pulsante segnala
+quando il telefono non e' raggiungibile. Installazione, riattivazione e cambio Watch
+forzano il reinvio anche a contenuto invariato; errori di invio conservano il dato
+in coda e una cancellazione resta prioritaria fino all'invio.
 
 L'app Watch e la complicazione condividono una copia con App Groups sul Watch. Quando
 l'iPhone si scollega o cambia Mac, manda una cancellazione. `BottegaWatchWidget`
 fornisce complicazioni circolare, rettangolare, in linea e ad angolo; WidgetKit
-decide quando aggiornare il quadrante. Il display Always On non esiste su Apple Watch
+decide quando aggiornare il quadrante. La timeline include la scadenza a 20 minuti:
+i conteggi scaduti diventano «Da aggiornare», quelli assenti invitano ad aprire l'iPhone,
+e la complicazione rettangolare mostra l'ora dell'ultimo dato. Il display Always On non esiste su Apple Watch
 SE: l'app non usa animazioni continue, sensori o polling in background.
 
 Verifiche CLI:

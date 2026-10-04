@@ -110,11 +110,13 @@ testo.
 
 ### L'Osservatorio
 
-Una finestra nativa, SwiftUI e Metal con il vetro di macOS 27: il cielo dei progetti, una stella per progetto che
-cresce e si scalda con le ore e pulsa quando Claude ci scrive, e sopra i pannelli con oggi, la settimana, quando lavori
-(una superficie 3D di Swift Charts da girare col mouse), i token per progetto e che lavoro è stato. Pensata anche per un
-secondo schermo. Si apre dalla Bottega (comando «Apri l'Osservatorio»), dalla barra dei menu, da Siri e dal Centro di
-Controllo.
+Una finestra nativa SwiftUI e Metal per macOS 27: una costellazione tridimensionale dei progetti, con ingresso
+animato, profondità prospettica e 1.800 stelle di fondo. Trascina il cielo per cambiare punto di vista, scorri o
+pizzica per avvicinarti; seleziona una stella o un progetto per evidenziarne i legami. Il mirino ripristina la camera.
+I nomi evitano stelle, bordi e altre etichette. Oggi e settimana restano sotto il cielo; la colonna a destra raccoglie
+progetti, mappa delle ore e token, con nomi e valori su righe dedicate. Sulle finestre strette tutti i pannelli
+passano nella colonna scorrevole. «Vista immersiva» allarga il cielo; Esc torna ai pannelli. Si apre dalla Bottega
+(comando «Apri l'Osservatorio»), dalla barra dei menu, da Siri e dal Centro di Controllo, anche su un secondo schermo.
 
 ### Il cruscotto
 

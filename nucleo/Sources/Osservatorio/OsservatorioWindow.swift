@@ -55,7 +55,7 @@ final class OsservatorioWindow: NSObject, NSWindowDelegate {
         w.titleVisibility = .hidden
         w.appearance = NSAppearance(named: .darkAqua)
         w.backgroundColor = Roque.nsColor(Roque.zenit)
-        w.minSize = NSSize(width: 760, height: 540)
+        w.minSize = NSSize(width: 860, height: 620)
         w.isReleasedWhenClosed = false
         w.tabbingMode = .disallowed
         w.collectionBehavior = [.fullScreenPrimary, .managed]
@@ -121,6 +121,7 @@ final class OsservatorioWindow: NSObject, NSWindowDelegate {
         w.contentView = nil
         window = nil
         if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
+        model.camera = SkyCamera()
         model.selected = nil
         model.hovered = nil
         MetalEngine.shared.noteRhythm(.sky, fps: 0, visible: false)

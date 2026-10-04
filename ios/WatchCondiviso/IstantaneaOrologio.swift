@@ -18,6 +18,10 @@ struct IstantaneaOrologio: Codable, Equatable {
     let totale: Int
     let sessioni: [Sessione]
 
+    /// Twice the unchanged-content refresh interval, allowing normal background delivery.
+    var scadenza: Date { visto.addingTimeInterval(20 * 60) }
+    func scaduta(al: Date) -> Bool { al >= scadenza }
+
     static let gruppo = "group.com.andreapiani.bottega.ios"
     private static let chiave = "istantaneaOrologioV1"
 

@@ -1285,18 +1285,23 @@ di `spotlight.index` sono associati all'entita' (`associateAppEntity`), niente d
 
 `MetalEngine.shared` (`nucleo/Sources/Motore/`): un device, una coda, un `default.metallib` con tutti gli shader
 (sfera e cielo; build.sh compila ogni `.metal` di `Sources`). Ritmo: 0 fps se non visibile; sfera grande 60/30, sfera
-agganciata 30/12, cielo 30/15; con Riduci movimento un fotogramma quando cambia qualcosa. Il respiro della sfera
+agganciata 30/12, cielo 30/15 (60 durante ingresso e gesti, 30 in risparmio energetico); con Riduci movimento un fotogramma quando cambia qualcosa. Il respiro della sfera
 accelera con le sessioni al lavoro (da `menubar.update`: `busy` 0 = 1,4 rad/s, 1 circa 1,9, 3 circa 2,5, massimo 3).
 Comandi: `metal.stats` (costi per fotogramma per cliente, fps, carico), `metal.load {busy, waiting}`, `metal.pulse {key,
-project}`; `--cli metal-bench [--frames N] [--width W --height H]`. Misure fuori schermo (M2): cielo 1920x1230 11-47 µs
-di CPU e 0,3-0,6 ms di GPU per fotogramma, 4K 0,64 ms; sfera grande 2,4-3,1 ms di GPU, agganciata 0,9 ms. Il widget non
-usa Metal (WidgetKit archivia viste statiche).
+project}`; `--cli metal-bench [--frames N] [--width W --height H]`. Benchmark fuori schermo del 4/10/2026, build Release,
+Apple M2, 60 fotogrammi, 40 progetti e 1.800 stelle: cielo 1440×900 24,9 µs CPU / 0,745 ms GPU medi; 1920×1230
+19,3 µs / 0,633 ms; 3840×2160 25,2 µs / 1,311 ms. Sono costi del renderer, esclusi compositing SwiftUI e pannelli.
+Sfera grande 2,95–3,02 ms GPU, agganciata 0,638 ms. Il widget non usa Metal (WidgetKit archivia viste statiche).
 
 ### 7.7 L'Osservatorio
 
-Finestra nativa (SwiftUI + Metal, Liquid Glass) del Nucleo: il cielo dei progetti in Metal, pannelli di vetro con oggi,
-settimana, "Quando lavori" (superficie Chart3D giorno x ora x minuti), progetti, token per progetto, categorie; modalita'
-"Secondo schermo". Comandi: `osservatorio.open {data?, secondoSchermo?}` -> `{open, hasData, stars}` (senza dati emette
+Finestra nativa (SwiftUI + Metal) del Nucleo: cielo prospettico interattivo, ingresso animato, orbita con trascinamento,
+zoom con scroll/pinch e ripristino della camera. `SkyCamera` proietta la stessa scena per Metal, picking ed etichette;
+`SkyLabelLayout` misura i nomi e scarta le posizioni che intersecano bordi, stelle o altre etichette. Il cielo ha spazio
+proprio, i riepiloghi stanno sotto e l'ispettore scorre a destra (anche i riepiloghi sotto 1080 pt). Mappa ore 7×24 e
+barre con nome/valore separati dal tracciato. «Vista immersiva» allarga il cielo; Esc torna ai pannelli. La richiesta
+`secondoSchermo` continua a spostare la finestra sul monitor esterno. Test geometria: `scripts/test-osservatorio.sh`.
+Comandi: `osservatorio.open {data?, secondoSchermo?}` -> `{open, hasData, stars}` (senza dati emette
 `osservatorio.ready`), `osservatorio.data {data}` (`data` = `{stats, live?, categorie?}` o lo `Stats` da solo),
 `osservatorio.close`; evento `osservatorio.closed`. Ultimi dati in `~/.bottega/nucleo/osservatorio.json` (600).
 Si apre con il comando `bottega.openOsservatorio`, il link `bottega://.../osservatorio`, la voce "Apri l'Osservatorio"
@@ -2521,3 +2526,19 @@ La Home e `stato.json.ore` usano questo riepilogo. `today.you`, `days.you`, peri
 preesistenti restano specifici di Claude; `sourceMetrics` conserva i consumi separati per fonte.
 La cache Codex è per file, dimensione e modifica: i progressi nuovi compaiono al giro successivo
 senza il precedente TTL di due minuti; i file invariati non vengono riletti.
+
+### Companion Apple Watch: consegna e scadenza dello stato
+
+`OrologioTelefono` invia `IstantaneaOrologio` via `updateApplicationContext`, con un
+identificatore `invio` diverso a ogni trasmissione. `CodaOrologio` conserva l'ultimo
+payload non consegnato; a contenuti invariati il refresh avviene dopo 10 minuti.
+Attivazione, installazione/cambio Watch e richiesta manuale forzano il reinvio.
+Una cancellazione pendente ha precedenza al riallineamento. Timestamp precedenti
+sullo stesso Mac non sovrascrivono dati recenti. La data resta quella del Mac,
+anche quando l'iPhone risponde dalla cache.
+
+La complicazione prepara una voce di timeline alla scadenza di 20 minuti dal dato:
+oltre la soglia nasconde i conteggi e indica «Da aggiornare»; senza dati indica
+«Apri su iPhone». Il rettangolo mostra l'ora dell'ultima lettura. Nessuna credenziale
+viene trasferita al Watch. La consegna in background resta soggetta a WatchConnectivity
+e l'aggiornamento del quadrante a WidgetKit.

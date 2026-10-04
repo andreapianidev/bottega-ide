@@ -16,7 +16,7 @@ struct BottegaWatchApp: App {
 
     var body: some Scene {
         WindowGroup {
-            PlanciaWatch(istantanea: collegamento.istantanea, aggiorna: collegamento.aggiorna)
+            PlanciaWatch(istantanea: collegamento.istantanea, aggiorna: collegamento.aggiorna, messaggio: collegamento.messaggio)
                 .onAppear { collegamento.avvia() }
                 .onChange(of: fase) { _, nuova in
                     if nuova == .active { collegamento.aggiorna() }
@@ -28,6 +28,7 @@ struct BottegaWatchApp: App {
 private struct PlanciaWatch: View {
     let istantanea: IstantaneaOrologio?
     let aggiorna: () -> Void
+    var messaggio: String? = nil
     @Environment(\.isLuminanceReduced) private var ridotta
 
     private var numero: Int { istantanea.map { $0.tiAspetta > 0 ? $0.tiAspetta : $0.inCorso } ?? 0 }
@@ -53,8 +54,15 @@ private struct PlanciaWatch: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Aggiorna dal telefono")
+                        .handGestureShortcut(.primaryAction)
                     }
 
+                    if let messaggio {
+                        Text(messaggio)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if let istantanea {
                         VStack(alignment: .leading, spacing: 0) {
                             Text(numero.formatted())

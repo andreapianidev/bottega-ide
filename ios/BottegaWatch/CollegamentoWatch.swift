@@ -7,6 +7,8 @@ final class CollegamentoWatch: NSObject, ObservableObject, WCSessionDelegate {
     static let shared = CollegamentoWatch()
     @Published private(set) var istantanea = IstantaneaOrologio.leggi()
 
+    @Published private(set) var messaggio: String?
+
     func avvia() {
         guard WCSession.isSupported() else { return }
         let sessione = WCSession.default
@@ -17,15 +19,22 @@ final class CollegamentoWatch: NSObject, ObservableObject, WCSessionDelegate {
 
     func aggiorna() {
         let sessione = WCSession.default
-        guard sessione.activationState == .activated else { return }
+        guard sessione.activationState == .activated else { messaggio = "Collegamento in avvio"; return }
         if sessione.isReachable {
+            messaggio = "Aggiornamento…"
             sessione.sendMessage(["aggiorna": true], replyHandler: { [weak self] risposta in
                 Task { @MainActor in self?.ricevi(risposta) }
-            }, errorHandler: { _ in })
+            }, errorHandler: { [weak self] _ in
+                Task { @MainActor in self?.messaggio = "iPhone non raggiungibile. Riprova." }
+            })
+        } else {
+            messaggio = "Apri Bottega su iPhone per aggiornare."
         }
     }
 
     private func ricevi(_ messaggio: [String: Any]) {
+        guard !messaggio.isEmpty else { return }
+        self.messaggio = nil
         if messaggio["dimentica"] as? Bool == true {
             istantanea = nil
             IstantaneaOrologio.dimentica()
@@ -34,7 +43,7 @@ final class CollegamentoWatch: NSObject, ObservableObject, WCSessionDelegate {
         }
         guard let dati = messaggio["istantanea"] as? Data,
               let nuova = try? JSONDecoder().decode(IstantaneaOrologio.self, from: dati),
-              istantanea.map({ nuova.visto >= $0.visto }) ?? true else { return }
+              istantanea.map({ nuova.mac != $0.mac || nuova.visto >= $0.visto }) ?? true else { return }
         istantanea = nuova
         nuova.salva()
         WidgetCenter.shared.reloadTimelines(ofKind: "BottegaWatch")

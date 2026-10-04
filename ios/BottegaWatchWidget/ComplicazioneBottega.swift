@@ -13,12 +13,16 @@ private struct Fornitore: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (Voce) -> Void) {
-        completion(Voce(date: .now, istantanea: IstantaneaOrologio.leggi()))
+        completion(context.isPreview ? placeholder(in: context) : Voce(date: .now, istantanea: IstantaneaOrologio.leggi()))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<Voce>) -> Void) {
         let voce = Voce(date: .now, istantanea: IstantaneaOrologio.leggi())
-        completion(Timeline(entries: [voce], policy: .after(.now.addingTimeInterval(30 * 60))))
+        var voci = [voce]
+        if let scadenza = voce.istantanea?.scadenza, scadenza > voce.date {
+            voci.append(Voce(date: scadenza, istantanea: voce.istantanea))
+        }
+        completion(Timeline(entries: voci, policy: .after(voce.date.addingTimeInterval(30 * 60))))
     }
 }
 
@@ -30,50 +34,60 @@ private struct Faccia: View {
     private var attive: Int { voce.istantanea?.inCorso ?? 0 }
     private var numero: Int { attesa > 0 ? attesa : attive }
 
+    private var valida: Bool { voce.istantanea.map { !$0.scaduta(al: voce.date) } ?? false }
+    private var cifra: String { valida ? numero.formatted() : "—" }
+    private var etichetta: String {
+        voce.istantanea == nil ? "Apri su iPhone" : !valida ? "Da aggiornare" : attesa > 0 ? "In attesa" : "In corso"
+    }
+
     var body: some View {
         Group {
             switch famiglia {
             case .accessoryCircular:
                 VStack(spacing: 0) {
-                    Image(systemName: attesa > 0 ? "hourglass" : "hammer.fill")
+                    Image(systemName: !valida ? "clock.arrow.circlepath" : attesa > 0 ? "hourglass" : "hammer.fill")
                         .font(.system(size: 10, weight: .bold))
                         .widgetAccentable()
-                    Text(numero.formatted())
+                    Text(cifra)
                         .font(.system(size: 25, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .minimumScaleFactor(0.7)
                 }
             case .accessoryRectangular:
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("BOTTEGA")
+                    Text("Bottega")
                         .font(.system(size: 10, weight: .bold, design: .rounded))
                         .tracking(1)
                         .widgetAccentable()
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(numero.formatted())
+                        Text(cifra)
                             .font(.system(size: 27, weight: .bold, design: .rounded))
                             .monospacedDigit()
-                        Text(attesa > 0 ? "in attesa" : "in corso")
+                        Text(etichetta)
                             .font(.system(size: 11, weight: .semibold))
                     }
-                    Text(voce.istantanea == nil ? "Apri su iPhone" : "\(attive) in corso · \(attesa) in attesa")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    if let istantanea = voce.istantanea {
+                        HStack(spacing: 3) {
+                            Text("Ultimo dato")
+                            Text(istantanea.visto, style: .time)
+                        }
+                        .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             case .accessoryInline:
-                Label("Bottega: \(numero) \(attesa > 0 ? "in attesa" : "in corso")", systemImage: "hammer.fill")
+                Label(valida ? "Bottega: \(numero) \(etichetta.lowercased())" : "Bottega: \(etichetta.lowercased())", systemImage: "hammer.fill")
             case .accessoryCorner:
-                Text(numero.formatted())
+                Text(cifra)
                     .font(.system(size: 24, weight: .bold, design: .rounded))
                     .widgetAccentable()
-                    .widgetLabel { Text(attesa > 0 ? "In attesa" : "In corso") }
+                    .widgetLabel { Text(etichetta) }
             default:
-                Text(numero.formatted())
+                Text(cifra)
             }
         }
         .containerBackground(.black, for: .widget)
+        .accessibilityLabel(valida ? "\(numero) \(etichetta.lowercased())" : etichetta)
     }
 }
 

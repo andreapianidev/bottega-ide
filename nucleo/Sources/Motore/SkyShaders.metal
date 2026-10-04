@@ -38,6 +38,7 @@ struct Uniforms {
     float4 line;
     float4 reticle;
     float4 live;
+    float4 camera;    // orbit yaw, pitch, zoom; entrance time
 };
 
 struct Instance {
@@ -150,11 +151,14 @@ fragment float4 sky_background_fragment(SkyFSOut in [[stage_in]],
     float lanes = smoothstep(0.48, 0.78, fbm(float2(along * 5.5, across * 15.0) + 11.0))
                 * exp(-(across * across) / (0.045 * 0.045));
     float mw = band * (0.30 + 0.70 * clouds * clouds) * (1.0 - 0.75 * lanes) * smoothstep(0.02, 0.22, h);
-    col += u.milky.rgb * mw * 0.10;
+    // Cold interstellar dust against the sodium lights of La Palma.
+    float3 cloudTint = mix(float3(0.035, 0.12, 0.24), float3(0.16, 0.12, 0.26), clouds);
+    col += cloudTint * mw * 0.42;
+    col += float3(0.015, 0.065, 0.09) * exp(-length(q * float2(0.8, 1.8)) * 3.0);
     // its grain: a dust of sub-pixel stars, denser in the band (static: it is cached)
     float2 cell = floor(uv * u.view.xy / 2.0);
     float g = hash21(cell + 7.0);
-    if (g > 1.0 - (0.004 + 0.05 * mw)) {
+    if (g > 1.0 - (0.001 + 0.012 * mw)) {
         col += u.milky.rgb * (0.05 + 0.12 * hash21(cell + 19.0)) * smoothstep(0.0, 0.1, h);
     }
 
@@ -191,9 +195,36 @@ fragment float4 sky_background_fragment(SkyFSOut in [[stage_in]],
 }
 
 fragment float4 sky_copy_fragment(SkyFSOut in [[stage_in]],
-                                  texture2d<float, access::read> bg [[texture(0)]]) {
+                                  texture2d<float, access::read> bg [[texture(0)]],
+                                  constant Uniforms& u [[buffer(0)]]) {
     uint2 xy = uint2(clamp(in.pos.xy, float2(0.0), float2(bg.get_width() - 1, bg.get_height() - 1)));
-    return bg.read(xy);
+    float3 color = bg.read(xy).rgb;
+    float entrance = u.state.z > 0.5 ? 1.0 : smoothstep(0.0, 2.4, u.camera.w);
+    // The celestial reference rings are ray/plane intersections, with camera parallax.
+    float2 p = (in.uv - float2(0.5, 0.49)) * float2(u.focus.w, 1.0);
+    float3 ray = normalize(float3(p, 1.65));
+    float3 normal = normalize(float3(0.12 + sin(u.camera.x) * 0.3, 0.84, 0.5 + u.camera.y * 0.3));
+    float denom = dot(ray, normal);
+    if (denom > 0.1) {
+        float3 point = float3(0, 0, -2.7) + ray * (1.35 / denom);
+        float radius = length(point);
+        float aa = max(fwidth(radius), 0.001);
+        float rings = 0.0;
+        for (int i = 0; i < 3; ++i) {
+            float target = (0.88 + float(i) * 0.27) * u.camera.z;
+            rings += 1.0 - smoothstep(aa * 0.35, aa * 1.5, abs(radius - target));
+        }
+        float angle = atan2(point.x, point.z);
+        float dash = smoothstep(-0.8, -0.2, sin(angle * 80.0));
+        float fade = exp(-dot(p,p) * 2.3) * smoothstep(0.94, 0.7, in.uv.y);
+        color += u.line.rgb * rings * (0.016 + 0.018 * dash) * fade * entrance;
+    }
+    // One expanding light front when the observatory opens, then no perpetual sweep.
+    if (u.state.z < 0.5 && u.camera.w < 2.8) {
+        float wave = exp(-pow((length(p) - u.camera.w * 0.37) / 0.065, 2.0));
+        color += u.reticle.rgb * wave * (1.0 - entrance) * 0.1;
+    }
+    return float4(color * (0.45 + 0.55 * entrance), 1.0);
 }
 
 // MARK: - Constellations
@@ -227,7 +258,9 @@ vertex SkyLineOut sky_line_vertex(uint vid [[vertex_id]], uint iid [[instance_id
     float sel = u.focus.x, hov = u.focus.y;
     bool lit = (sel >= 0.0 && (abs(l.style.z - sel) < 0.5 || abs(l.style.w - sel) < 0.5))
             || (hov >= 0.0 && (abs(l.style.z - hov) < 0.5 || abs(l.style.w - hov) < 0.5));
-    if (lit) alpha = min(1.0, alpha * 2.4);
+    if (lit) alpha = min(1.0, alpha * 3.0);
+    else if (sel >= 0.0 || hov >= 0.0) alpha *= 0.24;
+    alpha *= u.state.z > 0.5 ? 1.0 : smoothstep(0.45, 1.9, u.camera.w);
 
     SkyLineOut o;
     o.pos = float4(pp.x / u.view.x * 2.0 - 1.0, 1.0 - pp.y / u.view.y * 2.0, 0.0, 1.0);
@@ -274,7 +307,16 @@ vertex SkyStarOut sky_star_vertex(uint vid [[vertex_id]], uint iid [[instance_id
     const float2 k[4] = { float2(-1.0, -1.0), float2(1.0, -1.0), float2(-1.0, 1.0), float2(1.0, 1.0) };
     Instance s = inst[iid];
     float2 n = s.a.xy;
-    if (s.a.w > 0.5) n = u.field.xy + n * u.field.zw;
+    if (s.a.w > 0.5) {
+        n = u.field.xy + n * u.field.zw;
+    } else {
+        // Background stars occupy different depth layers. The opening is a camera dolly.
+        float depth = 0.25 + fract(s.b.y * 1.73) * 0.75;
+        float arrival = u.state.z > 0.5 ? 1.0 : smoothstep(0.0, 2.4, u.camera.w);
+        float dolly = 1.0 + (1.0 - arrival) * depth * 1.8;
+        n = (n - 0.5) * dolly + 0.5;
+        n += float2(sin(u.camera.x), sin(u.camera.y)) * depth * 0.065;
+    }
     float2 center = n * u.view.xy;
     float ext = s.c.w;
     float2 kv = k[vid];
@@ -317,7 +359,7 @@ fragment float4 sky_star_fragment(SkyStarOut in [[stage_in]],
     // pulse: brighter for ~6 s (with Reduce motion the same glow, held still)
     float boost = 1.0 + 1.3 * pulse;
     // another star is in focus: this one steps back a little
-    float dim = (u.focus.y >= 0.0 && !hovered && !selected) ? 0.62 : 1.0;
+    float dim = ((u.focus.y >= 0.0 || u.focus.x >= 0.0) && !hovered && !selected) ? 0.52 : 1.0;
 
     if (in.c.y > 0.5) {
         // "fuori dai progetti": a hollow ring, no glow
@@ -325,6 +367,16 @@ fragment float4 sky_star_fragment(SkyStarOut in [[stage_in]],
         rgb += in.col.rgb * ring * dim;
     } else {
         float core = exp(-(r * r) / pow(0.32 * s, 2.0));
+        // A shaded stellar photosphere: spherical normal, hot surface and limb falloff.
+        float2 sphereP = p / (s * 0.64);
+        float disc = dot(sphereP, sphereP);
+        if (disc < 1.0) {
+            float3 normal = float3(sphereP, sqrt(1.0 - disc));
+            float light = 0.28 + 0.72 * max(0.0, dot(normal, normalize(float3(-0.4, -0.55, 1.0))));
+            float surface = 0.92 + 0.08 * sin(normal.x * 23.0 + time * 0.2) * sin(normal.y * 19.0);
+            rgb += mix(in.col.rgb, float3(1.0, 0.91, 0.72), light * 0.65)
+                * light * surface * br * dim * (1.0 - smoothstep(0.85, 1.0, disc));
+        }
         float glow = exp(-(r * r) / pow(1.15 * s, 2.0)) * 0.55;
         float halo = exp(-r / (2.4 * s)) * 0.09 * (0.5 + br);
         float spikes = 0.0;
@@ -368,5 +420,8 @@ fragment float4 sky_star_fragment(SkyStarOut in [[stage_in]],
         float a = 1.0 - smoothstep(0.35, 1.0, d);
         rgb += u.reticle.rgb * a * (selected ? 0.95 : 0.55);
     }
-    return float4(rgb, 0.0);
+    // Fade the analytic halo to zero INSIDE the quad. No visible square boundaries.
+    float edgeFade = 1.0 - smoothstep(in.c.w * 0.58, in.c.w * 0.96, r);
+    float reveal = still ? 1.0 : smoothstep(0.15, 1.5, u.camera.w);
+    return float4(rgb * edgeFade * reveal, 0.0);
 }

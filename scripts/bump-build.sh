@@ -5,9 +5,15 @@
 set -euo pipefail
 ROOT=${0:A:h:h}
 python3 - "$ROOT/bottega.json" "${1:-}" <<'PY'
-import json, sys
+import json, re, sys
+from pathlib import Path
 p, v = sys.argv[1], sys.argv[2]
-d = json.load(open(p)); d["build"] += 1
+d = json.load(open(p))
+# Un hotfix mobile può essere più avanti del Mac: il prossimo rilascio non deve
+# mai abbassare CFBundleVersion su una delle piattaforme.
+mobile = Path(p).parent / "ios/Version.xcconfig"
+match = re.search(r"^CURRENT_PROJECT_VERSION\s*=\s*(\d+)\s*$", mobile.read_text(), re.MULTILINE) if mobile.exists() else None
+d["build"] = max(d["build"], int(match.group(1)) if match else 0) + 1
 if v: d["version"] = v
 for e in ("extensions/bottega-home/package.json", "extensions/bottega-theme/package.json"):
     q = p.rsplit("/", 1)[0] + "/" + e; x = json.load(open(q)); x["version"] = d["version"]

@@ -37,9 +37,10 @@ export function certificatoPonte(dir: string, nome: string, ip: string, ora = Da
 		const key = fs.readFileSync(fk);
 		const cert = fs.readFileSync(fc);
 		const x = new crypto.X509Certificate(cert);
-		const san = x.subjectAltName ?? '';
+		const nomeValido = x.checkHost(nome, { subject: 'never', wildcards: false }) !== undefined;
+		const ipValido = !ip || x.checkIP(ip) !== undefined;
 		const ancora = Date.parse(x.validTo) - ora > RINNOVO_MS;
-		if (ancora && san.includes(`DNS:${nome}`) && (!ip || san.includes(`IP Address:${ip}`)) && x.checkPrivateKey(crypto.createPrivateKey(key))) {
+		if (ancora && Date.parse(x.validFrom) <= ora && nomeValido && ipValido && x.checkPrivateKey(crypto.createPrivateKey(key))) {
 			// deve caricarsi davvero nel TLS di chi gira (nella Bottega e' Electron, con BoringSSL)
 			tls.createSecureContext({ key, cert });
 			return { key, cert, impronta: improntaDi(cert) };
