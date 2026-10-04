@@ -58,6 +58,13 @@ const listText = items =>
 		: 'Niente in memoria.';
 
 async function main() {
+	if (['recent', 'recenti', 'search', 'cerca', 'grafici', 'context', 'contesto', 'sessione', 'bacheca', 'import-all'].includes(cmd)) {
+		const { syncSources } = await import('./lib/fonti.mjs');
+		const result = syncSources();
+		const { ingest } = await import('./lib/core.mjs');
+		const spool = ingest();
+		if (cmd === 'import-all') return print({ ...result, spool });
+	}
 	switch (cmd) {
 		case 'worker': {
 			const { runWorker } = await import('./lib/core.mjs');
@@ -77,8 +84,6 @@ async function main() {
 		case 'cerca': {
 			const { search, ingest } = await import('./lib/core.mjs');
 			ingest();
-			const { importCodex } = await import('./lib/codex.mjs');
-			importCodex();
 			const q = pos.join(' ').trim();
 			if (!q) throw new Error('scrivi cosa cercare');
 			return print(search(q, { progetto, limite: num(flags.limite, 10) }), listText);
@@ -94,8 +99,6 @@ async function main() {
 			const { openStore } = await import('./lib/store.mjs');
 			const { ingest } = await import('./lib/core.mjs');
 			ingest();
-			const { importCodex } = await import('./lib/codex.mjs');
-			importCodex();
 			const kinds = typeof flags.tipo === 'string' ? flags.tipo.split(',') : undefined;
 			return print(openStore().recent({ progetto, limite: num(flags.limite, 10), ...(kinds ? { kinds } : {}) }), listText);
 		}

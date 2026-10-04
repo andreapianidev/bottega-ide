@@ -884,10 +884,16 @@
 	const STATUS = { busy: 'al lavoro', idle: 'ti aspetta', shell: 'nel terminale' };
 	const KIND = { apple: 'Apple', web: 'Web', android: 'Android', python: 'Python', swiftpm: 'Swift package', docs: 'Documenti', altro: 'Altro' };
 
+	function projectActivities(p) {
+		const all = activityList();
+		if (all === null) return null;
+		return all.filter(a => a.path === p.path || (p.worktrees || []).some(w => w.path === a.path));
+	}
+
 	const FILTERS = [
 		['tutti', 'Tutti', () => true],
 		['regole', 'Regole', p => !!ruleLevel(p.path)],
-		['claude', 'Claude oggi', p => p.live.length > 0 || (p.sessions[0] && Date.now() - p.sessions[0].mtime < day)],
+		['claude', 'Attività oggi', p => projectActivities(p) !== null ? projectActivities(p).some(a => Date.now() - a.updatedAt < day) : p.live.length > 0 || (p.sessions[0] && Date.now() - p.sessions[0].mtime < day)],
 		['push', 'Da spingere', p => p.git && (p.git.ahead > 0 || !p.git.upstream)],
 		['dirty', 'Con modifiche', p => p.git && p.git.changes > 0],
 		['apple', 'Apple', p => p.kinds.includes('apple') || p.kinds.includes('swiftpm')],
@@ -966,7 +972,8 @@
 	}
 
 	function mark(p) {
-		if (p.live.length) return ['live', 'Claude sta lavorando qui'];
+		const observed = projectActivities(p);
+		if (observed ? observed.some(a => a.status === 'in corso' || a.status === 'ti aspetta') : p.live.length) return ['live', 'Attività in corso o in attesa qui'];
 		if (!p.git) return ['none', 'Non è un repository git'];
 		if (p.git.ahead > 0 || !p.git.upstream) return ['push', 'Commit da spingere'];
 		if (p.git.changes > 0) return ['dirty', 'Modifiche fuori da un commit'];
@@ -1011,7 +1018,8 @@
 			btn('finder', 'Mostra nel Finder'),
 			p.git && p.git.ahead > 0 && p.git.upstream ? btn('push', `Spingi ${p.git.ahead} commit`) : '',
 		].join('');
-		const hist = p.sessions.length
+		const observed = projectActivities(p);
+		const hist = observed !== null ? (observed.length ? `<ol>${observed.slice(0, 6).map(a => `<li><span class="t">${esc(a.source)}: ${esc(a.title)} · ${esc(a.status)}</span><span class="w">${esc(ago(a.updatedAt))}</span></li>`).join('')}</ol>` : '<p class="w">Nessuna attività osservata per questo progetto.</p>') : p.sessions.length
 			? `<ol>${p.sessions
 					.slice(0, 6)
 					.map(
@@ -1023,7 +1031,7 @@
 		return `<div class="detail" ${state.open.has(p.path) ? '' : 'hidden'}>
 			${hitsHTML(p)}
 			<div><dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl><div class="actions">${actions}</div></div>
-			<div class="history"><h3>Sessioni Claude</h3>${hist}</div>
+			<div class="history"><h3>${observed !== null ? 'Attività osservate' : 'Sessioni Claude'}</h3>${hist}</div>
 			${worktreesHTML(p)}
 		</div>`;
 	}
@@ -1106,7 +1114,8 @@
 	function rowHTML(p) {
 		const [cls, label] = mark(p);
 		const last = p.sessions[0];
-		const what = (p.live[0] && p.live[0].title) || (last && last.title) || (p.git && p.git.lastCommitSubject) || '';
+		const observed = projectActivities(p);
+		const what = observed !== null ? (observed[0]?.title || (p.git && p.git.lastCommitSubject) || '') : (p.live[0] && p.live[0].title) || (last && last.title) || (p.git && p.git.lastCommitSubject) || '';
 		const isOpen = state.open.has(p.path);
 		return `<li class="row" data-row="${esc(p.path)}">
 			<button type="button" data-act="toggle" data-path="${esc(p.path)}" data-fk="row:${esc(p.path)}" aria-expanded="${isOpen}">
@@ -1115,7 +1124,7 @@
 				<span class="what">${esc(what)}</span>
 				<span class="git">${gitCell(p)}</span>
 				<span class="build">${buildCell(p)}</span>
-				<span class="when">${esc(ago(p.touchedAt))}</span>
+				<span class="when">${esc(ago(Math.max(p.touchedAt || 0, ...(observed || []).map(a => a.updatedAt))))}</span>
 			</button>
 			${detail(p)}
 		</li>`;
@@ -1981,7 +1990,7 @@
 				const when = it.createdAt ? `${dayLabel(it.createdAt)}, ${clock(it.createdAt)}` : '';
 				const sess = it.sessionId ? `sessione ${String(it.sessionId).slice(0, 8)}` : '';
 				const resume =
-					it.sessionId && it.projectPath && !String(it.sessionId).startsWith('codex:')
+					it.sessionId && it.projectPath && !/^(codex|cline|melissa|terminale):/.test(String(it.sessionId))
 						? `<button type="button" class="link" data-act="resume" data-path="${esc(it.projectPath)}" data-id="${esc(it.sessionId)}" data-fk="ric-resume:${esc(it.sessionId)}:${i}">Riprendi la sessione</button>`
 						: '';
 				return `<li class="ric-voce">
@@ -2087,21 +2096,21 @@
 				: `Gli ultimi ${c === 1 ? 'ricordo' : `${n(c)} ricordi`}${where}.`;
 		}
 		setHTML($('frase-memoria'), head);
-		$('mem-aggiornamento').textContent = m.error || (m.checkedAt ? `Controllata alle ${new Date(m.checkedAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}. Ricordi di Claude Code e conversazioni Codex; gli orari sotto sono quelli originali.` : '');
+		$('mem-aggiornamento').textContent = m.error || (m.checkedAt ? `Controllata alle ${new Date(m.checkedAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}. Claude Code, Codex, Cline, Melissa e terminali integrati; gli orari sotto sono quelli originali.` : '');
 
 		const box = $('mem-risultati');
 		box.classList.toggle('in-attesa', m.waiting);
 		if (m.results === null) {
 			setHTML(
 				box,
-				`<p class="invito">La memoria raccoglie riassunti, decisioni e fatti di Claude Code, richieste e risposte concluse di Codex. Cerca una parola qui sopra, o scrivi accanto una cosa da ricordare.</p>`,
+				`<p class="invito">La memoria raccoglie riassunti, decisioni e fatti di Claude Code, conversazioni Codex e Cline, scambi con Melissa ed esiti dei terminali integrati. Cerca una parola qui sopra, o scrivi accanto una cosa da ricordare.</p>`,
 			);
 		} else if (!m.results.length) {
 			setHTML(
 				box,
 				q
 					? `<p class="invito">Prova con parole diverse${m.sent && m.sent.project ? ', o cerca in tutti i progetti' : ''}. La ricerca guarda titoli e testi, non il codice.</p>`
-					: `<p class="invito">I ricordi di Claude Code e le conversazioni Codex si aggiornano automaticamente. Intanto puoi scriverne uno qui accanto.</p>`,
+					: `<p class="invito">I ricordi delle fonti integrate si aggiornano automaticamente. Intanto puoi scriverne uno qui accanto.</p>`,
 			);
 		} else {
 			setHTML(box, timelineHTML(m.results, q));

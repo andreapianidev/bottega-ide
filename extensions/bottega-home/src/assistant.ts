@@ -142,6 +142,7 @@ export interface NucleoLike {
 }
 
 export interface AssistantDeps {
+	onMemory?(row: { role: 'tu' | 'melissa'; text: string; at: number; restored?: boolean }): void;
 	nucleo: NucleoLike;
 	actions: AssistantActions;
 	liveSessions(): LiveSession[];
@@ -312,7 +313,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		},
 	},
 	progetto_stato: {
-		spec: { type: 'function', function: { name: 'progetto_stato', description: 'Stato di un progetto: git, numero di build, ultime sessioni di Claude.', parameters: obj({ progetto: { type: 'string' } }, ['progetto']) } },
+		spec: { type: 'function', function: { name: 'progetto_stato', description: 'Stato di un progetto: git, numero di build, attività osservate di tutte le fonti.', parameters: obj({ progetto: { type: 'string' } }, ['progetto']) } },
 		run(a, ctx) {
 			const p = ctx.deps.actions.resolveProject(a.progetto);
 			if (!p) return `Non trovo il progetto "${a.progetto}".`;
@@ -681,7 +682,9 @@ export class Assistant {
 		this.emit();
 	}
 	private pushLog(role: 'tu' | 'melissa' | 'azione', text: string): void {
-		this.state.log.push({ role, text, at: Date.now() });
+		const row = { role, text, at: Date.now() };
+		this.state.log.push(row);
+		if (role !== 'azione') this.deps.onMemory?.({ ...row, role });
 		if (this.state.log.length > 30) this.state.log = this.state.log.slice(-30);
 		const store = this.registro;
 		if (store) {
@@ -773,6 +776,7 @@ export class Assistant {
 			this.history = this.state.log.filter(r => r.role === 'tu' || r.role === 'melissa')
 				.map(r => ({ role: r.role === 'tu' ? 'user' as const : 'assistant' as const, content: r.text }));
 			this.trimHistory();
+			for (const row of this.state.log) if (row.role !== 'azione') this.deps.onMemory?.({ ...row, role: row.role, restored: true });
 		}
 		this.statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 900);
 		this.statusBar.command = 'bottega.voice.converse';
@@ -1602,7 +1606,7 @@ export class Assistant {
 			// il codice davanti ad Andrea: una riga, e come spiegarlo solo quando c'e' un file aperto
 			...(codice ? [codice, CODICE_RULE] : []),
 			`Adesso e\' ${nowLine()} (fuso ${TZ}).`,
-			`Andrea ha ${this.deps.projectCount()} progetti. Sessioni di Claude vive: ${liveLine}. Lavori: ${jobLine}. Sistema: ${pressure}.`,
+			`Andrea ha ${this.deps.projectCount()} progetti. ${this.deps.actions.activityList ? this.deps.actions.activityList(undefined, undefined, 'attive') : `Sessioni di Claude vive: ${liveLine}. Lavori: ${jobLine}.`} Sistema: ${pressure}.`,
 			'Per le azioni a rischio (git push, fermare un lavoro) chiedi sempre "confermi?" e aspetta un si esplicito: il tool stesso te lo ricorda.',
 		].join('\n\n');
 	}

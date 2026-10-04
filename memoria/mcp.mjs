@@ -14,7 +14,7 @@ const TOOLS = [
 	{
 		name: 'memoria_cerca',
 		description:
-			"Cerca nella memoria delle sessioni Claude Code passate: riassunti, decisioni, fatti, note e richieste. Usalo prima di rifare un lavoro, quando l'utente cita qualcosa fatto in passato o quando ti serve sapere perche' una scelta e' stata presa.",
+			"Cerca nella memoria delle sessioni Claude Code, Codex, Cline e attività integrate passate: riassunti, decisioni, fatti, note e richieste. Usalo prima di rifare un lavoro, quando l'utente cita qualcosa fatto in passato o quando ti serve sapere perche' una scelta e' stata presa.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -50,7 +50,7 @@ const TOOLS = [
 	},
 	{
 		name: 'memoria_sessione',
-		description: 'Dettaglio di una sessione passata: riassunto, decisioni, fatti e le ultime richieste e azioni registrate. Accetta anche i primi 8 caratteri dell\'id.',
+		description: 'Dettaglio di una sessione passata: riassunto, decisioni, fatti e le ultime richieste e azioni registrate. Per Claude accetta anche i primi 8 caratteri dell\'id; per le altre fonti usa l\'id completo con prefisso.',
 		inputSchema: {
 			type: 'object',
 			properties: { sessionId: { type: 'string', description: 'Id della sessione (o il suo inizio).' } },
@@ -60,7 +60,7 @@ const TOOLS = [
 	{
 		name: 'memoria_bacheca',
 		description:
-			"Cosa stanno facendo adesso le altre sessioni Claude Code sul Mac: richieste, file modificati, comandi lanciati, per progetto. Usalo quando l'utente chiede cosa fanno le altre sessioni o prima di toccare file che un'altra sessione potrebbe avere in mano.",
+			"Cosa stanno facendo adesso le sessioni e funzioni integrate sul Mac: richieste, file modificati, comandi lanciati, per progetto. Usalo quando l'utente chiede cosa fanno le altre sessioni o prima di toccare file che un'altra sessione potrebbe avere in mano.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -72,8 +72,9 @@ const TOOLS = [
 ];
 
 const fmt = ts => new Date(ts).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const sessionLabel = id => /^(?:codex|cline|terminale|melissa):/.test(id) ? id : id.slice(0, 8);
 const itemText = m =>
-	`#${m.id} [${m.kind}] ${m.project}, ${fmt(m.createdAt)}${m.sessionId ? `, sessione ${m.sessionId.slice(0, 8)}` : ''}${m.score !== undefined ? `, punteggio ${m.score}` : ''}\n${m.text.startsWith(m.title.replace(/\u2026$/, '')) ? '' : m.title + '\n'}${m.text}`;
+	`#${m.id} [${m.kind}] ${m.project}, ${fmt(m.createdAt)}${m.sessionId ? `, sessione ${sessionLabel(m.sessionId)}` : ''}${m.score !== undefined ? `, punteggio ${m.score}` : ''}\n${m.text.startsWith(m.title.replace(/\u2026$/, '')) ? '' : m.title + '\n'}${m.text}`;
 
 function call(name, a = {}) {
 	const store = openStore();
@@ -104,7 +105,7 @@ function call(name, a = {}) {
 				`Progetto: ${s.project || 'home'}${s.cwd ? `, cartella ${s.cwd}` : ''}`,
 				s.title ? `Titolo: ${s.title}` : '',
 				`Periodo: ${s.startedAt ? fmt(s.startedAt) : '?'} - ${s.lastActivity ? fmt(s.lastActivity) : '?'}`,
-				`Richieste: ${s.prompts}, strumenti: ${s.tools}${s.engine ? `, riassunta con ${s.engine}` : ''}`,
+				typeof s.prompts === 'number' ? `Richieste: ${s.prompts}, strumenti: ${s.tools}${s.engine ? `, riassunta con ${s.engine}` : ''}` : '',
 			].filter(Boolean);
 			const mem = d.memories.filter(m => m.kind !== 'prompt').map(m => `[${m.kind}] ${m.text}`);
 			const obs = d.observations.map(o => `${fmt(o.at)} ${o.kind === 'prompt' ? `richiesta: ${clip(o.input, 200)}` : `${o.tool} ${clip((o.files || '').split('\n')[0] || o.input, 140)}`}`);
@@ -122,7 +123,7 @@ function call(name, a = {}) {
 			return [...per]
 				.map(([k, es]) => {
 					const [project, sid] = k.split(' | ');
-					return `${project}, sessione ${sid.slice(0, 8)}${sid === me ? ' (questa)' : ''}:\n${es
+					return `${project}, sessione ${sessionLabel(sid)}${sid === me ? ' (questa)' : ''}:\n${es
 						.slice(-12)
 						.map(e => `  ${new Date(e.at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })} ${e.summary}`)
 						.join('\n')}`;
@@ -150,7 +151,7 @@ async function handle(msg) {
 					capabilities: { tools: { listChanged: false } },
 					serverInfo: { name: 'bottega-memoria', title: 'Memoria della Bottega', version: '1.0.0' },
 					instructions:
-						"Memoria persistente delle sessioni Claude Code di questo Mac. Usa memoria_cerca prima di rifare un lavoro gia' fatto, memoria_ricorda per le decisioni da tenere, memoria_bacheca per sapere cosa fanno le altre sessioni aperte adesso.",
+						"Memoria persistente di Claude Code, Codex, Cline, Melissa e terminali integrati di questo Mac. Usa memoria_cerca prima di rifare un lavoro gia' fatto, memoria_ricorda per le decisioni da tenere, memoria_bacheca per sapere cosa fanno le altre sessioni aperte adesso.",
 				};
 				break;
 			case 'ping':
@@ -160,6 +161,8 @@ async function handle(msg) {
 				result = { tools: TOOLS };
 				break;
 			case 'tools/call': {
+				const { syncSources } = await import('./lib/fonti.mjs');
+				syncSources();
 				const name = params?.name;
 				if (!TOOLS.some(t => t.name === name)) throw Object.assign(new Error(`strumento sconosciuto: ${name}`), { code: -32602 });
 				try {

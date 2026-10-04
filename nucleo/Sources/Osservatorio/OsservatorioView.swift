@@ -162,7 +162,7 @@ struct OsservatorioView: View {
                         VStack(alignment: .leading, spacing: 5) {
                             Text("Il tuo universo")
                                 .font(.titolo(25)).foregroundStyle(Tinta.testo)
-                            Text("Ogni stella, un progetto. Ogni legame, tempo condiviso.")
+                            Text("Progetti di tutte le fonti. Ore, consumi e legami misurati da Claude Code.")
                                 .font(.system(size: 11)).foregroundStyle(Tinta.seconda)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -177,7 +177,7 @@ struct OsservatorioView: View {
                         Spacer(minLength: 0)
                         if model.pannelli.vive > 0 {
                             Circle().fill(Tinta.sodio).frame(width: 5, height: 5)
-                            Text("\(model.pannelli.vive) al lavoro").foregroundStyle(Tinta.sodio)
+                            Text("\(model.pannelli.vive) attive").foregroundStyle(Tinta.sodio)
                         }
                     }
                     .font(.system(size: 10.5))
@@ -522,12 +522,12 @@ private struct ProgettiPanel: View {
                     .foregroundStyle(Tinta.testo)
                     .lineLimit(1)
                 if p.live > 0 || (star?.live ?? false) {
-                    Text("al lavoro")
+                    Text("attivo")
                         .font(.system(size: 10.5))
                         .foregroundStyle(Tinta.sodio)
                 }
                 Spacer(minLength: 6)
-                Text(Fmt.hm(p.you))
+                Text(p.observedOnly ? "Ore non disponibili" : Fmt.hm(p.you))
                     .font(.system(size: 11.5).monospacedDigit())
                     .foregroundStyle(Tinta.seconda)
             }
@@ -556,7 +556,7 @@ private struct Selezionata: View {
                 .font(.titolo(18))
                 .foregroundStyle(Tinta.testo)
             if let p = project {
-                Text("\(Fmt.hm(p.you)) tue, \(Fmt.hm(p.claude)) di Claude, \(Fmt.tk(p.tok)) token.")
+                Text(p.observedOnly ? "Attività osservata. Durata e consumi per progetto non disponibili." : "Claude Code: \(Fmt.hm(p.you)) osservate, \(Fmt.hm(p.claude)) sommate, \(Fmt.tk(p.tok)) token.")
                     .font(.system(size: 12))
                     .foregroundStyle(Tinta.testo.opacity(0.9))
                     .fixedSize(horizontal: false, vertical: true)

@@ -309,8 +309,8 @@ export function summarizeObservedActivity(activity: readonly AgentActivity[], no
 
 type MetricSource = 'codex' | 'cline';
 interface MetricDay { tokens: number; cost: number; minutes: number; files: Set<string> }
-interface MetricScan { spans: number[]; days: Map<string, MetricDay>; files: number; skipped: number; hasTokens: boolean; hasCost: boolean; hasMinutes: boolean }
-const metricScan = (): MetricScan => ({ spans: [], days: new Map(), files: 0, skipped: 0, hasTokens: false, hasCost: false, hasMinutes: false });
+interface MetricScan { projects: Map<string | null, number[]>; spans: number[]; days: Map<string, MetricDay>; files: number; skipped: number; hasTokens: boolean; hasCost: boolean; hasMinutes: boolean }
+const metricScan = (): MetricScan => ({ projects: new Map(), spans: [], days: new Map(), files: 0, skipped: 0, hasTokens: false, hasCost: false, hasMinutes: false });
 const nonnegative = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 const metricTime = (value: unknown): number | null => {
 	const t = typeof value === 'number' ? value : typeof value === 'string' ? Date.parse(value) : NaN;
@@ -362,17 +362,22 @@ async function scanCodexMetrics(root: string, cutoff: number, now: number, cache
 			part.files = 1;
 			let input = 0, output = 0, nextEvent = Infinity;
 			let turnStart: number | null = null, lastProgress: number | null = null;
+			let cwd: string | null = null;
 			// Un turno aperto vale solo fino all'ultimo progresso scritto. Le pause oltre
 			// 15 minuti spezzano gli intervalli e un registro morto non cresce da solo.
 			const progress = (at: number) => {
 				if (turnStart === null || lastProgress === null || at < lastProgress) return;
-				if (at - lastProgress <= GAP && at > lastProgress) part.spans.push(lastProgress, at);
+				if (at - lastProgress <= GAP && at > lastProgress) {
+					part.spans.push(lastProgress, at);
+					const spans = part.projects.get(cwd) || [];
+					spans.push(lastProgress, at); part.projects.set(cwd, spans);
+				}
 				lastProgress = at;
 			};
 			try {
 				const lines = readline.createInterface({ input: fs.createReadStream(file, { encoding: 'utf8' }), crlfDelay: Infinity });
 				for await (const line of lines) {
-					if (!line.includes('"event_msg"') && !line.includes('"response_item"')) continue;
+					if (!line.includes('"event_msg"') && !line.includes('"response_item"') && !line.includes('"session_meta"') && !line.includes('"turn_context"')) continue;
 					let row: any;
 					try { row = JSON.parse(line); } catch { continue; }
 					if (!row.payload || typeof row.payload !== 'object') continue;
@@ -380,6 +385,7 @@ async function scanCodexMetrics(root: string, cutoff: number, now: number, cache
 					if (at === null) continue;
 					if (at > now) { nextEvent = Math.min(nextEvent, at); continue; }
 					const p = row.payload;
+					if ((row.type === 'session_meta' || row.type === 'turn_context') && typeof p.cwd === 'string' && path.isAbsolute(p.cwd)) { cwd = p.cwd; continue; }
 					if (row.type === 'response_item') {
 						if (['reasoning', 'agent_message', 'function_call', 'function_call_output', 'custom_tool_call', 'custom_tool_call_output', 'web_search_call'].includes(p.type) || (p.type === 'message' && p.role === 'assistant')) progress(at);
 						continue;
@@ -413,6 +419,7 @@ async function scanCodexMetrics(root: string, cutoff: number, now: number, cache
 		scan.files += part.files; scan.skipped += part.skipped;
 		scan.hasTokens ||= part.hasTokens; scan.hasCost ||= part.hasCost; scan.hasMinutes ||= part.hasMinutes;
 		scan.spans.push(...part.spans);
+		for (const [cwd, spans] of part.projects) scan.projects.set(cwd, [...(scan.projects.get(cwd) || []), ...spans]);
 		for (const [key, d] of part.days) {
 			let target = scan.days.get(key);
 			if (!target) scan.days.set(key, target = { tokens: 0, cost: 0, minutes: 0, files: new Set() });
@@ -1071,6 +1078,13 @@ export class StatsEngine {
 				]);
 				stats.sourceMetrics = summarizeSourceMetrics(codex, cline, at);
 				stats.workTime = summarizeWorkTime([...ledger.values()].flatMap(p => p.spans), codex.spans, at);
+				// Ore Clienti: la stessa unione misurata, attribuita tramite cwd e worktree.
+				for (const [cwd, spans] of codex.projects) {
+					const project = cwd ? [...input.projects].sort((a,b) => b.path.length-a.path.length).find(p => [p.path, ...(p.worktrees || []).map(w => w.path)].some(dir => canonKey(cwd).startsWith(projectKey(dir)))) : undefined;
+					const key = project?.path ?? null;
+					const previous = ledger.get(key);
+					ledger.set(key, { name: project?.name ?? 'Fuori dai progetti', spans: mergeSpans([...(previous?.spans || []), ...spans], 0) });
+				}
 			}
 			catch (err) {
 				this.opts.log?.(`cruscotto: metriche delle altre fonti non disponibili: ${err}`);

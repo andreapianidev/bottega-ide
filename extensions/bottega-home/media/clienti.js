@@ -128,6 +128,7 @@
 		<div class="cli" id="cli">
 			<div class="cli-testa">
 				<h1 class="sentence media cli-frase" id="cli-frase">Sto contando le ore dei clienti.</h1>
+				<p class="invito">Ore osservate di Claude Code e Codex, senza duplicare il lavoro in parallelo. Cline e terminali non forniscono ancora durate utilizzabili qui.</p>
 				<p class="invito cli-sottofrase" id="cli-sottofrase" hidden></p>
 			</div>
 			<div class="cli-comandi" id="cli-comandi">

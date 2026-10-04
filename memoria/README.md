@@ -30,10 +30,26 @@ Richieste e risposte concluse diventano note con fonte e orario originali, senza
 L'importazione e' incrementale: un controllo continua dove il precedente si e' fermato, senza duplicare le note.
 Sono esclusi strumenti, ragionamenti, immagini, contesto del client e agenti delegati. Le note hanno un limite di
 8.000 caratteri; vengono letti al massimo 100 file recenti, negli ultimi sette giorni, 32 MiB per controllo.
-Cline e terminali sono osservati nei Lavori ma non vengono ancora importati nella Memoria.
+Dalla build 103 lo stesso percorso acquisisce anche Cline, nei formati SDK e archivio
+dell'estensione (Bottega, VS Code, Insiders e VSCodium). Richieste, risposte ed esiti
+conservano fonte e data; ragionamenti, risultati degli strumenti e messaggi parziali
+sono esclusi. Si controllano al massimo 100 file modificati negli ultimi 45 giorni,
+fino a 8 MiB ciascuno, senza duplicare gli eventi gia' acquisiti.
+
+Melissa registra richieste e risposte, compresa la cronologia locale ripristinabile.
+I terminali integrati registrano comando ed esito dopo l'avvio del monitor, senza
+salvare l'output completo. Non e' possibile recuperare retroattivamente terminali
+esterni o comandi mai osservati. I testi vengono redatti e limitati a 8.000 caratteri.
+
+L'estensione sincronizza all'avvio e ogni minuto, anche con la stanza Memoria chiusa.
+CLI e MCP sincronizzano prima delle letture: ricerca, contesto e bacheca usano lo stesso
+archivio. I ricordi importati sono note originali, non riassunti generati o decisioni
+dedotte automaticamente. La copertura delle altre funzioni e' in
+[Audit delle fonti integrate](../docs/AUDIT_FONTI_INTEGRATE.md).
 
 ```sh
 node memoria/cli.mjs import-codex --json
+node memoria/cli.mjs import-all --json
 ```
 
 ## Sessioni in parallelo: la bacheca

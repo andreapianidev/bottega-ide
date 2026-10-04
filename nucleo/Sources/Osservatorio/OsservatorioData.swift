@@ -51,6 +51,7 @@ struct OsservatorioData {
         var last: Double            // ms since 1970
         var hours: [Double]         // 24, your minutes per hour
         var live: Int
+        var observedOnly: Bool = false
     }
     struct Edge { var a: String; var b: String; var minutes: Double }
     struct Period {
@@ -125,7 +126,7 @@ struct OsservatorioData {
                     if hours.count != 24 { hours = Array(repeating: 0, count: 24) }
                     return Project(name: name, path: o.str("path"), you: o.num("you") ?? 0, claude: o.num("claude") ?? 0,
                                    tok: tokSum(o["tok"]), sessions: Int(o.num("sessions") ?? 0),
-                                   last: o.num("last") ?? 0, hours: hours, live: Int(o.num("live") ?? 0))
+                                   last: o.num("last") ?? 0, hours: hours, live: Int(o.num("live") ?? 0), observedOnly: o["observedOnly"] as? Bool ?? false)
                 }
                 let edges = p.arr("edges").compactMap { o -> Edge? in
                     guard let a = o.str("a"), let b = o.str("b") else { return nil }
@@ -310,7 +311,7 @@ struct Pannelli {
                     p.tokenFrase = "\(first.name) da solo fa il \(Fmt.pct(first.tok / total * 100)) dei token del periodo."
                 }
             }
-            p.progetti = per.projects.filter { $0.you >= 1 || $0.live > 0 }.sorted { $0.you > $1.you }
+            p.progetti = per.projects.filter { $0.you >= 1 || $0.live > 0 || $0.observedOnly }.sorted { $0.you > $1.you }
         }
         // The period asked for, else the nearest one there is (the sentence names the real one).
         if let catKey = [period, "30", "7", "90"].first(where: { d.categorie?[$0] != nil }), let cats = d.categorie?[catKey] {
@@ -342,7 +343,7 @@ enum OsservatorioCielo {
         guard let per = d.periods[period] ?? d.periods["30"] ?? d.periods.values.first else {
             return SkyScene(stars: [], edges: [], version: version)
         }
-        let rows = Array(per.projects.filter { $0.you >= 1 }.sorted { $0.you > $1.you }.prefix(48))
+        let rows = Array(per.projects.filter { $0.you >= 1 || $0.live > 0 || $0.observedOnly }.sorted { $0.you > $1.you }.prefix(48))
         let maxYou = max(1, rows.map(\.you).max() ?? 1)
         let livePaths = Set(d.live.compactMap(\.path))
         let liveNames = Set(d.live.map { $0.project.lowercased() })

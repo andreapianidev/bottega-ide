@@ -42,6 +42,7 @@ export interface Advice {
 export interface Facts {
 	stats?: Stats | null;
 	jobs: Job[];
+	activity?: import('./attivita-tipi').AgentActivity[];
 	radar?: RadarState | null;
 	rules?: RulesState | null;
 	forgotten: Forgotten[];
@@ -177,7 +178,7 @@ export function briefingPoints(f: Facts): BriefingPoint[] {
 	if (cal) pts.push({ kind: 'calendario', text: fraseCalendario(cal) });
 
 	// lavori
-	const waiting = f.jobs.filter(j => j.status === 'ti aspetta');
+	const waiting = (f.activity ?? f.jobs).filter(j => j.status === 'ti aspetta');
 	const night = f.jobs.filter(j => j.status === 'stanotte');
 	if (waiting.length) {
 		const names = [...new Set(waiting.map(j => j.project))];
@@ -204,17 +205,18 @@ export function briefingPoints(f: Facts): BriefingPoint[] {
 	if (st) {
 		const yKey = today(now - 86_400_000);
 		const yRow = st.days.find(d => d.date === yKey);
-		if (yRow && yRow.you >= 5) {
+		const observed = st.workTime?.days.find(d => d.date === yKey)?.minutes ?? yRow?.you ?? 0;
+		if (observed >= 5) {
 			const p7 = st.periods['7'];
 			const idx = p7.days - 2; // ieri, nel vettore daily che parte dal piu' vecchio
-			const top = p7.projects
+			const top = st.workTime ? [] : p7.projects
 				.filter(p => p.path && (p.daily[idx] ?? 0) >= 10)
 				.sort((a, b) => (b.daily[idx] ?? 0) - (a.daily[idx] ?? 0))
 				.slice(0, 3)
 				.map(p => `${p.name} ${spokenMinutes(p.daily[idx])}`);
-			pts.push({ kind: 'ore', text: `Ieri hai lavorato ${spokenMinutes(yRow.you)}${top.length ? `: ${listIt(top)}` : ''}.`, act: { act: 'view', label: 'Apri il cruscotto', args: { view: 'cruscotto' } } });
+			pts.push({ kind: 'ore', text: `Ieri hai lavorato ${spokenMinutes(observed)}${top.length ? `: ${listIt(top)}` : ''}.`, act: { act: 'view', label: 'Apri il cruscotto', args: { view: 'cruscotto' } } });
 		} else {
-			pts.push({ kind: 'ore', text: 'Ieri niente lavoro con Claude, o quasi.' });
+			pts.push({ kind: 'ore', text: 'Ieri meno di cinque minuti nei registri con durate misurabili.' });
 		}
 	}
 

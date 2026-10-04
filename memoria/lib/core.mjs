@@ -1,3 +1,4 @@
+import { saveExternal } from './esterne.mjs';
 // Il lavoro vero della Memoria: assorbire lo spool, riassumere le sessioni, preparare i contesti,
 // cercare. Gira nel processo staccato, nella CLI e nel server MCP.
 import fs from 'node:fs';
@@ -82,6 +83,7 @@ export function ingest(store = openStore()) {
 }
 
 function applySpoolEntry(store, e) {
+	if (e.ev === 'external') { saveExternal(store, e); return; }
 	store.upsertSession({ id: e.sid, cwd: e.cwd, transcriptPath: e.tp, at: e.at || Date.now() });
 	if (e.ev === 'prompt') {
 		const p = cleanPrompt(e.prompt);
@@ -314,13 +316,13 @@ export function buildContext(project, store = openStore()) {
 		used += line.length + 1;
 		return true;
 	};
-	for (const [i, m] of sums.entries()) {
+	for (const [i, m] of [...sums, ...notes].sort((a, b) => b.createdAt - a.createdAt).entries()) {
 		const first = String(m.text).split('\n')[0];
 		const todo = /(?:^|\n)Da fare: (.*)/.exec(m.text)?.[1];
 		const line = `- ${giorno(m.createdAt)}, ${m.title}: ${clip(first, i < 2 ? 300 : 170)}${todo && i === 0 ? ` Da fare: ${clip(todo, 160)}` : ''}`;
 		if (!push(line) && i >= 2) break;
 	}
-	const keep = [...notes, ...facts];
+	const keep = facts;
 	if (keep.length && used + 40 < LIMIT) {
 		push('Da ricordare:');
 		for (const m of keep) if (!push(`- ${clip(m.text, 170)}`)) break;
@@ -404,7 +406,11 @@ function resolveProjectName(name) {
 
 export function sessionDetail(idOrPrefix, store = openStore()) {
 	const s = store.findSession(idOrPrefix);
-	if (!s) return undefined;
+	if (!s) {
+		const memories = store.all("SELECT * FROM memories WHERE sessionId = ? AND origin IN ('codex','cline','terminale','melissa') ORDER BY createdAt", idOrPrefix).map(toItem);
+		if (!memories.length) return undefined;
+		return { session: { id: idOrPrefix, project: memories[0].project, projectPath: memories[0].projectPath, startedAt: memories[0].createdAt, lastActivity: memories.at(-1).createdAt }, memories, observations: [] };
+	}
 	const memories = store.all('SELECT * FROM memories WHERE sessionId = ? ORDER BY kind, createdAt', s.id).map(toItem);
 	const obs = store.all('SELECT at, kind, tool, files, input FROM observations WHERE sessionId = ? ORDER BY at DESC, id DESC LIMIT 40', s.id).reverse();
 	return { session: s, memories, observations: obs };
@@ -600,7 +606,12 @@ export async function backfill({ giorni = 30, max = 50, dryRun = false, onProgre
 
 export function board({ progetto, minuti = 60 } = {}) {
 	const since = Date.now() - Math.max(1, Number(minuti) || 60) * 60_000;
+	const store = openStore();
+	ingest(store);
 	let entries = readAllBoards(since);
+	entries.push(...store.all("SELECT * FROM memories WHERE origin IN ('codex','cline','terminale','melissa') AND createdAt >= ? ORDER BY createdAt DESC LIMIT 200", since)
+		.map(m => ({ at: m.createdAt, sessionId: m.sessionId, project: m.project, key: m.projectKey, kind: m.origin, summary: m.title })));
+	entries.sort((a, b) => b.at - a.at);
 	if (progetto) {
 		const p = String(progetto).toLowerCase();
 		entries = entries.filter(e => String(e.project).toLowerCase() === p || e.key === progetto);

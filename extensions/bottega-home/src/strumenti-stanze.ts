@@ -14,7 +14,7 @@
 
 import type { Assistant, ToolSpec } from './assistant';
 import type { ClientReport } from './clienti';
-import { splitSummary } from './continua';
+import { splitSummary, isSessionOutcome } from './continua';
 import type { BoardItem, MemoryItem } from './memoria';
 import type { NightState } from './notte';
 import type { Stats, StatsPeriod } from './stats';
@@ -328,6 +328,21 @@ async function leggiCruscotto(f: FontiStanze, a: Richiesta, now: number): Promis
 	const p = risolvi(f, a.progetto);
 	if (a.progetto && !p) return `Non trovo il progetto "${a.progetto}".`;
 
+	if (s.workTime && !p) {
+		const month = meseDa(a.mese, now);
+		const days = periodoDa(a.periodo, 7);
+		const rows = month ? s.workTime.days.filter(d => d.date.startsWith(month)) : s.workTime.days.slice(-Math.min(days, 90));
+		if (month && !rows.length) return `Il cruscotto tiene solo gli ultimi 90 giorni: ${meseDetto(month)} non c'è.`;
+		const measured = rows.reduce((sum, d) => sum + d.minutes, 0);
+		const observed = s.observedActivity;
+		return componi([
+			`Tempo osservato di Claude Code e Codex ${month ? 'a ' + meseDetto(month) : periodoFrase(days)}: ${ore(measured)}. Le sessioni parallele contano una volta.`,
+			observed ? `Attività osservate di Claude Code, Codex, Cline e terminali: ${observed.sources.map(x => `${x.source}: ${x.inCorso} in corso, ${x.tiAspetta} in attesa, ${x.sconosciuto} da verificare`).join('; ')}.` : undefined,
+			'Le durate di Cline e dei terminali non sono disponibili in questo conteggio.',
+			s.sourceMetrics ? Object.entries(s.sourceMetrics[String(days <= 7 ? 7 : days <= 30 ? 30 : 90) as '7' | '30' | '90']).map(([source, v]) => `${source}: ${v.tokens === null ? 'token non disponibili' : token(v.tokens)}, ${v.cost === null ? 'costo non disponibile' : dollari(v.cost)}.`).join(' ') : undefined,
+		]);
+	}
+
 	// un mese preciso: i mesi del cruscotto, senza dettaglio per progetto
 	const mese = meseDa(a.mese, now);
 	if (mese) {
@@ -356,7 +371,7 @@ async function leggiCruscotto(f: FontiStanze, a: Richiesta, now: number): Promis
 			const oggi = pr ? pr.daily[pr.daily.length - 1] ?? 0 : 0;
 			const vive = s.live.filter(l => l.path === p.path).length;
 			return componi([
-				oggi ? `Oggi su ${p.name} hai lavorato ${ore(oggi)}.` : `Oggi su ${p.name} non hai ancora lavorato.`,
+				oggi ? `Oggi su ${p.name} hai lavorato ${ore(oggi)}.` : `Oggi su ${p.name} non risultano ore Claude Code.`,
 				vive ? `Adesso ci sono ${vive === 1 ? 'una sessione aperta' : `${vive} sessioni aperte`}.` : undefined,
 			]);
 		}
@@ -365,7 +380,7 @@ async function leggiCruscotto(f: FontiStanze, a: Richiesta, now: number): Promis
 			const ultimo = s.periods['90'].projects.find(x => x.path === p.path)?.last;
 			return componi([
 				anno,
-				`Su ${p.name} ${periodoFrase(k)} non risultano ore.`,
+				`Su ${p.name} ${periodoFrase(k)} non risultano ore Claude Code.`,
 				fermo ? `Nei ${k} giorni prima ci avevi lavorato ${ore(fermo.prev)}.` : undefined,
 				ultimo ? `L'ultima volta: ${quando(ultimo, now)}.` : undefined,
 			]);
@@ -378,7 +393,7 @@ async function leggiCruscotto(f: FontiStanze, a: Richiesta, now: number): Promis
 			dl !== undefined ? `Da lunedì: ${ore(dl)}.` : undefined,
 			per.you > 0 ? `È il ${Math.round((pr.you / per.you) * 100)}% delle tue ore.` : undefined,
 			`Token: ${token(totTok(pr.tok))}, valore a listino ${dollari(pr.cost)}.`,
-			v ? `Rispetto ai ${k} giorni prima: ${v} (allora ${ore(pr.prev.you)}).` : pr.prev.you === 0 ? `Nei ${k} giorni prima non ci avevi lavorato.` : undefined,
+			v ? `Rispetto ai ${k} giorni prima: ${v} (allora ${ore(pr.prev.you)}).` : pr.prev.you === 0 ? `Nei ${k} giorni prima non risultavano ore Claude Code.` : undefined,
 			pr.live ? `Adesso ${pr.live === 1 ? "c'è una sessione aperta" : `ci sono ${pr.live} sessioni aperte`}.` : `Ultima attività: ${quando(pr.last, now)}.`,
 		]);
 	}
@@ -624,7 +639,7 @@ async function leggiClienti(f: FontiStanze, a: Richiesta, now: number): Promise<
 		return componi([
 			c.minutes
 				? `${c.nome}, ${quale}${inCorso ? ' fin qui' : ''}: ${ore(c.minutes)} in ${c.days.length} ${c.days.length === 1 ? 'giorno' : 'giorni'}${c.amount !== undefined ? `, ${euroEsatti(c.amount)} da fatturare` : ', senza tariffa impostata'}.`
-				: `${c.nome}: a ${quale} non risultano ore.`,
+				: `${c.nome}: a ${quale} non risultano ore Claude Code.`,
 			tariffa && c.minutes ? `Tariffa ${euroEsatti(tariffa)} l'ora.` : undefined,
 			c.projects.length > 1 ? `Progetti: ${elenco(c.projects.slice(0, 4).map(x => `${x.name} ${ore(x.minutes)}`))}.` : undefined,
 			c.minutes ? nota : undefined,
@@ -736,11 +751,11 @@ async function leggiDaFare(f: FontiStanze, a: Richiesta, now: number): Promise<s
 	if (a.progetto) {
 		const p = risolvi(f, a.progetto);
 		if (!p) return `Non trovo il progetto "${a.progetto}".`;
-		const r = await conTempo(m.recent(p.name, { kinds: ['riassunto'], limit: 3 }).catch(() => [] as MemoryItem[]));
-		const sums = r === 'tempo' ? [] : r;
+		const r = await conTempo(m.recent(p.name, { kinds: ['riassunto', 'nota'], limit: 3 }).catch(() => [] as MemoryItem[]));
+		const sums = r === 'tempo' ? [] : r.filter(isSessionOutcome);
 		if (!sums.length) return `La Memoria non ha ancora un riassunto di ${p.name}.`;
-		const conLista = sums.find(s => splitSummary(s.text).todo.length);
-		if (!conLista) return `Nell'ultimo riassunto di ${p.name}, di ${quando(sums[0].createdAt, now)}, non resta niente da fare.`;
+		const conLista = sums[0] && splitSummary(sums[0].text).todo.length ? sums[0] : undefined;
+		if (!conLista) return `Nell'ultimo riassunto di ${p.name}, di ${quando(sums[0].createdAt, now)}, non è riportata una lista esplicita di cose da fare.`;
 		const todo = splitSummary(conLista.text).todo;
 		return componi([
 			`${p.name}, dal riassunto di ${quando(conLista.createdAt, now)}: ${todo.length === 1 ? 'resta una cosa' : `restano ${todo.length} cose`}.`,
@@ -748,8 +763,8 @@ async function leggiDaFare(f: FontiStanze, a: Richiesta, now: number): Promise<s
 			conLista !== sums[0] ? `Il riassunto dopo, di ${quando(sums[0].createdAt, now)}, non ha una lista.` : undefined,
 		]);
 	}
-	const r = await conTempo(m.recent(undefined, { kinds: ['riassunto'], limit: 60 }).catch(() => [] as MemoryItem[]));
-	const tutti = r === 'tempo' ? [] : r;
+	const r = await conTempo(m.recent(undefined, { kinds: ['riassunto', 'nota'], limit: 60 }).catch(() => [] as MemoryItem[]));
+	const tutti = r === 'tempo' ? [] : r.filter(isSessionOutcome);
 	// l'ultimo riassunto di ogni progetto: la lista che conta e' quella
 	const visti = new Set<string>();
 	const righe: { progetto: string; at: number; todo: string[] }[] = [];
@@ -759,7 +774,7 @@ async function leggiDaFare(f: FontiStanze, a: Richiesta, now: number): Promise<s
 		const todo = splitSummary(s.text).todo;
 		if (todo.length) righe.push({ progetto: s.project, at: s.createdAt, todo });
 	}
-	if (!righe.length) return tutti.length ? 'Negli ultimi riassunti della Memoria non resta niente da fare.' : 'La Memoria non ha ancora riassunti.';
+	if (!righe.length) return tutti.length ? 'Negli ultimi riassunti della Memoria non è riportata una lista esplicita di cose da fare.' : 'La Memoria non ha ancora riassunti.';
 	return componi([
 		`Cose da fare in ${righe.length === 1 ? 'un progetto' : `${righe.length} progetti`}, dagli ultimi riassunti.`,
 		...righe.slice(0, 5).map(x => `${x.progetto} (${quando(x.at, now)}): ${x.todo.slice(0, 2).map(t => pulisci(t, 90)).join('; ')}${x.todo.length > 2 ? `, e altre ${x.todo.length - 2}` : ''}.`),

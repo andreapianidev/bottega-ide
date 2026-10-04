@@ -89,6 +89,7 @@ function resolveNode(): string {
 
 export class Memoria {
 	private dir?: string;
+	private syncing?: Promise<void>;
 
 	constructor(private readonly extensionPath: string) {
 		this.dir = resolveMemoriaDir(extensionPath);
@@ -128,6 +129,11 @@ export class Memoria {
 	private static items(raw: any): MemoryItem[] {
 		const arr = Array.isArray(raw) ? raw : Array.isArray(raw?.results) ? raw.results : Array.isArray(raw?.items) ? raw.items : [];
 		return arr as MemoryItem[];
+	}
+
+	/** Continua l'importazione anche quando la stanza Memoria e' chiusa. */
+	sync(): Promise<void> {
+		return this.syncing ??= this.run(['import-all', '--json'], 30_000).then(() => undefined).finally(() => { this.syncing = undefined; });
 	}
 
 	async search(query: string, project?: string, strict = false): Promise<MemoryItem[]> {

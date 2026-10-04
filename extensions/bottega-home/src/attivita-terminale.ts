@@ -84,7 +84,7 @@ function toActivity(e: Entry): AgentActivity {
 }
 
 /** Attiva il monitor per i terminali della finestra. `onChange` e' aggregato a 250 ms. */
-export function registerTerminalActivity(ctx: vscode.ExtensionContext, onChange?: () => void): TerminalActivityMonitor {
+export function registerTerminalActivity(ctx: vscode.ExtensionContext, onChange?: () => void, onFinished?: (activity: AgentActivity) => void): TerminalActivityMonitor {
 	const entries = new Map<vscode.Terminal, Entry>();
 	let sequence = 0;
 	let disposed = false;
@@ -190,7 +190,7 @@ export function registerTerminalActivity(ctx: vscode.ExtensionContext, onChange?
 		e.title = safeCommand(ev.execution.commandLine?.value);
 		e.status = 'in corso';
 		e.evidence = 'VS Code: avvio del comando rilevato dalla shell integration';
-		e.updatedAt = Date.now();
+		e.startedAt = e.updatedAt = Date.now();
 		e.output = '';
 		e.pending = '';
 		e.lineOverflow = e.privateBlock = e.truncated = false;
@@ -226,6 +226,7 @@ export function registerTerminalActivity(ctx: vscode.ExtensionContext, onChange?
 			: 'VS Code: comando terminato senza codice di uscita';
 		e.updatedAt = Date.now();
 		e.steps.push(e.status === 'finito' ? 'Comando completato' : e.status === 'errore' ? 'Comando fallito' : 'Comando terminato');
+		onFinished?.(toActivity(e));
 		changed();
 	}));
 

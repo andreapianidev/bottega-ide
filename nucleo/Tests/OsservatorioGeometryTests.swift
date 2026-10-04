@@ -9,6 +9,10 @@ enum MetalEngine {
 @main
 struct OsservatorioGeometryTests {
     static func main() {
+        let observed = OsservatorioData.decode(["periods": ["7": ["days": 7, "projects": [["name": "Faro", "path": "/test/Faro", "you": 0, "observedOnly": true, "live": 1]]]], "live": [["project": "Faro", "path": "/test/Faro", "status": "ti aspetta"]]])
+        assert(observed.periods["7"]?.projects.first?.observedOnly == true)
+        let observedScene = OsservatorioCielo.scene(observed, period: "7", version: 1)
+        assert(observedScene.stars.count == 1 && observedScene.stars[0].live)
         var scene = SkyScene.sample(count: 48)
         scene.stars[0].name = "Un progetto con un nome molto lungo per verificare i bordi del cielo"
         SkyGeometry.relax(&scene.stars)

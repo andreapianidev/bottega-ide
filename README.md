@@ -32,17 +32,22 @@ mirate e quattro pezzi propri.
 
 ![La plancia dei progetti e, dietro, i lavori](docs/screenshot/hero.jpg)
 
-All'avvio, al posto della pagina di benvenuto, una frase dice com'e' la situazione: quante sessioni
-Claude lavorano, quali progetti aspettano un push, quali hanno modifiche fuori da un commit. Sotto,
-le sessioni Claude aperte in tutto il Mac (respirano quando lavorano) e l'elenco dei progetti con
-stato git, numero di build letto dal progetto Xcode o Android, e lo storico delle sessioni Claude di
-ciascuno, da riprendere con un clic.
+All'avvio, al posto della pagina di benvenuto, una frase dice com'e' la situazione: quali attivita'
+lavorano o aspettano una risposta, quali progetti aspettano un push o hanno modifiche fuori da un
+commit. Le schede progetto e la barra laterale includono Claude Code, Codex, Cline e terminali
+integrati, con fonte e stato osservato. I progetti mostrano anche stato git e numero di build
+letto dal progetto Xcode o Android; le sessioni Claude conservano il comando per riprenderle.
 
 La Home e la stanza Lavori mostrano anche le attivita' recenti di Cline, Codex e dei terminali integrati:
 fonte, progetto, stato, ultimo segnale e passi osservati. Melissa puo' leggerne il riepilogo e, su richiesta,
 le ultime righe acquisite di un terminale. Le trascrizioni locali sono lette in sola lettura; i terminali
 esterni e l'output prodotto prima dell'avvio del monitor non sono visibili. I testi mostrati vengono limitati
 e le righe che sembrano contenere credenziali vengono omesse.
+
+Dalla build 103 la Memoria acquisisce anche Cline, le conversazioni Melissa e gli esiti dei
+terminali osservati. Ricerca, Spotlight, Continua e Da fare condividono questi ricordi;
+l'acquisizione continua anche con la stanza chiusa. Ore e consumi dipendono dai dati disponibili
+per ciascuna fonte: [copertura e limiti delle funzioni integrate](docs/AUDIT_FONTI_INTEGRATE.md).
 
 ### I lavori
 

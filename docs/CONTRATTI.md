@@ -2081,8 +2081,8 @@ fornitore scelto in Cline (per Andrea DeepSeek, `deepseek-v4-pro`). Codice: `src
   `~/.claude/CLAUDE.md`, contiene: leggere il `CLAUDE.md` del progetto, `memoria_cerca` e `memoria_bacheca` prima di
   ogni compito, `memoria_ricorda` per le decisioni (sempre con `progetto`, perche' il server MCP lanciato da Cline non
   ha la cartella del progetto come cartella di lavoro), messaggi e pubblicazioni solo su richiesta esplicita, e una
-  copia di `~/.claude/CLAUDE.md`. Le sessioni di Cline non entrano ancora nella memoria da sole: Claude Code ha gli
-  hook, Cline per ora no.
+  copia di `~/.claude/CLAUDE.md`. Dalla build 103 le conversazioni locali Cline entrano anche automaticamente
+  nella Memoria tramite importazione incrementale, senza dipendere dagli hook Claude (contratto sotto).
 - **Chiave**: la Bottega non la tocca. Cline la tiene in `~/.cline/data/secrets.json`, si imposta dalle sue
   impostazioni.
 
@@ -2569,9 +2569,62 @@ La ricerca non propone di riprendere una nota Codex con il comando Claude.
 Lettura incrementale per inode e offset, transazione per file, deduplicazione degli eventi anche dopo rotazione;
 ultimi sette giorni nelle cartelle giornaliere (oggi e otto giorni precedenti), massimo 100 file recenti e 32 MiB
 per chiamata. Righe oltre 256 KiB saltate senza bloccare le successive, note limitate a 8.000 caratteri. Il prossimo
-controllo prosegue il recupero. Questo importatore non acquisisce ancora le conversazioni Cline o i terminali.
+controllo prosegue il recupero. Cline e terminali sono acquisiti dal percorso aggiunto nella build 103, sotto.
 Gli hook Claude e il loro limite di 150 ms restano invariati.
 
 Il parser dello stato Codex riconosce richieste esplicite di input o approvazione e le risposte associate per
 `call_id`; completamento, interruzione e nuovo turno cancellano le attese. Le domande asincrone non fermano
 l'agente e non sono classificate come attesa. Un turno finito non diventa automaticamente «ti aspetta».
+
+### Fonti integrate, Memoria e viste derivate (build 103)
+
+`memoria/lib/fonti.mjs:syncSources()` e' il punto comune di importazione Codex e Cline.
+CLI (`recent/recenti`, `search/cerca`, `grafici`, `context/contesto`, `sessione`, `bacheca`,
+`import-all`) e MCP lo eseguono prima delle letture. `import-all --json` restituisce
+`{codex: {imported, skipped}, cline: {imported, skipped}, spool}`. L'estensione esegue
+`Memoria.sync()` all'avvio e ogni 60 secondi, anche senza Home visibile; le chiamate
+sovrapposte nella stessa istanza vengono accorpate, timeout del processo 30 secondi.
+
+Cline: SDK `~/.cline/data/sessions/<id>/<id>.messages.json` versione 1 con metadati
+`<id>.json`; formato estensione `tasks/<id>/ui_messages.json` nei globalStorage
+Bottega/Code/Insiders/VSCodium e nella directory dati Cline. `CLINE_DATA_DIR` permette
+di isolare le prove. Massimo 100 file modificati negli ultimi 45 giorni, 8 MiB per file;
+cache inode/mtime/dimensione e transazione per file. JSON incompleto viene ritentato.
+Si acquisiscono richieste, testo delle risposte, esiti `attempt_completion` e domande
+legacy; niente ragionamenti, risultati degli strumenti, immagini o messaggi parziali.
+
+`memoria-eventi.ts` scrive nello spool privato eventi
+`{ev: "external", source: "terminale"|"melissa", sid, id, cwd?, at, text, who}`.
+Melissa registra richieste/risposte e ripristina le ultime righe disponibili senza
+attribuire la vecchia conversazione al workspace corrente. Il terminale registra solo
+comando ed esito degli eventi di shell osservati, non l'output. Scrittura accodata,
+file 600 e directory 700, redazione e limite 8.000 caratteri prima della persistenza.
+Gli hook Claude non cambiano e restano entro il loro vincolo di 150 ms.
+
+`esterne.mjs` produce note con `origin` uguale alla fonte e `sessionId: <fonte>:<sid>`.
+`external_events` deduplica fonte/sessione/evento; una riscrittura aggiorna il testo
+senza una seconda nota. Date originali, niente timestamp futuro oltre la tolleranza
+di un minuto. Bacheca, dettaglio sessione e contesto includono queste note; il contesto
+ordina gli esiti e le note per data, prima di applicare il budget. Le note esterne non
+offrono il resume Claude. Spotlight indicizza anche note e fatti, ogni cinque minuti.
+
+Continua e Da fare usano l'ultimo esito disponibile per progetto (riassunto Claude o
+risposta/esito Codex, Cline, Melissa). Estraggono solo liste esplicite «Da fare», anche
+Markdown. Un esito nuovo senza lista non riporta in vita la lista di un vecchio
+riassunto. Assenza di una lista non significa che non esista altro lavoro da fare.
+
+Barra laterale, schede progetto, briefing, suggerimenti dei progetti dimenticati e
+letture Melissa usano il registro `activity` comune. Il ponte Osservatorio mantiene
+gli stati attivi anche con la Home chiusa; aggiunge nei periodi i progetti osservati
+senza metriche Claude, con `observedOnly: true`. Il decoder Swift predefinisce il campo
+a false per compatibilita'; quei progetti sono visibili con «Ore non disponibili».
+Ore, consumi, categorie e connessioni preesistenti dell'Osservatorio restano Claude e
+la didascalia ne dichiara la copertura.
+
+`StatsEngine.lastLedger` include anche gli intervalli Codex attribuiti da `cwd` al
+progetto o worktree; gli intervalli paralleli dello stesso progetto si uniscono.
+Il rendiconto Clienti usa questo registro e dichiara la copertura Claude+Codex.
+`Stats.workTime` e' sempre l'unione globale; i campi storici Claude non cambiano
+significato. Il Cruscotto letto da Melissa distingue ore osservate, conteggi di tutte
+le fonti e consumi per fonte. Cline e terminali non diventano ore o costi zero quando
+la misura non e' disponibile. Copertura completa: `docs/AUDIT_FONTI_INTEGRATE.md`.

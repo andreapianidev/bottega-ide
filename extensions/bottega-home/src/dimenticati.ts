@@ -17,12 +17,13 @@ const DAY = 86_400_000;
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? `${one}` : `${n} ${many}`);
 
-export function findForgotten(projects: Project[], jobs: Job[], now = Date.now(), idleDays = IDLE_DAYS): Forgotten[] {
+export function findForgotten(projects: Project[], jobs: Job[], now = Date.now(), idleDays = IDLE_DAYS, activity: readonly import('./attivita-tipi').AgentActivity[] = []): Forgotten[] {
 	const out: Forgotten[] = [];
 	const ago = (t: number) => Math.floor((now - t) / DAY);
 	for (const p of projects) {
-		if (p.live?.length) continue;
-		const last = Math.max(p.git?.lastCommitAt ?? 0, p.sessions?.[0]?.mtime ?? 0);
+		const observed = activity.filter(a => a.path === p.path || p.worktrees?.some(w => w.path === a.path));
+		if (p.live?.length || observed.some(a => a.status === 'in corso' || a.status === 'ti aspetta')) continue;
+		const last = Math.max(p.git?.lastCommitAt ?? 0, p.sessions?.[0]?.mtime ?? 0, ...observed.map(a => a.updatedAt));
 		if (!last) continue;
 		const reasons: string[] = [];
 		let idle = ago(last);
@@ -39,7 +40,7 @@ export function findForgotten(projects: Project[], jobs: Job[], now = Date.now()
 		// ognuna conta con la sua data, anche se il progetto principale e' vivo.
 		let wIdleMax = 0;
 		for (const w of p.worktrees ?? []) {
-			const wIdle = ago(w.lastCommitAt || last);
+			const wIdle = ago(Math.max(w.lastCommitAt || last, ...observed.filter(a => a.path === w.path).map(a => a.updatedAt)));
 			if (wIdle < idleDays) continue;
 			const bits: string[] = [];
 			if (w.changes) bits.push(w.changes === 1 ? 'una modifica fuori da un commit' : `${w.changes} modifiche fuori da un commit`);

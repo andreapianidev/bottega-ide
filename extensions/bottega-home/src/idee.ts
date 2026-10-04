@@ -196,7 +196,7 @@ export class Idee {
 	}
 
 	/** Coalescenza, non debounce: eventi continui non rinviano la scrittura per sempre. */
-	activityChanged(): void { this.scheduleState(); }
+	activityChanged(): void { this.forgotten = findForgotten(this.h.projects(), this.h.jobs.list(), Date.now(), undefined, this.h.activity?.()); this.scheduleState(); }
 
 	acceptStats(stats: Stats): void {
 		if (!this.lastStats || stats.computedAt >= this.lastStats.computedAt) this.lastStats = stats;
@@ -214,7 +214,7 @@ export class Idee {
 	/** Dopo ogni scansione dei progetti: regole (incrementali), radar (si limita da solo), dimenticati, Spotlight. */
 	afterScan(): void {
 		const projects = this.h.projects();
-		this.forgotten = findForgotten(projects, this.h.jobs.list());
+		this.forgotten = findForgotten(projects, this.h.jobs.list(), Date.now(), undefined, this.h.activity?.());
 		// Le regole git dipendono solo da commit, upstream e commit da spingere: si ricontrolla quando uno di
 		// questi cambia in un progetto, altrimenti al massimo ogni 15 minuti (app-ads, GitHub e radar hanno le loro cache).
 		const sig = projects.map(p => `${p.path}:${p.git?.lastCommitAt ?? 0}:${p.git?.ahead ?? 0}:${p.git?.upstream ? 1 : 0}`).join('|');
@@ -359,9 +359,9 @@ export class Idee {
 			}));
 			await this.h.nucleo.request('spotlight.index', { items, replace: true }, 15_000).catch(e => this.h.log(`spotlight progetti: ${e?.message ?? e}`));
 		}
-		if (Date.now() - this.memoriesIndexedAt < 6 * HOUR) return;
+		if (Date.now() - this.memoriesIndexedAt < 5 * 60_000) return;
 		this.memoriesIndexedAt = Date.now();
-		const mems = await this.h.memoria.recent(undefined, { kinds: ['riassunto', 'decisione'], limit: 300 });
+		const mems = await this.h.memoria.recent(undefined, { kinds: ['riassunto', 'decisione', 'nota', 'fatto'], limit: 200 });
 		if (!mems.length) return;
 		const items = mems.map(m => ({
 			id: String(m.id),
@@ -386,6 +386,7 @@ export class Idee {
 		return {
 			stats: this.lastStats,
 			jobs: this.h.jobs.list(),
+			activity: this.h.activity?.(),
 			radar: this.radar.state(),
 			rules: this.rules.state(),
 			forgotten: this.forgotten,
@@ -453,7 +454,7 @@ export class Idee {
 	private adviceSig(): string {
 		const r = this.rules.state().counts;
 		const jobs = this.h.jobs.list();
-		return [r.rosso, r.giallo, jobs.filter(j => j.status === 'ti aspetta').length, this.forgotten.length, Math.round(this.radar.state().totals?.yesterday ?? 0)].join(':');
+		return [r.rosso, r.giallo, (this.h.activity?.() ?? jobs).filter(j => j.status === 'ti aspetta').length, this.forgotten.length, Math.round(this.radar.state().totals?.yesterday ?? 0)].join(':');
 	}
 	private adviceSigAt = '';
 

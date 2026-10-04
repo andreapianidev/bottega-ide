@@ -1,4 +1,29 @@
-# Passaggio di consegne, build 102
+# Passaggio di consegne, build 103
+
+## Acquisizione e funzioni integrate, build 103
+
+- Aggiunta Memoria Cline SDK e legacy, con cache incrementale, date originali,
+  redazione e deduplicazione. Recuperati 17 ricordi locali dopo backup privato in
+  /tmp. Anche Codex aggiornato. Non riportare testi privati nei commit o nei log.
+- Melissa e terminali integrati scrivono richieste/risposte e comando/esito nello
+  spool privato; niente output completo dei terminali. CLI e MCP condividono la
+  sincronizzazione. L'estensione la esegue all'avvio e ogni minuto, a stanza chiusa.
+- Corretto lo stesso difetto nelle viste derivate: Spotlight, Continua, Da fare,
+  briefing, stato letto da Melissa, schede progetto, barra laterale, suggerimenti
+  dei progetti dimenticati e Osservatorio Metal. Un esito recente senza lista non
+  riesuma piu' un vecchio Da fare Claude. I progetti Cline senza metriche Claude
+  compaiono nell'Osservatorio con ore non disponibili.
+- Clienti include gli intervalli Codex attribuiti a progetto/worktree, con unione
+  delle sovrapposizioni. Cline e terminali restano senza ore misurabili: copertura
+  dichiarata, nessuna durata inventata. Dettagli in `AUDIT_FONTI_INTEGRATE.md`.
+- Verifiche: suite completa npm e typecheck passati; Memoria 18/18, Plancia 38/38,
+  refresh 12/12, stats 21/21, idee 17/17 e nuove prove sulle fonti integrate. Decoder
+  Swift e 162 layout Osservatorio passati. Pacchetto Mac 103 compilato e firmato.
+- `dist/Bottega.app` pronta alla 103, `/Applications/Bottega.app` ancora 99.
+  iPhone e Watch ancora 100; Watch bloccato all'ultimo tentativo di avvio. Le prove
+  fisiche restano pendenti, cosi' come il via libera al riavvio Mac gia' richiesto.
+  Nessun riavvio effettuato. Ripristinato il link del Nucleo verso la copia installata.
+
 
 ## Dati dei Lavori e Memoria, build 102
 
@@ -14,7 +39,7 @@
   con fonte e orari originali. Nessuna rete o riassunto inventato, nessun output degli strumenti.
   Recupero eseguito sul database locale dopo backup privato in /tmp. Anche la CLI della copia
   installata 99 ora legge gli ultimi dieci ricordi Codex, il piu' recente alle 23:37 del 4 ottobre.
-  Cline e terminali non sono ancora sorgenti della Memoria: la copertura e' dichiarata nella UI/docs.
+  Alla 102 Cline e terminali non erano ancora sorgenti della Memoria; aggiunti nella 103, sopra.
 - La UI mostra l'ora del controllo e conserva i risultati con errore visibile se la lettura fallisce.
   Il collegamento permanente a Codex entra con l'installazione della 102; il database recuperato
   e' gia' disponibile alla copia attuale. Nessun riavvio effettuato.

@@ -55,7 +55,7 @@ test('rotazione o riscrittura non duplica note già importate', () => {
 
 test('la CLI recent importa e legge il database nello stesso processo senza chiuderlo', () => {
  const cli = fileURLToPath(new URL('../cli.mjs', import.meta.url));
- const env = { ...process.env, CODEX_HOME: tmp };
+ const env = { ...process.env, CODEX_HOME: tmp, CLINE_DATA_DIR: path.join(tmp, 'cline') };
  for (let i = 0; i < 2; i++) {
   const results = JSON.parse(execFileSync(process.execPath, [cli, 'recent', '--json'], { env, encoding: 'utf8' }));
   assert.equal(results.length, 2);

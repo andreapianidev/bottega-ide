@@ -1,3 +1,5 @@
+import { osservatorioConAttivita } from './osservatorio';
+import { creaRegistroMemoria } from './memoria-eventi';
 import { execFile, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -242,10 +244,12 @@ function refreshDynamic(): void {
 	const activitySignature = snapshot.activity.map(a => `${a.key}:${a.status}:${a.updatedAt}`).join('|');
 	if (activitySignature !== statsActivitySignature) {
 		statsActivitySignature = activitySignature;
-		if (statsWanted && panelHost?.isVisible) {
-			clearTimeout(statsActivityTimer);
-			statsActivityTimer = setTimeout(() => void sendStats(false), 2_000);
-		}
+		treesChanged.fire();
+		clearTimeout(statsActivityTimer);
+		statsActivityTimer = setTimeout(() => {
+			if (statsWanted && panelHost?.isVisible) void sendStats(false);
+			else void osservatorio?.push();
+		}, 2_000);
 	}
 	ponte?.notify();
 	const menuActivity = snapshot.activity.filter(a => a.status === 'in corso' || a.status === 'ti aspetta')
@@ -261,8 +265,8 @@ function refreshDynamic(): void {
 
 /** In conversazione Melissa dice, una volta, quando un lavoro comincia ad aspettare Andrea. */
 function announceWaiting(): void {
-	const now = new Set(snapshot.work.filter(w => w.status === 'ti aspetta').map(w => w.key));
-	const fresh = snapshot.work.filter(w => w.status === 'ti aspetta' && !waitingBefore.has(w.key));
+	const now = new Set(snapshot.activity.filter(w => w.status === 'ti aspetta').map(w => w.key));
+	const fresh = snapshot.activity.filter(w => w.status === 'ti aspetta' && !waitingBefore.has(w.key));
 	const first = waitingBefore.size === 0 && !snapshot.scannedAt;
 	waitingBefore = now;
 	const a = assistant?.getState();
@@ -303,6 +307,12 @@ async function switchBrain(cervello?: string, impegno?: string): Promise<string>
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
 function readSession(project: string): string {
+	const other = snapshot.activity.filter(a => a.source !== 'claude' && a.project.toLowerCase().includes(project.toLowerCase()));
+	const detail = other.slice(0, 3).map(a => activityDetail(a.key)).join('\n');
+	return detail ? detail + '\n\nDettaglio Claude Code: ' + readClaudeSession(project) : readClaudeSession(project);
+}
+
+function readClaudeSession(project: string): string {
 	const k = project.toLowerCase();
 	const items = snapshot.work.filter(w => w.sessionId && (w.project.toLowerCase() === k || w.project.toLowerCase().includes(k)));
 	if (!items.length) {
@@ -425,22 +435,15 @@ function ago(ms: number): string {
 
 const STATUS: Record<string, string> = { busy: 'al lavoro', idle: 'ti aspetta', shell: 'nel terminale' };
 
-class LiveTree implements vscode.TreeDataProvider<LiveSession> {
+class LiveTree implements vscode.TreeDataProvider<AgentActivity> {
 	readonly onDidChangeTreeData = treesChanged.event;
-	getChildren() {
-		return snapshot.live;
-	}
-	getTreeItem(s: LiveSession): vscode.TreeItem {
-		const project = snapshot.projects.find(p => p.live.some(l => l.pid === s.pid));
-		const label = project?.name ?? (s.cwd === snapshot.home ? 'home' : path.basename(s.cwd));
-		const item = new vscode.TreeItem(label);
-		item.description = `${s.empty && s.status !== 'busy' ? 'aperta, ancora vuota' : STATUS[s.status] ?? s.status}, ${ago(s.statusSince)}`;
-		item.tooltip = new vscode.MarkdownString(`**${s.title ?? s.name}**\n\n${s.cwd}\n\nPID ${s.pid}`);
-		item.iconPath = new vscode.ThemeIcon(
-			s.status === 'busy' ? 'loading~spin' : 'circle-filled',
-			new vscode.ThemeColor(s.status === 'busy' ? 'bottega.sodio' : 'descriptionForeground'),
-		);
-		if (project) item.command = { command: 'bottega.openPlancia', title: 'Plancia', arguments: [project.path] };
+	getChildren() { return snapshot.activity.filter(a => a.status === 'in corso' || a.status === 'ti aspetta'); }
+	getTreeItem(a: AgentActivity): vscode.TreeItem {
+		const item = new vscode.TreeItem(a.project);
+		item.description = `${a.source}, ${a.status}, ${ago(a.updatedAt)}`;
+		item.tooltip = `${a.title}\n${a.path || ''}\n${a.evidence}`;
+		item.iconPath = new vscode.ThemeIcon(a.status === 'in corso' ? 'loading~spin' : 'circle-filled', new vscode.ThemeColor('bottega.sodio'));
+		item.command = { command: 'bottega.openPlancia', title: 'Plancia', arguments: [a.path] };
 		return item;
 	}
 }
@@ -453,7 +456,8 @@ class ProjectTree implements vscode.TreeDataProvider<Project> {
 	getTreeItem(p: Project): vscode.TreeItem {
 		const item = new vscode.TreeItem(p.name);
 		const notes: string[] = [];
-		if (p.live.length) notes.push(p.live.length === 1 ? 'Claude attivo' : `${p.live.length} Claude attivi`);
+		const active = snapshot.activity.filter(a => a.path === p.path && (a.status === 'in corso' || a.status === 'ti aspetta'));
+		if (active.length) notes.push(`${active.length} attività attive`);
 		if (p.git?.ahead) notes.push(`${p.git.ahead} da spingere`);
 		if (p.git?.changes) notes.push(`${p.git.changes} modifiche`);
 		if (!notes.length) notes.push(ago(p.touchedAt));
@@ -461,7 +465,7 @@ class ProjectTree implements vscode.TreeDataProvider<Project> {
 		item.tooltip = p.path;
 		item.contextValue = p.xcodeProject ? 'project.apple' : 'project';
 		const warn = (p.git?.ahead ?? 0) > 0 || (p.git && !p.git.upstream);
-		item.iconPath = p.live.length
+		item.iconPath = active.length
 			? new vscode.ThemeIcon('sparkle', new vscode.ThemeColor('bottega.sodio'))
 			: warn
 				? new vscode.ThemeIcon('cloud-upload', new vscode.ThemeColor('bottega.sodio'))
@@ -505,8 +509,10 @@ function projectStatus(p: string): string {
 		parts.push('non e\' un repository git');
 	}
 	if (proj.build) parts.push(`build ${proj.build.number ?? '?'}${proj.build.marketing ? ', versione ' + proj.build.marketing : ''}`);
-	if (proj.live.length) parts.push(`${proj.live.length} sessioni di Claude attive adesso`);
-	const titles = proj.sessions.slice(0, 3).map(s => s.title).filter(Boolean);
+	const observed = snapshot.activity.filter(a => a.path && norm(a.path) === norm(p));
+	const active = observed.filter(a => a.status === 'in corso' || a.status === 'ti aspetta');
+	if (active.length) parts.push(`${active.length} attività attive adesso`);
+	const titles = observed.slice(0, 3).map(a => `${a.source}: ${a.title} (${a.status})`);
 	if (titles.length) parts.push('ultime sessioni: ' + titles.join('; '));
 	return parts.join('. ') + '.';
 }
@@ -630,7 +636,7 @@ async function datiOsservatorio(): Promise<Record<string, any> | null> {
 	if (!statsEngine) return null;
 	if (!snapshot.scannedAt) await fullScan();
 	const stats = await statsEngine.compute({ projects: snapshot.projects, live: snapshot.live });
-	return { stats, live: stats.live, categorie: await categorieDelLavoro() };
+	return { ...osservatorioConAttivita(stats, snapshot.activity), categorie: await categorieDelLavoro() };
 }
 
 // ---------- messaggi dalla plancia ----------
@@ -752,10 +758,18 @@ function showHome(view?: string, focusPath?: string, activate = false): void {
 export async function activate(ctx: vscode.ExtensionContext) {
 	const extPath = ctx.extensionPath;
 	registraSessioni(ctx);
-	terminalActivity = registerTerminalActivity(ctx, () => refreshDynamic());
+	const registraMemoria = creaRegistroMemoria();
+	terminalActivity = registerTerminalActivity(ctx, () => refreshDynamic(), a => {
+		void registraMemoria({ source: 'terminale', sid: `${process.pid}:${a.id}:${a.startedAt}`, id: 'esito', at: a.updatedAt, cwd: a.path, who: 'Esito', text: `${a.title}
+${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non riuscita'));
+	});
 
 	nucleo = new Nucleo(extPath);
 	memoria = new Memoria(extPath);
+	const syncMemory = () => void memoria?.sync().catch(() => console.warn('Memoria: acquisizione delle fonti non riuscita'));
+	syncMemory();
+	const memoryTick = setInterval(syncMemory, 60_000);
+	ctx.subscriptions.push({ dispose: () => clearInterval(memoryTick) });
 	statsEngine = new StatsEngine({ storageDir: ctx.globalStorageUri.fsPath, log: s => console.warn(s) });
 
 	jobManager = new JobManager(ctx, {
@@ -783,6 +797,11 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	occhioGlobale = occhio;
 
 	assistant = new Assistant({
+		onMemory: row => {
+			const file = vscode.window.activeTextEditor?.document.uri;
+			const cwd = row.restored ? undefined : (file ? vscode.workspace.getWorkspaceFolder(file) : undefined)?.uri.fsPath || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+			void registraMemoria({ source: 'melissa', sid: 'conversazione', id: `${row.at}:${row.role}`, at: row.at, cwd, who: row.role === 'tu' ? 'Richiesta' : 'Risposta', text: row.text }).catch(() => console.warn('Memoria: registrazione Melissa non riuscita'));
+		},
 		nucleo: nucleo!,
 		actions: {
 			searchProjects,
@@ -903,7 +922,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	// Melissa legge le stanze dagli stessi stati della plancia (src/strumenti-stanze.ts)
 	const calcolaStats = async () => {
 		if (!snapshot.scannedAt) await fullScan();
-		return statsEngine ? statsEngine.compute({ projects: snapshot.projects, live: snapshot.live }) : null;
+		return statsEngine ? { ...await statsEngine.compute({ projects: snapshot.projects, live: snapshot.live }), observedActivity: summarizeObservedActivity(snapshot.activity) } : null;
 	};
 	registraStrumentiStanze({
 		progetto: resolveProject, stats: calcolaStats, appStore: () => appStore?.state(), regole: () => idee?.rules.state(), radar: () => idee?.radar.state(),

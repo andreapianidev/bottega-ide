@@ -33,7 +33,7 @@ import * as os from 'os';
 import * as path from 'path';
 import type { BucoChiuso, FormatoApp, RepoEsito, Scheda, UnitaApp, Verifica } from './appstore';
 import { readBriefing } from './briefing';
-import { splitSummary } from './continua';
+import { splitSummary, isSessionOutcome } from './continua';
 import type { WorkItem } from './jobs';
 import type { AgentActivity } from './attivita-tipi';
 import type { RotteStanze } from './ponte';
@@ -667,17 +667,17 @@ async function daFare(f: FontiStanze, d: Domanda, now: number, tempo: number) {
 	if (d.progetto && !p) throw errore(404, `Non trovo il progetto «${testo(d.progetto, 60)}».`);
 	// 25 e non di piu': la CLI della Memoria esce prima di aver scritto tutto e oltre 64 KB (circa 35 riassunti) il
 	// JSON arriva tagliato, cioe' vuoto (prova vera del 3/10/2026)
-	const r = await conTempo(m.recent(p?.name, { kinds: ['riassunto'], limit: p ? 5 : 25 }).catch(() => null), tempo);
+	const r = await conTempo(m.recent(p?.name, { kinds: ['riassunto', 'nota'], limit: p ? 5 : 25 }).catch(() => null), tempo);
 	if (r === 'tempo') throw errore(503, 'La Memoria non risponde: riprova tra poco.');
 	if (!r) throw errore(503, 'La Memoria non si legge adesso.');
 	// l'ultimo riassunto di ogni progetto con una lista: e' quella che conta
 	const visti = new Set<string>();
 	const progetti: { nome: string; path?: string; at: number; cose: string[]; altre: number }[] = [];
-	for (const s of [...r].sort((a, b) => b.createdAt - a.createdAt)) {
+	for (const s of r.filter(isSessionOutcome).sort((a, b) => b.createdAt - a.createdAt)) {
 		if (!s.project || visti.has(s.project)) continue;
+		visti.add(s.project);
 		const todo = splitSummary(s.text).todo;
 		if (!todo.length) continue;
-		visti.add(s.project);
 		const path = s.projectPath ?? f.progetto(s.project)?.path;
 		progetti.push({ nome: testo(s.project, 60), path, at: s.createdAt, cose: todo.slice(0, 8).map(t => testo(t, 200)), altre: Math.max(0, todo.length - 8) });
 	}
@@ -977,11 +977,11 @@ async function consigli(f: FontiStanze, d: StanzeDeps, now: number, tempo: numbe
 	// 4. le cose da fare della Memoria: la prima dell'ultimo riassunto con una lista (al massimo 4 s: e' un widget)
 	const m = f.memoria?.();
 	if (m) {
-		const rs = await conTempo(m.recent(undefined, { kinds: ['riassunto'], limit: 10 }).catch(() => null), Math.min(tempo, 4000));
+		const rs = await conTempo(m.recent(undefined, { kinds: ['riassunto', 'nota'], limit: 10 }).catch(() => null), Math.min(tempo, 4000));
 		if (rs && rs !== 'tempo') {
 			const visti = new Set<string>();
 			let presi = 0;
-			for (const x of [...rs].sort((a, b) => b.createdAt - a.createdAt)) {
+			for (const x of rs.filter(isSessionOutcome).sort((a, b) => b.createdAt - a.createdAt)) {
 				if (presi >= 1) break;
 				if (!x.project || visti.has(x.project)) continue;
 				visti.add(x.project);
@@ -994,7 +994,7 @@ async function consigli(f: FontiStanze, d: StanzeDeps, now: number, tempo: numbe
 					fonte: 'dafare',
 					etichetta: 'Cose da fare',
 					titolo: testo(todo[0], 120),
-					perche: todo.length > 1 ? `Dall'ultimo riassunto di ${chi}, con altre ${todo.length - 1}.` : `Dall'ultimo riassunto di ${chi}.`,
+					perche: todo.length > 1 ? `Dall'ultimo esito registrato di ${chi}, con altre ${todo.length - 1}.` : `Dall'ultimo esito registrato di ${chi}.`,
 					soggetto: chi,
 					apri: 'dafare',
 				});

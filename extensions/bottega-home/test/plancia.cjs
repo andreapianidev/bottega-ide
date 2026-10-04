@@ -1102,6 +1102,16 @@ test('contatori e grafici Lavori usano Codex e Cline anche con contatori legacy 
 	assert.deepStrictEqual(t.errors, []);
 });
 
+test('le schede progetto mostrano Cline e Codex e il filtro attività non dipende da Claude', () => {
+ const t = boot();
+ t.send({ type: 'snapshot', snapshot: snapshot({ activity: [{ key: 'cline:nuova', source: 'cline', id: 'nuova', project: 'Faro', path: P('Faro'), title: 'Cline aggiorna il widget', status: 'in corso', updatedAt: NOW }] }) });
+ const row = t.$(`[data-row="${P('Faro')}"]`);
+ assert.match(row.textContent, /Cline aggiorna il widget/);
+ assert.match(row.textContent, /Attività osservate/);
+ assert.match(row.querySelector('.mark').getAttribute('aria-label'), /Attività in corso/);
+ assert.deepStrictEqual(t.errors, []);
+});
+
 test('Memoria distingue il controllo dall’orario dei ricordi e conserva i risultati se fallisce', () => {
 	const t = boot();
 	t.send({ type: 'snapshot', snapshot: snapshot() });

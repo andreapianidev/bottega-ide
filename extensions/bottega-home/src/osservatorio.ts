@@ -100,3 +100,25 @@ function sig(d: Record<string, any>): string {
 	const { computedAt, ms, files, ...rest } = d;
 	return JSON.stringify(rest);
 }
+
+/** Il cielo comprende tutte le fonti osservate. Nessuna ora o consumo viene inventato. */
+export function osservatorioConAttivita(stats: import('./stats').Stats, activity: readonly import('./attivita-tipi').AgentActivity[]) {
+ const unique = [...new Map(activity.map(a => [a.key, a])).values()];
+ const live = unique.filter(a => a.status === 'in corso' || a.status === 'ti aspetta').map(a => ({ project: a.project, path: a.path, title: a.title, status: a.status, source: a.source }));
+ const periods = Object.fromEntries(Object.entries(stats.periods).map(([k, per]) => {
+  const groups = new Map<string, typeof unique>();
+  for (const a of unique) {
+   if (a.updatedAt < stats.computedAt - Number(k) * 86400_000 && !['in corso', 'ti aspetta'].includes(a.status)) continue;
+   const key = a.path || a.project;
+   groups.set(key, [...(groups.get(key) || []), a]);
+  }
+  const projects = per.projects.map(p => {
+   const rows = groups.get(p.path || p.name) || [];
+   groups.delete(p.path || p.name);
+   return { ...p, live: rows.filter(a => ['in corso', 'ti aspetta'].includes(a.status)).length };
+  });
+  for (const rows of groups.values()) projects.push({ name: rows[0].project, path: rows[0].path || null, you: 0, claude: 0, tok: [0,0,0,0], sessions: rows.length, last: Math.max(...rows.map(a => a.updatedAt)), hours: Array(24).fill(0), live: rows.filter(a => ['in corso', 'ti aspetta'].includes(a.status)).length, observedOnly: true } as any);
+  return [k, { ...per, projects }];
+ }));
+ return { stats: { ...stats, periods }, live };
+}
