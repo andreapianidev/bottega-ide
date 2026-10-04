@@ -12,6 +12,9 @@ struct ImpostazioniView: View {
     @Bindable var melissa: Melissa
     @Environment(\.dismiss) private var chiudi
     @State private var scollego = false
+    @State private var importando = false
+    @State private var esitoImportazione: String?
+    @State private var telefono = AssistenteTelefono.shared
     @AppStorage(Avvisi.chiaveLive, store: Condiviso.preferenze) private var liveAccese = true
     /// Il permesso di sistema (Impostazioni di iOS, Bottega, Live Activity): senza, l'interruttore qui non basta.
     @State private var permessoLive = ActivityAuthorizationInfo().areActivitiesEnabled
@@ -21,6 +24,19 @@ struct ImpostazioniView: View {
             Form {
                 Section("Melissa") {
                     Toggle("Risponde a voce", isOn: $melissa.voceAccesa)
+                    LabeledContent("Sul telefono", value: telefono.configurato ? "pronta anche senza Mac" : "da configurare")
+                    Button(importando ? "Importo…" : "Importa Agnes, DeepSeek e ElevenLabs dal Mac") {
+                        importando = true
+                        Task {
+                            defer { importando = false }
+                            do {
+                                try await ponte.importaConfigurazioneAssistente()
+                                esitoImportazione = "Melissa può rispondere dall'iPhone anche con il Mac spento."
+                            } catch { esitoImportazione = error.localizedDescription }
+                        }
+                    }
+                    .disabled(importando || ponte.linea != .collegato)
+                    if let esitoImportazione { Text(esitoImportazione).font(.footnote) }
                 }
                 Section {
                     Toggle("Live Activity e Dynamic Island", isOn: $liveAccese)
@@ -47,7 +63,7 @@ struct ImpostazioniView: View {
                 } header: {
                     Text("Collegamento")
                 } footer: {
-                    Text("Passa da Tailscale: il Mac deve essere acceso, con la Bottega aperta. Il gettone resta nel portachiavi di questo iPhone.")
+                    Text("I lavori passano da Tailscale e richiedono il Mac acceso. Le domande generiche usano le API direttamente dall'iPhone; le chiavi restano nel suo portachiavi.")
                 }
                 Section {
                     Button(scollego ? "Scollego…" : "Scollega questo iPhone", role: .destructive) {

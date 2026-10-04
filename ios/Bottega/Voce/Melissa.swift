@@ -2,8 +2,8 @@
 //  Melissa.swift
 //  Bottega per iPhone
 //
-//  Il giro della conversazione sull'iPhone, come sul Mac: tocchi la sfera, parli, la frase va al Mac, Melissa
-//  pensa con il suo cervello e i suoi strumenti, la risposta torna con la sua voce. In conversazione si
+//  Il giro della conversazione sull'iPhone: col Mac acceso usa il ponte e i suoi strumenti; col Mac spento
+//  Agnes o DeepSeek e ElevenLabs rispondono direttamente sul telefono. In conversazione si
 //  rimette in ascolto da sola; "basta" o un tocco mentre ascolta senza parole la chiudono. Toccarla mentre
 //  parla la interrompe, come sul Mac.
 //
@@ -30,6 +30,7 @@ final class Melissa {
     private var turno: Task<Void, Never>?
     /// La risposta a voce in arrivo dal Mac: cancellarla chiude la connessione e il Mac smette di rispondere.
     private var rete: Task<Void, Error>?
+    private var lavoroTelefono: Task<String, Error>?
     /// Il giro di adesso: ogni tocco, domanda scritta o chiusura ne apre uno nuovo. Un giro vecchio che si
     /// risveglia dopo (i permessi, il riascolto automatico, un ascolto fermato) non tocca piu' niente.
     private var giro = 0
@@ -54,6 +55,7 @@ final class Melissa {
         case .parla:
             // interruzione: si tace, il Mac smette di rispondere, e in conversazione si torna ad ascoltare
             rete?.cancel()
+            lavoroTelefono?.cancel()
             flusso.ferma()
             parlato.ferma()
         case .pensa:
@@ -74,6 +76,7 @@ final class Melissa {
         conversazione = false
         ascolto.ferma()
         rete?.cancel()
+        lavoroTelefono?.cancel()
         flusso.ferma()
         parlato.ferma()
         if sfera != .pensa { sfera = .riposo }
@@ -150,7 +153,9 @@ final class Melissa {
         sfera = .pensa
         parziale = testo
         do {
-            if voceAccesa {
+            if ponte.linea != .collegato {
+                try await chiediSulTelefono(testo)
+            } else if voceAccesa {
                 try await chiediAVoce(testo)
             } else {
                 _ = try await ponte.chiedi(testo)
@@ -177,6 +182,26 @@ final class Melissa {
         try? await Task.sleep(nanoseconds: 250_000_000)
         // riascolto solo se nel frattempo non e' partito nient'altro (un tocco, una domanda scritta, una chiusura)
         if conversazione, g == giro, sfera == .riposo { await ascoltaFrase(g) }
+    }
+
+    private func chiediSulTelefono(_ testo: String) async throws {
+        if voceAccesa { try flusso.prepara() }
+        let task = Task { @MainActor in
+            try await AssistenteTelefono.shared.rispondi(testo, voce: voceAccesa) { pcm in
+                if self.sfera != .parla { self.sfera = .parla; self.parziale = "" }
+                self.flusso.accoda(pcm)
+            }
+        }
+        lavoroTelefono = task
+        defer { lavoroTelefono = nil }
+        let risposta = try await task.value
+        if voceAccesa {
+            guard flusso.haSuonato else { throw ErrorePonte(messaggio: "ElevenLabs non ha mandato l'audio della voce di Melissa.") }
+            sfera = .parla
+            await flusso.aspettaFine()
+        } else {
+            parziale = risposta
+        }
     }
 
     /// La risposta arriva a frasi e la voce suona mentre Melissa sta ancora rispondendo (ponte /v1/parla).

@@ -11,6 +11,8 @@ import SwiftUI
 struct ConversazioneView: View {
     let stato: StatoMac?
     let melissa: Melissa
+    let online: Bool
+    @State private var telefono = AssistenteTelefono.shared
 
     private static let pronte: [(String, String)] = [
         ("Briefing", "Fammi il briefing di oggi."),
@@ -34,6 +36,13 @@ struct ConversazioneView: View {
                     ForEach(righe) { r in
                         Fumetto(riga: r).id(r.id)
                     }
+                    if !online && !telefono.rispostaParziale.isEmpty {
+                        Text(telefono.rispostaParziale)
+                            .font(.body)
+                            .foregroundStyle(Tinte.testo)
+                            .padding(14)
+                            .background(RoundedRectangle(cornerRadius: 18).fill(Tinte.notteFonda))
+                    }
                     pronte.padding(.top, 6).id("fondo")
                 }
                 .padding(.horizontal, 16)
@@ -47,7 +56,7 @@ struct ConversazioneView: View {
         }
     }
 
-    private var righe: [StatoMac.Riga] { stato?.melissa.registro ?? [] }
+    private var righe: [StatoMac.Riga] { online ? (stato?.melissa.registro ?? []) : telefono.righe }
 
     private var pronte: some View {
         ScrollView(.horizontal, showsIndicators: false) {

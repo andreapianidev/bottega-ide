@@ -41,6 +41,9 @@ final class Ponte {
     @ObservationIgnored private var ritorno: Task<Void, Never>?
     /// Se il nome MagicDNS non si risolve (MagicDNS spento sull'iPhone) si passa all'indirizzo 100.x.
     private var usaIP = false
+    private var importandoAssistente = false
+    private var sincronizzandoAssistente = false
+    private var sincronizzandoScelta = false
     private let sessione: URLSession = {
         let c = URLSessionConfiguration.ephemeral
         c.timeoutIntervalForRequest = 90
@@ -70,6 +73,7 @@ final class Ponte {
         riavvia()
         // un altro Mac o un gettone nuovo: quel Mac non ha i token di questo iPhone, si rimandano tutti
         if prima == nil || prima?.host != c.host || prima?.token != c.token {
+            AssistenteTelefono.shared.cancella()
             Avvisi.shared.dimentica()
             // da scollegati ci pensa il cambio di `collegato` (BottegaApp)
             if prima != nil { Avvisi.shared.avvia() }
@@ -86,6 +90,7 @@ final class Ponte {
         stato = nil
         linea = .scollegato
         Avvisi.shared.dimentica()
+        AssistenteTelefono.shared.cancella()
     }
 
     /// Il portachiavi non si legge prima del primo sblocco dopo l'accensione: se all'avvio il gettone non c'era,
@@ -113,6 +118,14 @@ final class Ponte {
         ferma()
         avvia()
     }
+
+#if DEBUG
+    /// Prova sul dispositivo: spegne soltanto gli eventi del ponte e usa il percorso autonomo.
+    func simulaMacAssentePerProva() {
+        ferma()
+        linea = .fuori("Mac non raggiungibile nella prova")
+    }
+#endif
 
     private func segui() async {
         var attesa: UInt64 = 1
@@ -170,6 +183,28 @@ final class Ponte {
         stato = s
         s.salvaComeUltimo()
         Collegamento.ricordaSicuro(s.sicuro)
+        AssistenteTelefono.shared.aggiornaSceltaDalMac(s.melissa.scelta)
+        if AssistenteTelefono.shared.sceltaInAttesa && !sincronizzandoScelta {
+            sincronizzandoScelta = true
+            Task {
+                defer { sincronizzandoScelta = false }
+                await AssistenteTelefono.shared.sincronizzaScelta(con: self)
+            }
+        }
+        if !AssistenteTelefono.shared.configurato && s.sicuro != nil && !importandoAssistente {
+            importandoAssistente = true
+            Task {
+                defer { importandoAssistente = false }
+                try? await importaConfigurazioneAssistente()
+            }
+        }
+        if AssistenteTelefono.shared.turni.contains(where: { !$0.sincronizzato }) && !sincronizzandoAssistente {
+            sincronizzandoAssistente = true
+            Task {
+                defer { sincronizzandoAssistente = false }
+                await AssistenteTelefono.shared.sincronizza(con: self)
+            }
+        }
         if prima?.conti != s.conti || prima?.lavori.map(\.chiave) != s.lavori.map(\.chiave) { WidgetCenter.shared.reloadAllTimelines() }
         MetalEngine.shared.setLoad(s.conti.inCorso)
     }
@@ -286,6 +321,21 @@ final class Ponte {
         // il nome sotto la sfera cambia subito, anche se gli eventi sono caduti
         Task { await aggiornaStato() }
         return r
+    }
+
+    /// Una sola importazione quando il Mac e' acceso. Chiavi mai sul ponte HTTP o nelle preferenze.
+    func importaConfigurazioneAssistente() async throws {
+        guard collegamento?.schema == "https" else {
+            throw ErrorePonte(messaggio: "Per importare le chiavi serve il collegamento HTTPS con il Mac.")
+        }
+        let config: ConfigurazioneTelefono = try await prendi("/v1/assistente/config")
+        try AssistenteTelefono.shared.importa(config)
+    }
+
+    func importaStoria(_ turns: [TurnoTelefono]) async throws {
+        struct R: Decodable { let ok: Bool }
+        let body: [[String: String]] = turns.map { ["id": $0.id.uuidString.lowercased(), "chi": $0.chi, "testo": $0.testo] }
+        let _: R = try await manda("/v1/assistente/storia", ["turns": body])
     }
 
     private func prendi<T: Decodable>(_ percorso: String, timeout: TimeInterval = 30) async throws -> T {

@@ -290,9 +290,10 @@ codice, il martello appoggiato accanto. Titoli senza maiuscolo forzato, schede e
 
 Melissa e i lavori del Mac in tasca, anche fuori casa. L'app per iPhone (`ios/`) ha la stessa icona e la stessa
 sfera: gli stessi file Metal del Nucleo, compilati anche per iOS. Tocchi la sfera e parli. L'iPhone ti sente con il
-riconoscimento vocale di Apple, la frase va al Mac, Melissa pensa con il suo cervello e i suoi strumenti (apre
-progetti, avvia lavori, legge le sessioni, chiede conferma per un push) e ti risponde con la sua voce. La
-conversazione è la stessa della barra sul Mac. La stanza Lavori mostra tutte le sessioni Claude del Mac, con in cima
+riconoscimento vocale di Apple. Con il Mac acceso, Melissa usa il suo cervello e i suoi strumenti (apre progetti,
+avvia lavori, legge le sessioni, chiede conferma per un push). Con il Mac spento, l'iPhone chiede direttamente ad
+Agnes o DeepSeek e parla con la stessa voce ElevenLabs. Le chiavi si importano una volta dal Mac via HTTPS e restano
+nel portachiavi dell'iPhone. La conversazione torna sulla barra del Mac quando si ricollegano. La stanza Lavori mostra tutte le sessioni Claude del Mac, con in cima
 chi ti aspetta, e ai lavori della Bottega puoi scrivere da lì.
 
 Toccando una sessione si apre la sua scheda, per tutte, anche quelle aperte in iTerm: cosa le hai chiesto, cosa ha
@@ -320,7 +321,7 @@ come se le avessi toccate sulla plancia (mai un push o una pubblicazione).
 
 iPhone e Mac si parlano solo dentro [Tailscale](https://tailscale.com), senza server in mezzo: la Bottega apre un
 piccolo ponte sull'indirizzo Tailscale del Mac, invisibile dal Wi-Fi e da internet, e ogni richiesta porta un
-gettone. Il Mac deve essere acceso, con la Bottega aperta. Per collegare l'iPhone: comando «Collega l'iPhone» nella
+gettone. Il Mac deve essere acceso, con la Bottega aperta, per i lavori e i dati in diretta. Per collegare l'iPhone: comando «Collega l'iPhone» nella
 Bottega, poi inquadri il codice con la Fotocamera. Il protocollo è in `docs/CONTRATTI.md`, sezione 9.
 
 Quando sei lontano dal Mac, la Bottega ti avvisa sull'iPhone: una sessione Claude che ti aspetta (e le rispondi
@@ -471,7 +472,9 @@ Per le notifiche serve una chiave APNs del tuo account (Certificates, Identifier
 - verso GitHub: l'ultima versione pubblicata di VS Code, al massimo una volta al giorno e solo quando Claude Code ne
   chiede una piu' nuova;
 - verso il tuo iPhone, solo dentro la tua rete Tailscale e solo se usi la Bottega per iPhone: lo stato di Melissa e
-  dei lavori, le risposte e la loro voce;
+  dei lavori, le risposte e la loro voce; su richiesta dell'app, solo via HTTPS, le chiavi di Agnes, DeepSeek e
+  ElevenLabs per rispondere anche a Mac spento. Dall'iPhone le domande generiche vanno direttamente ad Agnes o
+  DeepSeek e il testo della risposta a ElevenLabs quando scegli la voce;
 - verso Claude e Anthropic, solo se premi «Cerca anche in Gmail» (o accendi `bottega.posta.gmailOgniMinuti`): la
   richiesta a Gmail e i mittenti, gli oggetti e le anteprime dei fili trovati, come nell'uso normale dei connettori.
   Lo stesso per le domande di Melissa ai connettori di claude.ai, che confermi una per una, e per la lettura degli

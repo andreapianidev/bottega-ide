@@ -20,11 +20,10 @@ struct ChiediAMelissa: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<String> {
         let ponte = Ponte.shared
-        guard ponte.collegato else {
-            return .result(value: "", dialog: "La Bottega non è collegata a nessun Mac. Apri l'app e collegala.")
-        }
         do {
-            let risposta = try await ponte.chiedi(domanda)
+            let risposta: String
+            if ponte.linea == .collegato { risposta = try await ponte.chiedi(domanda) }
+            else { risposta = try await AssistenteTelefono.shared.rispondi(domanda, voce: false) { _ in } }
             return .result(value: risposta, dialog: IntentDialog(stringLiteral: risposta))
         } catch {
             return .result(value: "", dialog: IntentDialog(stringLiteral: error.localizedDescription))

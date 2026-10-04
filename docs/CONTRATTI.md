@@ -1364,8 +1364,9 @@ iPhone (ios/, SwiftUI)  --HTTP sulla rete Tailscale-->  estensione: src/ponte.ts
    ascolto: SFSpeechRecognizer it-IT sull'iPhone
 ```
 
-Il Mac deve essere acceso con la Bottega aperta: il ponte vive nell'estensione. Nessun server di terzi in mezzo,
-nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
+Il Mac deve essere acceso con la Bottega aperta per il ponte, i lavori e i dati in diretta. Quando manca, Melissa
+risponde alle domande generiche direttamente dall'iPhone tramite Agnes o DeepSeek e ElevenLabs (9.10).
+iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
 
 ### 9.1 Il ponte (estensione, `src/ponte.ts`, `src/ponte-host.ts`)
 
@@ -1407,6 +1408,12 @@ nemmeno le VM: iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard,
   poche azioni della stanza App Store (9.7).
 - `GET /v1/stato`: `melissa.scelta?` (9.8), facoltativo. `GET /v1/cervelli` e `POST /v1/cervello {provider?, impegno?,
   sempre?}`: il cervello di Melissa (9.8).
+- `GET /v1/assistente/config`: **solo HTTPS**, gettone obbligatorio, `Cache-Control: no-store`. Restituisce le chiavi
+  Agnes, DeepSeek ed ElevenLabs disponibili sul Mac, `voiceID` e il prompt di Melissa per l'iPhone. Su HTTP torna 403;
+  non entra nel QR, negli eventi, nei log o nei widget. L'app conserva le chiavi nel portachiavi del solo iPhone.
+- `POST /v1/assistente/storia {turns:[{id,chi,testo}]}`: importa al massimo 24 turni completi fatti offline nel registro
+  e nella storia di Melissa sul Mac. ID UUID, `chi` in `tu|melissa`, testo fino a 2000 caratteri. Gli ID importati
+  sono ricordati in `~/.bottega/telefono-turni-importati.json` (600), per non duplicare un turno dopo un retry.
 - Errori: `{errore}` in italiano, da mostrare cosi' com'e'.
 - Comando «Collega l'iPhone» (`bottega.ponte.collega`): pagina con il QR (dal Nucleo) di
   `bottega://collega?host=<nome MagicDNS>&ip=<100.x>&porta=7790&token=<gettone>` e il pulsante per copiarlo.
@@ -1820,9 +1827,10 @@ con gli eventi anche quando si cambia dal Mac o a voce. Un tocco sul nome, o un 
 accessibilita' «Scegli il cervello»), apre il selettore: i cervelli che il Mac dice, con la nota («gratis», «a consumo, a
 fondo V4 Pro», «gratis, sul Mac») e, se non disponibili, il perche' («senza credito», «il Nucleo non è acceso»); «Per
 questa conversazione» o «Sempre»; l'impegno (rapido, normale, profondo, come nella barra: resta finche' non lo cambi).
-Cambiare «Per questa conversazione»/«Sempre» vale anche per il cervello di adesso se non e' Agnes. Con il Mac spento il
-selettore e' grigio, dice «Serve il Mac acceso» e mostra l'ultimo cervello visto. Lo stato di una Bottega vecchia senza
-`scelta` si legge ancora (il nome non compare).
+Cambiare «Per questa conversazione»/«Sempre» vale anche per il cervello di adesso se non e' Agnes. Con il Mac spento
+il selettore locale offre Agnes e DeepSeek, con l'impegno; la scelta viene applicata come predefinita anche al Mac
+quando torna in linea. Apple Intelligence del Mac non e' disponibile in questa modalita'. Lo stato di una Bottega
+vecchia senza `scelta` si legge ancora (il nome non compare).
 
 - `GET /v1/stato` -> `melissa.scelta?: {provider, nome, impegno, predefinito, perOra}` (`sceltaDi`, senza rete).
 - `GET /v1/cervelli` -> `PonteCervelli`: `{provider, nome, impegno, predefinito, perOra, opzioni: [{provider, nome, nota,
@@ -1865,6 +1873,26 @@ rete di casa dicono al Mac dov'e' l'iPhone, non portano dati.
 - Da decidere, solo descritto: il cavo anche come canale (`usbmuxd`, come Xcode), per quando Wi-Fi o Tailscale non
   ci sono. Solo il Mac puo' aprire la connessione verso l'iPhone, quindi servirebbe un tunnel nel Nucleo e un
   ascolto nell'app, con l'app davanti.
+
+### 9.10 Melissa autonoma sull'iPhone
+
+- Alla prima risposta del Mac con HTTPS, `Ponte` importa `/v1/assistente/config` se manca una configurazione locale.
+  Dalle Impostazioni si puo' ripetere l'importazione dopo il cambio di una chiave. Il portachiavi usa
+  `AfterFirstUnlockThisDeviceOnly`, gruppo della sola app, senza backup su altri dispositivi. Scollegare l'iPhone
+  cancella chiavi e storia locale; collegarlo a un altro Mac le cancella prima dell'importazione nuova.
+- Con `linea == collegato` resta il percorso del Mac (`/v1/chiedi`, `/v1/parla`) con tutti gli strumenti. Altrimenti
+  `AssistenteTelefono` chiama direttamente Agnes (`agnes-3.0-flash`) o DeepSeek (`deepseek-flash`, oppure
+  `deepseek-v4-pro` con impegno profondo) via Chat Completions SSE. Il prompt viene dal Mac e include la regola che
+  i dati dei progetti e delle sessioni non sono attuali senza il ponte. La storia privata sull'iPhone contiene al
+  massimo 80 turni e conserva 16 turni nel contesto del modello. Non si inviano strumenti del Mac.
+- Con la voce accesa, `VoceTelefono` apre direttamente il WebSocket ElevenLabs Text to Dialogue con
+  `eleven_v4_turbo`, la stessa `voiceID` e `pcm_24000` del Nucleo. Le frasi arrivano a `FlussoVoce` mentre il modello
+  scrive; un tocco cancella la richiesta e il socket. Se ElevenLabs non manda audio, l'app mostra un errore chiaro;
+  non sostituisce silenziosamente la voce di Melissa nella modalita' autonoma.
+- I turni offline hanno UUID e sono salvati in Application Support con protezione dati. Quando il Mac torna, l'app
+  manda al massimo 24 turni per volta a `/v1/assistente/storia`, poi li segna sincronizzati. Una scelta locale di
+  cervello o impegno fatta offline viene applicata al Mac come scelta «sempre». Siri usa lo stesso percorso di testo
+  quando il ponte e' giu'; la voce letta da Siri segue il sistema, mentre nell'app la voce e' ElevenLabs.
 
 ## 10. Gli aggiornamenti: VS Code solo quando serve, Claude Code sempre
 
@@ -2326,4 +2354,3 @@ Plancia: la webview chiede `{type: "conti.request", aggiorna?: bool}` a ogni ric
 (e con «Aggiorna i saldi»); l'estensione risponde subito con `{type: "conti", conti: ContiFile | null}` e, se i dati
 hanno piu' di 10 minuti o `aggiorna` e' vero, di nuovo dopo la lettura. `{type: "conti.mostra"}` porta la vista sulla
 sezione. Nella barra di Melissa, sotto i conti, «Crediti e consumi, giorno per giorno» manda `comando` `conti`.
-

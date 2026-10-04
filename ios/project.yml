@@ -41,6 +41,19 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         MTL_FAST_MATH: YES
+  BottegaTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: Bottega
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.andreapiani.bottega.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Bottega.app/Bottega"
+        BUNDLE_LOADER: "$(TEST_HOST)"
   # Widget, Live Activity e controllo del Centro di Controllo (docs/CONTRATTI.md, 9.4), incorporati nell'app.
   BottegaWidget:
     type: app-extension

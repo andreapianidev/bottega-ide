@@ -59,6 +59,7 @@ function call(port, method, url, { token, body, raw } = {}) {
 	let confermaAperta;
 	const asked = [];
 	const written = [];
+	const imported = [];
 	let cavo = false;
 	const port = 20000 + Math.floor(Math.random() * 20000);
 	// i Cervelli veri, con rete finta e chiavi finte: DeepSeek ha credito, Apple Intelligence no
@@ -77,6 +78,8 @@ function call(port, method, url, { token, body, raw } = {}) {
 		indirizzo: async () => ({ ip: '127.0.0.1', nome: 'mac-di-prova.tailnet.ts.net', diretti: ['100.70.0.9'] }),
 		cavo: () => cavo,
 		cervelli: rotteCervelli(() => cv),
+		configTelefono: async () => ({ agnes: 'test-agnes', deepseek: 'test-deepseek', elevenlabs: 'test-voice', voiceID: 'voice-test', prompt: 'Sei Melissa.' }),
+		importaTurniTelefono: turns => imported.push(...turns),
 		stato: () => ({ melissa: { stato: busy ? 'thinking' : 'idle', cervello: 'agnes', scelta: sceltaDi(cv), registro: asked.map(t => ({ chi: 'tu', testo: t, alle: 1 })) }, lavori: [], conti: { inCorso: 0, tiAspetta: 1, inCoda: 0, vive: 1 } }),
 		occupata: () => busy,
 		chiedi: async t => (asked.push(t), `Risposta a: ${t}`),
@@ -285,8 +288,8 @@ function call(port, method, url, { token, body, raw } = {}) {
 		const st = (await call(port, 'GET', '/v1/stato', { token: t1 })).body;
 		assert.strictEqual(st.https.porta, port + 1);
 		assert.match(st.https.impronta, /^[0-9a-f]{64}$/);
-		const sicura = token => new Promise((resolve, reject) => {
-			const req = https.request({ host: '127.0.0.1', port: port + 1, path: '/v1/stato', method: 'GET', rejectUnauthorized: false, headers: token ? { authorization: `Bearer ${token}` } : {} }, res => {
+		const sicura = (token, percorso = '/v1/stato') => new Promise((resolve, reject) => {
+			const req = https.request({ host: '127.0.0.1', port: port + 1, path: percorso, method: 'GET', rejectUnauthorized: false, headers: token ? { authorization: `Bearer ${token}` } : {} }, res => {
 				const cert = res.socket.getPeerCertificate();
 				let d = '';
 				res.on('data', c => (d += c));
@@ -301,6 +304,11 @@ function call(port, method, url, { token, body, raw } = {}) {
 		assert.strictEqual(r.impronta, st.https.impronta, 'l\'impronta dello stato e\' quella del certificato servito');
 		assert.ok(r.san.includes('DNS:mac-di-prova.tailnet.ts.net') && r.san.includes('IP Address:127.0.0.1'));
 		assert.strictEqual((await sicura()).status, 401, 'anche in https serve il gettone');
+		assert.strictEqual((await call(port, 'GET', '/v1/assistente/config', { token: t1 })).status, 403, 'nessuna chiave sul ponte HTTP');
+		assert.strictEqual((await sicura(undefined, '/v1/assistente/config')).status, 401);
+		const config = await sicura(t1, '/v1/assistente/config');
+		assert.strictEqual(config.status, 200);
+		assert.deepStrictEqual([config.body.agnes, config.body.elevenlabs, config.body.voiceID], ['test-agnes', 'test-voice', 'voice-test']);
 		const k = path.join(dir, 'ponte-tls', 'chiave.pem');
 		assert.strictEqual(fs.statSync(k).mode & 0o777, 0o600);
 		// riacceso: stesso certificato, stessa impronta (l'iPhone non deve reimpararla)
@@ -314,6 +322,13 @@ function call(port, method, url, { token, body, raw } = {}) {
 		assert.ok(rifatto.key.toString().includes('BEGIN PRIVATE KEY') && !rifatto.key.toString().includes('nonvale'), 'chiave illeggibile: rifatta');
 	}
 	ok('https sulla porta accanto: stesse rotte, gettone, impronta nello stato, certificato riusato');
+	const offline = { id: '00000000-0000-4000-8000-000000000001', chi: 'tu', testo: 'Ciao da fuori casa' };
+	assert.strictEqual((await call(port, 'POST', '/v1/assistente/storia', { token: t1, body: { turns: [offline] } })).status, 200);
+	assert.strictEqual((await call(port, 'POST', '/v1/assistente/storia', { token: t1, body: { turns: [offline] } })).status, 200);
+	assert.deepStrictEqual(imported.map(t => t.testo), ['Ciao da fuori casa'], 'turno offline importato una volta');
+	assert.strictEqual((await call(port, 'POST', '/v1/assistente/storia', { token: t1, body: { turns: [{ ...offline, id: 'rotto' }] } })).status, 400);
+	assert.strictEqual(fs.statSync(path.join(dir, 'telefono-turni-importati.json')).mode & 0o777, 0o600);
+	ok('configurazione solo HTTPS e cronologia offline deduplicata');
 
 	const statoTs = {
 		Peer: {

@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { Apns } from './apns';
 import { handleAppStore } from './appstore-host';
-import type { Assistant } from './assistant';
+import { MELISSA_CORE, TRUTH_RULE, type Assistant } from './assistant';
 import { Avvisi, inattivitaHID, ModoAvvisi, RegolaProgetto, type AllarmeNegozio } from './avvisi';
 import { Dispositivo, fondiDispositivo, leggiDispositivo, togliToken } from './dispositivo';
 import type { WorkCounts, WorkItem } from './jobs';
@@ -37,6 +37,14 @@ export interface PonteHostDeps {
 	jobTerminal?(id: string): vscode.Terminal | undefined;
 	/** I cervelli di Melissa: il nome sotto la sfera e il selettore dell'iPhone (9.8). */
 	cervelli?(): Cervelli | undefined;
+}
+
+function segreto(file: string, name: string): string | undefined {
+	try {
+		const raw = fs.readFileSync(path.join(os.homedir(), '.secrets', file), 'utf8');
+		const line = raw.split(/\r?\n/).find(s => new RegExp(`^\\s*(?:export\\s+)?${name}\\s*=`).test(s));
+		return line?.slice(line.indexOf('=') + 1).trim().replace(/^["']|["']$/g, '') || undefined;
+	} catch { return undefined; }
 }
 
 export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps): { notify(): void } {
@@ -122,6 +130,14 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 		sessioni,
 		// il cervello di Melissa (9.8): gli stessi metodi della barra del Mac
 		cervelli: deps.cervelli ? rotteCervelli(deps.cervelli) : undefined,
+		configTelefono: async () => ({
+			agnes: deps.cervelli?.()?.key('agnes') || await ctx.secrets.get('bottega.agnesKey'),
+			deepseek: deps.cervelli?.()?.key('deepseek'),
+			elevenlabs: process.env.ELEVENLABS_API_KEY || segreto('elevenlabs.env', 'ELEVENLABS_API_KEY'),
+			voiceID: process.env.ELEVENLABS_VOICE_ID || segreto('elevenlabs.env', 'ELEVENLABS_VOICE_ID') || 'QITiGyM4owEZrBEf0QV8',
+			prompt: `${MELISSA_CORE}\n\n${TRUTH_RULE}\n\nSei sull'iPhone di Andrea e il Mac non risponde. Puoi parlare di qualsiasi argomento generale. Non hai strumenti né dati in diretta: se Andrea chiede lo stato dei progetti, delle sessioni o dei conti, spiega che serve il Mac acceso. Non presentare dati salvati come attuali.`,
+		}),
+		importaTurniTelefono: turns => deps.assistant()?.importPhoneTurns(turns),
 		// le stanze della plancia, dalle stesse fonti di stanza_leggi (CONTRATTI 9.6)
 		stanze: new StanzePonte({
 			fonti: fontiStanze,

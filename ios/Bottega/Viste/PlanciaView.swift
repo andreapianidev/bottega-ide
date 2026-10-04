@@ -35,7 +35,7 @@ struct PlanciaView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 8)
                 switch nav.stanza {
-                case .melissa: ConversazioneView(stato: ponte.stato, melissa: melissa)
+                case .melissa: ConversazioneView(stato: ponte.stato, melissa: melissa, online: ponte.linea == .collegato)
                 case .lavori: LavoriView(ponte: ponte)
                 case .stanze: StanzeView(ponte: ponte)
                 }
@@ -58,8 +58,10 @@ struct PlanciaView: View {
                 .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $cervello) {
-            CervelloFoglio(ponte: ponte)
-                .presentationDetents([.medium, .large])
+            Group {
+                if ponte.linea == .collegato { CervelloFoglio(ponte: ponte) }
+                else { CervelloTelefonoFoglio() }
+            }.presentationDetents([.medium, .large])
         }
         .alert("Melissa", isPresented: Binding(get: { melissa.avviso != nil }, set: { if !$0 { melissa.avviso = nil } })) {
             Button("Va bene", role: .cancel) {}
@@ -115,7 +117,7 @@ struct PlanciaView: View {
                 .accessibilityHint(melissa.sfera == .ascolta ? "Tocca per mandare la frase" : "Tocca per parlare con Melissa")
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction(named: "Scegli il cervello") { cervello = true }
-            CervelloNome(scelta: ponte.stato?.melissa.scelta, acceso: ponte.linea == .collegato) { cervello = true }
+            CervelloNome(scelta: sceltaVisibile, acceso: true) { cervello = true }
                 .padding(.top, -4)
             Text(fraseSfera)
                 .font(.callout)
@@ -185,6 +187,13 @@ struct PlanciaView: View {
 
     private var sullaScrivania: Bool {
         davanti && ponte.linea == .collegato && ponte.stato?.vicino == "usb"
+    }
+
+    private var sceltaVisibile: StatoMac.Scelta? {
+        if ponte.linea == .collegato { return ponte.stato?.melissa.scelta }
+        let t = AssistenteTelefono.shared
+        return StatoMac.Scelta(provider: t.provider, nome: t.nome, impegno: t.impegno,
+                               predefinito: t.provider, perOra: false)
     }
 
     private var fraseLinea: String {

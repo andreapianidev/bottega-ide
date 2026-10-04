@@ -9,6 +9,46 @@
 
 import SwiftUI
 
+/// Con il Mac spento la scelta appartiene all'iPhone e vale per le domande autonome.
+struct CervelloTelefonoFoglio: View {
+    @State private var telefono = AssistenteTelefono.shared
+    @Environment(\.dismiss) private var chiudi
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    ForEach(["agnes", "deepseek"], id: \.self) { p in
+                        Button {
+                            telefono.provider = p
+                        } label: {
+                            HStack {
+                                Text(p == "agnes" ? "Agnes" : "DeepSeek")
+                                Spacer()
+                                if telefono.provider == p { Image(systemName: "checkmark") }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Cervello sull'iPhone")
+                } footer: {
+                    Text("Risponde direttamente dall'iPhone. Per i lavori e i dati aggiornati serve il Mac acceso.")
+                }
+                Section("Impegno") {
+                    Picker("Impegno", selection: $telefono.impegno) {
+                        ForEach(CervelliMac.impegni, id: \.self) { Text($0).tag($0) }
+                    }.pickerStyle(.segmented)
+                }
+                if !telefono.configurato {
+                    Section { Text("Accendi il Mac una volta per importare le chiavi nelle Impostazioni.") }
+                }
+            }
+            .navigationTitle("Il cervello di Melissa")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fatto") { chiudi() } } }
+        }
+    }
+}
+
 /// Il nome del cervello sotto la sfera, piccolo. Senza lo stato del Mac (o con una Bottega vecchia) non c'e'.
 struct CervelloNome: View {
     let scelta: StatoMac.Scelta?

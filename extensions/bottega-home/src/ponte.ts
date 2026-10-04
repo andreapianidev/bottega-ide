@@ -119,6 +119,10 @@ export interface PonteDeps {
 	stanze?: RotteStanze;
 	/** Il cervello di Melissa (GET /v1/cervelli, POST /v1/cervello, docs/CONTRATTI.md 9.8), dopo il gettone. */
 	cervelli?: RotteCervelli;
+	/** Configurazione per Melissa autonoma, mai servita sul ponte HTTP. */
+	configTelefono?(): Promise<{ agnes?: string; deepseek?: string; elevenlabs?: string; voiceID: string; prompt: string }>;
+	/** Turni completati offline; il ponte conserva gli ID per non importarli due volte. */
+	importaTurniTelefono?(turns: { id: string; chi: 'tu' | 'melissa'; testo: string }[]): void;
 	/** Solo per i test: dove ascoltare al posto dell'indirizzo Tailscale. */
 	indirizzo?: () => Promise<Rete | null>;
 	porta?: number;
@@ -258,6 +262,7 @@ export class Ponte {
 	private notifyTimer?: NodeJS.Timeout;
 	/** Gettoni sbagliati per indirizzo: dopo 20 in dieci minuti quell'indirizzo resta fuori dieci minuti. */
 	private readonly sbagli = new Map<string, number[]>();
+	private readonly importati = new Set<string>();
 	private fermato = false;
 	/** Un riallineamento alla volta: due insieme aprirebbero due server, e uno resterebbe orfano. */
 	private allineando?: Promise<void>;
@@ -267,6 +272,18 @@ export class Ponte {
 	constructor(private readonly deps: PonteDeps) {
 		this.token = leggiGettone(deps.dir);
 		this.porta = deps.porta ?? PORTA;
+		try {
+			const saved = JSON.parse(fs.readFileSync(path.join(deps.dir, 'telefono-turni-importati.json'), 'utf8'));
+			if (Array.isArray(saved)) for (const id of saved) if (typeof id === 'string') this.importati.add(id);
+		} catch { /* primo avvio */ }
+	}
+
+	private salvaImportati(): void {
+		while (this.importati.size > 1000) this.importati.delete(this.importati.values().next().value!);
+		const file = path.join(this.deps.dir, 'telefono-turni-importati.json');
+		const temp = file + '.tmp';
+		fs.writeFileSync(temp, JSON.stringify([...this.importati]), { mode: 0o600 });
+		fs.renameSync(temp, file);
 	}
 
 	/** Si accende sull'indirizzo Tailscale e ricontrolla ogni minuto: se Tailscale si spegne o cambia indirizzo, si riallinea. */
@@ -442,6 +459,31 @@ export class Ponte {
 		if (da !== '127.0.0.1' && da !== '::1') this.iphone = da; // una richiesta dal Mac stesso non e' l'iPhone
 		const url = (req.url ?? '/').split('?')[0];
 		try {
+			if (url === '/v1/assistente/config' && this.deps.configTelefono) {
+				if (req.method !== 'GET') return json(405, { errore: 'La configurazione si legge con GET.' });
+				if (!('encrypted' in req.socket) || !req.socket.encrypted) return json(403, { errore: 'La configurazione richiede HTTPS.' });
+				return json(200, await this.deps.configTelefono());
+			}
+			if (url === '/v1/assistente/storia' && this.deps.importaTurniTelefono) {
+				if (req.method !== 'POST') return json(405, { errore: 'La cronologia si manda con POST.' });
+				if (this.deps.occupata()) return json(409, { errore: 'Melissa sta rispondendo: sincronizzo la storia dopo.' });
+				const body = await leggiCorpo(req);
+				const turns = Array.isArray(body?.turns) ? body.turns : [];
+				if (turns.length > 24) return json(400, { errore: 'Troppi turni.' });
+				const nuovi: { id: string; chi: 'tu' | 'melissa'; testo: string }[] = [];
+				for (const t of turns) {
+					if (!t || typeof t.id !== 'string' || !/^[a-f0-9-]{36}$/.test(t.id) ||
+						(t.chi !== 'tu' && t.chi !== 'melissa') || typeof t.testo !== 'string' || t.testo.length > MAX_TESTO) {
+						return json(400, { errore: 'Un turno non è valido.' });
+					}
+					if (!this.importati.has(t.id)) nuovi.push({ id: t.id, chi: t.chi, testo: t.testo });
+				}
+				this.deps.importaTurniTelefono(nuovi);
+				for (const t of nuovi) this.importati.add(t.id);
+				if (nuovi.length) this.salvaImportati();
+				this.notify();
+				return json(200, { ok: true });
+			}
 			if (url === '/v1/sessione' || url.startsWith('/v1/sessione/')) {
 				if (!this.deps.sessioni) return json(404, { errore: 'Non c\'e\' niente qui.' });
 				return await this.deps.sessioni.gestisci(req, res, { corpo: () => leggiCorpo(req), occupata: () => this.deps.occupata(), parla: (t, e, s) => this.deps.parla(t, e, s) });
