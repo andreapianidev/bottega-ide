@@ -444,6 +444,33 @@ test('quadro in cifre: chiede le ore, legge stats, soldi, regole, lavori, tutto 
 	assert.strictEqual(t.$('#tab-cruscotto').getAttribute('aria-selected'), 'true');
 });
 
+test('la Home apre con KPI e grafici dei sette giorni, da dati reali e facoltativi', () => {
+	const t = boot();
+	t.send({ type: 'snapshot', snapshot: snapshot() });
+	const top = t.$('#plancia-corpo');
+	assert.ok([...top.children].indexOf(t.$('#quadro')) < [...top.children].indexOf(t.$('#lampade')));
+	assert.ok([...top.children].indexOf(t.$('#andamenti')) < [...top.children].indexOf(t.$('#mattino')));
+	assert.strictEqual(t.$$('.andamento').length, 1, 'i ricavi sono già disponibili anche mentre arrivano le ore');
+	const days = Array.from({ length: 14 }, (_, i) => {
+		const d = new Date();
+		d.setDate(d.getDate() - 13 + i);
+		return { date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`, you: (i - 6) * 10 };
+	});
+	t.send({ type: 'stats', stats: { ...STATS, days, periods: { '7': { you: 280, prev: { you: 210 } } } } });
+	assert.strictEqual(t.$$('.andamento').length, 2);
+	assert.strictEqual(t.$$('.andamento-ore .andamento-barre li').length, 7);
+	assert.strictEqual(t.$$('.andamento-ricavi .andamento-barre li').length, 7);
+	assert.strictEqual(t.$('.andamento-ore .andamento-barra').getAttribute('height'), '14', 'le barre sono SVG senza stili inline, compatibili con la CSP');
+	assert.match(t.$('.andamento-ore .andamento-kpi').textContent, /4 h 40 min.*1 h 10 min in più/);
+	assert.match(t.$('.andamento-ricavi .andamento-kpi').textContent, /80,1.*Ieri 12,3/);
+	t.click(t.$('.andamento-ore [data-view="cruscotto"]'));
+	assert.strictEqual(t.$('#tab-cruscotto').getAttribute('aria-selected'), 'true');
+	t.key('1');
+	t.click(t.$('.andamento-ricavi [data-view="appstore"]'));
+	assert.strictEqual(t.$('#tab-appstore').getAttribute('aria-selected'), 'true');
+	assert.deepStrictEqual(t.errors, []);
+});
+
 test('progetti fermi: nome, giorni, perché; clic apre il progetto; nascosti se vuoti', () => {
 	const t = boot();
 	t.send({ type: 'snapshot', snapshot: snapshot() });

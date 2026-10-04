@@ -1429,9 +1429,9 @@ mark {
 	color: var(--tinta);
 }
 
-/* ---------- il quadro in cifre: una fascia sola, divisa da filetti ---------- */
+/* ---------- il quadro in cima: cifre e sette giorni ---------- */
 
-.quadro { margin: 0 0 44px; }
+.quadro { margin: 0 0 24px; }
 
 .quadro-cifre {
 	list-style: none;
@@ -1484,6 +1484,41 @@ mark {
 }
 
 .cifra-h.rosso b::before { background: var(--brace); box-shadow: 0 0 0 2px var(--cielo), 0 0 0 3.5px var(--brace); }
+
+.andamenti { margin: 0 0 38px; }
+.andamenti-testa { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 16px; margin: 0 0 15px; }
+.andamenti-testa h2 { margin: 0; font: 500 21px/1.25 var(--serif); }
+.andamenti-testa p { margin: 0; color: var(--tinta); font-size: 12px; }
+.andamenti-griglia { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.andamenti-griglia:has(> :only-child) { grid-template-columns: minmax(0, 1fr); max-width: 640px; }
+.andamento {
+	min-width: 0;
+	padding: 20px 22px 17px;
+	border: 1px solid var(--linea);
+	border-radius: 14px;
+	background: var(--basalto);
+}
+.andamento-testa { display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 6px 12px; }
+.andamento-testa h3 { margin: 0; font: 500 18px/1.25 var(--serif); }
+.andamento-testa p { margin: 3px 0 0; color: var(--tinta); font-size: 11.5px; }
+.andamento-testa .link { flex: none; padding: 2px 0; font-size: 11.5px; }
+.andamento-kpi { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 12px; margin: 17px 0 13px; }
+.andamento-kpi strong { font-size: clamp(25px, 2.5vw, 32px); line-height: 1.1; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; }
+.andamento-kpi span { color: var(--tinta); font-size: 11.5px; }
+.andamento-barre { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; height: 126px; list-style: none; margin: 0; padding: 0; }
+.andamento-barre li { display: flex; min-width: 0; flex-direction: column; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+.andamento-valore { width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: center; color: var(--tinta); font-size: 10px; }
+.andamento-binario { display: block; width: 100%; height: 74px; padding: 0 7px; border-bottom: 1px solid var(--linea); }
+.andamento-binario svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.andamento-barra { fill: var(--sodio); }
+.andamento-ricavi .andamento-barra { fill: var(--laurisilva); }
+.andamento-barra.negativa { fill: var(--brace); }
+.andamento-barra.vuota { opacity: 0.32; }
+.andamento-giorno { display: flex; gap: 3px; color: var(--calima); font-size: 11px; white-space: nowrap; }
+.andamento-giorno small { color: var(--tinta); font-size: inherit; }
+
+@media (max-width: 900px) { .andamenti-griglia { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 460px) { .andamento { padding: 17px 14px; } .andamento-barre { gap: 3px; } .andamento-binario { padding: 0 3px; } }
 
 /* ---------- i progetti fermi ---------- */
 

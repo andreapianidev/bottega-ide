@@ -412,6 +412,14 @@
 		<p class="empty" id="plancia-attesa">Sto leggendo i progetti e le sessioni Claude.</p>
 		<div id="plancia-corpo" hidden>
 			<h1 class="sentence" id="frase"></h1>
+			<section class="quadro" id="quadro" aria-labelledby="quadro-titolo" hidden>
+				<h2 class="sr" id="quadro-titolo">Il quadro in cifre</h2>
+				<ul class="quadro-cifre" id="quadro-cifre"></ul>
+			</section>
+			<section class="andamenti" id="andamenti" aria-labelledby="andamenti-titolo" hidden>
+				<div class="andamenti-testa"><h2 id="andamenti-titolo">Gli ultimi sette giorni</h2><p>Un colpo d'occhio sul lavoro e sui ricavi delle app.</p></div>
+				<div class="andamenti-griglia" id="andamenti-griglia"></div>
+			</section>
 			<ul class="lamps" id="lampade" aria-label="Sessioni Claude aperte adesso"></ul>
 			<p class="quiet" id="lampade-vuote" hidden>Nessuna sessione Claude Code aperta in questo momento.</p>
 			<section class="attivita" id="attivita-home" aria-labelledby="attivita-home-titolo" hidden>
@@ -424,10 +432,6 @@
 				<section class="alba" id="briefing" aria-labelledby="briefing-titolo" hidden></section>
 				<section class="consigli" id="consigli" aria-labelledby="consigli-titolo" hidden></section>
 			</div>
-			<section class="quadro" id="quadro" aria-labelledby="quadro-titolo" hidden>
-				<h2 class="sr" id="quadro-titolo">Il quadro in cifre</h2>
-				<ul class="quadro-cifre" id="quadro-cifre"></ul>
-			</section>
 			<section class="fermi" id="fermi" aria-labelledby="fermi-titolo" hidden>
 				<h2 id="fermi-titolo">Fermi da un po'</h2>
 				<p class="nota">Progetti che non tocchi da almeno due settimane, e perché valgono uno sguardo.</p>
@@ -1274,6 +1278,55 @@
 		setHTML($('quadro-cifre'), cells.join(''));
 	}
 
+	/** Barre con scala comune nel pannello: il testo di ogni giorno resta leggibile anche senza colore. */
+	function barreSette(rows, value, format, dateOf, shortFormat = format) {
+		const top = Math.max(1, ...rows.map((r, i) => Math.abs(Number(value(r, i)) || 0)));
+		return `<ol class="andamento-barre">${rows.map((r, i) => {
+			const date = dateOf(r, i);
+			const amount = Number(value(r, i)) || 0;
+			const full = `${dateWords(date)}: ${format(amount)}`;
+			const [, month, dayOfMonth] = String(date).split('-');
+			const short = new Date(Number(date.slice(0, 4)), Number(month) - 1, Number(dayOfMonth)).toLocaleDateString('it-IT', { weekday: 'short' });
+			const height = Math.max(2, Math.round(Math.abs(amount) / top * 100));
+			return `<li title="${esc(full)}" aria-label="${esc(full)}"><span class="andamento-valore">${esc(shortFormat(amount))}</span><span class="andamento-binario"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="andamento-barra${amount < 0 ? ' negativa' : amount ? '' : ' vuota'}" x="0" y="${100 - height}" width="100" height="${height}" rx="3" /></svg></span><span class="andamento-giorno">${esc(short)} <small>${esc(Number(dayOfMonth))}</small></span></li>`;
+		}).join('')}</ol>`;
+	}
+
+	function renderAndamenti() {
+		const cards = [];
+		const st = state.stats;
+		const days = st && Array.isArray(st.days) ? st.days.slice(-7) : [];
+		if (days.length === 7 && days.every(d => d && /^\d{4}-\d{2}-\d{2}$/.test(d.date))) {
+			const p = st.periods && st.periods['7'];
+			const total = p && Number.isFinite(p.you) ? p.you : days.reduce((sum, d) => sum + (Number(d.you) || 0), 0);
+			const previous = p && p.prev && Number.isFinite(p.prev.you) ? p.prev.you : null;
+			const change = previous == null ? '' : `, ${hm(Math.abs(total - previous))} ${total >= previous ? 'in più' : 'in meno'} dei sette giorni prima`;
+			const active = days.filter(d => Number(d.you) > 0).length;
+			cards.push(`<article class="andamento andamento-ore">
+				<div class="andamento-testa"><div><h3>Ore di lavoro</h3><p>Tempo tuo nelle sessioni Claude Code</p></div><button type="button" class="link" data-view="cruscotto" data-fk="andamento:ore">Apri il Cruscotto</button></div>
+				<p class="andamento-kpi"><strong>${esc(hm(total))}</strong><span>${active} ${active === 1 ? 'giorno attivo' : 'giorni attivi'}${esc(change)}</span></p>
+				${barreSette(days, d => d.you, hm, d => d.date)}
+			</article>`);
+		}
+		const radar = snap('radar');
+		const totals = radar && radar.totals;
+		if (totals && Array.isArray(totals.daily) && totals.daily.length === 7) {
+			const asOf = radar.admobAt ? new Date(radar.admobAt) : new Date();
+			const dates = totals.daily.map((_, i) => { const d = new Date(asOf); d.setDate(d.getDate() - 7 + i); return dayKey(d); });
+			const last7 = Number.isFinite(totals.last7) ? totals.last7 : totals.daily.reduce((sum, n) => sum + (Number(n) || 0), 0);
+			const currency = totals.currency || 'USD';
+			const age = radar.admobAt ? `Aggiornato ${ago(radar.admobAt)}` : 'Ultimo dato disponibile';
+			const lastDay = dayKey(asOf) === dayKey() ? 'Ieri' : dateWords(dates[6]);
+			cards.push(`<article class="andamento andamento-ricavi">
+				<div class="andamento-testa"><div><h3>Ricavi AdMob</h3><p>Sette giorni fino a ${esc(dateWords(dates[6]))}</p></div><button type="button" class="link" data-view="appstore" data-fk="andamento:ricavi">Apri App Store</button></div>
+				<p class="andamento-kpi"><strong>${esc(money(last7, currency))}</strong><span>${esc(lastDay)} ${esc(money(totals.yesterday, currency))}. ${esc(age)}</span></p>
+				${barreSette(totals.daily, n => n, n => money(n, currency), (_, i) => dates[i], num)}
+			</article>`);
+		}
+		$('andamenti').hidden = !cards.length;
+		if (cards.length) setHTML($('andamenti-griglia'), cards.join(''));
+	}
+
 	function renderFermi() {
 		const list = snap('forgotten');
 		const ok = Array.isArray(list) && list.length > 0;
@@ -1310,6 +1363,7 @@
 		$('mattino').classList.toggle('affiancati', !!(b && !b.heard) && !$('consigli').hidden);
 		askStats();
 		renderQuadro();
+		renderAndamenti();
 		renderFermi();
 		$('letto').textContent = 'Letto ' + ago(s.scannedAt);
 		setHTML(
@@ -3277,10 +3331,10 @@
 				return;
 			}
 			case 'stats':
-				// il cruscotto riceve tutto come prima; la Home tiene per se' oggi e settimana
+				// il cruscotto riceve tutto come prima; la Home mostra il quadro e gli ultimi sette giorni
 				if (m.stats) state.stats = m.stats;
 				room('cruscotto', 'setStats', m.stats || null, m.error);
-				if (state.view === 'plancia' && state.snapshot && state.snapshot.scannedAt) renderQuadro();
+				if (state.view === 'plancia' && state.snapshot && state.snapshot.scannedAt) { renderQuadro(); renderAndamenti(); }
 				return;
 			case 'conti':
 				// crediti e consumi dei servizi: una sezione del cruscotto (media/conti.js, CONTRATTI 14)

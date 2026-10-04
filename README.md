@@ -139,9 +139,10 @@ chiaro, come si contano le ore.
 ### La Home
 
 La plancia è la Home dell'app: una scheda appuntata che si apre sempre, anche con una cartella aperta, e che si
-ritrova al riavvio. In cima il briefing del giorno e i consigli scritti da Apple Intelligence sul Mac (senza Apple
-Intelligence restano consigli fissi ricavati dalle regole), poi i numeri che contano, i progetti dimenticati e l'elenco
-dei progetti con il loro semaforo.
+ritrova al riavvio. In cima mostra i numeri che contano e due grafici degli ultimi sette giorni: il tempo passato nelle
+sessioni Claude Code, confrontato con i sette giorni precedenti, e i ricavi AdMob giorno per giorno. Seguono il briefing
+del giorno e i consigli scritti da Apple Intelligence sul Mac (senza Apple Intelligence restano consigli fissi ricavati
+dalle regole), i progetti dimenticati e l'elenco dei progetti con il loro semaforo.
 
 ### Il semaforo delle regole e la Vedetta
 
