@@ -14,7 +14,7 @@ import WidgetKit
 struct AttivitaWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: BottegaAttivita.self) { context in
-            SchermataDiBlocco(stato: context.state)
+            SchermataDiBlocco(stato: context.state, mac: context.attributes.mac, vecchia: context.isStale)
                 .activityBackgroundTint(Tinte.notteFonda)
                 .activitySystemActionForegroundColor(Tinte.testo)
                 .widgetURL(Pezzi.lavori)
@@ -139,7 +139,7 @@ private struct RigaSeguita: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Pezzi.colore(segui.stato))
             // il progetto e il passo; se non ci stanno insieme si accorcia il progetto, il passo e' la notizia.
-            // Niente ViewThatFits qui (issue #1): era sulla schermata di blocco, che dalla 76 e' una riga sola.
+            // Solo per la Dynamic Island: la schermata di blocco ha le sue righe (SeguitaBlocco, issue #1).
             Text(segui.progetto)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Tinte.testo)
@@ -173,7 +173,7 @@ private struct RigaAttivita: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .layoutPriority(1)
-            // lo stato cede per primo (il colore del punto lo dice gia'); niente ViewThatFits (issue #1)
+            // lo stato cede per primo (il colore del punto lo dice gia'); solo per l'isola, vedi RigaBlocco (issue #1)
             Text(riga.stato)
                 .font(.caption)
                 .foregroundStyle(riga.stato == "ti aspetta" ? Tinte.ambra : Tinte.tinta)
@@ -190,23 +190,107 @@ private struct RigaAttivita: View {
 }
 
 /// La schermata di blocco ha al massimo 160 punti di altezza: tre sessioni, due se c'e' quella seguita.
-/// La schermata di blocco ridotta a una riga (build 76): «Bottega · 2 al lavoro», testo chiaro su sfondo opaco,
-/// niente sferetta, ombre, sfumature o tempo che scorre. Dalla build 62 qui si vedeva solo nero, mentre la Dynamic
-/// Island funzionava e i log dicevano la vista caricata, 402x107, in primo piano (issue #1). Tolti prima il
-/// ViewThatFits verticale (68) e poi quelli delle righe (74), restava nera. Questa e' l'ultima prova: se resta nera
-/// anche cosi', si toglie la Live Activity intera.
+/// La schermata di blocco (issue #1). Dalla build 62 alla 75 qui si vedeva solo nero, mentre la Dynamic Island
+/// funzionava; la riga sola della 76 si vedeva. Questa e' la vista di prima del commit 2b6fa49 (l'ultima che si
+/// vedeva), con le righe tutte sue: niente ViewThatFits, niente .fixedSize ne' .minimumScaleFactor sul testo che
+/// scorre, il tempo con due campi. Sono le cose che quel commit aveva aggiunto e che la Dynamic Island regge ma la
+/// schermata di blocco no. Le righe di qui non si mescolano con quelle dell'isola (RigaAttivita, RigaSeguita):
+/// chi le ritocca per l'isola non deve rompere la schermata di blocco.
 private struct SchermataDiBlocco: View {
     let stato: BottegaAttivita.ContentState
+    let mac: String
+    let vecchia: Bool
 
     var body: some View {
         let aspetta = stato.tiAspetta > 0
-        Text("Bottega · " + (aspetta ? Pezzi.aspetta(stato.tiAspetta) : Pezzi.alLavoro(stato.inCorso)))
-            .font(.headline)
-            .foregroundStyle(Tinte.testo)
-            .lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 18)
+        // al massimo 160 punti: tre sessioni, due se c'e' quella seguita
+        let quante = stato.segui == nil ? 3 : 2
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 9) {
+                Sferetta(aspetta: aspetta, lavora: stato.inCorso > 0, diametro: 26)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Bottega")
+                        .font(.headline)
+                        .foregroundStyle(Tinte.testo)
+                    Text(vecchia ? "\(mac), il Mac non aggiorna da un po'" : mac)
+                        .font(.caption)
+                        .foregroundStyle(vecchia ? Tinte.rosso : Tinte.tinta)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Conti(stato: stato)
+                    .font(.subheadline.weight(.semibold))
+            }
+            if let seg = stato.segui { SeguitaBlocco(segui: seg) }
+            if stato.righe.isEmpty {
+                if stato.segui == nil {
+                    Text("Nessuna sessione al lavoro")
+                        .font(.footnote)
+                        .foregroundStyle(Tinte.tinta)
+                }
+            } else {
+                VStack(spacing: 6) {
+                    ForEach(Array(stato.righe.prefix(quante).enumerated()), id: \.offset) { _, r in
+                        RigaBlocco(riga: r)
+                    }
+                }
+                .padding(.leading, 2)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+    }
+}
+
+/// La sessione seguita, sulla schermata di blocco: come prima di 2b6fa49.
+private struct SeguitaBlocco: View {
+    let segui: BottegaAttivita.ContentState.Segui
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "eye")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Pezzi.colore(segui.stato))
+            Text(segui.progetto)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Tinte.testo)
+                .lineLimit(1)
+            Text(segui.passo)
+                .font(.caption)
+                .foregroundStyle(segui.stato == "ti aspetta" ? Tinte.ambra : Tinte.tinta)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 2)
+    }
+}
+
+/// Una sessione sulla schermata di blocco: il punto del colore dello stato, il progetto, lo stato e da quanto. Come
+/// prima di 2b6fa49: il tempo con due campi e senza .fixedSize.
+private struct RigaBlocco: View {
+    let riga: BottegaAttivita.ContentState.Riga
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Pezzi.colore(riga.stato))
+                .frame(width: 7, height: 7)
+            Text(riga.progetto)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Tinte.testo)
+                .lineLimit(1)
+            Text(riga.stato)
+                .font(.caption)
+                .foregroundStyle(riga.stato == "ti aspetta" ? Tinte.ambra : Tinte.tinta)
+                .lineLimit(1)
+                .layoutPriority(-1)
+            Spacer(minLength: 6)
+            Text(.currentDate, format: .offset(to: Pezzi.data(riga.da), allowedFields: [.day, .hour, .minute], maxFieldCount: 2, sign: .never))
+                .monospacedDigit()
+                .font(.caption)
+                .foregroundStyle(Tinte.tinta)
+        }
     }
 }
 
