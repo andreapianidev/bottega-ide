@@ -99,6 +99,13 @@ private struct PlanciaWatch: View {
                                 .buttonStyle(.plain)
                                 .simultaneousGesture(TapGesture().onEnded { WKInterfaceDevice.current().play(.click) })
                             }
+                            let altre = max(0, istantanea.totale - istantanea.sessioni.count)
+                            if altre > 0 {
+                                Text(altre == 1 ? "Un'altra sessione su iPhone" : "Altre \(altre) sessioni su iPhone")
+                                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
 
                         HStack(spacing: 4) {
@@ -171,6 +178,10 @@ private struct PlanciaWatch: View {
                 Text(sessione.progetto.isEmpty ? sessione.fonte : sessione.progetto)
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .lineLimit(1)
+                Text("\(sessione.fonte) · \(sessione.stato)")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(ridotta ? .white : ColoriWatch.testo)
+                    .lineLimit(2)
                 Text(sessione.titolo.isEmpty ? sessione.stato : sessione.titolo)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)

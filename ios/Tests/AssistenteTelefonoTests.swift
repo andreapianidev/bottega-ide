@@ -17,6 +17,35 @@ final class AssistenteTelefonoTests: XCTestCase {
         XCTAssertEqual(stato.conteggiAttivita.totale, attivita.count)
     }
 
+    func testRegistroQuattroFontiSiAggiornaConAppAperta() async throws {
+        let ponte = Ponte.shared
+        ponte.ricarica()
+        await ponte.aggiornaStato()
+        XCTAssertEqual(ponte.linea, .collegato)
+        let prima = try XCTUnwrap(ponte.stato)
+        let fonti = Set(try XCTUnwrap(prima.attivita).map(\.source))
+        XCTAssertTrue(Set(["claude", "codex", "cline", "terminale"]).isSubset(of: fonti),
+                      "Il Mac di prova deve esporre le quattro fonti osservate")
+        XCTAssertLessThan(abs(Date().timeIntervalSince1970 * 1000 - prima.ora), 30_000)
+        ponte.avvia()
+        // Nessuna rilettura manuale: questa prova verifica il flusso mentre l'app resta aperta.
+        // Il primo snapshot può essere quello iniziale SSE: ne servono altri distinti.
+        var aggiornamenti = Set<Double>()
+        for _ in 0..<35 {
+            if let ora = ponte.stato?.ora, ora > prima.ora { aggiornamenti.insert(ora) }
+            if aggiornamenti.count >= 3 { break }
+            try await Task.sleep(for: .seconds(1))
+        }
+        XCTAssertGreaterThanOrEqual(aggiornamenti.count, 3, "Il flusso deve continuare oltre lo snapshot iniziale")
+        let dopo = try XCTUnwrap(ponte.stato)
+        XCTAssertGreaterThan(dopo.ora, prima.ora)
+        XCTAssertTrue(Set(["claude", "codex", "cline", "terminale"])
+            .isSubset(of: Set(try XCTUnwrap(dopo.attivita).map(\.source))))
+        let salvato = try XCTUnwrap(StatoMac.ultimo())
+        XCTAssertEqual(salvato.ora, dopo.ora, "Il widget deve leggere lo stesso aggiornamento")
+        XCTAssertEqual(salvato.sessioniWidget, dopo.sessioniWidget)
+    }
+
     func testRaccontoStanzaReale() async throws {
         let ponte = Ponte.shared
         ponte.ricarica()

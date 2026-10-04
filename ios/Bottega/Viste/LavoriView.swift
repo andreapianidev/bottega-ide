@@ -37,8 +37,10 @@ struct LavoriView: View {
                     .foregroundStyle(Tinte.tinta)
                     .listRowBackground(Color.clear)
             }
-            if let stato = statoVisibile, let quadro = stato.quadroLavori {
-                QuadroLavoriIPhone(conti: stato.conti, quadro: quadro, salvato: datoSalvato)
+            if let stato = statoVisibile, stato.quadroLavori != nil || stato.attivita != nil {
+                QuadroLavoriIPhone(conti: stato.conti,
+                                  quadro: stato.quadroLavori ?? .init(progetti: [], giorni: []),
+                                  attivita: QuadroAttivitaLavori(stato: stato), salvato: datoSalvato)
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 14, trailing: 16))
                     .listRowBackground(Color.clear)
             }
@@ -206,33 +208,78 @@ struct LavoriView: View {
     }
 }
 
+/// Deriva i KPI dal medesimo registro autorevole usato da lista, Home e widget.
+struct QuadroAttivitaLavori {
+    let inCorso: Int
+    let tiAspetta: Int
+    let errori: Int
+    let sconosciute: Int
+    let finite: Int
+    let progetti: [StatoMac.QuadroLavori.Progetto]
+
+    init?(stato: StatoMac) {
+        guard stato.attivita != nil else { return nil }
+        let righe = stato.sessioniWidget
+        inCorso = righe.filter { $0.stato == "in corso" }.count
+        tiAspetta = righe.filter { $0.stato == "ti aspetta" }.count
+        errori = righe.filter { $0.stato == "errore" }.count
+        sconosciute = righe.filter { $0.stato == "sconosciuto" }.count
+        finite = righe.filter { $0.stato == "finito" }.count
+        let attive = righe.filter(\.attiva)
+        progetti = Dictionary(grouping: attive, by: { $0.progetto.isEmpty ? "Progetto non indicato" : $0.progetto })
+            .map { StatoMac.QuadroLavori.Progetto(nome: $0.key, conteggio: $0.value.count) }
+            .sorted { $0.conteggio != $1.conteggio ? $0.conteggio > $1.conteggio : $0.nome < $1.nome }
+            .prefix(5).map { $0 }
+    }
+}
+
 private struct QuadroLavoriIPhone: View {
     let conti: StatoMac.Conti
     let quadro: StatoMac.QuadroLavori
+    let attivita: QuadroAttivitaLavori?
     let salvato: Bool
 
     private var stati: [(String, Int)] {
-        [("Ti aspettano", conti.tiAspetta), ("In corso", conti.inCorso),
+        if let a = attivita {
+            return [("Ti aspettano", a.tiAspetta), ("In corso", a.inCorso),
+                    ("Errori", a.errori), ("Non confermate", a.sconosciute), ("Finite", a.finite)]
+        }
+        return [("Ti aspettano", conti.tiAspetta), ("In corso", conti.inCorso),
          ("Nel terminale", conti.nelTerminale ?? 0), ("In coda", conti.inCoda),
          ("Stanotte", conti.stanotte ?? 0)]
     }
 
+    private var progetti: [StatoMac.QuadroLavori.Progetto] { attivita?.progetti ?? quadro.progetti }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            RiquadroStanza(titolo: "Lavori Claude Code") {
+            RiquadroStanza(titolo: attivita == nil ? "Lavori Claude Code" : "Attività di tutte le fonti") {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 14) {
-                    Cifra(etichetta: "Ti aspettano", valore: "\(conti.tiAspetta)", colore: Tinte.ambra)
-                    Cifra(etichetta: "In corso", valore: "\(conti.inCorso)")
-                    Cifra(etichetta: "In coda", valore: "\(conti.inCoda)")
-                    Cifra(etichetta: "Stanotte", valore: "\(conti.stanotte ?? 0)")
+                    Cifra(etichetta: "Ti aspettano", valore: "\(attivita?.tiAspetta ?? conti.tiAspetta)", colore: Tinte.ambra)
+                    Cifra(etichetta: "In corso", valore: "\(attivita?.inCorso ?? conti.inCorso)")
+                    if let a = attivita {
+                        Cifra(etichetta: "Errori", valore: "\(a.errori)")
+                        Cifra(etichetta: "Non confermate", valore: "\(a.sconosciute)")
+                    } else {
+                        Cifra(etichetta: "In coda", valore: "\(conti.inCoda)")
+                        Cifra(etichetta: "Stanotte", valore: "\(conti.stanotte ?? 0)")
+                    }
                 }
             }
-            RiquadroStanza(titolo: "Stato dei lavori", nota: salvato ? "Ultimo registro" : "Adesso") {
+            if attivita != nil {
+                RiquadroStanza(titolo: "Programmati con Claude Code") {
+                    HStack(alignment: .top, spacing: 12) {
+                        Cifra(etichetta: "In coda", valore: "\(conti.inCoda)")
+                        Cifra(etichetta: "Stanotte", valore: "\(conti.stanotte ?? 0)")
+                    }
+                }
+            }
+            RiquadroStanza(titolo: attivita == nil ? "Stato dei lavori Claude Code" : "Stato delle attività · tutte le fonti", nota: salvato ? "Ultimo registro" : "Adesso") {
                 barre(stati, colore: Tinte.ambra)
             }
-            if !quadro.progetti.isEmpty {
-                RiquadroStanza(titolo: "Progetti impegnati", nota: "In corso o in attesa") {
-                    barre(quadro.progetti.map { ($0.nome, $0.conteggio) }, colore: Tinte.verde)
+            if !progetti.isEmpty {
+                RiquadroStanza(titolo: attivita == nil ? "Progetti con Claude Code" : "Progetti impegnati · tutte le fonti", nota: "In corso o in attesa") {
+                    barre(progetti.map { ($0.nome, $0.conteggio) }, colore: Tinte.verde)
                 }
             }
             if quadro.giorni.count == 7 {
@@ -287,7 +334,7 @@ private struct QuadroLavoriIPhone: View {
     }
 }
 
-private struct SchedaLavoroSalvato: View {
+struct SchedaLavoroSalvato: View {
     let lavoro: StatoMac.Lavoro
     let ora: Double?
     @Environment(\.dismiss) private var chiudi
@@ -348,7 +395,7 @@ private struct RigaAttivita: View {
     }
 }
 
-private struct SchedaAttivita: View {
+struct SchedaAttivita: View {
     let ponte: Ponte
     let iniziale: StatoMac.Attivita
     @Environment(\.dismiss) private var chiudi

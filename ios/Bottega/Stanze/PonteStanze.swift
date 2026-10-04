@@ -120,6 +120,7 @@ final class PonteStanze {
             try controlla(r, corpo: d)
             return d
         } catch {
+            if Task.isCancelled { throw CancellationError() }
             if let c = Ponte.shared.collegamento, c.ripiegaSuHttp(error, ripetibile: req.httpMethod == "GET"), let url = req.url {
                 var nuova = req
                 nuova.url = aHttp(url)
@@ -211,6 +212,7 @@ final class LetturaStanza<T: Decodable> {
     private var giro = 0
 
     func carica(_ query: [String: String] = [:]) async {
+        guard !Task.isCancelled else { return }
         giro += 1
         let mio = giro
         let ponte = PonteStanze.shared
@@ -227,17 +229,17 @@ final class LetturaStanza<T: Decodable> {
         defer { if mio == giro { caricando = false } }
         do {
             let c = try await ponte.leggi(nome, query)
-            guard mio == giro else { return }
+            guard mio == giro, !Task.isCancelled else { return }
             dati = try JSONDecoder().decode(T.self, from: c.dati)
             ponte.conserva(nome, query, c)
             visto = c.visto
             errore = nil
             vecchio = false
         } catch is DecodingError {
-            guard mio == giro else { return }
+            guard mio == giro, !Task.isCancelled else { return }
             errore = "La risposta del Mac non si legge: aggiorna l'app o la Bottega."
         } catch {
-            if mio != giro || (error as? ErrorePonte)?.messaggio == "Interrotto." { return }
+            if mio != giro || Task.isCancelled || (error as? ErrorePonte)?.messaggio == "Interrotto." { return }
             errore = error.localizedDescription
         }
     }

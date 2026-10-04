@@ -1826,6 +1826,16 @@ cancellano. Un tocco su un progetto che ha una sessione aperta nei Lavori apre l
 `bottega://stanze[?nome=appstore]`. `AppStoreView` e' la stanza intera; un tocco su un'app apre `SchedaAppView` (9.7).
 `servizi` e `consigli` non sono tessere della griglia: le leggono i widget (9.4).
 
+Dalla build iPhone 96, una stanza visibile si rilegge ogni 60 secondi e subito al ritorno in primo piano;
+il ciclo si cancella uscendo o passando in background. Una richiesta cancellata non aggiorna la copia e non
+avvia ripieghi di rete. Il refresh periodico aspetta che le letture manuali siano terminate.
+Lavori e il riepilogo del Cruscotto usano il registro `attivita` delle quattro fonti, con gli stessi conteggi
+deduplicati dei widget e l'ora effettiva dello snapshot anche offline. Anche i progetti aprono sessioni Codex,
+Cline e Terminale; solo i lavori collegati conservano le azioni già previste dal ponte.
+Il dettaglio ore, token e grafici di `/v1/stanza?nome=cruscotto` del Mac 95 resta relativo a Claude Code:
+l'iPhone e il racconto di Melissa dichiarano questo ambito, senza dedurre ore dalle quantità di sessioni.
+La build mobile 96 è indipendente dalla build Mac 95, lasciata in esecuzione senza reinstallazione.
+
 ### 9.7 La stanza App Store sull'iPhone: piu' dati, grafici e azioni (`src/ponte-stanze.ts`, `ios/Bottega/Stanze/AppStore/`)
 
 Parita' con la stanza del Mac (sezione 13): l'iPhone vede tutto quello che mostra `media/appstore.js` e puo' fare le

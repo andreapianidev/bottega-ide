@@ -142,6 +142,11 @@ private struct ApriStanza: View {
 
 // MARK: - la cornice di ogni stanza
 
+private struct IdentitaRiletturaStanza: Equatable {
+    let query: [String: String]
+    let attiva: Bool
+}
+
 /// Mostra il dato della stanza dentro uno ScrollView che si tira giu' per aggiornare. In cima: con il Mac che non
 /// risponde, la frase e l'eta' dell'ultimo dato visto; senza alcun dato, solo la frase. Mai una schermata vuota.
 struct CorniceStanza<T: Decodable, Contenuto: View>: View {
@@ -214,7 +219,18 @@ struct CorniceStanza<T: Decodable, Contenuto: View>: View {
             .padding(.vertical, 12)
         }
         .refreshable { await lettura.carica(query) }
-        .task(id: query) { await lettura.carica(query) }
+        .task(id: IdentitaRiletturaStanza(query: query, attiva: fase == .active)) {
+            guard fase == .active else { return }
+            // La prima lettura cambia subito periodo; il numero di giro impedisce
+            // alla risposta della query precedente di sovrascriverla.
+            await lettura.carica(query)
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+                guard !Task.isCancelled else { return }
+                // Non sovrapporre il polling a refresh manuali o verifica App Store.
+                if !lettura.caricando { await lettura.carica(query) }
+            }
+        }
         .onChange(of: query) { _, _ in riassunto.ferma(); riassunto = Riassunto(); erroreRacconto = nil }
         .onChange(of: fase) { _, nuova in if nuova == .background { riassunto.ferma() } }
         .onDisappear { riassunto.ferma() }
@@ -234,7 +250,12 @@ struct CorniceStanza<T: Decodable, Contenuto: View>: View {
             contenuto = String(decoding: copia.dati, as: UTF8.self)
         }
         let nome = StanzaPlancia(rawValue: lettura.nome)?.titolo ?? lettura.nome
-        let contesto = "Dati visti il \(copia.visto.formatted(date: .complete, time: .shortened)):\n\(contenuto)"
+        var contesto = "Dati visti il \(copia.visto.formatted(date: .complete, time: .shortened)):\n\(contenuto)"
+        if lettura.nome == "cruscotto" {
+            let ambito = "I consumi, le ore e i token del JSON del Cruscotto riguardano soltanto Claude Code. Non presentarli come totali di tutti gli strumenti e non ricavare durate di Codex, Cline o terminali dal numero di sessioni."
+            let registro = Ponte.shared.contestoMelissa(per: "Riepilogo delle attività e sessioni Claude Code, Codex, Cline e terminali")
+            contesto = ([ambito, registro, contesto].compactMap { $0 }).joined(separator: "\n\n")
+        }
         riassunto.avvia(titolo: "la stanza \(nome)", contesto: contesto)
     }
 
@@ -331,12 +352,14 @@ struct Pallino: View {
     var body: some View { Circle().fill(colore).frame(width: 9, height: 9) }
 }
 
-/// Un progetto toccabile: se sul Mac c'e' una sessione aperta su quel progetto, il tocco apre la sua scheda.
+/// Un progetto toccabile: apre la sessione prioritaria nel registro di tutte le fonti.
 struct ConSessione<C: View>: View {
     let ponte: Ponte
     let progetto: String?
     @ViewBuilder let contenuto: C
-    @State private var scelto: StatoMac.Lavoro?
+    @State private var scelto: SessioneProgetto?
+
+    private var statoVisibile: StatoMac? { ponte.collegato ? ponte.stato ?? StatoMac.ultimo() : nil }
 
     var body: some View {
         if let l = sessione {
@@ -348,19 +371,21 @@ struct ConSessione<C: View>: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityHint("Apre la sessione aperta su \(l.progetto)")
-            .sheet(item: $scelto) { l in SessioneView(ponte: ponte, lavoro: l) }
+            .accessibilityHint("Apre la sessione registrata su \(l.progetto)")
+            .sheet(item: $scelto) { scelta in
+                switch scelta {
+                case .lavoro(let lavoro):
+                    if ponte.linea == .collegato { SessioneView(ponte: ponte, lavoro: lavoro) }
+                    else { SchedaLavoroSalvato(lavoro: lavoro, ora: statoVisibile?.ora) }
+                case .attivita(let attivita): SchedaAttivita(ponte: ponte, iniziale: attivita)
+                }
+            }
         } else {
             contenuto
         }
     }
 
-    private var sessione: StatoMac.Lavoro? {
-        guard let p = progetto?.lowercased(), !p.isEmpty, let lavori = ponte.stato?.lavori else { return nil }
-        let suo = lavori.filter { $0.progetto.lowercased() == p }
-        // prima chi ti aspetta, poi chi lavora
-        return suo.first { $0.stato == "ti aspetta" } ?? suo.first { $0.stato == "in corso" } ?? suo.first
-    }
+    private var sessione: SessioneProgetto? { SessioneProgetto.scegli(progetto: progetto, da: statoVisibile) }
 }
 
 enum Formati {
