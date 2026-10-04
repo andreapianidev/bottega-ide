@@ -14,8 +14,8 @@ import WidgetKit
 struct AttivitaWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: BottegaAttivita.self) { context in
-            SchermataDiBlocco(stato: context.state, mac: context.attributes.mac, vecchia: context.isStale)
-                .activityBackgroundTint(Tinte.notteFonda.opacity(0.92))
+            SchermataDiBlocco(stato: context.state)
+                .activityBackgroundTint(Tinte.notteFonda)
                 .activitySystemActionForegroundColor(Tinte.testo)
                 .widgetURL(Pezzi.lavori)
         } dynamicIsland: { context in
@@ -139,7 +139,7 @@ private struct RigaSeguita: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Pezzi.colore(segui.stato))
             // il progetto e il passo; se non ci stanno insieme si accorcia il progetto, il passo e' la notizia.
-            // Niente ViewThatFits qui: questa riga va anche sulla schermata di blocco (vedi SchermataDiBlocco).
+            // Niente ViewThatFits qui (issue #1): era sulla schermata di blocco, che dalla 76 e' una riga sola.
             Text(segui.progetto)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Tinte.testo)
@@ -173,7 +173,7 @@ private struct RigaAttivita: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .layoutPriority(1)
-            // lo stato cede per primo (il colore del punto lo dice gia'); niente ViewThatFits, vedi SchermataDiBlocco
+            // lo stato cede per primo (il colore del punto lo dice gia'); niente ViewThatFits (issue #1)
             Text(riga.stato)
                 .font(.caption)
                 .foregroundStyle(riga.stato == "ti aspetta" ? Tinte.ambra : Tinte.tinta)
@@ -190,47 +190,23 @@ private struct RigaAttivita: View {
 }
 
 /// La schermata di blocco ha al massimo 160 punti di altezza: tre sessioni, due se c'e' quella seguita.
-/// Nessun ViewThatFits, ne' qui ne' nelle righe che usa (RigaSeguita, RigaAttivita): sulla schermata di blocco la
-/// vista passa da un archivio, e con un ViewThatFits verticale (build 62-67) restava nera e vuota; tolto quello, con
-/// gli orizzontali delle righe (fino alla 73) iOS la mostrava «LIVE» ma senza niente dentro. La Dynamic Island
-/// funzionava in tutti e due i casi.
+/// La schermata di blocco ridotta a una riga (build 76): «Bottega · 2 al lavoro», testo chiaro su sfondo opaco,
+/// niente sferetta, ombre, sfumature o tempo che scorre. Dalla build 62 qui si vedeva solo nero, mentre la Dynamic
+/// Island funzionava e i log dicevano la vista caricata, 402x107, in primo piano (issue #1). Tolti prima il
+/// ViewThatFits verticale (68) e poi quelli delle righe (74), restava nera. Questa e' l'ultima prova: se resta nera
+/// anche cosi', si toglie la Live Activity intera.
 private struct SchermataDiBlocco: View {
     let stato: BottegaAttivita.ContentState
-    let mac: String
-    let vecchia: Bool
 
     var body: some View {
         let aspetta = stato.tiAspetta > 0
-        let quante = stato.segui == nil ? 3 : 2
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 9) {
-                Sferetta(aspetta: aspetta, lavora: stato.inCorso > 0, diametro: 26)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Bottega")
-                        .font(.headline)
-                        .foregroundStyle(Tinte.testo)
-                    Text(vecchia ? "\(mac), il Mac non aggiorna da un po'" : mac)
-                        .font(.caption)
-                        .foregroundStyle(vecchia ? Tinte.rosso : Tinte.tinta)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-                Spacer(minLength: 8)
-                Conti(stato: stato)
-                    .font(.subheadline.weight(.semibold))
-            }
-            if let seg = stato.segui { RigaSeguita(segui: seg) }
-            if !stato.righe.isEmpty {
-                VStack(spacing: 6) {
-                    ForEach(Array(stato.righe.prefix(quante).enumerated()), id: \.offset) { _, r in
-                        RigaAttivita(riga: r)
-                    }
-                }
-                .padding(.leading, 2)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        Text("Bottega · " + (aspetta ? Pezzi.aspetta(stato.tiAspetta) : Pezzi.alLavoro(stato.inCorso)))
+            .font(.headline)
+            .foregroundStyle(Tinte.testo)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 18)
     }
 }
 
