@@ -58,6 +58,8 @@ enum SpeechFile {
                     if first == nil { first = Int(Date().timeIntervalSince(sentAt) * 1000) }
                     audio.append(pcm)
                 case .turnFinished:
+                    break
+                case .sessionFinished:
                     finish(audio.isEmpty ? .failure(ElevenLabsError.empty) : .success((audio, first)))
                 case .failed(let e):
                     finish(.failure(e))
@@ -67,7 +69,7 @@ enum SpeechFile {
             sentAt = Date()
             stream.send(text: text, newTurn: false)
             ElevenLabsUsage.add(text.count)
-            stream.flush()
+            stream.finish()
             DispatchQueue.main.asyncAfter(deadline: .now() + 20) {
                 MainActor.assumeIsolated { finish(.failure(ElevenLabsError.disconnected("nessuna risposta in 20 secondi"))) }
             }

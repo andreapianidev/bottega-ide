@@ -38,6 +38,12 @@ le sessioni Claude aperte in tutto il Mac (respirano quando lavorano) e l'elenco
 stato git, numero di build letto dal progetto Xcode o Android, e lo storico delle sessioni Claude di
 ciascuno, da riprendere con un clic.
 
+La Home e la stanza Lavori mostrano anche le attivita' recenti di Cline, Codex e dei terminali integrati:
+fonte, progetto, stato, ultimo segnale e passi osservati. Melissa puo' leggerne il riepilogo e, su richiesta,
+le ultime righe acquisite di un terminale. Le trascrizioni locali sono lette in sola lettura; i terminali
+esterni e l'output prodotto prima dell'avvio del monitor non sono visibili. I testi mostrati vengono limitati
+e le righe che sembrano contenere credenziali vengono omesse.
+
 ### I lavori
 
 ![I lavori](docs/screenshot/lavori.jpg)
@@ -290,11 +296,12 @@ codice, il martello appoggiato accanto. Titoli senza maiuscolo forzato, schede e
 
 Melissa e i lavori del Mac in tasca, anche fuori casa. L'app per iPhone (`ios/`) ha la stessa icona e la stessa
 sfera: gli stessi file Metal del Nucleo, compilati anche per iOS. Tocchi la sfera e parli. L'iPhone ti sente con il
-riconoscimento vocale di Apple. Con il Mac acceso, Melissa usa il suo cervello e i suoi strumenti (apre progetti,
-avvia lavori, legge le sessioni, chiede conferma per un push). Con il Mac spento, l'iPhone chiede direttamente ad
-Agnes o DeepSeek e parla con la stessa voce ElevenLabs. Le chiavi si importano una volta dal Mac via HTTPS e restano
-nel portachiavi dell'iPhone. La conversazione torna sulla barra del Mac quando si ricollegano. La stanza Lavori mostra tutte le sessioni Claude del Mac, con in cima
-chi ti aspetta, e ai lavori della Bottega puoi scrivere da lì.
+riconoscimento vocale di Apple. Melissa sull'iPhone chiama direttamente Agnes o DeepSeek e parla con la stessa
+voce ElevenLabs, anche quando il Mac e' collegato. Il ponte del Mac resta disponibile per progetti, lavori e
+sessioni; la conversazione locale si sincronizza quando torna raggiungibile. Le chiavi si importano una volta dal Mac via HTTPS e restano
+nel portachiavi dell'iPhone. La conversazione torna sulla barra del Mac quando si ricollegano. La stanza Lavori mostra
+le attivita' osservate di Claude Code, Cline, Codex e terminali integrati, con in cima quelle in corso o in attesa.
+Ai lavori Claude della Bottega puoi scrivere da lì.
 
 Toccando una sessione si apre la sua scheda, per tutte, anche quelle aperte in iTerm: cosa le hai chiesto, cosa ha
 risposto Claude, gli ultimi passi in chiaro («ha modificato ponte.ts», «sta lanciando i test»), i file toccati, da

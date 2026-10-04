@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import type { AssistantState } from './assistant';
 import type { BrainState, Effort, Provider } from './cervelli';
 import type { WorkCounts, WorkItem } from './jobs';
+import type { AgentActivity } from './attivita-tipi';
 
 /** Una voce della bacheca della Memoria, per sessione. */
 export interface BoardEntry {
@@ -16,6 +17,8 @@ export interface BarraSource {
 	assistant(): AssistantState | undefined;
 	work(): WorkItem[];
 	workCounts(): WorkCounts;
+	/** Registro comune di Claude Code, Cline, Codex e terminale. */
+	activity(): AgentActivity[];
 	/** Bacheca delle ultime 3 ore: puo' essere lenta (CLI della Memoria), si chiede ogni 20 s a vista aperta. */
 	board(): Promise<(BoardEntry & { sessionId?: string })[]>;
 	brain(): Promise<BrainState>;
@@ -39,7 +42,7 @@ export interface BarraActions {
 	log(line: string): void;
 }
 
-/** La barra di Melissa nella barra laterale destra: il centro di controllo di tutte le sessioni Claude.
+/** La barra di Melissa nella barra laterale destra: il centro di controllo delle sessioni osservate.
  *  Contratto: docs/CONTRATTI.md, sezione 6. */
 export class BarraView implements vscode.WebviewViewProvider {
 	static readonly id = 'bottega.barra';
@@ -212,6 +215,7 @@ export class BarraView implements vscode.WebviewViewProvider {
 			assistant: this.src.assistant(),
 			work: this.src.work(),
 			workCounts: this.src.workCounts(),
+			activity: this.src.activity(),
 			board: this.board,
 			brain: this.brain,
 		};

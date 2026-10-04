@@ -9,6 +9,8 @@
 
 import Foundation
 import Observation
+import CryptoKit
+import Security
 import WidgetKit
 
 struct ErrorePonte: LocalizedError {
@@ -16,6 +18,37 @@ struct ErrorePonte: LocalizedError {
     /// Il codice HTTP, quando l'errore viene da una risposta del Mac (401 gettone, 409 domanda cambiata).
     var codice: Int?
     var errorDescription: String? { messaggio }
+}
+
+/// Solo per il recupero di un vecchio abbinamento: un'unica lettura HTTPS su Tailscale. La risposta
+/// autenticata deve confermare questa impronta prima che Ponte la memorizzi come pin stabile.
+private final class FiduciaBootstrap: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var valore: String?
+    var impronta: String? { lock.lock(); defer { lock.unlock() }; return valore }
+
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let (decisione, credenziale) = decidi(challenge)
+        completionHandler(decisione, credenziale)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let (decisione, credenziale) = decidi(challenge)
+        completionHandler(decisione, credenziale)
+    }
+
+    private func decidi(_ challenge: URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust,
+              let catena = SecTrustCopyCertificateChain(trust) as? [SecCertificate],
+              let foglia = catena.first else { return (.cancelAuthenticationChallenge, nil) }
+        let impronta = SHA256.hash(data: SecCertificateCopyData(foglia) as Data)
+            .map { String(format: "%02x", $0) }.joined()
+        lock.lock(); valore = impronta; lock.unlock()
+        return (.useCredential, URLCredential(trust: trust))
+    }
 }
 
 @MainActor
@@ -41,9 +74,15 @@ final class Ponte {
     @ObservationIgnored private var ritorno: Task<Void, Never>?
     /// Se il nome MagicDNS non si risolve (MagicDNS spento sull'iPhone) si passa all'indirizzo 100.x.
     private var usaIP = false
+    private var ultimoSuccesso: Date?
     private var importandoAssistente = false
     private var sincronizzandoAssistente = false
     private var sincronizzandoScelta = false
+    @ObservationIgnored private var preparandoHttps: Task<Bool, Never>?
+#if DEBUG
+    /// La prova autonoma non deve essere annullata da un evento /v1/eventi gia' in volo.
+    @ObservationIgnored private var macAssentePerProva = false
+#endif
     private let sessione: URLSession = {
         let c = URLSessionConfiguration.ephemeral
         c.timeoutIntervalForRequest = 90
@@ -103,6 +142,9 @@ final class Ponte {
     // MARK: - eventi in diretta
 
     func avvia() {
+#if DEBUG
+        if macAssentePerProva { return }
+#endif
         guard collegamento != nil, eventi == nil else { return }
         eventi = Task { [weak self] in await self?.segui() }
     }
@@ -115,6 +157,9 @@ final class Ponte {
     }
 
     func riavvia() {
+#if DEBUG
+        macAssentePerProva = false
+#endif
         ferma()
         avvia()
     }
@@ -122,6 +167,7 @@ final class Ponte {
 #if DEBUG
     /// Prova sul dispositivo: spegne soltanto gli eventi del ponte e usa il percorso autonomo.
     func simulaMacAssentePerProva() {
+        macAssentePerProva = true
         ferma()
         linea = .fuori("Mac non raggiungibile nella prova")
     }
@@ -130,7 +176,8 @@ final class Ponte {
     private func segui() async {
         var attesa: UInt64 = 1
         while !Task.isCancelled {
-            linea = .provo
+            if ultimoSuccesso.map({ Date().timeIntervalSince($0) > 45 }) ?? true { linea = .provo }
+            if Collegamento.sicuro == nil { _ = await preparaHttps() }
             do {
                 let req = try richiesta("/v1/eventi", timeout: 60)
                 let (bytes, risposta) = try await sessione.bytes(for: req, delegate: FiduciaPonte.shared)
@@ -138,6 +185,9 @@ final class Ponte {
                 if req.url?.scheme == "http" { tornaSicuro() } else { ritorno?.cancel(); ritorno = nil }
                 attesa = 1
                 for try await riga in bytes.lines {
+#if DEBUG
+                    if macAssentePerProva { return }
+#endif
                     guard riga.hasPrefix("data: ") else { continue }
                     let dati = Data(riga.dropFirst(6).utf8)
                     if let s = try? JSONDecoder().decode(StatoMac.self, from: dati) {
@@ -149,8 +199,10 @@ final class Ponte {
                 return
             } catch {
                 if Task.isCancelled { return }
-                if collegamento?.ripiegaSuHttp(error, ripetibile: true) == true || scambiaSuIP(error) { continue }
-                linea = .fuori(spiega(error))
+                Log.warn("ponte eventi: \(Self.categoriaVoce(error)), \(collegamento?.schema ?? "-") su \(usaIP ? "IP" : "nome")")
+                if await rinnovaCertificatoSeServe(error) { continue }
+                if scambiaSuIP(error, ripetibile: true) || collegamento?.ripiegaSuHttp(error, ripetibile: true) == true { continue }
+                if ultimoSuccesso.map({ Date().timeIntervalSince($0) > 45 }) ?? true { linea = .fuori(spiega(error)) }
                 if (error as? ErrorePonte)?.codice == 401 {
                     // gettone rifiutato: riprovare farebbe solo chiudere fuori questo iPhone dal Mac. Si riparte con
                     // un nuovo collegamento o al prossimo ritorno davanti dell'app.
@@ -181,6 +233,7 @@ final class Ponte {
     private func aggiorna(_ s: StatoMac) {
         let prima = stato
         stato = s
+        ultimoSuccesso = Date()
         s.salvaComeUltimo()
         Collegamento.ricordaSicuro(s.sicuro)
         AssistenteTelefono.shared.aggiornaSceltaDalMac(s.melissa.scelta)
@@ -205,8 +258,68 @@ final class Ponte {
                 await AssistenteTelefono.shared.sincronizza(con: self)
             }
         }
-        if prima?.conti != s.conti || prima?.lavori.map(\.chiave) != s.lavori.map(\.chiave) { WidgetCenter.shared.reloadAllTimelines() }
+        if prima?.conti != s.conti || prima?.lavori.map(\.chiave) != s.lavori.map(\.chiave) || prima?.attivita != s.attivita {
+            WidgetCenter.shared.reloadAllTimelines()
+        }
         MetalEngine.shared.setLoad(s.conti.inCorso)
+    }
+
+    /// Ripara anche gli abbinamenti vecchi: il Mac espone HTTPS sulla porta successiva. Il certificato
+    /// viene accettato provvisoriamente solo per questa lettura su Tailscale; il JSON autenticato con il
+    /// gettone deve dichiarare la stessa impronta prima di salvarla e aprire gli eventi ordinari.
+    private func preparaHttps(force: Bool = false) async -> Bool {
+        if !force && Collegamento.sicuro != nil { return true }
+        if let preparandoHttps { return await preparandoHttps.value }
+        let task = Task { [weak self] in await self?.provaHttps() ?? false }
+        preparandoHttps = task
+        let ok = await task.value
+        preparandoHttps = nil
+        return ok
+    }
+
+    private func provaHttps() async -> Bool {
+        guard let c = collegamento else { return false }
+        let ip = c.ip.split(separator: ".").compactMap { Int($0) }
+        let usaTailnetIP = ip.count == 4 && ip[0] == 100 && (64...127).contains(ip[1]) && ip.allSatisfy { (0...255).contains($0) }
+        guard usaTailnetIP || c.host.hasSuffix(".ts.net") else { return false }
+        let host = usaTailnetIP ? c.ip : c.host
+        guard let url = URL(string: "https://\(host):\(c.porta + 1)/v1/stato") else { return false }
+        let delegato = FiduciaBootstrap()
+        let config = URLSessionConfiguration.ephemeral
+        config.waitsForConnectivity = false
+        let sessioneBootstrap = URLSession(configuration: config, delegate: delegato, delegateQueue: nil)
+        defer { sessioneBootstrap.invalidateAndCancel() }
+        var req = URLRequest(url: url, timeoutInterval: 12)
+        req.setValue("Bearer \(c.token)", forHTTPHeaderField: "authorization")
+        do {
+            let (data, response) = try await sessioneBootstrap.data(for: req)
+            try controlla(response, corpo: data)
+            let nuovo = try JSONDecoder().decode(StatoMac.self, from: data)
+            guard let https = nuovo.https, https.porta == c.porta + 1,
+                  https.impronta.lowercased() == delegato.impronta else {
+                Log.warn("ponte HTTPS: impronta annunciata diversa dal certificato")
+                return false
+            }
+            usaIP = usaTailnetIP
+            aggiorna(nuovo)
+            linea = .collegato
+            Log.info("ponte HTTPS: collegamento verificato su Tailscale")
+            return true
+        } catch {
+            Log.warn("ponte HTTPS: verifica iniziale fallita (\(Self.categoriaVoce(error)))")
+            return false
+        }
+    }
+
+    private func certificatoDaRinnovare(_ error: Error) -> Bool {
+        guard collegamento?.schema == "https", let code = (error as? URLError)?.code else { return false }
+        return [.cancelled, .secureConnectionFailed, .serverCertificateUntrusted,
+                .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot].contains(code)
+    }
+
+    private func rinnovaCertificatoSeServe(_ error: Error) async -> Bool {
+        guard certificatoDaRinnovare(error) else { return false }
+        return await preparaHttps(force: true)
     }
 
     // MARK: - richieste
@@ -233,6 +346,7 @@ final class Ponte {
     /// La domanda a voce: righe del ponte mentre Melissa risponde (frasi, audio), fino alla fine. Cancellare il
     /// compito chiude la connessione e il Mac interrompe la risposta.
     func parla(_ testo: String, riga: (Parla) -> Void) async throws {
+        let idDiagnostica = String(UUID().uuidString.prefix(8))
         struct Riga: Decodable {
             let tipo: String
             let ok: Bool?
@@ -249,6 +363,7 @@ final class Ponte {
         let bytes: URLSession.AsyncBytes
         do {
             let (b, r) = try await sessioneLunga.bytes(for: req, delegate: FiduciaPonte.shared)
+            Log.info("ponte voce \(idDiagnostica): HTTP \((r as? HTTPURLResponse)?.statusCode ?? 0)")
             if let h = r as? HTTPURLResponse, !(200..<300).contains(h.statusCode) {
                 var corpo = Data()
                 for try await x in b { corpo.append(x) }
@@ -256,27 +371,67 @@ final class Ponte {
             }
             bytes = b
         } catch {
+            Log.warn("ponte voce \(idDiagnostica): apertura fallita, \(Self.categoriaVoce(error))")
             if collegamento?.ripiegaSuHttp(error, ripetibile: false) == true || scambiaSuIP(error) {
                 return try await parla(testo, riga: riga)
             }
             throw (error as? ErrorePonte) ?? ErrorePonte(messaggio: spiega(error))
         }
         let dec = JSONDecoder()
-        for try await linea in bytes.lines {
-            guard let r = try? dec.decode(Riga.self, from: Data(linea.utf8)) else { continue }
-            switch r.tipo {
-            case "voce": riga(.voce(r.ok ?? false))
-            case "frase": riga(.frase(r.testo ?? ""))
-            case "audio": if let d = r.pcm.flatMap({ Data(base64Encoded: $0) }) { riga(.audio(d)) }
-            case "voce-persa": riga(.vocePersa(r.errore ?? ""))
-            case "fine":
-                if let s = r.stato { aggiorna(s) }
-                riga(.fine(r.risposta ?? ""))
-                return
-            case "errore": throw ErrorePonte(messaggio: r.errore ?? "Sul Mac qualcosa non è andato.")
-            default: break
+        var audioBytes = 0
+        var audioFrames = 0
+        var frasi = 0
+        var invalide = 0
+        var vocePersa = false
+        do {
+            for try await linea in bytes.lines {
+                try Task.checkCancellation()
+                guard let r = try? dec.decode(Riga.self, from: Data(linea.utf8)) else {
+                    invalide += 1
+                    continue
+                }
+                switch r.tipo {
+                case "voce":
+                    Log.info("ponte voce \(idDiagnostica): disponibilita audio \(r.ok ?? false)")
+                    riga(.voce(r.ok ?? false))
+                case "frase":
+                    frasi += 1
+                    riga(.frase(r.testo ?? ""))
+                case "audio":
+                    if let d = r.pcm.flatMap({ Data(base64Encoded: $0) }) {
+                        audioBytes += d.count
+                        audioFrames += 1
+                        if audioFrames == 1 { Log.info("ponte voce \(idDiagnostica): primo PCM \(d.count) byte") }
+                        riga(.audio(d))
+                    } else { invalide += 1 }
+                case "voce-persa":
+                    vocePersa = true
+                    Log.warn("ponte voce \(idDiagnostica): voce persa dal Mac, PCM \(audioBytes) byte")
+                    riga(.vocePersa(r.errore ?? ""))
+                case "fine":
+                    Log.info("ponte voce \(idDiagnostica): finale, frasi \(frasi), frame \(audioFrames), PCM \(audioBytes) byte, righe invalide \(invalide), voce persa \(vocePersa)")
+                    if let s = r.stato { aggiorna(s) }
+                    riga(.fine(r.risposta ?? ""))
+                    return
+                case "errore":
+                    Log.warn("ponte voce \(idDiagnostica): errore dal Mac, frasi \(frasi), PCM \(audioBytes) byte")
+                    throw ErrorePonte(messaggio: r.errore ?? "Sul Mac qualcosa non è andato.")
+                default: break
+                }
             }
+            Log.warn("ponte voce \(idDiagnostica): flusso terminato senza finale, frasi \(frasi), frame \(audioFrames), PCM \(audioBytes) byte, righe invalide \(invalide)")
+            throw ErrorePonte(messaggio: "Il Mac ha interrotto la risposta a voce prima della fine.")
+        } catch {
+            Log.warn("ponte voce \(idDiagnostica): chiusura, \(Self.categoriaVoce(error)), frame \(audioFrames), PCM \(audioBytes) byte")
+            throw error
         }
+    }
+
+    private static func categoriaVoce(_ error: Error) -> String {
+        if error is CancellationError { return "cancellazione" }
+        if let e = error as? URLError { return "rete \(e.errorCode)" }
+        if error is ErrorePonte { return "protocollo" }
+        return "errore \((error as NSError).code)"
     }
 
     /// I token per le push del Mac (docs/CONTRATTI.md, 9.4): notifiche, Live Activity, widget.
@@ -291,16 +446,27 @@ final class Ponte {
     }
 
     func aggiornaStato() async {
+#if DEBUG
+        if macAssentePerProva { return }
+#endif
+        if Collegamento.sicuro == nil {
+            if await preparaHttps() { return }
+        }
         do {
             let (d, r) = try await sessione.data(for: richiesta("/v1/stato"))
+#if DEBUG
+            if macAssentePerProva { return }
+#endif
             try controlla(r, corpo: d)
             aggiorna(try JSONDecoder().decode(StatoMac.self, from: d))
             linea = .collegato
         } catch {
-            if collegamento?.ripiegaSuHttp(error, ripetibile: true) == true || scambiaSuIP(error) {
+            Log.warn("ponte stato: \(Self.categoriaVoce(error)), \(collegamento?.schema ?? "-") su \(usaIP ? "IP" : "nome")")
+            if await rinnovaCertificatoSeServe(error) { return }
+            if scambiaSuIP(error, ripetibile: true) || collegamento?.ripiegaSuHttp(error, ripetibile: true) == true {
                 await aggiornaStato()
             } else {
-                linea = .fuori(spiega(error))
+                if ultimoSuccesso.map({ Date().timeIntervalSince($0) > 45 }) ?? true { linea = .fuori(spiega(error)) }
             }
         }
     }
@@ -344,7 +510,10 @@ final class Ponte {
             try controlla(r, corpo: d)
             return try JSONDecoder().decode(T.self, from: d)
         } catch {
-            if collegamento?.ripiegaSuHttp(error, ripetibile: true) == true || scambiaSuIP(error) {
+            if await rinnovaCertificatoSeServe(error) {
+                return try await prendi(percorso, timeout: timeout)
+            }
+            if scambiaSuIP(error, ripetibile: true) || collegamento?.ripiegaSuHttp(error, ripetibile: true) == true {
                 return try await prendi(percorso, timeout: timeout)
             }
             throw (error as? ErrorePonte) ?? ErrorePonte(messaggio: spiega(error))
@@ -366,6 +535,9 @@ final class Ponte {
             try controlla(r, corpo: d)
             return d
         } catch {
+            if await rinnovaCertificatoSeServe(error) {
+                return try await mandaDati(percorso, corpo, timeout: timeout)
+            }
             if collegamento?.ripiegaSuHttp(error, ripetibile: false) == true || scambiaSuIP(error) {
                 return try await mandaDati(percorso, corpo, timeout: timeout)
             }
@@ -396,10 +568,14 @@ final class Ponte {
         }
     }
 
-    private func scambiaSuIP(_ error: Error) -> Bool {
-        guard !usaIP, let c = collegamento, !c.ip.isEmpty, c.ip != c.host,
-              (error as? URLError)?.code == .cannotFindHost || (error as? URLError)?.code == .dnsLookupFailed else { return false }
+    private func scambiaSuIP(_ error: Error, ripetibile: Bool = false) -> Bool {
+        guard !usaIP, let c = collegamento, c.schema == "https", !c.ip.isEmpty, c.ip != c.host else { return false }
+        let codice = (error as? URLError)?.code
+        let nonArrivata: Set<URLError.Code> = [.cannotFindHost, .dnsLookupFailed, .cannotConnectToHost]
+        let lettura: Set<URLError.Code> = [.timedOut, .networkConnectionLost, .badServerResponse]
+        guard codice.map({ nonArrivata.contains($0) || (ripetibile && lettura.contains($0)) }) == true else { return false }
         usaIP = true
+        Log.info("ponte: riprovo con IP Tailscale")
         return true
     }
 

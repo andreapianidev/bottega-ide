@@ -21,7 +21,7 @@ esbuild.buildSync({
 	target: 'node20',
 	logLevel: 'silent',
 });
-const { StatsEngine, mergeSpans, minutesIn, costOf, whereOf, concurrency, lengthsOf } = require(path.join(OUT, 'stats.js'));
+const { StatsEngine, mergeSpans, minutesIn, costOf, whereOf, concurrency, lengthsOf, summarizeObservedActivity } = require(path.join(OUT, 'stats.js'));
 
 let passed = 0, failed = 0;
 async function test(name, fn) {
@@ -101,6 +101,24 @@ const day = new Date(BASE);
 const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
 
 (async () => {
+	await test('registro multi-fonte: stati correnti e ultimo aggiornamento locale senza durate inventate', () => {
+		const day = (n, h) => new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - n, h).getTime();
+		const items = [
+			{ key: 'same', source: 'claude', status: 'in corso', updatedAt: day(0, 9) },
+			{ key: 'same', source: 'codex', status: 'ti aspetta', updatedAt: day(1, 23) },
+			{ key: 'cl', source: 'cline', status: 'errore', updatedAt: day(89, 10) },
+			{ key: 'old', source: 'terminale', status: 'finito', updatedAt: day(90, 10) },
+			{ key: 'same', source: 'claude', status: 'in corso', updatedAt: day(0, 9) },
+		];
+		const s = summarizeObservedActivity(items, NOW);
+		assert.deepStrictEqual(s.sources.map(x => x.total), [1, 1, 1, 1]);
+		assert.strictEqual(s.sources[0].inCorso, 1);
+		assert.strictEqual(s.sources[2].tiAspetta, 1);
+		assert.strictEqual(s.days.at(-1).claude, 1);
+		assert.strictEqual(s.days.at(-2).codex, 1);
+		assert.strictEqual(s.days[0].cline, 1);
+		assert.strictEqual(s.days.reduce((n, d) => n + d.terminale, 0), 0);
+	});
 	console.log('cruscotto');
 	let s1;
 

@@ -18,6 +18,8 @@ struct Collegamento: Equatable {
     var ip: String
     var porta: Int
     var token: String
+    /// Impronta consegnata dal QR del Mac, se il ponte TLS era gia' acceso al momento dell'abbinamento.
+    var httpsDalQR: Sicuro? = nil
 
     /// Il nome del Mac da mostrare: la prima parte del nome MagicDNS, con gli spazi al posto dei trattini.
     var nomeMac: String {
@@ -37,6 +39,11 @@ struct Collegamento: Equatable {
         self.ip = ip
         self.porta = Int(v("porta") ?? "") ?? 7790
         self.token = token
+        if let securePort = Int(v("https_porta") ?? ""), securePort == self.porta + 1,
+           let fingerprint = v("https_impronta")?.lowercased(), fingerprint.count == 64,
+           fingerprint.allSatisfy({ $0.isHexDigit }) {
+            self.httpsDalQR = Sicuro(porta: securePort, impronta: fingerprint)
+        }
     }
 
     init(host: String, ip: String, porta: Int, token: String) {
@@ -89,23 +96,9 @@ struct Collegamento: Equatable {
     var schema: String { Self.usaSicuro ? "https" : "http" }
     var portaAdesso: Int { Self.usaSicuro ? (Self.sicuro?.porta ?? porta) : porta }
 
-    /// L'https non ha risposto: si torna subito all'http e si rifa' la richiesta. Falso se si era gia' in http, se il
-    /// compito e' stato annullato o se l'errore non dice che la richiesta non e' arrivata. `ripetibile`: una lettura
-    /// si rifa' anche dopo un tempo scaduto o una linea caduta; una scrittura no, il Mac potrebbe averla gia' eseguita.
-    func ripiegaSuHttp(_ error: Error, ripetibile: Bool) -> Bool {
-        guard schema == "https", !Task.isCancelled, let codice = (error as? URLError)?.code else { return false }
-        var nonArrivata: Set<URLError.Code> = [
-            .cannotConnectToHost, .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate,
-            .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid, .clientCertificateRejected,
-            .clientCertificateRequired, .appTransportSecurityRequiresSecureConnection,
-            // il certificato con un'impronta diversa: FiduciaPonte annulla la sfida
-            .cancelled,
-        ]
-        if ripetibile { nonArrivata.formUnion([.timedOut, .networkConnectionLost, .badServerResponse]) }
-        guard nonArrivata.contains(codice) else { return false }
-        Self.sicuroGiu.withLock { $0 = Date() }
-        return true
-    }
+    /// Con un'impronta HTTPS nota non si torna a HTTP: sull'IP Tailscale iOS lo blocca con ATS.
+    /// Il ponte riapre HTTPS (e, se il certificato cambia, rinnova l'impronta con /v1/stato).
+    func ripiegaSuHttp(_ error: Error, ripetibile: Bool) -> Bool { false }
 
     // MARK: - dove si conserva
 
@@ -141,6 +134,7 @@ struct Collegamento: Equatable {
         let d: [String: Any] = ["host": host, "ip": ip, "porta": porta]
         // un Mac nuovo (o un gettone nuovo): l'https si reimpara dal suo stato
         Condiviso.preferenze.removeObject(forKey: Self.chiaveSicuro)
+        if let httpsDalQR { Self.ricordaSicuro(httpsDalQR) }
         Condiviso.preferenze.set(d, forKey: Self.chiave)
         UserDefaults.standard.set(d, forKey: Self.chiave)
         Self.scriviToken(token, .condiviso)

@@ -16,7 +16,7 @@ extension AssistenteTelefono {
             throw ErrorePonte(messaggio: "Manca la voce di Melissa: importa di nuovo la configurazione dal Mac.")
         }
         let fonti: [(nome: String, url: String, modello: String, chiave: String, impegno: String)] = [
-            ("DeepSeek V4 Pro", "https://api.deepseek.com/chat/completions", "deepseek-v4-pro", config.deepseek ?? "", "high"),
+            ("DeepSeek Flash", "https://api.deepseek.com/chat/completions", "deepseek-flash", config.deepseek ?? "", "none"),
             ("Agnes", "https://apihub.agnes-ai.com/v1/chat/completions", "agnes-3.0-flash", config.agnes ?? "", "none")
         ].filter { !$0.chiave.isEmpty }
         guard !fonti.isEmpty else { throw ErrorePonte(messaggio: "Manca una chiave DeepSeek o Agnes sull'iPhone.") }

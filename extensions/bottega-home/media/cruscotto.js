@@ -1215,6 +1215,13 @@ struct VG {
 				</div>
 				<div class="crus-filtri" id="crus-filtri"></div>
 				<dl class="cifre" id="crus-cifre"></dl>
+				<section class="crus-sez crus-attivita" id="crus-attivita" aria-labelledby="attivita-titolo" hidden>
+					<div class="sez-testa"><h2 id="attivita-titolo">Attività osservate</h2><ul class="legenda" id="attivita-legenda"></ul></div>
+					<p class="nota" id="attivita-nota"></p>
+					<div class="attivita-fonti" id="attivita-fonti"></div>
+					<div class="grafico attivita-grafico" id="attivita-grafico" tabindex="0" role="group" aria-roledescription="grafico" aria-label="Attività aggiornate per giorno, divise per fonte" data-fk="c:attivita"></div>
+					<div class="tabella-blocco" id="attivita-tabella"></div>
+				</section>
 
 				<section class="crus-cielo" aria-labelledby="carta-titolo">
 					<figure class="carta" id="carta">
@@ -1700,6 +1707,44 @@ struct VG {
 			viste[ui.period] = valori;
 			mostrate = valori;
 			if (anim.glitch && mosso()) lampo($('crus-frase'), 'glitch', 420);
+		}
+
+		/** Conteggi multi-fonte: un'attivita' appare nel giorno del suo ultimo aggiornamento. */
+		function renderObservedActivity() {
+			const section = $('crus-attivita');
+			const observed = stats.observedActivity;
+			section.hidden = !observed;
+			if (!observed) return;
+			const sources = [
+				['claude', 'Claude Code'], ['cline', 'Cline'], ['codex', 'Codex'], ['terminale', 'Terminale integrato'],
+			];
+			const days = (observed.days || []).slice(-Number(ui.period));
+			const bySource = Object.fromEntries(sources.map(([source]) => [source, days.reduce((n, d) => n + (Number(d[source]) || 0), 0)]));
+			const latest = Object.fromEntries((observed.sources || []).map(s => [s.source, s]));
+			put($('attivita-legenda'), sources.map(([source, name]) => `<li><i class="attivita-colore ${source}" aria-hidden="true"></i>${name}</li>`).join(''));
+			$('attivita-nota').textContent = `Ultimo aggiornamento negli ultimi ${ui.period} giorni. Ogni attività conta una volta nel giorno in cui è stata vista l'ultima volta; le ore, i token e i costi negli altri grafici sono misurati solo per Claude Code.`;
+			put($('attivita-fonti'), sources.map(([source, name]) => {
+				const s = latest[source] || {};
+				const active = (s.inCorso || 0) + (s.tiAspetta || 0);
+				const status = [active && `${it(active)} ${active === 1 ? 'aperta' : 'aperte'}`, s.errore && `${it(s.errore)} ${s.errore === 1 ? 'errore' : 'errori'}`].filter(Boolean).join(' · ');
+				return `<div class="attivita-fonte ${source}"><span class="attivita-nome">${name}</span><strong>${it(bySource[source])}</strong><span class="attivita-periodo">aggiornate nel periodo</span><small>${status || `${it(s.total || 0)} nel registro`}</small></div>`;
+			}).join(''));
+			const max = Math.max(1, ...days.map(d => sources.reduce((n, [source]) => n + (Number(d[source]) || 0), 0)));
+			const width = 900, height = 140, top = 8, bottom = 25, plot = height - top - bottom;
+			const step = width / Math.max(days.length, 1);
+			const bars = days.map((d, i) => {
+				let y = height - bottom;
+				const pieces = sources.map(([source]) => {
+					const n = Number(d[source]) || 0;
+					const h = (n / max) * plot;
+					y -= h;
+					return h ? `<rect class="attivita-barra ${source}" x="${(i * step + 1).toFixed(2)}" y="${y.toFixed(2)}" width="${Math.max(1, step - 2).toFixed(2)}" height="${h.toFixed(2)}"/>` : '';
+				}).join('');
+				const label = days.length <= 7 || i % Math.ceil(days.length / 7) === 0 || i === days.length - 1;
+				return `${pieces}${label ? `<text x="${((i + 0.5) * step).toFixed(2)}" y="${height - 5}" text-anchor="middle">${esc(giornoB(d.date))}</text>` : ''}`;
+			}).join('');
+			put($('attivita-grafico'), `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(`Attività aggiornate per giorno: ${sources.map(([source, name]) => `${name} ${bySource[source]}`).join(', ')}`)}"><line x1="0" y1="${height - bottom}" x2="${width}" y2="${height - bottom}"/>${bars}</svg>`);
+			put($('attivita-tabella'), tabella('attivita', 'Attività aggiornate per giorno e per fonte', ['Giorno', ...sources.map(([, name]) => name)], days.map(d => [giornoL(d.date), ...sources.map(([source]) => it(d[source] || 0))])));
 		}
 
 		/** La traccia di un periodo, giorno per giorno: un oscilloscopio sotto la cifra. Decorativa
@@ -3224,6 +3269,7 @@ struct VG {
 			if (tenute) for (const k of Object.keys(anim)) anim[/** @type {keyof typeof anim} */ (k)] = false;
 			impostaColonne();
 			renderTesta();
+			renderObservedActivity();
 			renderCarta();
 			renderClassifica();
 			renderCurva();

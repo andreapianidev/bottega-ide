@@ -302,6 +302,8 @@ final class Speaker: NSObject {
             if list.isEmpty { watchdogs[key]?.cancel() }
             if seg.started { scheduleEndMarker(seg) }
             endEpisodeIfIdle()
+        case .sessionFinished:
+            if !(inflight[key]?.isEmpty ?? true) { failStream(key, reason: "sessione ElevenLabs chiusa") }
         case .failed(let error):
             let pending = !(inflight[key]?.isEmpty ?? true)
             if pending {

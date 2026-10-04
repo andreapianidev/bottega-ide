@@ -84,29 +84,35 @@ enum PonteComandi {
     }
 }
 
-/// One remote turn at a time. The socket stays warm for a minute and a half after the last turn (the
-/// keep-alive of ElevenLabsStream), so the next answer starts in about 200 ms instead of a new handshake.
+/// One remote answer at a time. `flush` emits audio for short sentences, while `close_socket`
+/// produces the only reliable final marker for the whole answer.
 @MainActor
 final class PonteFlusso {
     static let shared = PonteFlusso()
 
     private var stream: ElevenLabsStream?
     private var id = ""
-    private var inAttesa = 0
     private var chiuso = false
     private var inviato = false
+    private var haAudio = false
+    private var caduto = false
+    private var testoCompleto = ""
+    private var recupero: Task<Void, Never>?
     private var guardia: DispatchWorkItem?
 
     func apri(_ nuovo: String) -> Bool {
         if !id.isEmpty, id != nuovo {
             Out.event("ponte.audio.fine", ["id": id])
-            // il turno di prima ha ancora audio in arrivo: arriverebbe con l'id nuovo, socket nuovo
-            if inAttesa > 0 { stream?.close(); stream = nil }
+            stream?.close()
+            stream = nil
         }
+        recupero?.cancel(); recupero = nil
         id = nuovo
-        inAttesa = 0
         chiuso = false
         inviato = false
+        haAudio = false
+        caduto = false
+        testoCompleto = ""
         if stream == nil {
             guard let s = ElevenLabsStream() else { return false }
             s.onEvent = { [weak self] e in self?.evento(e) }
@@ -117,11 +123,13 @@ final class PonteFlusso {
 
     func testo(_ quale: String, _ t: String) {
         let pulito = Speaker.cleanForSpeech(t)
-        guard quale == id, !chiuso, !pulito.isEmpty, let s = stream, s.isOpen || s.connect() else { return }
-        s.send(text: pulito, newTurn: !inviato && s.hasSpokenBefore)
+        guard quale == id, !chiuso, !pulito.isEmpty else { return }
+        testoCompleto += (testoCompleto.isEmpty ? "" : " ") + pulito
         ElevenLabsUsage.add(pulito.count)
+        guard !caduto else { return }
+        guard let s = stream, s.isOpen || s.connect() else { caduto = true; return }
+        s.send(text: pulito, newTurn: !inviato && s.hasSpokenBefore)
         inviato = true
-        inAttesa += 1
         s.flush()
         armaGuardia()
     }
@@ -129,7 +137,10 @@ final class PonteFlusso {
     func fine(_ quale: String) {
         guard quale == id else { return }
         chiuso = true
-        if inAttesa == 0 { concludi() }
+        if !inviato && testoCompleto.isEmpty { concludi(); return }
+        if caduto || stream == nil { recuperaSePossibile(); return }
+        stream?.finish()
+        armaGuardia()
     }
 
     func ferma(_ quale: String) {
@@ -137,7 +148,9 @@ final class PonteFlusso {
         // il socket non sa fermare una frase gia' chiesta: si chiude e il prossimo turno ne apre uno nuovo
         stream?.close()
         stream = nil
+        recupero?.cancel(); recupero = nil
         id = ""
+        testoCompleto = ""
         guardia?.cancel()
     }
 
@@ -145,18 +158,21 @@ final class PonteFlusso {
         guard !id.isEmpty else { return }
         switch e {
         case .audio(let pcm):
+            haAudio = true
             Out.event("ponte.audio", ["id": id, "pcm": pcm.base64EncodedString()])
             armaGuardia()
         case .turnFinished:
-            inAttesa = max(0, inAttesa - 1)
-            if chiuso && inAttesa == 0 { concludi() }
+            // A turn marker is not a marker for every `flush` sent above.
+            armaGuardia()
+        case .sessionFinished:
+            concludi()
         case .failed(let err):
-            Out.event("ponte.audio.errore", ["id": id, "errore": err.localizedDescription])
-            // chiuso davvero: il keep-alive ogni 8 s non deve restare acceso per sempre
+            Log.warn("ponte: socket ElevenLabs terminato (\(err.localizedDescription))")
             stream?.close()
             stream = nil
-            id = ""
+            caduto = true
             guardia?.cancel()
+            if chiuso { recuperaSePossibile() }
         }
     }
 
@@ -164,22 +180,51 @@ final class PonteFlusso {
         guardia?.cancel()
         Out.event("ponte.audio.fine", ["id": id])
         id = ""
+        testoCompleto = ""
     }
 
-    /// Text pending and no audio for 8 s: the socket is stuck (same watchdog as Speaker.swift).
+    /// If the WebSocket fails before sending any PCM, synthesize the same Melissa voice over HTTPS.
+    private func recuperaSePossibile() {
+        guard !id.isEmpty, recupero == nil else { return }
+        guard !haAudio, !testoCompleto.isEmpty else {
+            Out.event("ponte.audio.errore", ["id": id, "errore": "La voce ElevenLabs si è interrotta durante la riproduzione."])
+            concludi()
+            return
+        }
+        guardia?.cancel()
+        let quale = id
+        let frase = String(testoCompleto.prefix(4_000))
+        recupero = Task { [weak self] in
+            do {
+                let pcm = try await ElevenLabsREST.synthesize(frase, model: ElevenLabsConfig.restFallbackModel)
+                guard let self, self.id == quale, !Task.isCancelled else { return }
+                guard !pcm.isEmpty else { throw ElevenLabsError.empty }
+                Out.event("ponte.audio", ["id": quale, "pcm": pcm.base64EncodedString()])
+                self.haAudio = true
+                self.concludi()
+            } catch {
+                guard let self, self.id == quale, !Task.isCancelled else { return }
+                Out.event("ponte.audio.errore", ["id": quale, "errore": error.localizedDescription])
+                self.concludi()
+            }
+            self?.recupero = nil
+        }
+    }
+
+    /// No audio or final marker for 12 s: use HTTPS if no PCM has been delivered yet.
     private func armaGuardia() {
         guardia?.cancel()
         let quale = id
         let w = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, self.id == quale, self.inAttesa > 0 else { return }
-                Out.event("ponte.audio.errore", ["id": quale, "errore": "ElevenLabs non risponde da 8 secondi"])
+                guard let self, self.id == quale else { return }
                 self.stream?.close()
                 self.stream = nil
-                self.id = ""
+                self.caduto = true
+                if self.chiuso { self.recuperaSePossibile() }
             }
         }
         guardia = w
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: w)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: w)
     }
 }

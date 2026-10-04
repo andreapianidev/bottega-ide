@@ -1,6 +1,6 @@
 // @ts-check
 /* La barra di Melissa: la vista nella barra laterale DESTRA (secondary side bar), sempre aperta, da cui
-   Melissa tiene d'occhio tutte le sessioni Claude di Andrea. Contratto: docs/CONTRATTI.md,
+   Melissa tiene d'occhio le sessioni osservate di tutti gli strumenti. Contratto: docs/CONTRATTI.md,
    sezione 6; tipi AssistantState (sezione 3), WorkItem e WorkCounts (4.9).
 
    HTML minimo che il fornitore (src/barra.ts) deve servire. Niente altro: il modulo costruisce tutto
@@ -20,7 +20,7 @@
      </html>
 
    Estensione -> barra
-     {type:'stato', assistant?, brain?, work?, workCounts?, board?}
+     {type:'stato', assistant?, brain?, work?, workCounts?, activity?, board?}
          Un campo assente vuol dire «invariato»: mentre Melissa parla basta mandare {type:'stato', assistant}
          piu' volte al secondo (il livello audio), senza ripetere lavori e bacheca.
      {type:'assistant', state}               come sopra, la forma della vista della sfera (4.8)
@@ -151,10 +151,19 @@
 				<h2 id="sessioni-titolo">Sessioni Claude</h2>
 				<span class="sessioni-conto" id="sessioni-conto"></span>
 			</div>
-			<div class="aspettano" id="aspettano"></div>
-			<div class="scorre" id="scorre">
-				<p class="vuoto" id="sessioni-vuoto" hidden>Nessuna sessione aperta. Per una volta, il Mac respira.</p>
+			<p class="sessioni-riepilogo" id="sessioni-riepilogo" hidden></p>
+			<div class="registro-agenti" id="registro-agenti" hidden>
+				<ul class="agenti-lista" id="agenti-lista" aria-label="Sessioni osservate"></ul>
+				<button type="button" class="agenti-altre" id="agenti-altre" aria-controls="agenti-lista" aria-expanded="false" hidden></button>
+				<p class="agenti-vuoto" id="agenti-vuoto" hidden>Nessuna sessione osservata al momento.</p>
 			</div>
+			<details class="claude-controls" id="claude-controls" open>
+				<summary>Controlli dei lavori Claude</summary>
+				<div class="aspettano" id="aspettano"></div>
+				<div class="scorre" id="scorre">
+					<p class="vuoto" id="sessioni-vuoto" hidden>Nessuna sessione aperta. Per una volta, il Mac respira.</p>
+				</div>
+			</details>
 		</section>
 		<nav class="comandi" aria-label="Comandi rapidi">
 			<button type="button" data-comando="briefing">Briefing</button>
@@ -439,10 +448,10 @@
 
 	// ---------- lo stato ----------
 
-	/** @type {{assistant: any, brain: any, work: any[], counts: any, board: Record<string, any[]>}} */
-	const S = { assistant: null, brain: null, work: [], counts: null, board: {} };
-	const sig = { brain: '', log: '', work: '' };
-	let dirty = { assistant: false, brain: false, work: false };
+	/** @type {{assistant: any, brain: any, work: any[], counts: any, activity: any[] | null, board: Record<string, any[]>}} */
+	const S = { assistant: null, brain: null, work: [], counts: null, activity: null, board: {} };
+	const sig = { brain: '', log: '', work: '', activity: '' };
+	let dirty = { assistant: false, brain: false, work: false, activity: false };
 
 	// ---------- testata: il cervello e l'impegno ----------
 
@@ -742,9 +751,10 @@
 	})();
 	/** gruppi chiusi a mano (in coda e stanotte partono chiusi) */
 	const chiusi = new Set(Array.isArray(memo.chiusi) ? memo.chiusi : GRUPPI.filter(g => g.chiuso).map(g => g.id));
+	let activityExpanded = !!memo.activityExpanded;
 	const ricorda = () => {
 		try {
-			vscode.setState({ ...memo, chiusi: [...chiusi] });
+			vscode.setState({ ...memo, chiusi: [...chiusi], activityExpanded });
 		} catch {
 			/* niente stato: pazienza */
 		}
@@ -936,6 +946,84 @@
 		setTimeout(() => (annuncio.textContent = testo), 60);
 	}
 
+	const SOURCE = { claude: 'Claude Code', cline: 'Cline', codex: 'Codex', terminale: 'Terminale' };
+	const STATUS = { 'ti aspetta': 'Ti aspetta', 'in corso': 'In corso', errore: 'Errore', sconosciuto: 'Da verificare', finito: 'Finita' };
+	const ORDER = { 'ti aspetta': 0, errore: 1, 'in corso': 2, sconosciuto: 3, finito: 4 };
+	/** @type {Map<string, HTMLLIElement>} */ const agentiNodi = new Map();
+	let hadActivity = false;
+
+	function renderActivity() {
+		const available = Array.isArray(S.activity);
+		const list = available ? S.activity.filter(a => a && Object.hasOwn(SOURCE, a.source)).slice().sort((a, b) =>
+			(ORDER[a.status] ?? 5) - (ORDER[b.status] ?? 5) || (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0)) : [];
+		const signature = JSON.stringify([available, list, activityExpanded]);
+		if (sig.activity === signature) return;
+		sig.activity = signature;
+		const section = $('sessioni');
+		const controls = /** @type {HTMLDetailsElement} */ ($('claude-controls'));
+		section.classList.toggle('con-registro', available);
+		if (available !== hadActivity) controls.open = !available;
+		hadActivity = available;
+		show(controls, !available || S.work.length > 0);
+		show($('registro-agenti'), available);
+		show($('sessioni-riepilogo'), available);
+		setText($('sessioni-titolo'), available ? 'Sessioni osservate' : 'Sessioni Claude');
+		if (!available) return;
+
+		const count = status => list.filter(a => a.status === status).length;
+		const active = list.length - count('finito');
+		const statusParts = [
+			count('ti aspetta') ? `${count('ti aspetta')} ${count('ti aspetta') === 1 ? 'ti aspetta' : 'ti aspettano'}` : '',
+			count('in corso') ? `${count('in corso')} in corso` : '',
+			count('errore') ? `${count('errore')} ${count('errore') === 1 ? 'errore' : 'errori'}` : '',
+			count('sconosciuto') ? `${count('sconosciuto')} da verificare` : '',
+			count('finito') ? `${count('finito')} finite` : '',
+		].filter(Boolean);
+		setText($('sessioni-conto'), `${list.length} ${list.length === 1 ? 'sessione' : 'sessioni'}`);
+		const sources = Object.keys(SOURCE).filter(source => list.some(a => a.source === source)).map(source => `${SOURCE[source]} ${list.filter(a => a.source === source).length}`);
+		setText($('sessioni-riepilogo'), [statusParts.join(', '), sources.join(', ')].filter(Boolean).join('. ') || 'Nessuna attività al momento.');
+		const finished = list.filter(a => a.status === 'finito');
+		const expandable = finished.length > 12;
+		const shown = activityExpanded || !expandable ? list : list.filter(a => a.status !== 'finito').concat(finished.slice(0, 12));
+		const want = new Set(shown.map(a => String(a.key || `${a.source}:${a.id}`)));
+		for (const [key, li] of agentiNodi) if (!want.has(key)) { li.remove(); agentiNodi.delete(key); }
+		const ul = $('agenti-lista');
+		shown.forEach((a, i) => {
+			const key = String(a.key || `${a.source}:${a.id}`);
+			let li = agentiNodi.get(key);
+			if (!li) {
+				li = /** @type {HTMLLIElement} */ (h('li', { class: 'agente' },
+					h('div', { class: 'agente-testa' }, h('span', { class: 'agente-fonte' }), h('span', { class: 'agente-stato' }), h('span', { class: 'agente-ora' })),
+					h('b', { class: 'agente-progetto' }), h('p', { class: 'agente-titolo' })));
+				agentiNodi.set(key, li);
+			}
+			const status = Object.hasOwn(STATUS, a.status) ? a.status : 'sconosciuto';
+			setClass(li, `agente fonte-${a.source} stato-${status.replace(' ', '-')}`);
+			setAttr(li, 'data-key', key);
+			setAttr(li, 'title', a.evidence ? `Fonte dello stato: ${a.evidence}` : null);
+			setText(li.querySelector('.agente-fonte'), SOURCE[a.source]);
+			setText(li.querySelector('.agente-stato'), STATUS[status]);
+			setText(li.querySelector('.agente-ora'), Number(a.updatedAt) > 0 ? `${dur(Date.now() - Number(a.updatedAt))} fa` : 'ora non disponibile');
+			setText(li.querySelector('.agente-progetto'), a.project || 'Senza progetto');
+			setText(li.querySelector('.agente-titolo'), a.title || a.summary || 'Sessione senza titolo');
+			if (ul.children[i] !== li) ul.insertBefore(li, ul.children[i] || null);
+		});
+		show($('agenti-vuoto'), list.length === 0);
+		const more = $('agenti-altre');
+		show(more, expandable);
+		setText(more, activityExpanded ? 'Mostra meno' : `Mostra tutte le ${list.length} sessioni`);
+		setAttr(more, 'aria-expanded', String(activityExpanded));
+		section.classList.toggle('con-attesa', count('ti aspetta') > 0);
+		section.classList.toggle('solo-attese', active > 0 && active === count('ti aspetta'));
+	}
+
+	$('agenti-altre').addEventListener('click', () => {
+		activityExpanded = !activityExpanded;
+		ricorda();
+		sig.activity = '';
+		renderActivity();
+	});
+
 	function renderWork() {
 		const work = S.work || [];
 		const s = JSON.stringify([work, S.counts, S.board]);
@@ -984,10 +1072,13 @@
 		for (const w of work) prima.set(w.key, w.status);
 
 		const vive = S.counts && typeof S.counts.vive === 'number' ? S.counts.vive : work.filter(w => ['in corso', 'ti aspetta', 'nel terminale'].includes(w.status)).length;
-		setText($('sessioni-conto'), vive ? `${vive} ${vive === 1 ? 'viva' : 'vive'}` : '');
+		if (S.activity === null) setText($('sessioni-conto'), vive ? `${vive} ${vive === 1 ? 'viva' : 'vive'}` : '');
 		show($('sessioni-vuoto'), work.length === 0);
-		$('sessioni').classList.toggle('con-attesa', per['ti aspetta'].length > 0);
-		$('sessioni').classList.toggle('solo-attese', work.length > 0 && work.every(w => w.status === 'ti aspetta'));
+		show($('claude-controls'), S.activity === null || work.length > 0);
+		if (S.activity === null) {
+			$('sessioni').classList.toggle('con-attesa', per['ti aspetta'].length > 0);
+			$('sessioni').classList.toggle('solo-attese', work.length > 0 && work.every(w => w.status === 'ti aspetta'));
+		}
 
 		// un nodo spostato da un gruppo all'altro perde il fuoco: lo si rimette dov'era, cursore compreso
 		if (attivo && attivo !== document.activeElement) {
@@ -1037,7 +1128,8 @@
 			renderTerminale();
 		}
 		if (dirty.work) renderWork();
-		dirty = { assistant: false, brain: false, work: false };
+		if (dirty.activity) renderActivity();
+		dirty = { assistant: false, brain: false, work: false, activity: false };
 	}
 
 	window.addEventListener('message', ev => {
@@ -1058,6 +1150,10 @@
 			if ('workCounts' in m) {
 				S.counts = m.workCounts || null;
 				dirty.work = true;
+			}
+			if ('activity' in m) {
+				S.activity = Array.isArray(m.activity) ? m.activity : [];
+				dirty.activity = true;
 			}
 			if ('board' in m) {
 				S.board = m.board || {};

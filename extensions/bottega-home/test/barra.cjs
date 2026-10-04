@@ -426,6 +426,52 @@ function lineette(d) {
 		assert.strictEqual(b.$$('#sessioni .lavoro').length, 0);
 	});
 
+	await test('registro unico: Claude, Cline, Codex e terminale sono ordinati e contati; i comandi Claude restano apribili', () => {
+		const b = mount();
+		const activity = [
+			{ key: 'claude:a', source: 'claude', id: 'a', project: 'faro', title: 'Rivede la mappa', status: 'finito', updatedAt: ORA - 40 * MIN, evidence: 'trascrizione' },
+			{ key: 'cline:b', source: 'cline', id: 'b', project: 'orto', title: 'Aspetta un permesso', status: 'ti aspetta', updatedAt: ORA - MIN, evidence: 'task locale' },
+			{ key: 'codex:c', source: 'codex', id: 'c', project: 'telaio', title: '<img src=x onerror=alert(1)>', status: 'in corso', updatedAt: ORA - 2 * MIN, evidence: 'hook Codex' },
+			{ key: 'terminale:d', source: 'terminale', id: 'd', project: 'quaderno', title: 'npm test', status: 'errore', updatedAt: ORA - 3 * MIN, evidence: 'shell integration' },
+		];
+		b.send(stato({ activity }));
+		assert.strictEqual(b.$('#sessioni-titolo').textContent, 'Sessioni osservate');
+		assert.strictEqual(b.$('#sessioni-conto').textContent, '4 sessioni');
+		assert.match(b.$('#sessioni-riepilogo').textContent, /Cline 1/);
+		assert.match(b.$('#sessioni-riepilogo').textContent, /Codex 1/);
+		assert.deepStrictEqual(b.$$('#agenti-lista > li .agente-fonte').map(x => x.textContent), ['Cline', 'Terminale', 'Codex', 'Claude Code']);
+		assert.ok(!b.$('#agenti-lista img'), 'titolo trattato come testo');
+		assert.strictEqual(b.$('#claude-controls').open, false);
+		b.click(b.$('#claude-controls summary'));
+		assert.strictEqual(b.$('#claude-controls').open, true);
+		assert.ok(b.item('job:j1'), 'i comandi Claude sono ancora presenti');
+		b.send({ type: 'stato', assistant: assistant({ level: 0.5 }) });
+		assert.strictEqual(b.$('#sessioni-conto').textContent, '4 sessioni', 'aggiornamento parziale non perde il riepilogo');
+		assert.deepStrictEqual(b.errors, []);
+	});
+
+	await test('storico compatto: tutte le sessioni aperte e le dodici finite recenti, con espansione stabile', () => {
+		const b = mount();
+		const activity = [
+			{ key: 'codex:live', source: 'codex', id: 'live', project: 'faro', title: 'Test in corso', status: 'in corso', updatedAt: ORA },
+			...Array.from({ length: 20 }, (_, i) => ({ key: `cline:f${i}`, source: 'cline', id: `f${i}`, project: 'orto', title: `Finita ${i}`, status: 'finito', updatedAt: ORA - (i + 1) * MIN })),
+		];
+		b.send(stato({ activity }));
+		assert.strictEqual(b.$$('#agenti-lista > li').length, 13);
+		assert.strictEqual(b.$('#sessioni-conto').textContent, '21 sessioni');
+		assert.strictEqual(b.$('#agenti-altre').textContent, 'Mostra tutte le 21 sessioni');
+		b.click(b.$('#agenti-altre'));
+		assert.strictEqual(b.$$('#agenti-lista > li').length, 21);
+		assert.strictEqual(b.$('#agenti-altre').getAttribute('aria-expanded'), 'true');
+		assert.strictEqual(b.state().activityExpanded, true);
+		b.send(stato({ activity: activity.map(a => ({ ...a })) }));
+		assert.strictEqual(b.$$('#agenti-lista > li').length, 21, 'il nuovo snapshot mantiene l\'espansione');
+		b.click(b.$('#agenti-altre'));
+		assert.strictEqual(b.$$('#agenti-lista > li').length, 13);
+		assert.strictEqual(b.$('#agenti-altre').textContent, 'Mostra tutte le 21 sessioni');
+		assert.deepStrictEqual(b.errors, []);
+	});
+
 	await test('sessioni: azioni giuste per i lavori della Bottega e per quelli aperti altrove', () => {
 		const b = mount();
 		b.send(stato());

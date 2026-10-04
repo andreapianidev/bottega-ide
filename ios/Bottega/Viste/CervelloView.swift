@@ -9,7 +9,7 @@
 
 import SwiftUI
 
-/// Con il Mac spento la scelta appartiene all'iPhone e vale per le domande autonome.
+/// La scelta usata dalle risposte dirette dell'iPhone, anche quando il Mac e' collegato.
 struct CervelloTelefonoFoglio: View {
     @State private var telefono = AssistenteTelefono.shared
     @Environment(\.dismiss) private var chiudi
@@ -30,9 +30,9 @@ struct CervelloTelefonoFoglio: View {
                         }
                     }
                 } header: {
-                    Text("Cervello sull'iPhone")
+                    Text("Cervello di Melissa")
                 } footer: {
-                    Text("Risponde direttamente dall'iPhone. Per i lavori e i dati aggiornati serve il Mac acceso.")
+                    Text("Risponde direttamente dall'iPhone. La scelta e la conversazione si sincronizzano con il Mac quando e' collegato.")
                 }
                 Section("Impegno") {
                     Picker("Impegno", selection: $telefono.impegno) {
@@ -45,6 +45,12 @@ struct CervelloTelefonoFoglio: View {
             }
             .navigationTitle("Il cervello di Melissa")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fatto") { chiudi() } } }
+            .onChange(of: telefono.provider) { _, _ in
+                Task { await telefono.sincronizzaScelta(con: Ponte.shared) }
+            }
+            .onChange(of: telefono.impegno) { _, _ in
+                Task { await telefono.sincronizzaScelta(con: Ponte.shared) }
+            }
         }
     }
 }

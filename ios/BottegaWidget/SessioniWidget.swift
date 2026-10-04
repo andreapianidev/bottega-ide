@@ -2,7 +2,7 @@
 //  SessioniWidget.swift
 //  Bottega per iPhone, estensione dei widget
 //
-//  Il widget «Sessioni»: chi ti aspetta (in ambra), quante sessioni Claude sono al lavoro sul Mac, i primi progetti
+//  Il widget «Sessioni»: chi ti aspetta (in ambra), quante attività sono al lavoro sul Mac, i primi progetti
 //  e l'eta' del dato. Legge GET /v1/stato dal ponte con il collegamento condiviso (docs/CONTRATTI.md, 9.4); se il Mac
 //  non risponde mostra l'ultimo stato salvato dall'app. Il Mac lo sveglia con una push «content-changed»: il token
 //  arriva a SpintaWidget, che lo lascia nelle preferenze condivise per l'app.
@@ -27,8 +27,8 @@ struct VoceSessioni: TimelineEntry {
     let stato: StatoMac?
     let fonte: Fonte
 
-    var tiAspetta: Int { stato?.conti.tiAspetta ?? 0 }
-    var inCorso: Int { stato?.conti.inCorso ?? 0 }
+    var tiAspetta: Int { stato?.conteggiAttivita.tiAspetta ?? 0 }
+    var inCorso: Int { stato?.conteggiAttivita.inCorso ?? 0 }
     var quando: Date? { stato.map { Pezzi.data($0.ora) } }
 
     /// Le sessioni nell'ordine della stanza Lavori: prima chi ti aspetta.
@@ -41,6 +41,11 @@ struct VoceSessioni: TimelineEntry {
     /// I progetti, ognuno una volta sola, nello stesso ordine.
     var progetti: [String] {
         var visti = Set<String>()
+        if let attivita = stato?.attivita {
+            return attivita.filter { $0.status == "ti aspetta" || $0.status == "in corso" }
+                .sorted { (Pezzi.rango($0.status), -$0.updatedAt) < (Pezzi.rango($1.status), -$1.updatedAt) }
+                .map(\.project).filter { visti.insert($0).inserted }
+        }
         return lavori.map(\.progetto).filter { visti.insert($0).inserted }
     }
 
@@ -109,10 +114,10 @@ struct FornitoreSessioni: TimelineProvider {
     private static func chiediUnaVolta(_ c: Collegamento) async -> StatoMac?? {
         do {
             return try await stato(c, host: c.host)
+        } catch let e as URLError where [.cannotFindHost, .dnsLookupFailed, .cannotConnectToHost, .timedOut, .networkConnectionLost].contains(e.code) && !c.ip.isEmpty && c.ip != c.host {
+            return try? await stato(c, host: c.ip)
         } catch let e where c.ripiegaSuHttp(e, ripetibile: true) {
             return await chiediUnaVolta(c)
-        } catch let e as URLError where [.cannotFindHost, .dnsLookupFailed].contains(e.code) && !c.ip.isEmpty && c.ip != c.host {
-            return try? await stato(c, host: c.ip)
         } catch {
             return nil
         }
@@ -159,7 +164,7 @@ struct SessioniWidget: Widget {
                 .widgetURL(Pezzi.lavori)
         }
         .configurationDisplayName("Sessioni")
-        .description("Chi ti aspetta e quante sessioni Claude sono al lavoro sul Mac.")
+        .description("Chi ti aspetta e quante attività Claude, Cline, Codex e terminali lavorano sul Mac.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular, .accessoryInline])
         .pushHandler(SpintaWidget.self)
     }

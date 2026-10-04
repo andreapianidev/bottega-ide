@@ -3,15 +3,15 @@
 //  Bottega per iPhone
 //
 //  Siri e Comandi rapidi (docs/CONTRATTI.md, 9.4): «Chiedi a Melissa su Bottega» e «Chi mi aspetta su Bottega».
-//  Girano senza aprire l'app: la domanda va al Mac dal ponte e Siri legge la risposta. Il cervello resta Agnes
-//  sul Mac: su questo iPhone Apple Intelligence non c'e' e non serve.
+//  Girano senza aprire l'app: Melissa risponde direttamente con il cervello scelto sull'iPhone quando
+//  le chiavi sono importate; il ponte porta la cronologia al Mac quando e' collegato.
 //
 
 import AppIntents
 
 struct ChiediAMelissa: AppIntent {
     static let title: LocalizedStringResource = "Chiedi a Melissa"
-    static let description = IntentDescription("Fai una domanda a Melissa, sul tuo Mac, e ascolta la risposta.")
+    static let description = IntentDescription("Fai una domanda a Melissa e ascolta la risposta.")
     static let openAppWhenRun = false
 
     @Parameter(title: "Domanda", requestValueDialog: IntentDialog("Cosa vuoi chiedere a Melissa?"))
@@ -22,8 +22,20 @@ struct ChiediAMelissa: AppIntent {
         let ponte = Ponte.shared
         do {
             let risposta: String
-            if ponte.linea == .collegato { risposta = try await ponte.chiedi(domanda) }
-            else { risposta = try await AssistenteTelefono.shared.rispondi(domanda, voce: false) { _ in } }
+            let telefono = AssistenteTelefono.shared
+            if telefono.configurato {
+                do {
+                    await ponte.aggiornaStato()
+                    let contesto = ponte.linea == .collegato ? ponte.stato?.contestoMelissa(per: domanda) : nil
+                    risposta = try await telefono.rispondi(domanda, voce: false, contestoMac: contesto) { _ in }
+                } catch {
+                    if ponte.linea == .collegato { await telefono.sincronizza(con: ponte) }
+                    throw error
+                }
+                if ponte.linea == .collegato { await telefono.sincronizza(con: ponte) }
+            } else {
+                risposta = try await ponte.chiedi(domanda)
+            }
             return .result(value: risposta, dialog: IntentDialog(stringLiteral: risposta))
         } catch {
             return .result(value: "", dialog: IntentDialog(stringLiteral: error.localizedDescription))
@@ -33,7 +45,7 @@ struct ChiediAMelissa: AppIntent {
 
 struct ChiMiAspetta: AppIntent {
     static let title: LocalizedStringResource = "Chi mi aspetta"
-    static let description = IntentDescription("Le sessioni Claude del Mac che aspettano te.")
+    static let description = IntentDescription("Le attività del Mac che aspettano te.")
     static let openAppWhenRun = false
 
     @MainActor
@@ -50,8 +62,9 @@ struct ChiMiAspetta: AppIntent {
     }
 
     static func frase(_ s: StatoMac) -> String {
-        let aspettano = s.lavori.filter { $0.stato == "ti aspetta" }.map(\.progetto)
-        let alLavoro = s.conti.inCorso
+        let aspettano = s.attivita.map { $0.filter { $0.status == "ti aspetta" }.map { "\($0.fonte) in \($0.project)" } }
+            ?? s.lavori.filter { $0.stato == "ti aspetta" }.map(\.progetto)
+        let alLavoro = s.conteggiAttivita.inCorso
         var parti: [String] = []
         switch aspettano.count {
         case 0: parti.append("Non ti aspetta nessuno")

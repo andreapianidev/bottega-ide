@@ -22,6 +22,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { sessionOwner, projectKey, canonKey } from './scan';
+import type { AgentActivity } from './attivita-tipi';
 
 export const GAP_MINUTES = 15;
 const GAP = GAP_MINUTES * 60_000;
@@ -223,6 +224,46 @@ export interface Stats {
 	unpricedTokens: number;
 	todaySessions: StatsTodaySession[];
 	concurrency7: StatsConcurrency;
+	/** Registro multi-fonte: conteggi e date dell'ultimo aggiornamento, non durate o consumi. */
+	observedActivity?: StatsObservedActivity;
+}
+
+export type ActivitySource = AgentActivity['source'];
+export interface StatsObservedActivity {
+	sources: { source: ActivitySource; total: number; inCorso: number; tiAspetta: number;
+		finito: number; errore: number; sconosciuto: number }[];
+	/** Ultimi 90 giorni locali: ogni attivita' contribuisce solo nel giorno di updatedAt. */
+	days: { date: string; claude: number; cline: number; codex: number; terminale: number }[];
+}
+
+/** Riassume il registro osservato senza inferire intervalli di lavoro da due timestamp isolati. */
+export function summarizeObservedActivity(activity: readonly AgentActivity[], now = Date.now()): StatsObservedActivity {
+	const sources: ActivitySource[] = ['claude', 'cline', 'codex', 'terminale'];
+	const totals = new Map<ActivitySource, StatsObservedActivity['sources'][number]>(sources.map(source => [source, {
+		source, total: 0, inCorso: 0, tiAspetta: 0, finito: 0, errore: 0, sconosciuto: 0,
+	}]));
+	const days = Array.from({ length: 90 }, (_, i) => {
+		const date = new Date(now);
+		date.setHours(12, 0, 0, 0);
+		date.setDate(date.getDate() - (89 - i));
+		return { date: dayKey(date.getTime()), claude: 0, cline: 0, codex: 0, terminale: 0 };
+	});
+	const byDate = new Map(days.map(day => [day.date, day]));
+	const seen = new Set<string>();
+	for (const item of activity) {
+		const key = `${item.source}:${item.key}`;
+		if (!sources.includes(item.source) || !item.key || seen.has(key)) continue;
+		seen.add(key);
+		const total = totals.get(item.source)!;
+		total.total++;
+		const field = ({ 'in corso': 'inCorso', 'ti aspetta': 'tiAspetta', finito: 'finito', errore: 'errore', sconosciuto: 'sconosciuto' } as const)[item.status] ?? 'sconosciuto';
+		total[field]++;
+		if (Number.isFinite(item.updatedAt) && item.updatedAt <= now) {
+			const day = byDate.get(dayKey(item.updatedAt));
+			if (day) day[item.source]++;
+		}
+	}
+	return { sources: sources.map(source => totals.get(source)!), days };
 }
 
 /** Il minimo che serve dei progetti e delle sessioni vive (sottoinsieme dello Snapshot). */

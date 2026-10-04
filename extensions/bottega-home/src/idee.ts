@@ -43,6 +43,8 @@ export interface IdeeHost {
 	workCounts(): import('./jobs').WorkCounts;
 	/** Tutto il lavoro in giro, prima chi ti aspetta (jobs.ts, workItems): per il widget e per Siri. */
 	work?(): import('./jobs').WorkItem[];
+	/** Lo stesso registro multi-fonte della Home e della barra laterale. */
+	activity?(): import('./attivita-tipi').AgentActivity[];
 	nucleo: Nucleo;
 	memoria: Memoria;
 	jobs: JobManager;
@@ -201,13 +203,21 @@ export class Idee {
 
 	// ---------- barra dei menu e stato per App Intents e widget ----------
 
-	/** I numeri della barra dei menu vengono dal lavoro in giro (tutte le sessioni vive, non solo i lavori
-	 *  della Bottega): gli stessi della Home e di Melissa. `_counts` (dal gestore dei lavori) e' ignorato. */
+	/** I numeri della barra dei menu vengono dal registro osservato da tutte le fonti. */
 	paintMenubar(_counts?: { busy: number; waiting: number; queued: number }): void {
 		const w = this.h.workCounts();
-		this.menubarCounts = { busy: w.inCorso, waiting: w.tiAspetta, queued: w.inCoda + w.stanotte };
+		const activity = this.h.activity?.();
+		const inCorso = activity?.filter(a => a.status === 'in corso') ?? [];
+		const tiAspetta = activity?.filter(a => a.status === 'ti aspetta') ?? [];
+		this.menubarCounts = { busy: activity ? inCorso.length : w.inCorso, waiting: activity ? tiAspetta.length : w.tiAspetta, queued: w.inCoda + w.stanotte };
 		const r = this.rules.state();
 		const lines: { id?: string; title: string; tone?: string }[] = [];
+		const nomi: Record<string, string> = { claude: 'Claude Code', cline: 'Cline', codex: 'Codex', terminale: 'Terminale' };
+		for (const source of ['claude', 'cline', 'codex', 'terminale']) {
+			const working = inCorso.filter(a => a.source === source).length;
+			const waiting = tiAspetta.filter(a => a.source === source).length;
+			if (working || waiting) lines.push({ id: 'lavori', title: `${nomi[source]}: ${working} in corso${waiting ? `, ${waiting} in attesa` : ''}` });
+		}
 		if (r.counts.rosso || r.counts.giallo) {
 			lines.push({
 				id: 'regole',

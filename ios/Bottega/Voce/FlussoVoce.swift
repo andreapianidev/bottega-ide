@@ -19,6 +19,7 @@ final class FlussoVoce {
     private let lettore = AVAudioPlayerNode()
     private let formato = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24_000, channels: 1, interleaved: false)!
     private var inCoda = 0
+    private var bytePCM = 0
     private var chiuso = false
     private var fine: CheckedContinuation<Void, Never>?
     /// Il giro di adesso: i buffer di un giro fermato che finiscono dopo non toccano il conto di quello nuovo.
@@ -41,6 +42,7 @@ final class FlussoVoce {
         osservatori.append(centro.addObserver(forName: .AVAudioEngineConfigurationChange, object: motore, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, !self.motore.isRunning else { return }
+                Log.warn("voce iPhone: motore fermato da un cambio audio, PCM \(self.bytePCM) byte")
                 self.fermatoDalSistema()
             }
         })
@@ -51,6 +53,7 @@ final class FlussoVoce {
             guard n.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt == 1 else { return }
             MainActor.assumeIsolated {
                 guard let self else { return }
+                Log.warn("voce iPhone: sessione audio interrotta, PCM \(self.bytePCM) byte")
                 self.fermatoDalSistema()
                 self.interrotta?()
             }
@@ -65,6 +68,7 @@ final class FlussoVoce {
         try s.setActive(true)
         chiuso = false
         haSuonato = false
+        bytePCM = 0
         if !motore.isRunning {
             // da capo: dopo un cambio di percorso il formato dell'uscita puo' essere un altro
             motore.mainMixerNode.removeTap(onBus: 0)
@@ -79,6 +83,7 @@ final class FlussoVoce {
             try motore.start()
         }
         try lettore.playAudio()
+        Log.info("voce iPhone: lettore pronto, motore \(motore.isRunning)")
     }
 
     /// Un pezzo di audio dal Mac (PCM 16 bit little endian, 24 kHz, mono). Con il motore fermo si scarta.
@@ -89,10 +94,16 @@ final class FlussoVoce {
         buf.frameLength = AVAudioFrameCount(campioni)
         let dst = buf.floatChannelData![0]
         pcm16.withUnsafeBytes { raw in
-            let src = raw.bindMemory(to: Int16.self)
-            for i in 0..<campioni { dst[i] = Float(Int16(littleEndian: src[i])) / 32768 }
+            // Data non garantisce l'allineamento di Int16: decodifica esplicita del PCM little endian.
+            let src = raw.bindMemory(to: UInt8.self)
+            for i in 0..<campioni {
+                let sample = UInt16(src[i * 2]) | (UInt16(src[i * 2 + 1]) << 8)
+                dst[i] = Float(Int16(bitPattern: sample)) / 32768
+            }
         }
         inCoda += 1
+        bytePCM += pcm16.count
+        if !haSuonato { Log.info("voce iPhone: primo PCM in coda, \(pcm16.count) byte") }
         haSuonato = true
         let g = giro
         lettore.scheduleBuffer(buf, completionCallbackType: .dataPlayedBack) { [weak self] _ in
@@ -103,6 +114,7 @@ final class FlussoVoce {
     /// Non arriva altro: ritorna quando l'ultimo pezzo e' stato suonato (o subito, se non ce n'erano).
     func aspettaFine() async {
         chiuso = true
+        Log.info("voce iPhone: attendo riproduzione, \(inCoda) buffer, PCM \(bytePCM) byte")
         if inCoda == 0 { return finisci() }
         await withCheckedContinuation { k in
             // chi aspettava prima non resta appeso
@@ -122,6 +134,7 @@ final class FlussoVoce {
 
     /// L'app va dietro o il giro e' finito: il motore si spegne (lo riaccende il prossimo turno).
     func spegni() {
+        if motore.isRunning { Log.info("voce iPhone: spengo motore, PCM \(bytePCM) byte, in coda \(inCoda)") }
         ferma()
         motore.mainMixerNode.removeTap(onBus: 0)
         if motore.isRunning { motore.stop() }

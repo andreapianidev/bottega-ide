@@ -150,6 +150,7 @@ final class ElevenLabsStream {
     enum Event {
         case audio(Data)
         case turnFinished
+        case sessionFinished
         case failed(ElevenLabsError)
     }
 
@@ -224,6 +225,12 @@ final class ElevenLabsStream {
         send(["flush": true])
     }
 
+    /// The final marker belongs to the socket, not to each flushed sentence.
+    func finish() {
+        guard isOpen else { return }
+        send(["close_socket": true])
+    }
+
     private func startPump(_ socket: URLSessionWebSocketTask) {
         pump = Task { [weak self] in
             while !Task.isCancelled {
@@ -264,7 +271,10 @@ final class ElevenLabsStream {
             residue.removeAll()
             onEvent?(.turnFinished)
         }
-        if frame["is_final"] as? Bool == true { close() }
+        if frame["is_final"] as? Bool == true {
+            onEvent?(.sessionFinished)
+            close()
+        }
     }
 
     private func startKeepAlive() {

@@ -183,7 +183,12 @@ Server MCP `bottega-memoria` registrato a livello utente, strumenti: `memoria_ce
 
 Estensione -> plancia:
 - `{type: "snapshot", snapshot}` (gia' esistente: projects, live, elsewhere, scannedAt, home) con in piu'
-  `jobs: Job[]`, `system: SystemStats | null`, `assistant: AssistantState`
+  `jobs: Job[]`, `activity: AgentActivity[]`, `system: SystemStats | null`, `assistant: AssistantState`.
+  `activity` unisce Claude Code, Cline, Codex e i terminali integrati; ogni elemento ha `key`, `source`, `id`,
+  `project`, `path?`, `title`, `status` (`in corso`, `ti aspetta`, `finito`, `errore`, `sconosciuto`),
+  `updatedAt`, `startedAt?`, `summary?`, `steps?`, `evidence`. I testi sono brevi e ripuliti da righe sensibili.
+  Le trascrizioni Codex e Cline sono lette in sola lettura; il terminale fornisce solo gli eventi che la shell
+  integration segnala dopo l'attivazione. Lo stato `sconosciuto` non implica che il processo sia attivo.
   Si manda solo con la Home visibile: un'istantanea arrivata con la Home nascosta si manda quando torna
   davanti (`retainContextWhenHidden` la tiene viva, ma ridisegnarla di nascosto e' lavoro sprecato).
   Anche il cruscotto (`stats`) si ricalcola solo con la Home visibile.
@@ -231,6 +236,11 @@ interface AssistantState {
 
 Fonte: i registri di Claude Code `~/.claude/projects/<cartella>/<sessione>.jsonl` piu'
 `<sessione>/subagents/*.jsonl` (i sottoagenti appartengono alla sessione che li ha lanciati).
+Ore, token, costi, progetti e grafici di durata continuano a misurare solo Claude Code. La sezione
+"Attivita' osservate" usa invece lo stesso registro multi-fonte della Home (`snapshot.activity`):
+conteggia Claude Code, Cline, Codex e terminali integrati per stato corrente e per giorno
+dell'ultimo `updatedAt`. Un'attivita' entra in un solo giorno; questa serie non misura ore di lavoro,
+numero di messaggi, token o costi. La copertura storica dipende dal registro disponibile per ogni fonte.
 Regole, scritte anche in chiaro nel cruscotto:
 - attivita': le righe `user`, `assistant`, `system` con `timestamp`. Dentro una sessione due eventi a
   meno di 15 minuti valgono come lavoro, una pausa piu' lunga spezza il conto;
@@ -295,6 +305,12 @@ interface Stats {
                                                        // chiuse con meno di 30 secondi di lavoro
   concurrency7: { start: number;                       // ms, inizio della prima delle 168 ore (ora locale)
     avg: number[]; peak: number[]; busy: number[] };   // 168 valori, dalla piu' vecchia a quella in corso
+  observedActivity?: {
+    sources: {source: 'claude'|'cline'|'codex'|'terminale'; total; inCorso; tiAspetta;
+      finito; errore; sconosciuto}[];                   // stati del registro osservato al calcolo
+    days: {date: string; claude; cline; codex; terminale}[];  // ultimi 90 giorni locali,
+                                                               // conteggi per ultimo aggiornamento
+  };
 }
 ```
 
@@ -1038,7 +1054,11 @@ Solo dati veri, al massimo ogni 5 minuti (mai a ogni domanda):
 
 Strumenti nuovi: `cervello_cambia {cervello?, impegno?}`, `sessione_leggi {progetto}` (cosa ha fatto una sessione dalla
 coda della sua trascrizione, `src/mani.ts`: ultima richiesta, ultima risposta, strumenti, file, se aspetta; per le
-sessioni aperte altrove e' sola lettura), `cruscotto_mostra {progetto?, giorni?}` (la Home va sul cruscotto e manda
+sessioni aperte altrove e' sola lettura), `attivita_elenco {fonte?, progetto?, stato?}` e
+`attivita_dettaglio {chiave}` (metadati ripuliti di Claude Code, Cline, Codex e terminali),
+`terminale_ultime_righe {chiave}` (al massimo gli ultimi 8 KB acquisiti dalla shell integration dopo l'avvio,
+con righe sensibili omesse; nessun accesso all'output dei terminali esterni),
+`cruscotto_mostra {progetto?, giorni?}` (la Home va sul cruscotto e manda
 `{type:'crus.focus', path?, period?}`: il cruscotto cambia periodo e accende il progetto sul cielo e in classifica
 mentre Melissa risponde; un comando arrivato prima dei dati si applica al loro arrivo). In conversazione, quando un
 lavoro comincia ad aspettare, Melissa lo dice una volta («Peak ti aspetta»).
@@ -1359,7 +1379,7 @@ Il lavoro sta nel ramo `fase3-completa` su GitHub.
 ## 9. La Bottega per iPhone e il ponte
 
 ```
-iPhone (ios/, SwiftUI)  --HTTP sulla rete Tailscale-->  estensione: src/ponte.ts  --stdio-->  Nucleo: ponte.voce, ponte.qr
+iPhone (ios/, SwiftUI)  --HTTPS sulla rete Tailscale-->  estensione: src/ponte.ts  --stdio-->  Nucleo: ponte.voce, ponte.qr
    sfera Metal del Nucleo (stessi file)                   Melissa (assistant.ts), lavori (jobs.ts)
    ascolto: SFSpeechRecognizer it-IT sull'iPhone
 ```
@@ -1379,14 +1399,24 @@ iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
   indirizzi fuori da 100.64.0.0/10 e fd7a:115c:a1e0::/48 -> 403; 20 gettoni sbagliati in 10 minuti -> quell'indirizzo
   riceve 429 per 10 minuti sui gettoni sbagliati (il gettone giusto passa sempre, cosi' un nuovo QR non resta
   chiuso fuori dai widget col gettone vecchio). Corpo al massimo 16 KB, testo al massimo 2000 caratteri.
-- `GET /v1/stato` -> `{versione, mac, ora, vicino (9.9), https?: {porta, impronta}, melissa: {stato, cervello, parziale?, registro: [{chi: tu|melissa|azione,
-  testo, alle}]}, lavori: [{chiave, origine: bottega|altrove, stato, progetto, titolo, da, jobId?}], conti: {inCorso,
-  tiAspetta, inCoda, vive}}`. `https` (build 71): le stesse rotte cifrate su `porta + 1` (7791), con il
+- `GET /v1/stato` -> `{versione, mac, ora, vicino (9.9), https?: {porta, impronta}, melissa: {stato, cervello, parziale?, risposta?, registro: [{chi: tu|melissa|azione,
+  testo, alle}]}, lavori: [{chiave, activityKey?, origine: bottega|altrove, stato, progetto, titolo, da, jobId?}],
+  attivita: [{key, source, project, status, title, summary?, updatedAt}], conti: {inCorso, tiAspetta, inCoda, vive}}`.
+  `attivita` e' il registro osservato dalla Home: Claude Code, Cline, Codex e terminali integrati, con testo
+  ripulito e stato della fonte. `activityKey` collega una sessione Claude azionabile alla stessa attivita',
+  per non contarla due volte sull'iPhone. Un Mac precedente non manda questi campi.
+  `https` (build 71): le stesse rotte cifrate su `porta + 1` (7791), con il
   certificato fatto dal Mac (`src/ponte-tls.ts`: chiave P-256 fatta da Node in PKCS#8, perche' quella di `openssl -newkey` la BoringSSL di Electron non la carica (build 72); SHA-256, 800 giorni, SAN col nome MagicDNS e l'indirizzo,
   in `~/.bottega/ponte-tls/`, rifatto se scade tra meno di 30 giorni o cambia il nome) e la sua impronta SHA-256
-  del DER in esadecimale minuscolo. Assente se l'https non e' partito: l'http sulla 7790 resta sempre. Registro: gli ultimi 30 della barra di Melissa. Lavori: i primi 40 di `snapshot.work`.
-- `GET /v1/eventi` -> `text/event-stream`: subito una riga `data: <stato>`, poi una a ogni cambio di Melissa o dei
-  lavori (al massimo tre al secondo), `: ping` ogni 25 s.
+  del DER in esadecimale minuscolo. I QR nuovi portano `https_porta` e `https_impronta` per iniziare gia' con il pin.
+  I collegamenti precedenti recuperano l'impronta con una lettura HTTPS di `/v1/stato` sull'IP Tailscale: la risposta
+  autenticata deve dichiarare la stessa impronta vista nel certificato. Su IP Tailscale l'app non ripiega su HTTP,
+  che App Transport Security blocca. `risposta` e' il testo che Melissa sta generando sul Mac: viene inviato
+  nello SSE durante lo stream e sparisce quando entra nel registro finale. La vista iPhone conserva l'ultimo
+  registro Mac ricevuto anche quando gli eventi si interrompono. Registro: gli ultimi 30 della barra di Melissa.
+  Lavori: i primi 40 di `snapshot.work`.
+- `GET /v1/eventi` -> `text/event-stream`: subito una riga `data: <stato>`, poi una a ogni cambio di Melissa,
+  lavori o attivita' osservate (al massimo tre al secondo), `: ping` ogni 25 s.
 - `POST /v1/chiedi {testo, conferma?}` -> `{risposta, stato}`. Con `conferma` (il numero arrivato nella notifica
   CONFERMA) passa solo se e' ancora la domanda aperta (`Assistant.pendingConfirmation()`), altrimenti 409. `Assistant.askRemote`: stesso cervello, stessa storia e stessi
   strumenti della barra, con `speak` falso (il Mac sta zitto). Conferme a rischio (push) come sul Mac: il turno dopo
@@ -1416,7 +1446,8 @@ iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
   sono ricordati in `~/.bottega/telefono-turni-importati.json` (600), per non duplicare un turno dopo un retry.
 - Errori: `{errore}` in italiano, da mostrare cosi' com'e'.
 - Comando «Collega l'iPhone» (`bottega.ponte.collega`): pagina con il QR (dal Nucleo) di
-  `bottega://collega?host=<nome MagicDNS>&ip=<100.x>&porta=7790&token=<gettone>` e il pulsante per copiarlo.
+  `bottega://collega?host=<nome MagicDNS>&ip=<100.x>&porta=7790&token=<gettone>&https_porta=7791&https_impronta=<sha256>`
+  e il pulsante per copiarlo. I due campi HTTPS mancano solo se il server TLS non e' partito.
 
 ### 9.2 Il Nucleo (`nucleo/Sources/Ponte/PonteComandi.swift`)
 
@@ -1426,9 +1457,11 @@ iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
 - `ponte.qr {testo}` -> `{png}`: QR in base64 (CoreImage, correzione M, 12 px per modulo).
 - `ponte.flusso.apri {id}` -> `{ok}`, `ponte.flusso.testo {id, testo}`, `ponte.flusso.fine {id}`,
   `ponte.flusso.ferma {id}`: lo stesso socket ElevenLabs di Melissa (`eleven_v4_turbo`, la voce di Avo, text-to-dialogue
-  stream-input), ogni frase mandata e svuotata subito come in `Speaker.swift`. Eventi `ponte.audio {id, pcm}`,
-  `ponte.audio.fine {id}` (dopo l'ultima frase), `ponte.audio.errore {id, errore}` (anche dopo 8 s senza audio). Un
-  turno alla volta; il socket resta caldo 90 s dopo l'ultima frase.
+  stream-input), ogni frase mandata e svuotata subito. `fine` invia `close_socket`: `is_final_audio_for_turn`
+  chiude un turno, non ogni `flush`, mentre `is_final` conferma che l'ultimo PCM e' uscito. Eventi
+  `ponte.audio {id, pcm}`, `ponte.audio.fine {id}` (dopo `is_final`), `ponte.audio.errore {id, errore}`.
+  Se il socket cade prima del primo PCM, il Nucleo riprova con la stessa voce di Melissa su HTTPS REST
+  (`eleven_multilingual_v2`) dopo che il testo della risposta e' completo. Un turno alla volta.
 
 ### 9.3 L'app (`ios/`)
 
@@ -1440,19 +1473,20 @@ iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
   chiamano (`MetalEngine`, `Log`, `Out`, `Nucleo.bundle`, `OrbPanel`). Chi cambia l'interfaccia di quei tre file
   compila anche l'app.
 - Ascolto sull'iPhone come sul Mac: `SFSpeechRecognizer` it-IT, frase chiusa dopo 1,8 s senza parole nuove, otto
-  secondi senza parole chiudono la conversazione; «basta», «a dopo», «chiudi» la chiudono a voce. Risposta da
-  `/v1/parla`: ogni pezzo di audio va in coda su un `AVAudioPlayerNode` appena arriva (`FlussoVoce.swift`), la sfera
-  si muove con il suono vero (tap sul mixer, `AudioLevels`). Un tocco sulla sfera mentre parla chiude la connessione
-  e la risposta si ferma anche sul Mac. Senza audio dal Mac: la voce italiana di iOS con il testo intero. Gettone nel portachiavi (`AfterFirstUnlockThisDeviceOnly`),
-  nome e porta nelle preferenze.
-- Rete: prima il nome MagicDNS (eccezione ATS per `ts.net`, HTTP dentro Tailscale), se non si risolve l'indirizzo
-  100.x (che pero' ATS blocca in http: provato nella build 70). Dalla build 71 in https quando lo stato ha portato
-  `https`: col nome in http iOS passava prima dal relay privato di iCloud (502) e solo dopo dal tunnel, da 0,7 a
-  5,7 s in piu' a richiesta, e i widget scadevano; il traffico cifrato il relay non lo tocca. Il certificato si
-  accetta solo con l'impronta annunciata (`FiduciaPonte`). Qualunque errore dell'https prima che la richiesta
-  arrivi (connessione, certificato, impronta; per le GET anche tempo scaduto e linea caduta) fa tornare subito
-  all'http e rifare la richiesta, e per due minuti quel processo resta in http (`Collegamento.ripiegaSuHttp`).
-  Porta e impronta stanno nelle preferenze condivise (`ponteHttps`), le aggiorna ogni stato; un nuovo QR le toglie. Eventi ripresi da soli con attesa crescente fino a 30 s, fermi con l'app dietro.
+  secondi senza parole chiudono la conversazione; «basta», «a dopo», «chiudi» la chiudono a voce. Melissa sull'iPhone
+  chiama direttamente Agnes o DeepSeek e il WebSocket ElevenLabs anche quando il Mac e' collegato. Ogni pezzo PCM
+  va in coda su un `AVAudioPlayerNode` appena arriva (`FlussoVoce.swift`), la sfera si muove con il suono vero
+  (tap sul mixer, `AudioLevels`). Un tocco sulla sfera interrompe subito modello e riproduzione. I turni locali
+  vengono sincronizzati con la storia del Mac quando il ponte e' disponibile. Il ponte conserva `/v1/parla` per
+  compatibilita' e altre viste, ma non e' il percorso della conversazione iOS. Gettone nel portachiavi
+  (`AfterFirstUnlockThisDeviceOnly`), nome e porta nelle preferenze.
+- Rete: HTTPS su Tailscale. Un QR nuovo fornisce subito porta e impronta del certificato; per un abbinamento
+  precedente l'app legge una volta `/v1/stato` via HTTPS sull'IP 100.64.0.0/10, poi confronta l'impronta del
+  certificato ricevuto con quella dichiarata nella risposta autenticata. Il traffico ordinario usa solo il pin
+  (`FiduciaPonte`), salvato nelle preferenze condivise (`ponteHttps`) anche per i widget. Se l'impronta cambia,
+  l'app ripete quella verifica; non ripiega su HTTP verso l'IP, che iOS blocca con ATS. Il vecchio percorso HTTP
+  resta solo per un Mac privo di HTTPS e un nome MagicDNS `.ts.net` raggiungibile. Gli eventi ripartono da soli
+  con attesa crescente fino a 30 s e si fermano con l'app dietro.
   Un 401 ferma gli eventi (niente tentativi che farebbero bloccare l'indirizzo): si riparte con un nuovo QR o al
   ritorno davanti dell'app. `/v1/parla` tollera 180 s senza dati (strumenti lenti), le altre richieste 90 s.
 - Audio: si guarda sempre `motore.isRunning` (Siri, chiamate e cuffie fermano il motore: suonare su un motore fermo
@@ -1866,7 +1900,7 @@ rete di casa dicono al Mac dov'e' l'iPhone, non portano dati.
 - Avvisi (9.4): con `vicino` = usb l'iPhone sta sulla scrivania e si fa come con Andrea al Mac: niente ATTESA,
   FINITO, REGOLA (si considerano viste), la CONFERMA aspetta. Casa non cambia niente: in casa ma lontano dalla
   tastiera le notifiche servono. Live Activity e widget restano come sono.
-- App: «Collegato col cavo» / «Collegato in casa» nella riga sotto il nome del Mac. Col cavo, l'app davanti e il
+- App: «Vicino via cavo, ponte Tailscale» / «Collegato in casa» nella riga sotto il nome del Mac. Col cavo, l'app davanti e il
   ponte collegato lo schermo resta acceso (`isIdleTimerDisabled`), e torna normale appena una delle tre cose manca.
 - Voce: risponde il dispositivo a cui hai parlato, vicino o lontano (scelta di Andrea del 3/10/2026). Il cavo non
   sposta la voce.
@@ -1880,23 +1914,25 @@ rete di casa dicono al Mac dov'e' l'iPhone, non portano dati.
   Dalle Impostazioni si puo' ripetere l'importazione dopo il cambio di una chiave. Il portachiavi usa
   `AfterFirstUnlockThisDeviceOnly`, gruppo della sola app, senza backup su altri dispositivi. Scollegare l'iPhone
   cancella chiavi e storia locale; collegarlo a un altro Mac le cancella prima dell'importazione nuova.
-- Con `linea == collegato` resta il percorso del Mac (`/v1/chiedi`, `/v1/parla`) con tutti gli strumenti. Altrimenti
-  `AssistenteTelefono` chiama direttamente Agnes (`agnes-3.0-flash`) o DeepSeek (`deepseek-flash`, oppure
-  `deepseek-v4-pro` con impegno profondo) via Chat Completions SSE. Il prompt viene dal Mac e include la regola che
-  i dati dei progetti e delle sessioni non sono attuali senza il ponte. La storia privata sull'iPhone contiene al
+- Quando una chiave LLM e' importata, `AssistenteTelefono` chiama direttamente Agnes (`agnes-3.0-flash`) o DeepSeek
+  (`deepseek-flash`, oppure `deepseek-v4-pro` con impegno profondo) via Chat Completions SSE anche con il Mac
+  collegato. Il Mac invia a `/v1/stato` il registro delle attivita' osservate; l'app passa al modello diretto uno
+  snapshot breve con fonte, stato, progetto, titolo, riassunto e ora, trattato come dati non come istruzioni. Senza
+  snapshot aggiornato Melissa non dichiara di vedere lo stato live. La storia privata sull'iPhone contiene al
   massimo 80 turni e conserva 16 turni nel contesto del modello. Non si inviano strumenti del Mac.
 - Con la voce accesa, `VoceTelefono` apre direttamente il WebSocket ElevenLabs Text to Dialogue con
   `eleven_v4_turbo`, la stessa `voiceID` e `pcm_24000` del Nucleo. Le frasi arrivano a `FlussoVoce` mentre il modello
-  scrive; un tocco cancella la richiesta e il socket. Se ElevenLabs non manda audio, l'app mostra un errore chiaro;
+  scrive; `is_final_audio_for_turn` chiude il turno audio dopo `close_socket`, anche se la chiusura finale del
+  WebSocket arriva dopo. Un tocco cancella la richiesta e il socket. Se ElevenLabs non manda audio, l'app mostra un errore chiaro;
   non sostituisce silenziosamente la voce di Melissa nella modalita' autonoma.
 - «Racconta» nelle Stanze e nella scheda di una sessione legge la copia dei dati gia' visibili, con i filtri attivi
-  sull'iPhone. L'analisi parte da `deepseek-v4-pro` con impegno alto; se DeepSeek non risponde prima del testo,
+  sull'iPhone. La narrazione a voce parte da `deepseek-flash` senza ragionamento lungo; se DeepSeek non risponde prima del testo,
   prova Agnes. Le frasi SSE vanno subito a ElevenLabs e il PCM alla sfera, con il testo visibile durante il racconto.
   Un secondo tocco ferma la richiesta e l'audio. Il racconto non entra nella storia della conversazione.
-- I turni offline hanno UUID e sono salvati in Application Support con protezione dati. Quando il Mac torna, l'app
-  manda al massimo 24 turni per volta a `/v1/assistente/storia`, poi li segna sincronizzati. Una scelta locale di
-  cervello o impegno fatta offline viene applicata al Mac come scelta «sempre». Siri usa lo stesso percorso di testo
-  quando il ponte e' giu'; la voce letta da Siri segue il sistema, mentre nell'app la voce e' ElevenLabs.
+- I turni locali hanno UUID e sono salvati in Application Support con protezione dati. Con il Mac collegato, l'app
+  li sincronizza subito in blocchi di sei a `/v1/assistente/storia`; se manca la rete li invia al ritorno della
+  connessione. Una scelta locale di cervello o impegno viene applicata al Mac come scelta «sempre». Siri usa lo
+  stesso percorso diretto per il testo; la voce letta da Siri segue il sistema, mentre nell'app e' ElevenLabs.
 
 ## 10. Gli aggiornamenti: VS Code solo quando serve, Claude Code sempre
 

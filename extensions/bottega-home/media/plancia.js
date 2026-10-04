@@ -33,6 +33,7 @@
 		filter: saved.filter || 'tutti',
 		query: saved.query || '',
 		open: new Set(saved.open || []),
+		activityExpanded: { home: !!(saved.activityExpanded && saved.activityExpanded.home), lavori: !!(saved.activityExpanded && saved.activityExpanded.lavori) },
 		draft: {
 			path: (saved.draft && saved.draft.path) || '',
 			task: (saved.draft && saved.draft.task) || '',
@@ -92,6 +93,7 @@
 			filter: state.filter,
 			query: state.query,
 			open: [...state.open],
+			activityExpanded: state.activityExpanded,
 			draft: state.draft,
 			mem: { query: state.mem.query, project: state.mem.project, mode: state.mem.mode },
 			ric: { query: state.ric.query },
@@ -267,6 +269,65 @@
 	const assistant = () => state.assistant || (state.snapshot && state.snapshot.assistant) || null;
 	/** Un campo della sezione 4 dello snapshot; undefined se l'estensione e' vecchia. */
 	const snap = k => (state.snapshot ? state.snapshot[k] : undefined);
+	const ACTIVITY_SOURCE = { claude: 'Claude Code', cline: 'Cline', codex: 'Codex', terminale: 'Terminale' };
+	const ACTIVITY_STATUS = { 'ti aspetta': 'Ti aspetta', 'in corso': 'In corso', finito: 'Finito', errore: 'Errore', sconosciuto: 'Stato da verificare' };
+	const ACTIVITY_ORDER = { 'ti aspetta': 0, errore: 1, 'in corso': 2, sconosciuto: 3, finito: 4 };
+
+	/** L'osservatorio usa un campo facoltativo: i vecchi snapshot mantengono la plancia di prima. */
+	function activityList() {
+		const list = snap('activity');
+		if (!Array.isArray(list)) return null;
+		return list.filter(a => a && Object.hasOwn(ACTIVITY_SOURCE, a.source))
+			.slice().sort((a, b) => (ACTIVITY_ORDER[a.status] ?? 5) - (ACTIVITY_ORDER[b.status] ?? 5) || (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0));
+	}
+
+	function activitySummary(list) {
+		const count = status => list.filter(a => a.status === status).length;
+		const present = ['claude', 'cline', 'codex', 'terminale'].filter(source => list.some(a => a.source === source));
+		const pieces = [
+			count('ti aspetta') ? `${count('ti aspetta')} ${count('ti aspetta') === 1 ? 'ti aspetta' : 'ti aspettano'}` : '',
+			count('in corso') ? `${count('in corso')} in corso` : '',
+			count('errore') ? `${count('errore')} ${count('errore') === 1 ? 'errore' : 'errori'}` : '',
+			count('finito') ? `${count('finito')} ${count('finito') === 1 ? 'finita' : 'finite'}` : '',
+			count('sconosciuto') ? `${count('sconosciuto')} da verificare` : '',
+		];
+		return `${list.length} ${list.length === 1 ? 'sessione osservata' : 'sessioni osservate'}${pieces.some(Boolean) ? ': ' + pieces.filter(Boolean).join(', ') : ''}. ${present.map(source => ACTIVITY_SOURCE[source]).join(', ')}.`;
+	}
+
+	function activityHTML(a, detailed) {
+		const source = ACTIVITY_SOURCE[a.source];
+		const status = Object.hasOwn(ACTIVITY_STATUS, a.status) ? a.status : 'sconosciuto';
+		const title = String(a.title || a.summary || 'Sessione senza titolo');
+		const updated = Number(a.updatedAt);
+		const age = Number.isFinite(updated) && updated > 0 ? `Ultimo segnale ${ago(updated)}` : 'Ora non disponibile';
+		const steps = detailed && Array.isArray(a.steps) ? a.steps.filter(x => typeof x === 'string' && x.trim()).slice(-3) : [];
+		return `<li class="attivita-riga fonte-${a.source} stato-${status.replace(' ', '-')}">
+			<div class="attivita-riga-testa"><span class="attivita-fonte">${source}</span><span class="attivita-stato"><i aria-hidden="true"></i>${ACTIVITY_STATUS[status]}</span><span class="attivita-ora">${esc(age)}</span></div>
+			<div class="attivita-riga-corpo"><div><b class="attivita-progetto">${esc(a.project || 'Senza progetto')}</b><p class="attivita-titolo">${esc(title)}</p>${a.summary && a.summary !== title ? `<p class="attivita-sunto">${esc(a.summary)}</p>` : ''}</div>
+			${a.path ? `<button type="button" class="link" data-act="open" data-path="${esc(a.path)}" data-fk="activity-open:${esc(a.key || a.source + ':' + a.id)}">Apri progetto</button>` : ''}</div>
+			${steps.length ? `<ol class="attivita-passi">${steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
+			${a.evidence ? `<p class="attivita-evidenza">Fonte dello stato: ${esc(a.evidence)}</p>` : ''}
+		</li>`;
+	}
+
+	function renderActivity(place, detailed) {
+		const section = $('attivita-' + place);
+		const list = activityList();
+		section.hidden = list === null;
+		if (list === null) return;
+		$('attivita-' + place + '-sunto').textContent = list.length ? activitySummary(list) : 'Nessuna sessione osservata al momento.';
+		$('attivita-' + place + '-vuoto').hidden = list.length > 0;
+		// Le sessioni che richiedono attenzione sono sempre visibili. Delle finite mostriamo
+		// le dodici piu' recenti, finche' Andrea non sceglie di vedere l'intero registro.
+		const recent = list.filter(a => a.status === 'finito');
+		const expandable = recent.length > 12;
+		const shown = state.activityExpanded[place] || !expandable ? list : list.filter(a => a.status !== 'finito').concat(recent.slice(0, 12));
+		sync($('attivita-' + place + '-lista'), shown, a => a.key || a.source + ':' + a.id, a => activityHTML(a, detailed));
+		const toggle = $('attivita-' + place + '-toggle');
+		toggle.hidden = !expandable;
+		toggle.textContent = state.activityExpanded[place] ? 'Mostra meno' : `Mostra tutte le ${list.length} sessioni`;
+		toggle.setAttribute('aria-expanded', String(state.activityExpanded[place]));
+	}
 	const rulesOf = path => {
 		const r = snap('rules');
 		return (r && r.projects && r.projects[path]) || null;
@@ -353,6 +414,12 @@
 			<h1 class="sentence" id="frase"></h1>
 			<ul class="lamps" id="lampade" aria-label="Sessioni Claude aperte adesso"></ul>
 			<p class="quiet" id="lampade-vuote" hidden>Nessuna sessione Claude Code aperta in questo momento.</p>
+			<section class="attivita" id="attivita-home" aria-labelledby="attivita-home-titolo" hidden>
+				<div class="attivita-intro"><h2 id="attivita-home-titolo">Le sessioni osservate</h2><p id="attivita-home-sunto"></p></div>
+				<ul class="attivita-lista" id="attivita-home-lista"></ul>
+				<button type="button" class="act attivita-toggle" id="attivita-home-toggle" data-act="activity-toggle" data-place="home" data-fk="activity-toggle:home" aria-controls="attivita-home-lista" aria-expanded="false" hidden></button>
+				<p class="attivita-vuoto" id="attivita-home-vuoto" hidden>Quando Claude Code, Cline, Codex o un terminale iniziano a lavorare, li trovi qui.</p>
+			</section>
 			<div class="mattino" id="mattino">
 				<section class="alba" id="briefing" aria-labelledby="briefing-titolo" hidden></section>
 				<section class="consigli" id="consigli" aria-labelledby="consigli-titolo" hidden></section>
@@ -379,6 +446,12 @@
 
 	<section class="vista" id="vista-lavori" role="tabpanel" aria-labelledby="tab-lavori" hidden>
 		<h1 class="sentence media" id="frase-lavori"></h1>
+		<section class="attivita attivita-lavori" id="attivita-lavori" aria-labelledby="attivita-lavori-titolo" hidden>
+			<div class="attivita-intro"><h2 id="attivita-lavori-titolo">Sessioni in tutti gli strumenti</h2><p id="attivita-lavori-sunto"></p></div>
+			<ul class="attivita-lista" id="attivita-lavori-lista"></ul>
+			<button type="button" class="act attivita-toggle" id="attivita-lavori-toggle" data-act="activity-toggle" data-place="lavori" data-fk="activity-toggle:lavori" aria-controls="attivita-lavori-lista" aria-expanded="false" hidden></button>
+			<p class="attivita-vuoto" id="attivita-lavori-vuoto" hidden>Nessuna attività rilevata. Le sessioni compaiono qui quando iniziano a lavorare.</p>
+		</section>
 		<div class="lavori">
 			<section class="gruppo aspettano" id="g-aspetta" aria-labelledby="g-aspetta-titolo" hidden>
 				<h2 id="g-aspetta-titolo">Ti aspettano</h2>
@@ -814,11 +887,27 @@
 		const toPush = s.projects.filter(p => p.git && p.git.ahead > 0).length;
 		const noRemote = s.projects.filter(p => p.git && !p.git.upstream).length;
 		const dirty = s.projects.filter(p => p.git && p.git.changes > 0).length;
-		const w = waitingPhrase(workList().filter(x => x.status === 'ti aspetta'), c.tiAspetta || 0);
-		let out = w ? w + ' ' : '';
-		out += busy === 0 ? 'Nessun Claude al lavoro' : `${n(busy, true)} Claude al lavoro`;
-		if (term) out += `, ${term === 1 ? '<span class="n">uno</span>' : n(term)} nel terminale`;
-		out += '.';
+		const activity = activityList();
+		let out;
+		if (activity !== null) {
+			const perSource = ['claude', 'cline', 'codex', 'terminale'].map(source => {
+				const entries = activity.filter(a => a.source === source);
+				if (!entries.length) return '';
+				const counts = ['ti aspetta', 'in corso', 'errore', 'finito', 'sconosciuto']
+					.map(status => {
+						const count = entries.filter(a => a.status === status).length;
+						return count ? `${count} ${status === 'sconosciuto' ? 'da verificare' : status}` : '';
+					}).filter(Boolean);
+				return `${ACTIVITY_SOURCE[source]}: ${counts.join(', ')}`;
+			}).filter(Boolean);
+			out = perSource.length ? perSource.map(x => `${esc(x)}.`).join(' ') : 'Nessuna sessione osservata.';
+		} else {
+			const w = waitingPhrase(workList().filter(x => x.status === 'ti aspetta'), c.tiAspetta || 0);
+			out = w ? w + ' ' : '';
+			out += busy === 0 ? 'Nessun Claude al lavoro' : `${n(busy, true)} Claude al lavoro`;
+			if (term) out += `, ${term === 1 ? '<span class="n">uno</span>' : n(term)} nel terminale`;
+			out += '.';
+		}
 		if (toPush) out += toPush === 1 ? ` ${n(1, true)} progetto aspetta un push.` : ` ${n(toPush, true)} progetti aspettano un push.`;
 		if (noRemote) out += noRemote === 1 ? ` ${n(1, true)} progetto non ha un remoto.` : ` ${n(noRemote, true)} progetti non hanno un remoto.`;
 		if (!toPush && !noRemote) out += ' Tutto spinto.';
@@ -1165,10 +1254,12 @@
 			}
 			cells.push(cifra('regole', 'vedetta', 'Regole', esc(big), esc(small), tone));
 		}
-		// stessi numeri della frase, della scheda Lavori e della stanza: tutti da workCounts
+		// La cifra Lavori usa lo stesso registro multi-fonte della frase e della lista.
 		if (s && ('workCounts' in s || 'night' in s || workList().length)) {
 			const c = workCounts();
-			const run = c.inCorso || 0, wait = c.tiAspetta || 0;
+			const activity = activityList();
+			const run = activity === null ? (c.inCorso || 0) : activity.filter(a => a.status === 'in corso').length;
+			const wait = activity === null ? (c.tiAspetta || 0) : activity.filter(a => a.status === 'ti aspetta').length;
 			const small = [
 				wait ? `${wait} ${wait === 1 ? 'ti aspetta' : 'ti aspettano'}` : '',
 				c.nelTerminale ? `${c.nelTerminale} nel terminale` : '',
@@ -1208,9 +1299,11 @@
 		$('plancia-corpo').hidden = !ready;
 		if (!ready) return;
 		setHTML($('frase'), sentence(s));
-		$('lampade-vuote').hidden = s.live.length > 0;
+		$('frase').classList.toggle('con-attivita', activityList() !== null);
+		$('lampade-vuote').hidden = s.live.length > 0 || activityList() !== null;
 		$('lampade').hidden = !s.live.length;
 		sync($('lampade'), s.live, l => l.pid, l => lampHTML(s, l));
+		renderActivity('home', false);
 		renderBriefing();
 		renderConsigli();
 		const b = s.briefing;
@@ -1383,7 +1476,10 @@
 		by.fermato.sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0));
 		const done = by.finito.length + by.fermato.length;
 
-		setHTML($('frase-lavori'), lavoriSentence(c, by['ti aspetta'], done));
+		const activity = activityList();
+		setHTML($('frase-lavori'), activity !== null ? esc(activity.length ? activitySummary(activity) : 'Nessuna sessione osservata al momento.') : lavoriSentence(c, by['ti aspetta'], done));
+		$('frase-lavori').classList.toggle('con-attivita', activity !== null);
+		renderActivity('lavori', true);
 		for (const [status, key, one, many] of GROUPS) {
 			const closed = status === 'finito' || status === 'fermato';
 			const list = closed ? by[status].slice(0, 12) : by[status];
@@ -1392,7 +1488,7 @@
 			if (closed) sync($('l-' + key), list, j => j.id, jobHTML);
 			else sync($('l-' + key), list, w => w.key, workHTML);
 		}
-		$('lavori-vuoto').hidden = work.length + done > 0;
+		$('lavori-vuoto').hidden = work.length + done + (activity?.length || 0) > 0;
 		renderNotte(by.stanotte);
 
 		const lim = limitFor(s || {});
@@ -2679,6 +2775,13 @@
 		const p = b.getAttribute('data-path') || '';
 		const id = b.getAttribute('data-id') || '';
 		switch (act) {
+			case 'activity-toggle': {
+				const place = b.getAttribute('data-place');
+				if (place !== 'home' && place !== 'lavori') return;
+				state.activityExpanded[place] = !state.activityExpanded[place];
+				persist();
+				return renderActivity(place, place === 'lavori');
+			}
 			case 'toggle': {
 				state.open.has(p) ? state.open.delete(p) : state.open.add(p);
 				persist();

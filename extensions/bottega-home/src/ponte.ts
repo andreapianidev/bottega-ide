@@ -37,6 +37,8 @@ export interface PonteMelissa {
 	/** il cervello scelto adesso, per il nome sotto la sfera (9.8); assente con una Bottega senza cervelli */
 	scelta?: PonteScelta;
 	parziale?: string;
+	/** Testo di Melissa in generazione, prima della riga finale nel registro. */
+	risposta?: string;
 	registro: { chi: 'tu' | 'melissa' | 'azione'; testo: string; alle: number }[];
 }
 
@@ -70,12 +72,25 @@ export interface RotteCervelli {
 
 export interface PonteLavoro {
 	chiave: string;
+	/** Collega il lavoro Claude alla stessa riga del registro attività. */
+	activityKey?: string;
 	origine: 'bottega' | 'altrove';
 	stato: string;
 	progetto: string;
 	titolo: string;
 	da: number;
 	jobId?: string;
+}
+
+/** Registro osservato sul Mac, condiviso con Melissa e la Home dell'iPhone. */
+export interface PonteAttivita {
+	key: string;
+	source: 'claude' | 'cline' | 'codex' | 'terminale';
+	project: string;
+	status: 'in corso' | 'ti aspetta' | 'finito' | 'errore' | 'sconosciuto';
+	title: string;
+	summary?: string;
+	updatedAt: number;
 }
 
 /** Dov'e' l'iPhone rispetto al Mac (docs/CONTRATTI.md, 9.9). */
@@ -90,6 +105,8 @@ export interface PonteStato {
 	https?: { porta: number; impronta: string };
 	melissa: PonteMelissa;
 	lavori: PonteLavoro[];
+	/** Assente nei Mac precedenti; quando presente comprende anche Codex, Cline e terminali integrati. */
+	attivita?: PonteAttivita[];
 	conti: { inCorso: number; tiAspetta: number; inCoda: number; vive: number };
 }
 
@@ -304,7 +321,8 @@ export class Ponte {
 		const attivo = !!this.server && !!this.rete;
 		const out: PonteInfo = { attivo, porta: this.porta, ip: this.rete?.ip, nome: this.rete?.nome, errore: this.errore };
 		if (this.rete) {
-			const q = new URLSearchParams({ host: this.rete.nome, ip: this.rete.ip, porta: String(this.porta), token: this.token });
+			const q = new URLSearchParams({ host: this.rete.nome, ip: this.rete.ip, porta: String(this.porta), token: this.token,
+				...(this.sicuro ? { https_porta: String(this.porta + 1), https_impronta: this.sicuro.impronta } : {}) });
 			out.collegamento = `bottega://collega?${q.toString()}`;
 		}
 		return out;

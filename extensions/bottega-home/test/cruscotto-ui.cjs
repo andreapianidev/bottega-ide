@@ -397,6 +397,38 @@ const finale = (t, k) => t.$(`.cifra[data-k="${k}"] dd > .sr`).textContent;
 		assert.deepStrictEqual(t.errori, []);
 	});
 
+	await test('attivita multi-fonte: grafico degli aggiornamenti, stati osservati e ore Claude separate', () => {
+		const t = ambiente({ ridotto: true });
+		t.api.show();
+		const s = fintiStats();
+		const dates = s.days.map(d => d.date);
+		s.observedActivity = {
+			sources: [
+			{ source: 'claude', total: 3, inCorso: 1, tiAspetta: 0, finito: 2, errore: 0, sconosciuto: 0 },
+			{ source: 'cline', total: 2, inCorso: 0, tiAspetta: 0, finito: 0, errore: 2, sconosciuto: 0 },
+			{ source: 'codex', total: 4, inCorso: 2, tiAspetta: 1, finito: 1, errore: 0, sconosciuto: 0 },
+			{ source: 'terminale', total: 1, inCorso: 1, tiAspetta: 0, finito: 0, errore: 0, sconosciuto: 0 },
+			],
+			days: dates.map((date, i) => ({ date, claude: i === 89 ? 1 : 0, cline: i === 88 ? 2 : 0, codex: i === 89 ? 3 : 0, terminale: i === 89 ? 1 : 0 })),
+		};
+		t.api.setStats(s);
+		assert.ok(!t.$('#crus-attivita').hidden);
+		assert.strictEqual(t.root.querySelectorAll('.attivita-fonte').length, 4);
+		assert.match(t.$('#attivita-fonti').textContent, /Codex.*3.*aggiornate nel periodo.*3 aperte/s);
+		assert.strictEqual(t.root.querySelectorAll('#attivita-grafico .attivita-barra').length, 4);
+		assert.match(t.$('#attivita-nota').textContent, /ore, i token e i costi.*solo per Claude Code/);
+		t.click(t.$('[data-c="tabella"][data-id="attivita"]'));
+		assert.strictEqual(t.root.querySelectorAll('#attivita-tabella tbody tr').length, 30);
+		assert.deepStrictEqual(t.errori, []);
+	});
+
+	await test('vecchi Stats senza registro: la sezione multi-fonte resta nascosta', () => {
+		const t = ambiente({ ridotto: true });
+		t.api.show();
+		t.api.setStats(fintiStats());
+		assert.ok(t.$('#crus-attivita').hidden);
+	});
+
 	await test('senza WebGPU e senza tela 2D: motore SVG, luci dell\'SVG al loro posto, nessun errore', async () => {
 		const t = ambiente({ ridotto: true, tela: false });
 		t.api.show();

@@ -883,6 +883,79 @@ test('worktree dentro il loro progetto: «+ ramo idee» nella riga, una riga nel
 
 // ---------- robustezza ----------
 
+test('Home e Lavori mostrano tutte le fonti osservate, gli stati e la provenienza senza interpretare HTML', () => {
+	const t = boot();
+	const activity = [
+		{ key: 'claude:c1', source: 'claude', id: 'c1', project: 'Faro', path: P('Faro'), title: 'Rivede il menu', status: 'finito', updatedAt: NOW - H, summary: 'Menu rivisto', steps: ['Ha aperto il file'], evidence: 'trascrizione locale' },
+		{ key: 'cline:l1', source: 'cline', id: 'l1', project: 'Vela', title: 'Sistema il login', status: 'ti aspetta', updatedAt: NOW - 2 * 60_000, evidence: 'task locale' },
+		{ key: 'codex:x1', source: 'codex', id: 'x1', project: 'Gabbiano', title: '<img src=x onerror=alert(1)>', status: 'in corso', updatedAt: NOW - 60_000, summary: 'Esegue i test', steps: ['test <script>alert(1)</script>'], evidence: 'hook Codex' },
+		{ key: 'terminale:t1', source: 'terminale', id: 't1', project: 'Scoglio', title: 'npm run build', status: 'errore', updatedAt: NOW - 3 * 60_000, evidence: 'shell integration' },
+	];
+	t.send({ type: 'snapshot', snapshot: snapshot({ activity }) });
+	assert.strictEqual(t.$$('#attivita-home-lista > li').length, 4);
+	assert.match(t.$('#frase').textContent, /Claude Code: 1 finito/);
+	assert.match(t.$('#frase').textContent, /Cline: 1 ti aspetta/);
+	assert.match(t.$('#frase').textContent, /Codex: 1 in corso/);
+	assert.match(t.$('#frase').textContent, /Terminale: 1 errore/);
+	assert.match(t.$('#attivita-home-sunto').textContent, /4 sessioni osservate/);
+	t.send({ type: 'stats', stats: STATS });
+	assert.deepStrictEqual(t.errors, []);
+	assert.match(t.$('#quadro-cifre').textContent, /Lavori1 in corso1 ti aspetta/);
+	assert.deepStrictEqual(t.$$('#attivita-home-lista .attivita-fonte').map(el => el.textContent), ['Cline', 'Terminale', 'Codex', 'Claude Code']);
+	assert.ok(!t.$('#attivita-home-lista img'));
+	t.click(t.$('#tab-lavori'));
+	assert.strictEqual(t.$$('#attivita-lavori-lista > li').length, 4);
+	assert.match(t.$('#frase-lavori').textContent, /4 sessioni osservate/);
+	assert.strictEqual(t.$('#lavori-vuoto').hidden, true);
+	assert.match(t.$('#attivita-lavori-lista').textContent, /test <script>alert\(1\)<\/script>/);
+	assert.ok(!t.$('#attivita-lavori-lista script'));
+	assert.match(t.$('#attivita-lavori-lista').textContent, /Fonte dello stato: hook Codex/);
+	assert.deepStrictEqual(t.errors, []);
+});
+
+test('il registro compatto tiene tutte le attività urgenti e le ultime dodici finite; espansione stabile tra snapshot', () => {
+	const t = boot();
+	const activity = [
+		...['ti aspetta', 'in corso', 'errore', 'sconosciuto'].map((status, i) => ({ key: `codex:v${i}`, source: 'codex', id: `v${i}`, project: 'Faro', title: `Viva ${i}`, status, updatedAt: NOW - i * 60_000, evidence: 'evento' })),
+		...Array.from({ length: 20 }, (_, i) => ({ key: `claude:f${i}`, source: 'claude', id: `f${i}`, project: 'Vela', title: `Finita ${i}`, status: 'finito', updatedAt: NOW - (i + 1) * H, evidence: 'trascrizione' })),
+	];
+	t.send({ type: 'snapshot', snapshot: snapshot({ activity }) });
+	assert.strictEqual(t.$$('#attivita-home-lista > li').length, 16);
+	assert.match(t.$('#attivita-home-sunto').textContent, /24 sessioni osservate/);
+	assert.match(t.$('#frase').textContent, /Claude Code: 20 finito/);
+	assert.strictEqual(t.$('#attivita-home-toggle').textContent, 'Mostra tutte le 24 sessioni');
+	assert.strictEqual(t.$('#attivita-home-toggle').getAttribute('aria-expanded'), 'false');
+	t.click(t.$('#attivita-home-toggle'));
+	assert.strictEqual(t.$$('#attivita-home-lista > li').length, 24);
+	assert.strictEqual(t.$('#attivita-home-toggle').textContent, 'Mostra meno');
+	assert.strictEqual(t.$('#attivita-home-toggle').getAttribute('aria-expanded'), 'true');
+	assert.strictEqual(t.state().activityExpanded.home, true);
+	t.send({ type: 'snapshot', snapshot: snapshot({ activity: activity.map(a => ({ ...a })) }) });
+	assert.strictEqual(t.$$('#attivita-home-lista > li').length, 24, 'l\'aggiornamento non richiude la lista');
+	t.click(t.$('#attivita-home-toggle'));
+	assert.strictEqual(t.$$('#attivita-home-lista > li').length, 16);
+	t.click(t.$('#tab-lavori'));
+	assert.strictEqual(t.$$('#attivita-lavori-lista > li').length, 16);
+	t.click(t.$('#attivita-lavori-toggle'));
+	assert.strictEqual(t.$$('#attivita-lavori-lista > li').length, 24);
+	assert.strictEqual(t.state().activityExpanded.lavori, true);
+	assert.strictEqual(t.state().activityExpanded.home, false);
+	assert.deepStrictEqual(t.errors, []);
+});
+
+test('campo attività vuoto mostra una spiegazione; snapshot vecchio mantiene il riepilogo precedente', () => {
+	const t = boot();
+	t.send({ type: 'snapshot', snapshot: snapshot({ activity: [] }) });
+	assert.strictEqual(t.$('#attivita-home').hidden, false);
+	assert.strictEqual(t.$('#attivita-home-vuoto').hidden, false);
+	assert.match(t.$('#frase').textContent, /Nessuna sessione osservata/);
+	t.send({ type: 'snapshot', snapshot: oldSnapshot() });
+	assert.strictEqual(t.$('#attivita-home').hidden, true);
+	assert.match(t.$('#frase').textContent, /Nessun Claude al lavoro/);
+	t.click(t.$('#tab-lavori'));
+	assert.strictEqual(t.$('#attivita-lavori').hidden, true);
+});
+
 test('snapshot vecchio, senza i campi nuovi: la plancia di prima, senza errori', () => {
 	const t = boot();
 	t.send({ type: 'snapshot', snapshot: oldSnapshot() });

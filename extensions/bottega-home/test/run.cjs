@@ -708,6 +708,42 @@ function makeAssistant(over = {}) {
 		assert.strictEqual(asst.echoScore('ok', 'ok va bene'), 0);
 	});
 
+	await test('la trascrizione parziale rinnova i 60 s di inattività mentre Andrea parla', () => {
+		const { a, nucleo } = makeAssistant();
+		const originalSet = global.setTimeout;
+		const originalClear = global.clearTimeout;
+		const armed = [], cleared = [];
+		try {
+			global.setTimeout = (fn, ms, ...args) => {
+				if (ms === 60_000) {
+					const token = 100_000 + armed.length;
+					armed.push({ token, fn });
+					return token;
+				}
+				return originalSet(fn, ms, ...args);
+			};
+			global.clearTimeout = token => {
+				if (typeof token === 'number' && token >= 100_000) cleared.push(token);
+				else originalClear(token);
+			};
+			a.wire({ subscriptions: [] });
+			a.toggleConversation();
+			assert.strictEqual(armed.length, 1, 'il timer iniziale parte');
+			nucleo.fire('voice.partial', { text: 'Sto spiegando', mode: 'converse' });
+			assert.strictEqual(armed.length, 2, 'una frase in corso rinnova il timer');
+			assert.ok(cleared.includes(armed[0].token), 'il timer vecchio viene annullato');
+			nucleo.fire('voice.partial', { text: 'Sto spiegando ancora', mode: 'converse' });
+			assert.strictEqual(armed.length, 3);
+			nucleo.fire('voice.partial', { text: 'push da ignorare', mode: 'push' });
+			assert.strictEqual(armed.length, 3, 'il push non prolunga la conversazione');
+			a.toggleConversation();
+			assert.ok(cleared.includes(armed[2].token), 'la chiusura annulla il timer attuale');
+		} finally {
+			global.setTimeout = originalSet;
+			global.clearTimeout = originalClear;
+		}
+	});
+
 	// ---- i cervelli: Agnes primaria, gli altri solo se scelti, ritorno ad Agnes a ogni problema ----
 	function fakeCervelli(choice, opts = {}) {
 		const rec = { ended: 0, touched: 0, agnes: [] };

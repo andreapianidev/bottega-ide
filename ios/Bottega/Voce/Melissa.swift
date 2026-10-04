@@ -2,8 +2,8 @@
 //  Melissa.swift
 //  Bottega per iPhone
 //
-//  Il giro della conversazione sull'iPhone: col Mac acceso usa il ponte e i suoi strumenti; col Mac spento
-//  Agnes o DeepSeek e ElevenLabs rispondono direttamente sul telefono. In conversazione si
+//  Il giro della conversazione sull'iPhone: se le chiavi sono importate, Agnes o DeepSeek ed ElevenLabs
+//  rispondono direttamente sul telefono anche con il Mac acceso. Il ponte sincronizza la storia. In conversazione si
 //  rimette in ascolto da sola; "basta" o un tocco mentre ascolta senza parole la chiudono. Toccarla mentre
 //  parla la interrompe, come sul Mac.
 //
@@ -148,7 +148,7 @@ final class Melissa {
         sfera = .pensa
         parziale = testo
         do {
-            if ponte.linea != .collegato {
+            if AssistenteTelefono.shared.configurato {
                 try await chiediSulTelefono(testo)
             } else if voceAccesa {
                 try await chiediAVoce(testo)
@@ -180,9 +180,17 @@ final class Melissa {
     }
 
     private func chiediSulTelefono(_ testo: String) async throws {
+        defer {
+            // Anche una risposta interrotta resta nella cronologia locale. La sincronizzazione e' autonoma:
+            // non ritarda la voce e il server deduplica ogni turno tramite UUID.
+            if ponte.linea == .collegato {
+                Task { await AssistenteTelefono.shared.sincronizza(con: ponte) }
+            }
+        }
         if voceAccesa { try flusso.prepara() }
         let task = Task { @MainActor in
-            try await AssistenteTelefono.shared.rispondi(testo, voce: voceAccesa) { pcm in
+            let contesto = ponte.linea == .collegato ? ponte.stato?.contestoMelissa(per: testo) : nil
+            return try await AssistenteTelefono.shared.rispondi(testo, voce: voceAccesa, contestoMac: contesto) { pcm in
                 if self.sfera != .parla { self.sfera = .parla; self.parziale = "" }
                 self.flusso.accoda(pcm)
             }

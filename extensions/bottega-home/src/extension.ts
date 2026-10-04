@@ -10,7 +10,7 @@ import { Nucleo, SystemStats } from './nucleo';
 import { Job, JobManager, computeLimit, limitReason, WorkCounts, WorkItem, workCounts, workItems } from './jobs';
 import { Memoria } from './memoria';
 import { Assistant, AssistantState } from './assistant';
-import { StatsEngine } from './stats';
+import { StatsEngine, summarizeObservedActivity } from './stats';
 import { Idee, IdeeDynamic } from './idee';
 import { handleConnettori, registerConnettori, stanzaConnettori } from './connettori-host';
 import { BarraView } from './barra';
@@ -33,6 +33,11 @@ import type { DaRaccontare } from './assistant';
 import { allarmiAppStore, briefingAppStore, handleAppStore, registerAppStore, STRUMENTI_APPSTORE } from './appstore-host';
 import { registraStrumentiStanze, STRUMENTI_STANZE } from './strumenti-stanze';
 import { buildReport, readClients } from './clienti';
+import type { AgentActivity } from './attivita-tipi';
+import { readCodexActivities } from './attivita-codex';
+import { readClineActivities } from './attivita-cline';
+import { registerTerminalActivity, TerminalActivityMonitor } from './attivita-terminale';
+import { pulisciAttivita, pulisciTesto } from './attivita-sicurezza';
 
 // Melissa usa i connettori di Claude Code in sola lettura (docs/CONTRATTI.md, 5 e 6): prima che nasca l'assistente.
 Object.assign(TOOLS, STRUMENTI_CONNETTORI satisfies typeof TOOLS);
@@ -53,6 +58,8 @@ export interface Snapshot {
 	jobs: Job[];
 	/** Tutto il lavoro in giro: lavori della Bottega e sessioni Claude vive altrove (contratto 4.9). */
 	work: WorkItem[];
+	/** Sessioni osservate da Claude Code, Cline, Codex e dai terminali integrati. */
+	activity: AgentActivity[];
 	workCounts: WorkCounts;
 	jobLimit: number;
 	jobLimitReason: string;
@@ -70,7 +77,8 @@ export interface Snapshot {
 
 const DEFAULT_ASSISTANT: AssistantState = { enabled: true, conversing: false, state: 'idle', log: [], brain: 'agnes' };
 
-let snapshot: Snapshot = { projects: [], live: [], elsewhere: [], scannedAt: 0, home: os.homedir(), jobs: [], work: [], workCounts: workCounts([]), jobLimit: 3, jobLimitReason: 'valori predefiniti', system: null, nucleo: false, assistant: DEFAULT_ASSISTANT };
+let snapshot: Snapshot = { projects: [], live: [], elsewhere: [], scannedAt: 0, home: os.homedir(), jobs: [], work: [], activity: [], workCounts: workCounts([]), jobLimit: 3, jobLimitReason: 'valori predefiniti', system: null, nucleo: false, assistant: DEFAULT_ASSISTANT };
+let lastMenuActivity = '';
 const changed = new vscode.EventEmitter<Snapshot>();
 // Le viste ad albero vogliono un evento senza argomento: con un argomento aggiornerebbero solo quell'elemento.
 const treesChanged = new vscode.EventEmitter<void>();
@@ -100,9 +108,14 @@ let aggiornamenti: Aggiornamenti | undefined;
 let ponte: { notify(): void } | undefined;
 let categorieCache: { at: number; value: CategorieMinuti | null } = { at: 0, value: null };
 let paintStatus: (() => void) | undefined;
+let terminalActivity: TerminalActivityMonitor | undefined;
+let externalActivity: AgentActivity[] = [];
+let externalReading: Promise<void> | undefined;
 /** Il cruscotto si calcola solo dopo che la plancia l'ha chiesto almeno una volta. */
 let statsWanted = false;
 let statsSent = '';
+let statsActivitySignature = '';
+let statsActivityTimer: NodeJS.Timeout | undefined;
 
 function cfg() {
 	return vscode.workspace.getConfiguration('bottega');
@@ -121,7 +134,32 @@ function projectOfLive(projects: Project[], l: LiveSession): Project | undefined
 	return projects.find(p => p.live.some(x => x.pid === l.pid));
 }
 
-function withDynamic(base: Omit<Snapshot, 'jobs' | 'work' | 'workCounts' | 'jobLimit' | 'jobLimitReason' | 'system' | 'nucleo' | 'assistant' | keyof IdeeDynamic>): Snapshot {
+function allActivity(base: Pick<Snapshot, 'projects' | 'elsewhere' | 'live'>, work: WorkItem[]): AgentActivity[] {
+	const claude = work.filter(w => w.sessionId || w.pid).map(w => ({
+		key: `claude:${w.sessionId ?? w.key}`, source: 'claude' as const, id: w.sessionId ?? w.key,
+		project: w.project, path: w.path, title: w.title || 'Sessione Claude Code',
+		status: w.status === 'ti aspetta' ? 'ti aspetta' as const : 'in corso' as const,
+		updatedAt: w.since, evidence: w.source === 'bottega' ? 'Claude Code: lavoro avviato dalla Bottega' : 'Claude Code: registro delle sessioni vive',
+	}));
+	const liveIds = new Set(base.live.map(s => s.sessionId));
+	const cutoff = Date.now() - 45 * 86_400_000;
+	const past = [...base.projects.flatMap(p => p.sessions.map(s => ({ s, project: p.name, path: p.path }))),
+		...base.elsewhere.map(s => ({ s, project: path.basename(s.cwd) || 'home', path: s.cwd }))]
+		.filter(x => x.s.mtime >= cutoff && !liveIds.has(x.s.sessionId))
+		.map(x => ({ key: `claude:${x.s.sessionId}`, source: 'claude' as const, id: x.s.sessionId,
+			project: x.project, path: x.path, title: x.s.title || 'Sessione Claude Code', status: 'finito' as const,
+			updatedAt: x.s.mtime, evidence: 'Claude Code: trascrizione locale, nessun processo vivo nel registro',
+		}));
+	const byKey = new Map<string, AgentActivity>();
+	for (const item of [...past, ...claude, ...externalActivity, ...(terminalActivity?.activities() ?? [])]) {
+		const cleaned = pulisciAttivita(item);
+		const prev = byKey.get(cleaned.key);
+		if (!prev || cleaned.updatedAt >= prev.updatedAt || cleaned.status === 'in corso') byKey.set(cleaned.key, cleaned);
+	}
+	return [...byKey.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function withDynamic(base: Omit<Snapshot, 'jobs' | 'work' | 'activity' | 'workCounts' | 'jobLimit' | 'jobLimitReason' | 'system' | 'nucleo' | 'assistant' | keyof IdeeDynamic>): Snapshot {
 	const setting = cfg().get<string | number>('jobs.maxParallel', 'auto');
 	const stats = nucleo?.lastStats;
 	const jobs = jobManager ? jobManager.list() : snapshot.jobs;
@@ -130,6 +168,7 @@ function withDynamic(base: Omit<Snapshot, 'jobs' | 'work' | 'workCounts' | 'jobL
 		...base,
 		jobs,
 		work,
+		activity: allActivity(base, work),
 		workCounts: workCounts(work),
 		jobLimit: computeLimit(setting, stats),
 		jobLimitReason: limitReason(setting, stats),
@@ -138,6 +177,19 @@ function withDynamic(base: Omit<Snapshot, 'jobs' | 'work' | 'workCounts' | 'jobL
 		assistant: assistant ? assistant.getState() : snapshot.assistant,
 		...(idee ? idee.dynamic() : {}),
 	};
+}
+
+async function updateExternalActivity(): Promise<void> {
+	if (externalReading) return externalReading;
+	externalReading = (async () => {
+		const [codex, cline] = await Promise.allSettled([
+			Promise.resolve().then(() => readCodexActivities()), readClineActivities(),
+		]);
+		externalActivity = [...(codex.status === 'fulfilled' ? codex.value : externalActivity.filter(a => a.source === 'codex')),
+			...(cline.status === 'fulfilled' ? cline.value : externalActivity.filter(a => a.source === 'cline'))];
+		refreshDynamic();
+	})().finally(() => (externalReading = undefined));
+	return externalReading;
 }
 
 async function fullScan(): Promise<void> {
@@ -180,6 +232,21 @@ function liveScan(): void {
 function refreshDynamic(): void {
 	snapshot = withDynamic(snapshot);
 	panelHost?.pushSnapshot(snapshot);
+	const activitySignature = snapshot.activity.map(a => `${a.key}:${a.status}:${a.updatedAt}`).join('|');
+	if (activitySignature !== statsActivitySignature) {
+		statsActivitySignature = activitySignature;
+		if (statsWanted && panelHost?.isVisible) {
+			clearTimeout(statsActivityTimer);
+			statsActivityTimer = setTimeout(() => void sendStats(false), 2_000);
+		}
+	}
+	ponte?.notify();
+	const menuActivity = snapshot.activity.filter(a => a.status === 'in corso' || a.status === 'ti aspetta')
+		.map(a => `${a.key}:${a.status}`).sort().join('|');
+	if (menuActivity !== lastMenuActivity) {
+		lastMenuActivity = menuActivity;
+		idee?.paintMenubar();
+	}
 	paintStatus?.();
 	barraView?.update();
 	announceWaiting();
@@ -235,16 +302,47 @@ function readSession(project: string): string {
 		const p = resolveProject(project);
 		const past = p ? projectFor(p.path)?.sessions?.[0] : undefined;
 		const d = past ? digest(past.sessionId) : undefined;
-		return d ? `Nessuna sessione viva su ${p!.name}; l'ultima:\n${digestText(d, p!.name)}` : `Non trovo sessioni su "${project}".`;
+		return d ? `Nessuna sessione viva su ${p!.name}; l'ultima:\n${safeDigest(digestText(d, p!.name))}` : `Non trovo sessioni su "${project}".`;
 	}
 	return items
 		.slice(0, 3)
 		.map(w => {
 			const d = digest(w.sessionId!);
 			const where = w.source === 'altrove' ? ' (aperta fuori dalla Bottega: sola lettura)' : '';
-			return d ? digestText(d, w.project) + where : `Sessione su ${w.project}: ${w.status}, non trovo la sua trascrizione.`;
+			return d ? safeDigest(digestText(d, w.project)) + where : `Sessione su ${w.project}: ${w.status}, non trovo la sua trascrizione.`;
 		})
 		.join('\n\n');
+}
+
+function safeDigest(raw: string): string {
+	return raw.split('\n').slice(0, 30).map(line => pulisciTesto(line, 500)).filter(Boolean).join('\n').slice(0, 6_000);
+}
+
+function activityList(source?: string, project?: string, status?: string): string {
+	const q = (project ?? '').trim().toLowerCase();
+	const rows = snapshot.activity.filter(a => (!source || a.source === source.toLowerCase()) &&
+		(!q || a.project.toLowerCase().includes(q) || a.path?.toLowerCase().includes(q)) &&
+		(!status || (status === 'attive' ? a.status === 'in corso' || a.status === 'ti aspetta' : a.status === status.toLowerCase())));
+	if (!rows.length) return 'Nessuna attività osservata con questi criteri.';
+	return rows.slice(0, 80).map(a => `${a.key} · ${a.source} · ${a.project} · ${a.status} · ${a.title}`).join('\n') +
+		(rows.length > 80 ? `\nAltre ${rows.length - 80} attività: specifica fonte o progetto.` : '');
+}
+
+function activityDetail(query: string): string {
+	const q = query.trim().toLowerCase();
+	const rows = snapshot.activity.filter(a => a.key.toLowerCase() === q || a.id.toLowerCase() === q ||
+		a.project.toLowerCase().includes(q) || a.title.toLowerCase().includes(q)).slice(0, 3);
+	if (!q || !rows.length) return 'Non trovo questa attività. Usa attivita_elenco per vedere le chiavi disponibili.';
+	return rows.map(a => `${a.key}: ${a.source}, ${a.project}, ${a.status}. ${a.title}. ${a.summary ?? ''}\n` +
+		`Ultimo segnale: ${new Date(a.updatedAt).toLocaleString('it-IT')}. Evidenza: ${a.evidence}.` +
+		(a.steps?.length ? `\nPassi: ${a.steps.join('; ')}` : '')).join('\n\n');
+}
+
+function terminalOutput(key: string): string {
+	const d = terminalActivity?.detail(key);
+	if (!d) return 'Terminale non trovato in questa finestra.';
+	if (!d.captured) return 'La shell integration non ha fornito l’output di questo terminale. Posso mostrarne solo lo stato osservato.';
+	return `${d.activity.title}: ${d.activity.status}. ${d.truncated ? 'Ultime righe disponibili (precedenti omesse).' : 'Righe disponibili.'}\n${d.output || 'Nessuna riga acquisita.'}`;
 }
 
 function showCruscotto(project?: string, period?: number): string {
@@ -445,7 +543,10 @@ async function daRaccontare(): Promise<DaRaccontare | undefined> {
 	const titolo = NOMI_VISTE[view];
 	let testo: string;
 	if (view === 'plancia' || view === 'melissa') testo = idee ? await idee.briefingFacts() : 'Il briefing non è pronto.';
-	else if (view === 'lavori') testo = snapshot.work.length ? snapshot.work.map(w => `${w.project}: ${w.status}${w.title ? `, "${w.title.slice(0, 80)}"` : ''}`).join('\n') : 'Nessun lavoro in giro.';
+	else if (view === 'lavori') testo = activityList() +
+		(snapshot.work.some(w => w.status === 'in coda' || w.status === 'stanotte')
+			? '\nLavori della Bottega in fila: ' + snapshot.work.filter(w => w.status === 'in coda' || w.status === 'stanotte').map(w => `${w.project}: ${w.status}`).join('; ')
+			: '');
 	else testo = await leggiStanza({ stanza: view });
 	return { tipo: 'stanza', titolo, testo };
 }
@@ -482,7 +583,11 @@ async function sendStats(force: boolean): Promise<void> {
 	try {
 		const computed = await statsEngine.compute({ projects: snapshot.projects, live: snapshot.live });
 		const categorie = await categorieDelLavoro();
-		const stats = categorie ? { ...computed, categorie, categorieFrase: fraseCategorie(categorie) } : computed;
+		const stats = {
+			...computed,
+			...(categorie ? { categorie, categorieFrase: fraseCategorie(categorie) } : {}),
+			observedActivity: summarizeObservedActivity(snapshot.activity),
+		};
 		const sig = StatsEngine.signature(stats as typeof computed);
 		if (!force && sig === statsSent) return;
 		statsSent = sig;
@@ -617,6 +722,7 @@ function showHome(view?: string, focusPath?: string, activate = false): void {
 
 export async function activate(ctx: vscode.ExtensionContext) {
 	const extPath = ctx.extensionPath;
+	terminalActivity = registerTerminalActivity(ctx, () => refreshDynamic());
 
 	nucleo = new Nucleo(extPath);
 	memoria = new Memoria(extPath);
@@ -672,6 +778,9 @@ export async function activate(ctx: vscode.ExtensionContext) {
 			queueNight: (p, task) => idee?.queueNight(p, task) ?? 'La coda della notte non è pronta.',
 			switchBrain,
 			readSession,
+			activityList,
+			activityDetail,
+			terminalOutput,
 			showCruscotto,
 		},
 		liveSessions: () => snapshot.live,
@@ -701,6 +810,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		assistant: () => assistant,
 		nucleo: () => nucleo,
 		work: () => snapshot.work,
+		activity: () => snapshot.activity,
 		counts: () => snapshot.workCounts,
 		writeJob: (id, text) => !!jobManager?.write(id, text),
 		// la scheda di sessione dall'iPhone (CONTRATTI 9.5)
@@ -733,6 +843,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		live: () => snapshot.live,
 		workCounts: () => snapshot.workCounts,
 		work: () => snapshot.work,
+		activity: () => snapshot.activity,
 		nucleo: nucleo!,
 		memoria: memoria!,
 		jobs: jobManager!,
@@ -786,10 +897,13 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	status.command = 'bottega.openPlancia';
 	const paint = () => {
 		const c = snapshot.workCounts;
+		const attive = snapshot.activity.filter(a => a.status === 'in corso' || a.status === 'ti aspetta');
+		const inCorso = attive.filter(a => a.status === 'in corso').length;
+		const tiAspetta = attive.length - inCorso;
 		const toPush = snapshot.projects.filter(p => (p.git?.ahead ?? 0) > 0).length;
-		status.text = `$(sparkle) ${c.inCorso}` + (c.tiAspetta ? `  $(bell-dot) ${c.tiAspetta}` : '') + (toPush ? `  $(cloud-upload) ${toPush}` : '');
+		status.text = `$(sparkle) ${inCorso}` + (tiAspetta ? `  $(bell-dot) ${tiAspetta}` : '') + (toPush ? `  $(cloud-upload) ${toPush}` : '');
 		status.tooltip =
-			`${c.inCorso} al lavoro, ${c.tiAspetta} ti aspettano, ${c.vive} sessioni Claude vive in tutto` +
+			`${inCorso} attività al lavoro, ${tiAspetta} ti aspettano; Claude Code, Cline, Codex e terminali integrati` +
 			(c.inCoda ? `, ${c.inCoda} in coda` : '') + (c.stanotte ? `, ${c.stanotte} per stanotte` : '') +
 			(toPush ? `\n${toPush} progetti con commit da spingere` : '');
 		status.show();
@@ -866,10 +980,11 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	}
 	// Il registro delle sessioni lo segue gia' il watcher: il giro periodico e' solo una rete di sicurezza.
 	const tick = setInterval(liveScan, 60_000);
+	const otherTick = setInterval(() => void updateExternalActivity(), 20_000);
 	// La scansione completa (git in ogni progetto) solo con la finestra davanti; tornando davanti, se e' vecchia, la
 	// rifa il gestore qui sotto.
 	const slow = setInterval(() => vscode.window.state.focused && void fullScan(), 120_000);
-	ctx.subscriptions.push({ dispose: () => (clearInterval(tick), clearInterval(slow)) });
+	ctx.subscriptions.push({ dispose: () => (clearInterval(tick), clearInterval(slow), clearInterval(otherTick)) });
 	ctx.subscriptions.push(
 		panelHost.onDidChangeVisibility.event(visible => {
 			statsPace();
@@ -884,6 +999,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		{
 			assistant: () => assistant?.getState(),
 			work: () => snapshot.work,
+			activity: () => snapshot.activity,
 			workCounts: () => snapshot.workCounts,
 			board: async () => (memoria ? memoria.bacheca(undefined, 180) : []),
 			brain: async () => cervelli!.state(),
@@ -990,6 +1106,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 	}
 	// Senza await: l'attivazione finisce subito e la scansione (ormai asincrona) riempie la Home quando e' pronta.
 	void fullScan();
+	void updateExternalActivity();
 	// La prima volta la barra di Melissa si apre da sola, poi il fuoco torna all'editor; dopo decide Andrea.
 	if (!ctx.globalState.get('bottega.barraAperta')) {
 		await ctx.globalState.update('bottega.barraAperta', true);
@@ -1075,4 +1192,6 @@ async function ensureClaudeExtension(ctx: vscode.ExtensionContext) {
 	}
 }
 
-export function deactivate() {}
+export function deactivate() {
+	clearTimeout(statsActivityTimer);
+}

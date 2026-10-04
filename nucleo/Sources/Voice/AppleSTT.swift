@@ -5,8 +5,9 @@
 //  The transcription Melissa uses in Avo Agency AI (Features/Voice/VoiceSession.swift), on
 //  the Mac: SFSpeechRecognizer it-IT fed with the microphone buffers as they come, partial
 //  results on, a FRESH SFSpeechAudioBufferRecognitionRequest for every utterance, and the
-//  utterance closed after 1.8 s with no new words (Avo's `endOfSpeechSilence`) or when the
-//  recognizer says the result is final. While Melissa speaks the microphone is not heard
+//  utterance closed after 1.8 s with no new words (Avo's `endOfSpeechSilence`). Apple
+//  recognition windows are rotated before their one-minute limit; the text carries over.
+//  While Melissa speaks the microphone is not heard
 //  (Avo Agency AI keeps it closed: on macOS there is no reliable echo cancellation), and
 //  250 ms after she stops a new request starts (Avo's re-arm delay).
 //
@@ -45,6 +46,7 @@ final class AppleSTT: Trascrittore, @unchecked Sendable {
     static let endOfSpeechSilence: TimeInterval = 1.8
     /// Avo: re-arm delay after the voice stops (scheduleListeningRearm).
     static let rearmDelay: TimeInterval = 0.25
+    static let recognitionWindow: TimeInterval = 45
     static let name = "apple:SFSpeechRecognizer"
 
     /// Delivered on the main queue.
@@ -60,9 +62,10 @@ final class AppleSTT: Trascrittore, @unchecked Sendable {
     private var task: SFSpeechRecognitionTask?
     private var opened = false
     private var generation = 0
-    private var lastPartial = ""
+    private var transcript = RollingTranscript()
     private var waitingCommit = false
     private var silenceWork: DispatchWorkItem?
+    private var rolloverWork: DispatchWorkItem?
     private var unmuteWork: DispatchWorkItem?
 
     init(language: String) {
@@ -118,7 +121,10 @@ final class AppleSTT: Trascrittore, @unchecked Sendable {
     func close() {
         opened = false
         silenceWork?.cancel(); silenceWork = nil
+        rolloverWork?.cancel(); rolloverWork = nil
         unmuteWork?.cancel(); unmuteWork = nil
+        transcript.reset()
+        waitingCommit = false
         endRequest()
     }
 
@@ -126,11 +132,11 @@ final class AppleSTT: Trascrittore, @unchecked Sendable {
 
     /// Audio thread: the buffer goes to the recognizer as it is, like Avo's mic tap.
     func append(_ buffer: AVAudioPCMBuffer, level: Float) {
-        lock.lock()
-        let r = muted ? nil : request
-        if r != nil { frames += Double(buffer.frameLength) / max(1, buffer.format.sampleRate) }
-        lock.unlock()
-        r?.append(buffer)
+        lock.withLock {
+            guard !muted, let request else { return }
+            frames += Double(buffer.frameLength) / max(1, buffer.format.sampleRate)
+            request.append(buffer)
+        }
     }
 
     /// Push-to-talk released: the words heard so far are the utterance. If nothing has
@@ -138,7 +144,7 @@ final class AppleSTT: Trascrittore, @unchecked Sendable {
     func commit() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            if !self.lastPartial.isEmpty { self.finalize(self.lastPartial) } else { self.waitingCommit = true }
+            if !self.transcript.isEmpty { self.finalize() } else { self.waitingCommit = true }
         }
     }
 
@@ -149,7 +155,9 @@ final class AppleSTT: Trascrittore, @unchecked Sendable {
             if on {
                 self.lock.withLock { self.muted = true }
                 self.silenceWork?.cancel(); self.silenceWork = nil
-                self.lastPartial = ""
+                self.rolloverWork?.cancel(); self.rolloverWork = nil
+                self.transcript.reset()
+                self.waitingCommit = false
                 self.endRequest()
             } else {
                 let work = DispatchWorkItem { [weak self] in
@@ -167,77 +175,84 @@ final class AppleSTT: Trascrittore, @unchecked Sendable {
 
     private func startRequest() {
         guard opened, let recognizer else { return }
+        rolloverWork?.cancel(); rolloverWork = nil
         endRequest()
         generation &+= 1
         let g = generation
         let r = SFSpeechAudioBufferRecognitionRequest()
         r.shouldReportPartialResults = true
         lock.withLock { request = r }
-        lastPartial = ""
         task = recognizer.recognitionTask(with: r) { [weak self] result, error in
             let text = result?.bestTranscription.formattedString
             let isFinal = result?.isFinal ?? false
             let message = error?.localizedDescription
             DispatchQueue.main.async { self?.handle(g, text: text, isFinal: isFinal, error: message) }
         }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.opened, self.generation == g else { return }
+            self.rollover(reason: "finestra programmata")
+        }
+        rolloverWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.recognitionWindow, execute: work)
     }
 
     private func endRequest() {
-        let r: SFSpeechAudioBufferRecognitionRequest? = lock.withLock {
-            let old = request
+        lock.withLock {
+            request?.endAudio()
             request = nil
-            return old
         }
-        r?.endAudio()
         task?.cancel()
         task = nil
     }
 
     private func handle(_ g: Int, text: String?, isFinal: Bool, error: String?) {
-        guard g == generation, opened else { return }
+        guard g == generation, opened, lock.withLock({ !muted }) else { return }
         if let text {
             let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if isFinal {
-                finalize(t)
-                return
-            }
-            if !t.isEmpty, t != lastPartial {
-                lastPartial = t
-                onEvent?(.partial(t))
+            if !t.isEmpty, t != transcript.current {
+                transcript.partial(t)
+                onEvent?(.partial(transcript.text))
                 if waitingCommit {
-                    finalize(t)
+                    finalize()
                     return
                 }
                 scheduleSilence()
             }
         }
-        if let error {
-            // The recognizer ends a window now and then ("No speech detected", the one-minute
-            // limit): what was heard becomes the utterance, otherwise a new request starts.
-            if !lastPartial.isEmpty {
-                finalize(lastPartial)
-            } else if lock.withLock({ !muted }) {
-                Log.info("riconoscimento vocale: finestra chiusa (\(error)), ne apro un'altra")
-                startRequest()
-            }
+        if isFinal || error != nil {
+            // A final result may mean only that Apple closed its request. The silence
+            // timer, or an explicit push-to-talk commit, decides when the turn ends.
+            if waitingCommit, !transcript.isEmpty { finalize(); return }
+            if let error { Log.info("riconoscimento vocale: finestra chiusa (\(error)), ne apro un'altra") }
+            rollover(reason: isFinal ? "risultato finale Apple" : "richiesta terminata")
         }
+    }
+
+    private func rollover(reason: String) {
+        guard opened, lock.withLock({ !muted }) else { return }
+        transcript.rollOver()
+        Log.info("riconoscimento vocale: \(reason), continuo il turno")
+        startRequest()
+        // Keep the existing silence deadline: rotating a request is not new speech.
     }
 
     private func scheduleSilence() {
         silenceWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, !self.lastPartial.isEmpty else { return }
-            self.finalize(self.lastPartial)
+            guard let self, !self.transcript.isEmpty else { return }
+            self.finalize()
         }
         silenceWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.endOfSpeechSilence, execute: work)
     }
 
     /// One utterance is over: hand it to Listener and start a fresh request for the next one.
-    private func finalize(_ text: String) {
+    private func finalize() {
+        let text = transcript.text
         silenceWork?.cancel(); silenceWork = nil
+        rolloverWork?.cancel(); rolloverWork = nil
         waitingCommit = false
-        lastPartial = ""
+        transcript.reset()
         if lock.withLock({ !muted }) { startRequest() } else { endRequest() }
         if !text.isEmpty { onEvent?(.committed(text)) }
     }

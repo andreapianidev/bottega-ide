@@ -59,8 +59,8 @@ struct PlanciaView: View {
         }
         .sheet(isPresented: $cervello) {
             Group {
-                if ponte.linea == .collegato { CervelloFoglio(ponte: ponte) }
-                else { CervelloTelefonoFoglio() }
+                if AssistenteTelefono.shared.configurato { CervelloTelefonoFoglio() }
+                else { CervelloFoglio(ponte: ponte) }
             }.presentationDetents([.medium, .large])
         }
         .alert("Melissa", isPresented: Binding(get: { melissa.avviso != nil }, set: { if !$0 { melissa.avviso = nil } })) {
@@ -172,7 +172,7 @@ struct PlanciaView: View {
     // MARK: - frasi
 
     private func etichetta(_ s: Stanza) -> String {
-        guard s == .lavori, let c = ponte.stato?.conti, c.tiAspetta > 0 else { return s.rawValue }
+        guard s == .lavori, let c = ponte.stato?.conteggiAttivita, c.tiAspetta > 0 else { return s.rawValue }
         // nel segmentato a tre la frase intera non ci sta: solo il numero di chi ti aspetta
         return "Lavori · \(c.tiAspetta)"
     }
@@ -190,23 +190,26 @@ struct PlanciaView: View {
     }
 
     private var sceltaVisibile: StatoMac.Scelta? {
-        if ponte.linea == .collegato { return ponte.stato?.melissa.scelta }
         let t = AssistenteTelefono.shared
-        return StatoMac.Scelta(provider: t.provider, nome: t.nome, impegno: t.impegno,
-                               predefinito: t.provider, perOra: false)
+        if t.configurato {
+            return StatoMac.Scelta(provider: t.provider, nome: t.nome, impegno: t.impegno,
+                                   predefinito: t.provider, perOra: false)
+        }
+        return ponte.stato?.melissa.scelta
     }
 
     private var fraseLinea: String {
         switch ponte.linea {
         case .collegato:
             let dove = switch ponte.stato?.vicino {
-            case "usb"?: "Collegato col cavo"
+            case "usb"?: "Vicino via cavo, ponte Tailscale"
             case "casa"?: "Collegato in casa"
             default: "Collegato"
             }
-            guard let c = ponte.stato?.conti else { return dove }
-            if c.vive == 0 { return "\(dove), nessuna sessione Claude aperta" }
-            return "\(dove), \(c.vive) session\(c.vive == 1 ? "e" : "i") Claude, \(c.inCorso) al lavoro"
+            guard let stato = ponte.stato else { return dove }
+            let c = stato.conteggiAttivita
+            if c.totale == 0 { return "\(dove), nessuna attività osservata" }
+            return "\(dove), \(c.totale) attività, \(c.inCorso) in corso, \(c.tiAspetta) in attesa"
         case .provo: return "Cerco il Mac…"
         case .scollegato: return "Scollegato"
         case .fuori(let perche): return perche

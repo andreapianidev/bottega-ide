@@ -1,4 +1,4 @@
-// Il racconto di Melissa per una stanza o una sessione: DeepSeek Pro, Agnes di riserva,
+// Il racconto di Melissa per una stanza o una sessione: DeepSeek Flash, Agnes di riserva,
 // testo e voce ElevenLabs in streaming sul telefono.
 import AVFoundation
 import Observation

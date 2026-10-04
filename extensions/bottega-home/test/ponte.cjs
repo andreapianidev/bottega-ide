@@ -61,6 +61,7 @@ function call(port, method, url, { token, body, raw } = {}) {
 	const written = [];
 	const imported = [];
 	let cavo = false;
+	let rispostaParziale = '';
 	const port = 20000 + Math.floor(Math.random() * 20000);
 	// i Cervelli veri, con rete finta e chiavi finte: DeepSeek ha credito, Apple Intelligence no
 	const secrets = path.join(dir, 'secrets');
@@ -80,7 +81,7 @@ function call(port, method, url, { token, body, raw } = {}) {
 		cervelli: rotteCervelli(() => cv),
 		configTelefono: async () => ({ agnes: 'test-agnes', deepseek: 'test-deepseek', elevenlabs: 'test-voice', voiceID: 'voice-test', prompt: 'Sei Melissa.' }),
 		importaTurniTelefono: turns => imported.push(...turns),
-		stato: () => ({ melissa: { stato: busy ? 'thinking' : 'idle', cervello: 'agnes', scelta: sceltaDi(cv), registro: asked.map(t => ({ chi: 'tu', testo: t, alle: 1 })) }, lavori: [], conti: { inCorso: 0, tiAspetta: 1, inCoda: 0, vive: 1 } }),
+		stato: () => ({ melissa: { stato: busy ? 'thinking' : 'idle', cervello: 'agnes', scelta: sceltaDi(cv), risposta: rispostaParziale, registro: asked.map(t => ({ chi: 'tu', testo: t, alle: 1 })) }, lavori: [], conti: { inCorso: 0, tiAspetta: 1, inCoda: 0, vive: 1 } }),
 		occupata: () => busy,
 		chiedi: async t => (asked.push(t), `Risposta a: ${t}`),
 		confermaAttuale: () => confermaAperta,
@@ -110,6 +111,8 @@ function call(port, method, url, { token, body, raw } = {}) {
 	assert.strictEqual(q.get('token'), t1);
 	assert.strictEqual(q.get('host'), 'mac-di-prova.tailnet.ts.net');
 	assert.strictEqual(q.get('porta'), String(port));
+	assert.strictEqual(q.get('https_porta'), String(port + 1));
+	assert.match(q.get('https_impronta'), /^[a-f0-9]{64}$/);
 	ok('collegamento con host, porta e gettone');
 
 	assert.strictEqual((await call(port, 'GET', '/v1/stato')).status, 401);
@@ -193,7 +196,7 @@ function call(port, method, url, { token, body, raw } = {}) {
 			assert.strictEqual(res.headers['content-type'], 'text/event-stream; charset=utf-8');
 			res.on('data', c => {
 				for (const l of c.toString().split('\n')) if (l.startsWith('data: ')) righe.push(JSON.parse(l.slice(6)));
-				if (righe.length === 1) ponte.notify();
+				if (righe.length === 1) { rispostaParziale = 'Melissa parla adesso'; ponte.notify(); }
 				if (righe.length === 2) (req.destroy(), resolve());
 			});
 		});
@@ -201,6 +204,7 @@ function call(port, method, url, { token, body, raw } = {}) {
 		req.end();
 	});
 	assert.strictEqual(righe[0].versione, '9.9.9');
+	assert.strictEqual(righe[1].melissa.risposta, 'Melissa parla adesso');
 	ok('eventi in diretta');
 
 	// i token APNs dell'iPhone (9.4)
