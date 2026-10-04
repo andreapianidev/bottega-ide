@@ -90,6 +90,7 @@ cp $ROOT/brand/Bottega.icns "$DIST/Contents/Resources/$ICONFILE"
 echo "== Info.plist (build $BUILD, macOS minimo $MINOS)"
 PL=$DIST/Contents/Info.plist
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" $PL
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" $PL
 /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion $MINOS" $PL 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string $MINOS" $PL
 /usr/libexec/PlistBuddy -c "Delete :LSArchitecturePriority" $PL 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Add :LSArchitecturePriority array" -c "Add :LSArchitecturePriority:0 string arm64" $PL

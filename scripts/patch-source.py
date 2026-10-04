@@ -186,3 +186,18 @@ p = 'src/vs/workbench/browser/parts/auxiliarybar/auxiliaryBarPart.ts'
 replace(p,
         'getActionMinWidth: action => action instanceof SubmenuItemAction && action.item.isSplitButton ? 36 : undefined,',
         "getActionMinWidth: action => action.id === 'workbench.action.terminal.focus' ? 76 : action instanceof SubmenuItemAction && action.item.isSplitButton ? 36 : undefined,")
+
+# Informazioni: l'identita' di Bottega arriva dal product.json del pacchetto,
+# non dalla versione di VS Code usata per la compatibilita' delle estensioni.
+replace('src/vs/base/common/product.ts',
+        'export interface IProductConfiguration {',
+        'export interface IProductConfiguration {\n\treadonly bottegaVersion?: string;\n\treadonly bottegaBuild?: number;')
+about_prefix = '''(productService.bottegaVersion && productService.bottegaBuild !== undefined
+			? `Versione Bottega: ${productService.bottegaVersion}\\nBuild: ${productService.bottegaBuild}\\n\\nBase VS Code\\n`
+			: '') + '''
+replace('src/vs/platform/dialogs/electron-browser/dialog.ts',
+        "return localize({ key: 'aboutDetail',",
+        "return " + about_prefix + "localize({ key: 'aboutDetail',")
+replace('src/vs/workbench/browser/parts/dialogs/dialog.ts',
+        "return localize('aboutDetail',",
+        "return " + about_prefix + "localize('aboutDetail',")

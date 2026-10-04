@@ -2542,3 +2542,14 @@ oltre la soglia nasconde i conteggi e indica «Da aggiornare»; senza dati indic
 «Apri su iPhone». Il rettangolo mostra l'ora dell'ultima lettura. Nessuna credenziale
 viene trasferita al Watch. La consegna in background resta soggetta a WatchConnectivity
 e l'aggiornamento del quadrante a WidgetKit.
+
+### Identita' nella finestra Informazioni
+
+Il pannello Informazioni nativo e quello del banco mostrano `bottegaVersion` e
+`bottegaBuild` da `product.json`, aggiornati a ogni confezionamento. Anche «Copia»
+include questi dati. La sezione «Base VS Code» conserva versione, commit e data
+upstream: `product.version` e la versione in `package.json` restano quelli di VS Code
+per la compatibilita' delle estensioni. `CFBundleShortVersionString` e
+`CFBundleVersion` in Info.plist seguono invece versione e build di Bottega.
+Test del formatter nativo: `node scripts/test-about-dialog.cjs` dopo aver applicato
+`scripts/patch-source.py` ai sorgenti VS Code.

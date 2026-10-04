@@ -1,4 +1,21 @@
-# Passaggio di consegne, build 100
+# Passaggio di consegne, build 101
+
+## Informazioni macOS, build 101
+
+- La schermata segnalata da Andrea mostrava 1.140.0 perche' il formatter nativo leggeva
+  soltanto i metadati upstream di VS Code. Il pacchetto installato era davvero Bottega
+  0.1.1 build 99: `bottegaVersion`, `bottegaBuild` e `CFBundleVersion` lo confermano.
+- Patch riproducibile in `scripts/patch-source.py`: i pannelli Informazioni nativo e del
+  banco, incluso «Copia», espongono versione e build di Bottega dal product.json del
+  pacchetto. I dettagli upstream restano nella sezione «Base VS Code». La versione
+  interna di VS Code resta invariata per la compatibilita' delle estensioni.
+- `scripts/package.sh` allinea anche `CFBundleShortVersionString`: il Finder smette
+  di mostrare 1.140.0 come versione di Bottega.
+- Test del formatter nativo per build 99/101/102, copia e metadati assenti superati;
+  compilazione completa VS Code riuscita, controllo del ciclo installer superato.
+- Mac 101 preparato senza riavvio. Non confondere il pacchetto pronto con la copia
+  in esecuzione: `/Applications` resta 99 fino all'installazione autorizzata.
+  iPhone e Watch fisici restano alla 100; il Watch richiede ancora sblocco per la prova.
 
 ## Ripresa del 4 ottobre 2026, build 100
 
