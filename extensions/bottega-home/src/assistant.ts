@@ -1360,7 +1360,9 @@ export class Assistant {
 			this.setState('speaking');
 			this.deps.nucleo.fireAndForget('orb.state', { state: 'speaking' });
 		}
-		const args: any = { text: clause, append: true };
+		// Ogni messaggio contiene una frase completa. Lo spazio finale impedisce al Nucleo
+		// di saldare "." della frase precedente alla parola iniziale della successiva.
+		const args: any = { text: clause + ' ', append: true };
 		if (this.firstSpeakChunk) {
 			args.model = this.model();
 			this.firstSpeakChunk = false;

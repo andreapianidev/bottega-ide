@@ -413,7 +413,7 @@ function makeAssistant(over = {}) {
 		await t.a.turn('cerca peak', true);
 		const passi = t.a.getState().attivita.map(p => `${p.stato} ${p.testo}`);
 		assert.deepStrictEqual(passi, ['nota › cerca peak', 'corre Agnes pensa', 'corre Cerco i progetti su «peak».', 'fatto Trovato: Peak.', 'voce Ho trovato Peak.', 'fatto risposta pronta, la voce finisce di parlare']);
-		assert.deepStrictEqual(t.nucleo.speaks.filter(s => s.append).map(s => s.text), ['Ho trovato Peak.'], 'fuori dal racconto i passi non si dicono');
+		assert.deepStrictEqual(t.nucleo.speaks.filter(s => s.append).map(s => s.text.trimEnd()), ['Ho trovato Peak.'], 'fuori dal racconto i passi non si dicono');
 		assert.strictEqual(t.a.getState().raccontando, false);
 	});
 
@@ -434,7 +434,7 @@ function makeAssistant(over = {}) {
 		assert.match(visto, /^Raccontami la stanza App Store\.\n\nI dati veri di la stanza App Store/);
 		assert.match(visto, /Ultimi 30 giorni: 402 € in tutto\./);
 		assert.ok(!t.a.history.some(m => /402 €/.test(String(m.content))), 'i dati non restano nella storia');
-		assert.deepStrictEqual(t.nucleo.speaks.filter(s => s.append).map(s => s.text), ['Il mese va bene: 402 euro.', 'Sistema QR Scanner.']);
+		assert.deepStrictEqual(t.nucleo.speaks.filter(s => s.append).map(s => s.text.trimEnd()), ['Il mese va bene: 402 euro.', 'Sistema QR Scanner.']);
 		const passi = t.a.getState().attivita.map(p => p.testo);
 		assert.ok(passi.includes('leggo la stanza App Store'));
 		assert.ok(passi.includes('DeepSeek V4.1 Flash analizza'), passi.join(' | '));
@@ -484,7 +484,7 @@ function makeAssistant(over = {}) {
 		t.a.wire({ subscriptions: [], globalState: { get: () => undefined, update: async () => {} } });
 		await t.a.racconta({ tipo: 'codice', titolo: 'db.py', testo: 'def salva(): pass' });
 		assert.match(domanda, /Racconta il file fino in fondo/);
-		assert.deepStrictEqual(t.nucleo.speaks.filter(s => s.append).map(s => s.text), [
+		assert.deepStrictEqual(t.nucleo.speaks.filter(s => s.append).map(s => s.text.trimEnd()), [
 			'Il file prepara i dati.',
 			'Poi apre la connessione e controlla gli errori.',
 			'Alla fine salva il risultato e libera le risorse.',
@@ -500,8 +500,9 @@ function makeAssistant(over = {}) {
 		const stream = scriptedStream([[{ content: 'Ciao fra. ' }, { content: 'Ho guardato i progetti' }, { content: ', sono tre' }, { content: '.' }]]);
 		const { a, nucleo } = makeAssistant({ stream });
 		await a.turn('come va', true);
-		const clauses = nucleo.speaks.filter(s => s.append).map(s => s.text);
+		const clauses = nucleo.speaks.filter(s => s.append).map(s => s.text.trimEnd());
 		assert.deepStrictEqual(clauses, ['Ciao fra.', 'Ho guardato i progetti, sono tre.']);
+		assert.ok(nucleo.speaks.filter(s => s.append).every(s => s.text.endsWith(' ')), 'ogni frase mantiene il separatore richiesto dal Nucleo');
 		assert.ok(nucleo.speaks.some(s => s.final === true), 'manda il final');
 		assert.ok(nucleo.speaks[0].model === 'eleven_v4_turbo', 'il primo chunk porta il modello');
 	});
@@ -522,7 +523,7 @@ function makeAssistant(over = {}) {
 		// il turno dopo, dal Mac, torna agli altoparlanti
 		a.deps.stream = scriptedStream([[{ content: 'Sul Mac.' }]]);
 		await a.turn('e adesso', true);
-		assert.deepStrictEqual(nucleo.speaks.filter(x => x.append).map(x => x.text), ['Sul Mac.']);
+		assert.deepStrictEqual(nucleo.speaks.filter(x => x.append).map(x => x.text.trimEnd()), ['Sul Mac.']);
 	});
 
 	await test('mentre risponde all\'iPhone il Mac non apre turni suoi e chiudere la conversazione non tronca l\'iPhone', async () => {
@@ -745,7 +746,7 @@ function makeAssistant(over = {}) {
 			]),
 		});
 		await a.turn('apri peak', true);
-		const said = nucleo.speaks.map(s => s.text).filter(Boolean);
+		const said = nucleo.speaks.map(s => s.text?.trimEnd()).filter(Boolean);
 		assert.strictEqual(said.filter(t => t === 'Apro Peak.').length, 1, `detto: ${JSON.stringify(said)}`);
 		assert.ok(said.includes('Fatto, è aperta.'));
 	});

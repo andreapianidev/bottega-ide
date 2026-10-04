@@ -1,13 +1,19 @@
-# Passaggio di consegne, build 90
+# Passaggio di consegne, build 91
 
 ## Aggiornamento del 4 ottobre 2026
 
-- iPhone: release 90 firmata, installata e avviata sul dispositivo fisico; `devicectl` conferma la build 90.
-- Prove reali su iPhone: quattro test di integrazione superati con il Mac acceso, inclusi attività Codex,
+- La prova CLI con il Nucleo installato ha individuato un ulteriore difetto della build 90: tre frasi
+  complete inviate senza separatore venivano fuse in due segmenti. Con lo spazio finale per frase il
+  Nucleo ha emesso tre eventi `voice.spoken` distinti, con testo identico alle tre frasi, tre marker
+  audio e nessun avviso, in 11,4 secondi. La build 91 include questa correzione nell'estensione.
+
+- iPhone: release 91 firmata, installata e avviata sul dispositivo fisico; `devicectl` conferma la build 91.
+- Prove reali su iPhone con lo stesso codice applicativo della build 91: quattro test di integrazione
+  superati sulla build 90 con il Mac acceso, inclusi attività Codex,
   voce Agnes e DeepSeek diretta, racconto della stanza e autonomia quando il Mac diventa irraggiungibile.
   I dieci test automatici del WebSocket ElevenLabs sono superati sul simulatore.
-- Mac e Nucleo: build 90 firmata installata in `/Applications/Bottega.app`, app riavviata e processi
-  della build installata in esecuzione. Il controllo HTTPS autenticato dopo il riavvio restituisce 200
+- Mac e Nucleo: build 90 firmata installata in `/Applications/Bottega.app` prima della correzione del
+  separatore; la build 91 sara' installata dopo i test. Il controllo HTTPS autenticato della build 90 restituisce 200
   con il registro attivita'. I file della plancia, il launcher Cline e il bundle dell'estensione installati
   coincidono con la build dei sorgenti. Il controllo iniziale senza gettone aveva restituito 429:
   era il limite ai tentativi non autenticati, non un guasto del ponte.
@@ -17,17 +23,17 @@
   registro conserva le ultime 30 righe fra i riavvii; i log indicano quanti segmenti e byte PCM
   sono arrivati senza scrivere il testo o le chiavi. La prova Python sul WebSocket reale ha ricevuto
   audio per tre frasi, tre marker di turno e il marker finale. La prova completa dall'IDE all'altoparlante
-  della build 90 resta una verifica di ascolto fisico, non eseguita dall'audit da codice.
+  della build 91 resta una verifica di ascolto fisico, non eseguita dall'audit da codice.
 - Cruscotto: token Codex e Cline, durata dei turni Codex e costo riportato da Cline compaiono per fonte
   e periodo, con N/D quando il dato manca. Le cifre principali Claude restano separate.
 - Home, Lavori e barra Terminale: azione per avviare una nuova sessione Claude Code, Codex, Cline o
   Terminale nella stessa finestra dell'IDE, senza inviare automaticamente un compito. Test estensione
-  completi, typecheck e sette test della barra Terminale superati.
+  completi sulla build 91, typecheck e sette test della barra Terminale superati.
 - Issue GitHub #1 resta aperta: il difetto Live Activity sul blocco schermo era documentato fino alla
   build 74; le modifiche 76–78 non hanno una verifica fisica registrata. L'audit del codice attuale non
   trova un difetto certo, quindi non dichiariamo risolta la schermata di blocco.
 
-## Verifiche fisiche ancora aperte (build 90 installata)
+## Verifiche fisiche ancora aperte dopo la build 91
 
 - Un racconto lungo dall'interfaccia Mac con ascolto reale fino all'ultima frase, confrontando i nuovi
   conteggi nel registro Melissa e in `~/.bottega/nucleo.log` se si interrompe.
