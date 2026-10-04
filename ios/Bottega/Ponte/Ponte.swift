@@ -35,6 +35,10 @@ final class Ponte {
     private(set) var linea: Linea = .scollegato
 
     private var eventi: Task<Void, Never>?
+    /// Col flusso degli eventi aperto in http: ogni 30 s guarda se l'https e' tornato utilizzabile (annunciato dal Mac
+    /// e finita la pausa di Collegamento.ripiegaSuHttp) e in quel caso riapre il flusso in https. Senza, un flusso
+    /// aperto in http ci restava per ore, passando dal relay di iCloud.
+    @ObservationIgnored private var ritorno: Task<Void, Never>?
     /// Se il nome MagicDNS non si risolve (MagicDNS spento sull'iPhone) si passa all'indirizzo 100.x.
     private var usaIP = false
     private let sessione: URLSession = {
@@ -99,6 +103,8 @@ final class Ponte {
     }
 
     func ferma() {
+        ritorno?.cancel()
+        ritorno = nil
         eventi?.cancel()
         eventi = nil
     }
@@ -113,8 +119,10 @@ final class Ponte {
         while !Task.isCancelled {
             linea = .provo
             do {
-                let (bytes, risposta) = try await sessione.bytes(for: richiesta("/v1/eventi", timeout: 60), delegate: FiduciaPonte.shared)
+                let req = try richiesta("/v1/eventi", timeout: 60)
+                let (bytes, risposta) = try await sessione.bytes(for: req, delegate: FiduciaPonte.shared)
                 try controlla(risposta, corpo: nil)
+                if req.url?.scheme == "http" { tornaSicuro() } else { ritorno?.cancel(); ritorno = nil }
                 attesa = 1
                 for try await riga in bytes.lines {
                     guard riga.hasPrefix("data: ") else { continue }
@@ -139,6 +147,21 @@ final class Ponte {
             }
             try? await Task.sleep(nanoseconds: attesa * 1_000_000_000)
             attesa = min(attesa * 2, 30)
+        }
+    }
+
+    /// Il flusso e' in http: appena l'https e' di nuovo la strada (impronta imparata, pausa finita) lo si riapre.
+    private func tornaSicuro() {
+        ritorno?.cancel()
+        ritorno = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard let self, !Task.isCancelled else { return }
+                if self.collegamento?.schema == "https" {
+                    self.riavvia()
+                    return
+                }
+            }
         }
     }
 

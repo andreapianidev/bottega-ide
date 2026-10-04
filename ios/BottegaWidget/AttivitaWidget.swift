@@ -24,7 +24,7 @@ struct AttivitaWidget: Widget {
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     HStack(spacing: 7) {
-                        Sferetta(aspetta: aspetta, lavora: s.inCorso > 0, diametro: 22)
+                        SferaFoto(aspetta: aspetta, lavora: s.inCorso > 0, diametro: 22)
                         Text("Bottega")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Tinte.testo)
@@ -41,13 +41,13 @@ struct AttivitaWidget: Widget {
                     IsolaSotto(stato: s)
                 }
             } compactLeading: {
-                Sferetta(aspetta: aspetta, lavora: s.inCorso > 0, diametro: 16)
+                SferaFoto(aspetta: aspetta, lavora: s.inCorso > 0, diametro: 16)
                     .padding(.leading, 2)
             } compactTrailing: {
                 IsolaDestra(stato: s)
             } minimal: {
                 ZStack {
-                    Sferetta(aspetta: aspetta, lavora: s.inCorso > 0, diametro: 18)
+                    SferaFoto(aspetta: aspetta, lavora: s.inCorso > 0, diametro: 18)
                     if aspetta {
                         Text("\(s.tiAspetta)")
                             .font(.system(size: 10, weight: .bold, design: .rounded))
@@ -58,6 +58,25 @@ struct AttivitaWidget: Widget {
             .widgetURL(Pezzi.lavori)
             .keylineTint(aspetta ? Tinte.ambra : Tinte.tinta)
         }
+    }
+}
+
+/// La sfera di Melissa nella Live Activity: una fotografia della sfera Metal dell'app (stesso renderer del Nucleo, in
+/// modalita' piccola, toni ridotti per uno schermo normale), perche' una Live Activity non esegue Metal. Tre stati:
+/// a riposo (ardesia, nessuno al lavoro), al lavoro (acqua) e «ti aspetta» (ambra fatta apposta: nell'app l'ambra
+/// della sfera e' l'errore, qui no). L'immagine ha l'alone attorno: la sfera occupa circa l'80% del lato, quindi il
+/// riquadro e' un po' piu' grande del diametro. Le immagini sono 96 px (3x di 32 punti), circa 15 KB l'una.
+struct SferaFoto: View {
+    var aspetta: Bool
+    var lavora: Bool = true
+    var diametro: CGFloat = 16
+
+    var body: some View {
+        Image(aspetta ? "SferaAspetta" : lavora ? "SferaLavoro" : "SferaRiposo")
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: diametro * 1.2, height: diametro * 1.2)
     }
 }
 
@@ -207,7 +226,7 @@ private struct SchermataDiBlocco: View {
         let quante = stato.segui == nil ? 3 : 2
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 9) {
-                Sferetta(aspetta: aspetta, lavora: stato.inCorso > 0, diametro: 26)
+                SferaFoto(aspetta: aspetta, lavora: stato.inCorso > 0, diametro: 26)
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Bottega")
                         .font(.headline)
