@@ -14,6 +14,9 @@ struct LavoriView: View {
     @State private var scelta: Selezione?
     @State private var riassunto = Riassunto()
 
+    private var statoVisibile: StatoMac? { ponte.collegato ? ponte.stato ?? StatoMac.ultimo() : nil }
+    private var datoSalvato: Bool { ponte.linea != .collegato || ponte.stato == nil }
+
     private enum Selezione: Identifiable {
         case lavoro(StatoMac.Lavoro)
         case attivita(StatoMac.Attivita)
@@ -27,6 +30,12 @@ struct LavoriView: View {
 
     var body: some View {
         List {
+            if datoSalvato, let stato = statoVisibile {
+                Text("Ultimo registro ricevuto dal Mac alle \(Date(timeIntervalSince1970: stato.ora / 1000).formatted(date: .abbreviated, time: .shortened)). Le sessioni potrebbero essere cambiate.")
+                    .font(.caption)
+                    .foregroundStyle(Tinte.tinta)
+                    .listRowBackground(Color.clear)
+            }
             Section {
                 Button {
                     if riassunto.stato == .fermo { avviaRacconto() }
@@ -43,7 +52,7 @@ struct LavoriView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(ponte.stato == nil && riassunto.stato == .fermo)
+                .disabled(statoVisibile == nil && riassunto.stato == .fermo)
 
                 if riassunto.stato != .fermo || !riassunto.testo.isEmpty || riassunto.errore != nil {
                     VStack(alignment: .leading, spacing: 6) {
@@ -65,7 +74,7 @@ struct LavoriView: View {
                     .foregroundStyle(Tinte.tinta)
                     .listRowBackground(Color.clear)
             }
-            if ponte.stato?.attivita != nil {
+            if statoVisibile?.attivita != nil {
                 ForEach(gruppiAttivita, id: \.0) { g in
                     Section(g.0) {
                         if g.0 == "Stato non confermato" {
@@ -90,7 +99,7 @@ struct LavoriView: View {
                 }
             }
             if !lavoriNonRappresentati.isEmpty {
-                Section(ponte.stato?.attivita == nil ? "Sessioni Claude" : "Altri lavori Claude") {
+                Section(statoVisibile?.attivita == nil ? "Sessioni Claude" : "Altri lavori Claude") {
                     ForEach(lavoriNonRappresentati) { l in
                         Button { scelta = .lavoro(l) } label: { Riga(lavoro: l) }
                             .listRowBackground(Tinte.notteFonda.opacity(0.7))
@@ -102,7 +111,9 @@ struct LavoriView: View {
         .refreshable { await ponte.aggiornaStato() }
         .sheet(item: $scelta) { item in
             switch item {
-            case .lavoro(let l): SessioneView(ponte: ponte, lavoro: l)
+            case .lavoro(let l):
+                if ponte.linea == .collegato { SessioneView(ponte: ponte, lavoro: l) }
+                else { SchedaLavoroSalvato(lavoro: l, ora: statoVisibile?.ora) }
             case .attivita(let a): SchedaAttivita(attivita: a)
             }
         }
@@ -113,9 +124,12 @@ struct LavoriView: View {
     /// La lettura usa lo snapshot gia' sul telefono, con priorita' a cio' che richiede Andrea.
     /// Un contesto corto permette di cominciare il testo e la voce senza una nuova richiesta al Mac.
     private func avviaRacconto() {
-        guard let stato = ponte.stato else { return }
+        guard let stato = statoVisibile else { return }
         let quando = Date(timeIntervalSince1970: stato.ora / 1000).formatted(date: .abbreviated, time: .shortened)
-        var righe = ["Stato dei Lavori letto dal Mac alle \(quando). Racconta prima le sessioni che aspettano Andrea, poi quelle in corso, gli errori e le finite recenti."]
+        let provenienza = datoSalvato
+            ? "Ultimo stato salvato dal Mac alle \(quando). Il Mac non è collegato ora: descrivi solo ciò che era registrato allora, senza presentarlo come attività attuale."
+            : "Stato dei Lavori letto dal Mac alle \(quando)."
+        var righe = ["\(provenienza) Racconta prima le sessioni che aspettano Andrea, poi quelle in corso, gli errori e le finite recenti."]
         if let attivita = stato.attivita {
             let conteggi = stato.conteggiAttivita
             righe.append("\(conteggi.totale) sessioni osservate: \(conteggi.tiAspetta) in attesa, \(conteggi.inCorso) in corso, \(attivita.filter { $0.status == "errore" }.count) in errore.")
@@ -146,18 +160,18 @@ struct LavoriView: View {
         riassunto.avvia(titolo: "i lavori e le sessioni osservate", contesto: String(righe.joined(separator: "\n").prefix(5_000)))
     }
 
-    private var lavori: [StatoMac.Lavoro] { ponte.stato?.lavori ?? [] }
+    private var lavori: [StatoMac.Lavoro] { statoVisibile?.lavori ?? [] }
 
-    private var attivita: [StatoMac.Attivita] { ponte.stato?.attivita ?? [] }
+    private var attivita: [StatoMac.Attivita] { statoVisibile?.attivita ?? [] }
 
     private var lavoriNonRappresentati: [StatoMac.Lavoro] {
-        guard ponte.stato?.attivita != nil else { return lavori }
+        guard statoVisibile?.attivita != nil else { return lavori }
         let chiavi = Set(attivita.map(\.key))
         return lavori.filter { $0.activityKey.map { !chiavi.contains($0) } ?? true }
     }
 
     private var messaggioVuoto: String {
-        guard let s = ponte.stato else { return "Aspetto il Mac…" }
+        guard let s = statoVisibile else { return "Aspetto il primo registro dal Mac…" }
         if s.attivita != nil { return "Nessuna attività osservata dal Mac." }
         return "Nessuna sessione Claude rilevata. Aggiorna la Bottega sul Mac per vedere anche Codex, Cline e i terminali."
     }
@@ -183,6 +197,33 @@ struct LavoriView: View {
             let l = lavori.filter { $0.stato == s }
             return l.isEmpty ? nil : (s.prefix(1).uppercased() + s.dropFirst(), l)
         }
+    }
+}
+
+private struct SchedaLavoroSalvato: View {
+    let lavoro: StatoMac.Lavoro
+    let ora: Double?
+    @Environment(\.dismiss) private var chiudi
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Ultimo registro") {
+                    if let ora {
+                        Text("Ricevuto dal Mac alle \(Date(timeIntervalSince1970: ora / 1000).formatted(date: .abbreviated, time: .shortened)). Il lavoro potrebbe essere cambiato.")
+                    }
+                }
+                Section("Sessione Claude Code") {
+                    LabeledContent("Progetto", value: lavoro.progetto)
+                    LabeledContent("Stato registrato", value: lavoro.stato)
+                    Text(lavoro.titolo)
+                }
+            }
+            .navigationTitle(lavoro.progetto)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Chiudi") { chiudi() } } }
+        }
+        .tint(Tinte.ambra)
     }
 }
 

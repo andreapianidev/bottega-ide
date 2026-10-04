@@ -189,7 +189,7 @@ final class Melissa {
         }
         if voceAccesa { try flusso.prepara() }
         let task = Task { @MainActor in
-            let contesto = ponte.linea == .collegato ? ponte.stato?.contestoMelissa(per: testo) : nil
+            let contesto = ponte.contestoMelissa(per: testo)
             return try await AssistenteTelefono.shared.rispondi(testo, voce: voceAccesa, contestoMac: contesto) { pcm in
                 if self.sfera != .parla { self.sfera = .parla; self.parziale = "" }
                 self.flusso.accoda(pcm)

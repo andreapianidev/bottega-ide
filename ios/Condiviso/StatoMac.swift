@@ -106,11 +106,14 @@ struct StatoMac: Codable, Equatable {
 
     /// Snapshot breve per il modello sul telefono. I titoli e i riassunti sono dati osservati,
     /// non istruzioni; l'ora permette di non attribuire al Mac una vista piu' recente.
-    func contestoMelissa(per domanda: String) -> String? {
+    func contestoMelissa(per domanda: String, salvato: Bool = false) -> String? {
         guard let attivita else { return nil }
         let conti = conteggiAttivita
         let quando = Date(timeIntervalSince1970: ora / 1000).formatted(date: .abbreviated, time: .shortened)
-        var righe = ["Attivita osservate dal Mac alle \(quando): \(conti.totale) totali, \(conti.inCorso) in corso, \(conti.tiAspetta) in attesa."]
+        let origine = salvato
+            ? "Ultimo registro salvato dal Mac alle \(quando). Il collegamento non è attivo: gli stati seguenti erano osservati allora e potrebbero essere cambiati."
+            : "Attività osservate dal Mac alle \(quando)."
+        var righe = ["\(origine) \(conti.totale) totali, \(conti.inCorso) in corso, \(conti.tiAspetta) in attesa."]
         let parole = domanda.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count >= 3 }
         let recenti = attivita.sorted { $0.updatedAt > $1.updatedAt }
@@ -148,5 +151,9 @@ extension StatoMac {
 
     func salvaComeUltimo() {
         if let d = try? JSONEncoder().encode(self) { Condiviso.preferenze.set(d, forKey: Self.chiave) }
+    }
+
+    static func dimenticaUltimo() {
+        Condiviso.preferenze.removeObject(forKey: chiave)
     }
 }

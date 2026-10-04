@@ -1917,8 +1917,10 @@ rete di casa dicono al Mac dov'e' l'iPhone, non portano dati.
 - Quando una chiave LLM e' importata, `AssistenteTelefono` chiama direttamente Agnes (`agnes-3.0-flash`) o DeepSeek
   (`deepseek-flash`, oppure `deepseek-v4-pro` con impegno profondo) via Chat Completions SSE anche con il Mac
   collegato. Il Mac invia a `/v1/stato` il registro delle attivita' osservate; l'app passa al modello diretto uno
-  snapshot breve con fonte, stato, progetto, titolo, riassunto e ora, trattato come dati non come istruzioni. Senza
-  snapshot aggiornato Melissa non dichiara di vedere lo stato live. La storia privata sull'iPhone contiene al
+  snapshot breve con fonte, stato, progetto, titolo, riassunto e ora, trattato come dati non come istruzioni. Se il
+  ponte cade, Melissa e Siri usano l'ultimo snapshot salvato, dichiarandone l'ora e che gli stati possono essere cambiati;
+  non lo presentano come live. Lavori e il riepilogo nella testata mostrano lo stesso registro salvato, con la data.
+  Il registro viene cancellato quando si scollega o si abbina un altro Mac. La storia privata sull'iPhone contiene al
   massimo 80 turni e conserva 16 turni nel contesto del modello. Non si inviano strumenti del Mac.
 - Con la voce accesa, `VoceTelefono` apre direttamente il WebSocket ElevenLabs Text to Dialogue con
   `eleven_v4_turbo`, la stessa `voiceID` e `pcm_24000` del Nucleo. Le frasi arrivano a `FlussoVoce` mentre il modello
@@ -1932,7 +1934,7 @@ rete di casa dicono al Mac dov'e' l'iPhone, non portano dati.
   racconto di piu' frasi, includendo l'audio che arriva dopo la richiesta di chiusura.
   Un tocco cancella la richiesta e il socket. Se ElevenLabs non manda audio, l'app mostra un errore chiaro;
   non sostituisce silenziosamente la voce di Melissa nella modalita' autonoma.
-- «Racconta» nelle Stanze e nella scheda di una sessione legge la copia dei dati gia' visibili, con i filtri attivi
+- «Racconta» nelle Stanze, nei Lavori e nella scheda di una sessione legge la copia dei dati gia' visibili, con i filtri attivi
   sull'iPhone. La narrazione a voce parte da `deepseek-flash` senza ragionamento lungo; se DeepSeek non risponde prima del testo,
   prova Agnes. Le frasi SSE vanno subito a ElevenLabs e il PCM alla sfera, con il testo visibile durante il racconto.
   Un secondo tocco ferma la richiesta e l'audio. Il racconto non entra nella storia della conversazione.

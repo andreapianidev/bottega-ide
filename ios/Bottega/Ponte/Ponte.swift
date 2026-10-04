@@ -99,6 +99,12 @@ final class Ponte {
 
     var collegato: Bool { collegamento != nil }
 
+    /// Anche senza rete Melissa può leggere l'ultimo registro del Mac abbinato, con la sua età esplicita.
+    func contestoMelissa(per domanda: String) -> String? {
+        guard collegato else { return nil }
+        return (stato ?? StatoMac.ultimo())?.contestoMelissa(per: domanda, salvato: linea != .collegato)
+    }
+
     // MARK: - collegamento
 
     @discardableResult
@@ -109,6 +115,7 @@ final class Ponte {
         collegamento = c
         usaIP = false
         stato = nil
+        if prima == nil || prima?.host != c.host || prima?.token != c.token { StatoMac.dimenticaUltimo() }
         riavvia()
         // un altro Mac o un gettone nuovo: quel Mac non ha i token di questo iPhone, si rimandano tutti
         if prima == nil || prima?.host != c.host || prima?.token != c.token {
@@ -127,6 +134,7 @@ final class Ponte {
         Collegamento.dimentica()
         collegamento = nil
         stato = nil
+        StatoMac.dimenticaUltimo()
         linea = .scollegato
         Avvisi.shared.dimentica()
         AssistenteTelefono.shared.cancella()

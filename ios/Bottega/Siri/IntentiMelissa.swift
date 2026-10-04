@@ -26,7 +26,7 @@ struct ChiediAMelissa: AppIntent {
             if telefono.configurato {
                 do {
                     await ponte.aggiornaStato()
-                    let contesto = ponte.linea == .collegato ? ponte.stato?.contestoMelissa(per: domanda) : nil
+                    let contesto = ponte.contestoMelissa(per: domanda)
                     risposta = try await telefono.rispondi(domanda, voce: false, contestoMac: contesto) { _ in }
                 } catch {
                     if ponte.linea == .collegato { await telefono.sincronizza(con: ponte) }
@@ -55,10 +55,12 @@ struct ChiMiAspetta: AppIntent {
             return .result(dialog: "La Bottega non è collegata a nessun Mac. Apri l'app e collegala.")
         }
         await ponte.aggiornaStato()
-        guard let s = ponte.stato else {
+        guard let s = ponte.stato ?? StatoMac.ultimo() else {
             return .result(dialog: "Il Mac non risponde: controlla che sia acceso, con la Bottega aperta.")
         }
-        return .result(dialog: IntentDialog(stringLiteral: Self.frase(s)))
+        let frase = Self.frase(s)
+        let risposta = ponte.linea == .collegato ? frase : "Ultimo registro del Mac, alle \(Date(timeIntervalSince1970: s.ora / 1000).formatted(date: .abbreviated, time: .shortened)); potrebbe essere cambiato. \(frase)"
+        return .result(dialog: IntentDialog(stringLiteral: risposta))
     }
 
     static func frase(_ s: StatoMac) -> String {

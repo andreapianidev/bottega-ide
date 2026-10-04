@@ -20,6 +20,8 @@ struct PlanciaView: View {
     @State private var cervello = false
     @FocusState private var scrivendo: Bool
 
+    private var statoVisibile: StatoMac? { ponte.collegato ? ponte.stato ?? StatoMac.ultimo() : nil }
+
     var body: some View {
         ZStack {
             Tinte.sfondo.ignoresSafeArea()
@@ -172,7 +174,7 @@ struct PlanciaView: View {
     // MARK: - frasi
 
     private func etichetta(_ s: Stanza) -> String {
-        guard s == .lavori, let c = ponte.stato?.conteggiAttivita, c.tiAspetta > 0 else { return s.rawValue }
+        guard s == .lavori, let c = statoVisibile?.conteggiAttivita, c.tiAspetta > 0 else { return s.rawValue }
         // nel segmentato a tre la frase intera non ci sta: solo il numero di chi ti aspetta
         return "Lavori · \(c.tiAspetta)"
     }
@@ -210,9 +212,16 @@ struct PlanciaView: View {
             let c = stato.conteggiAttivita
             if c.totale == 0 { return "\(dove), nessuna attività osservata" }
             return "\(dove), \(c.totale) attività, \(c.inCorso) in corso, \(c.tiAspetta) in attesa"
-        case .provo: return "Cerco il Mac…"
-        case .scollegato: return "Scollegato"
-        case .fuori(let perche): return perche
+        case .provo, .scollegato, .fuori:
+            let stato = switch ponte.linea {
+            case .provo: "Cerco il Mac…"
+            case .scollegato: "Scollegato"
+            case .fuori(let perche): perche
+            case .collegato: "Collegato"
+            }
+            guard let ultimo = statoVisibile else { return stato }
+            let quando = Date(timeIntervalSince1970: ultimo.ora / 1000).formatted(date: .abbreviated, time: .shortened)
+            return "\(stato) · \(ultimo.conteggiAttivita.totale) attività salvate alle \(quando)"
         }
     }
 
