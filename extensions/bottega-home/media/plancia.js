@@ -2164,6 +2164,7 @@
 	};
 	const BRAIN = {
 		agnes: 'Pensa con Agnes.',
+		deepseek: 'Pensa con DeepSeek: Agnes non risponde.',
 		apple: 'Pensa con Apple Intelligence, qui sul Mac.',
 		nessuno: 'Nessun cervello collegato: serve la chiave Agnes o Apple Intelligence attiva.',
 	};

@@ -6,12 +6,13 @@
 
    Chi decide (BrainRouter):
    - `agnes` / `apple`: forzati dall'impostazione bottega.melissa.cervello;
-   - `auto` (scelta di Andrea, 2 ottobre 2026): Agnes sempre, finche' risponde. Apple Intelligence entra solo
-     come riserva quando Agnes non risponde (429, rete, 5xx): subito, con gli strumenti, e per 2 minuti i turni
-     vanno diretti al Mac (interruttore), niente piu' attese cieche. Senza Apple Intelligence, Agnes comunque.
+   - `auto` (scelta di Andrea, 2 ottobre 2026): Agnes sempre, finche' risponde. Quando Agnes non risponde (429,
+     rete, 5xx) entra la riserva, subito e con gli strumenti: prima DeepSeek, poi Apple Intelligence (ordine di
+     Andrea, 4 ottobre 2026). Per 2 minuti i turni vanno diretti alla riserva (interruttore), niente attese
+     cieche. Senza riserve, Agnes comunque.
    Melissa dice quale cervello usa solo quando cambia. Niente vscode qui dentro: si prova da Node. */
 
-export type BrainName = 'agnes' | 'apple';
+export type BrainName = 'agnes' | 'deepseek' | 'apple';
 export type BrainMode = 'auto' | 'agnes' | 'apple';
 
 export interface ToolSpecLike {
@@ -50,13 +51,21 @@ export function isAgnesOutage(e: any): boolean {
 export class BrainRouter {
 	private openUntil = 0;
 	private last: BrainName | null = null;
-	constructor(private readonly opts: { mode: () => BrainMode; appleAvailable: () => boolean; now?: () => number; breakerMs?: number }) {}
+	constructor(private readonly opts: { mode: () => BrainMode; appleAvailable: () => boolean; deepseekAvailable?: () => boolean; now?: () => number; breakerMs?: number }) {}
 
 	private now(): number {
 		return this.opts.now ? this.opts.now() : Date.now();
 	}
 
-	/** Agnes ha appena fallito: per un po' si va diretti sul Mac. */
+	/** La riserva di Agnes, in ordine: DeepSeek, poi il Mac. */
+	reserves(): BrainName[] {
+		const out: BrainName[] = [];
+		if (this.opts.deepseekAvailable?.()) out.push('deepseek');
+		if (this.opts.appleAvailable()) out.push('apple');
+		return out;
+	}
+
+	/** Agnes ha appena fallito: per un po' si va diretti alla riserva. */
 	agnesFailed(e?: any): void {
 		if (e === undefined || isAgnesOutage(e)) this.openUntil = this.now() + (this.opts.breakerMs ?? 120_000);
 	}
@@ -72,8 +81,9 @@ export class BrainRouter {
 		const apple = this.opts.appleAvailable();
 		if (mode === 'agnes') return { brain: 'agnes', why: 'forzato' };
 		if (mode === 'apple') return apple ? { brain: 'apple', why: 'forzato' } : { brain: 'agnes', why: 'senza-apple' };
-		if (!apple) return { brain: 'agnes', why: 'senza-apple' };
-		if (this.breakerOpen) return { brain: 'apple', why: 'interruttore' };
+		const riserva = this.reserves()[0];
+		if (!riserva) return { brain: 'agnes', why: 'senza-apple' };
+		if (this.breakerOpen) return { brain: riserva, why: 'interruttore' };
 		void text; // le domande brevi non contano piu': Agnes finche' risponde (scelta di Andrea)
 		return { brain: 'agnes', why: 'principale' };
 	}
@@ -83,8 +93,9 @@ export class BrainRouter {
 		const prev = this.last;
 		this.last = brain;
 		if (prev === null || prev === brain) return null;
+		if (brain === 'deepseek') return 'Agnes non risponde, ti rispondo con DeepSeek.';
 		return brain === 'apple'
-			? (why === 'forzato' ? 'Ti rispondo col cervello del Mac.' : 'Agnes non risponde, ti rispondo dal Mac.')
+			? (why === 'forzato' ? 'Ti rispondo col cervello del Mac.' : prev === 'deepseek' ? 'Neanche DeepSeek risponde, ti rispondo dal Mac.' : 'Agnes non risponde, ti rispondo dal Mac.')
 			: 'Agnes e\' tornata.';
 	}
 }

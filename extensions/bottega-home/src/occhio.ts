@@ -14,6 +14,8 @@ import * as path from 'path';
 /** Fin qui il file si legge intero (circa 1.500 righe); oltre, la parte sullo schermo e dintorni. */
 export const LIMITE_FILE = 60_000;
 export const LIMITE_SELEZIONE = 12_000;
+/** Fin qui «racconta» manda il file intero a DeepSeek (circa 5.000 righe). */
+export const LIMITE_RACCONTO = 200_000;
 const MARGINE_RIGHE = 150;
 
 export interface VistaEditor {
@@ -80,6 +82,27 @@ export function testoDaLeggere(testo: string, v: VistaEditor, limite = LIMITE_FI
 	}
 	out.push(`Il file e' lungo: qui le righe ${da}-${a} di ${righe.length}. Per il resto non inventare: di' che non l'hai letto o chiedi a che parte guardare.\n${numerate(righe.slice(da - 1, a), da)}`);
 	return out.join('\n\n');
+}
+
+/** «racconta» su un file (scelta di Andrea, 4/10/2026): con righe selezionate spiega quelle, con il file intorno
+ *  come contesto; senza selezione racconta TUTTO il file, non la parte sullo schermo. Il file va intero a DeepSeek
+ *  fino a LIMITE_RACCONTO; oltre, dall'inizio finche' ci sta, e il resto si dichiara non letto. */
+export function codiceDaRaccontare(testo: string, v: VistaEditor): { testo: string; domanda: string } {
+	const sel = v.selezione && v.selezione.testo.trim() ? v.selezione : undefined;
+	if (sel) {
+		const quali = sel.da === sel.a ? `la riga ${sel.da}` : `le righe ${sel.da}-${sel.a}`;
+		// la finestra del file lungo si centra sulla selezione, non sullo schermo
+		return { testo: testoDaLeggere(testo, { ...v, schermo: undefined, cursore: sel.da }), domanda: `Spiegami ${quali} che ho selezionato in ${v.nome}. Il resto del file e' solo contesto.` };
+	}
+	const domanda = `Raccontami tutto il file ${v.nome}: a cosa serve e come funziona, dall'inizio alla fine, non solo la parte che ho sullo schermo.`;
+	if (eSegreto(v.file)) return { testo: testoDaLeggere(testo, v), domanda };
+	const righe = testo.split(/\r?\n/);
+	const testa = `File: ${v.nome} (${v.lingua}, ${righe.length} righe).`;
+	if (testo.length <= LIMITE_RACCONTO) return { testo: `${testa}\n\nIl file intero:\n${numerate(righe, 1)}`, domanda };
+	let n = 0;
+	// conta anche il numero di riga davanti («123| »)
+	for (let len = 0; n < righe.length && len + righe[n].length + String(n + 1).length + 3 <= LIMITE_RACCONTO; n++) len += righe[n].length + String(n + 1).length + 3;
+	return { testo: `${testa}\n\nIl file e' lungo: qui le righe 1-${n} di ${righe.length}. Del resto non inventare niente: di' che non l'hai letto.\n${numerate(righe.slice(0, n), 1)}`, domanda };
 }
 
 /** Un altro file per nome («leggi anche pipeline.py»): prima i visibili, poi gli aperti; nome intero, poi pezzo. */

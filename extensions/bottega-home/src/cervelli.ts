@@ -180,6 +180,14 @@ export class Cervelli {
 		return { provider: p, model: p === 'apple' ? 'apple-on-device' : DEEPSEEK.fast, effort: this.effort() };
 	}
 
+	/** DeepSeek come riserva quando Agnes non risponde (prima di Apple, scelta di Andrea del 4/10/2026): c'e' la
+	 *  chiave e non e' da parte per credito o chiave rifiutata. */
+	riservaDeepseek(): Choice | undefined {
+		if (!this.key('deepseek') || this.isDown('deepseek')) return undefined;
+		const effort = this.effort();
+		return { provider: 'deepseek', model: effort === 'profondo' ? DEEPSEEK.deep : DEEPSEEK.fast, effort };
+	}
+
 	/** Il cervello di adesso: il predefinito (Agnes), salvo una scelta manuale ancora valida per questa conversazione. */
 	choice(): Choice {
 		if (this.temp && this.temp.until > this.now()) return { provider: this.temp.provider, model: this.temp.model, effort: this.effort() };

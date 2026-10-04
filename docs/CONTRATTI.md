@@ -64,7 +64,7 @@ audio fermo, niente pallino arancione di macOS) e si riapre 250 ms dopo che Meli
 l'estensione chiude un turno senza voce con `orb.state` `listening` (niente eco, niente interruzioni a voce; si
 interrompe con un tocco). L'estensione resta su «parlo» finche' `voice.state` non lascia `speaking`. Permesso "Riconoscimento vocale" per Bottega Nucleo, chiesto
 con lo stesso tempo massimo del microfono. ElevenLabs realtime resta con `BOTTEGA_STT=elevenlabs`. Con ElevenLabs:
-si manda tutto l'audio, anche il silenzio: fino al 2/10/2026 passava solo quello sopra una soglia fissa (livello 0,08, circa -37 dBFS), e il microfono del MacBook Air senza voice processing restava sotto, quindi a ElevenLabs non arrivava niente. La conversazione si chiude dopo 60 s di silenzio, l'audio in piu' ha un tetto. Registro: `conversazione richiesta`, `trascrizione: primo audio inviato a ElevenLabs`, `prima trascrizione parziale ricevuta`, `conversazione chiusa dal Nucleo` con i secondi inviati; l'estensione scrive ogni tocco e il motivo di ogni chiusura. Se l'utente parla sopra Melissa, la voce si ferma ed esce `voice.bargein {text, trigger}` (`trigger`: `energy` con cancellazione dell'eco hardware, `speech` quando lo decide il testo parziale). Eco: prima la cancellazione hardware (voice processing), se fallisce il filtro software sul testo (parole in comune con quello che Melissa sta dicendo) |
+si manda tutto l'audio, anche il silenzio: fino al 2/10/2026 passava solo quello sopra una soglia fissa (livello 0,08, circa -37 dBFS), e il microfono del MacBook Air senza voice processing restava sotto, quindi a ElevenLabs non arrivava niente. La conversazione si chiude dopo 60 s di silenzio, l'audio in piu' ha un tetto. Ogni apertura del microfono riaccende la trascrizione (`setMuted(false)` in `Listener.open`): la sessione tenuta calda 30 s dopo la chiusura poteva restare muta da una risposta interrotta (voce spenta mentre Melissa parlava), e la conversazione dopo restava in ascolto senza trascrivere niente (4/10/2026). Registro: `conversazione richiesta`, `trascrizione: primo audio inviato a ElevenLabs`, `prima trascrizione parziale ricevuta`, `conversazione chiusa dal Nucleo` con i secondi inviati; l'estensione scrive ogni tocco e il motivo di ogni chiusura. Se l'utente parla sopra Melissa, la voce si ferma ed esce `voice.bargein {text, trigger}` (`trigger`: `energy` con cancellazione dell'eco hardware, `speech` quando lo decide il testo parziale). Eco: prima la cancellazione hardware (voice processing), se fallisce il filtro software sul testo (parole in comune con quello che Melissa sta dicendo) |
 | `voice.converse.stop` | | | chiude la conversazione (emette `voice.final` se c'era una frase a meta') |
 | `wake.enable` | `phrase` (default `melissa`), `locale?` | | ascolto continuo tramite la trascrizione ElevenLabs, ma solo intorno alla voce (il silenzio non si manda); evento `wake.detected {phrase, text}`. Sospeso mentre Melissa parla e durante ascolto o conversazione. Costa audio trascritto ogni volta che qualcuno parla nella stanza: va acceso solo se serve |
 | `wake.disable` | | | |
@@ -1062,8 +1062,12 @@ testo attivo; se davanti c'e' la Home, la barra o un'immagine, l'ultimo file di 
 Il pulsante «racconta» della barra (comando `bottega.racconta`) racconta quello che Andrea ha davanti: il file di codice
 nella scheda attiva (`Occhio.davanti()`, l'ultimo file guardato se davanti c'e' altro), oppure la stanza che la Home sta
 mostrando (la Home manda `{type: "vista", view}` a ogni cambio: Plancia e Melissa il briefing, Lavori l'elenco dei
-lavori, le altre `leggiStanza`). Il contenuto, gia' letto, va con la domanda («Spiegami il codice che ho davanti.»,
-«Raccontami la stanza App Store.») ma non resta nella storia della conversazione. `Assistant.racconta()` pensa con
+lavori, le altre `leggiStanza`). Il contenuto, gia' letto, va con la domanda («Raccontami la stanza App Store.») ma non
+resta nella storia della conversazione. Su un file (`Occhio.racconto()`, `codiceDaRaccontare` in `src/occhio.ts`, dal
+4/10/2026): senza selezione va TUTTO il file, fino a `LIMITE_RACCONTO` (200.000 caratteri con i numeri di riga; oltre,
+dall'inizio e il resto dichiarato non letto), con la domanda «Raccontami tutto il file X ... non solo la parte che ho
+sullo schermo»; le righe sullo schermo non entrano nel testo. Con righe selezionate si spiegano quelle («Spiegami le
+righe A-B che ho selezionato in X»), con il file intorno come contesto. `Assistant.racconta()` pensa con
 DeepSeek (V4.1 Flash, V4 Pro con «profondo»; senza chiave o senza credito torna ad Agnes), ragiona anche se poi parla, e
 racconta con la voce ElevenLabs mentre DeepSeek scrive, frase per frase, anche a voce spenta se il Nucleo c'e'. Durante
 il racconto il pulsante diventa «ferma» (`comando` `racconta.ferma`, comando `bottega.raccontaFerma`): la risposta si
@@ -1146,10 +1150,13 @@ Comandi del Nucleo smistati da `Nativo.handle` (Service.swift) e `NativoCLI.run`
 ### 7.1 Apple Intelligence come cervello, con gli strumenti
 
 `src/cervello.ts`, dentro il selettore dei cervelli della sezione 6. Agnes risponde sempre finche' risponde (scelta di
-Andrea, 2 ottobre 2026); Apple Intelligence entra come riserva quando Agnes da' 429, errore di rete o 5xx: lo stesso
-turno passa subito al Mac CON gli strumenti (nessuna attesa cieca sul 429) e per 2 minuti i turni vanno diretti al Mac
-(interruttore, `BrainRouter`). Melissa dice il cambio solo quando succede ("Agnes non risponde, ti rispondo dal Mac.",
-"Agnes e' tornata."). Scelto a mano nella barra, Apple risponde sempre lui, con gli strumenti; se non risponde si torna ad
+Andrea, 2 ottobre 2026). Quando Agnes da' 429, errore di rete o 5xx entra la riserva, in quest'ordine (Andrea, 4
+ottobre 2026): DeepSeek (`Cervelli.riservaDeepseek()`: chiave presente e non da parte; Flash, V4 Pro con «profondo»),
+poi Apple Intelligence. Lo stesso turno passa subito alla riserva CON gli strumenti (nessuna attesa cieca sul 429) e
+per 2 minuti i turni vanno diretti alla prima riserva (interruttore, `BrainRouter.reserves()`). DeepSeek come riserva
+che fallisce non torna ad Agnes: il turno passa al Mac. `assistant.brain` puo' valere `deepseek`. Melissa dice il cambio
+solo quando succede ("Agnes non risponde, ti rispondo con DeepSeek.", "Neanche DeepSeek risponde, ti rispondo dal
+Mac.", "Agnes non risponde, ti rispondo dal Mac.", "Agnes e' tornata."). Scelto a mano nella barra, Apple risponde sempre lui, con gli strumenti; se non risponde si torna ad
 Agnes. Se anche Apple fallisce resta il vecchio ripiego `ai.generate` senza strumenti.
 
 Apple ha la stessa forma degli altri cervelli: `appleOpenAiStream(nucleo, {effort})` ha la firma di `LlmStreamFn`

@@ -206,6 +206,7 @@ function makeAssistant(over = {}) {
 		onState: () => {},
 		stream: over.stream,
 		appleStream: over.appleStream,
+		...(over.cervelli ? { cervelli: over.cervelli } : {}),
 	};
 	const a = new asst.Assistant(deps);
 	return { a, nucleo, rec, deps };
@@ -619,6 +620,33 @@ function makeAssistant(over = {}) {
 		assert.ok(a.router.breakerOpen, 'interruttore aperto: i prossimi turni vanno subito al Mac');
 	});
 
+
+	await test('Agnes giu\': prima DeepSeek, poi il Mac; e con l\'interruttore aperto si va diretti a DeepSeek', async () => {
+		const brains = [];
+		let deepseekVa = true;
+		const cervelli = {
+			choice: () => ({ provider: 'agnes', model: 'agnes-3.0-flash', effort: 'normale' }),
+			riservaDeepseek: () => ({ provider: 'deepseek', model: 'deepseek-flash', effort: 'normale' }),
+			streamFor: c => (c.provider === 'deepseek' ? async (m, t, onDelta) => {
+				brains.push('deepseek');
+				if (!deepseekVa) throw new Error('DeepSeek ha risposto 500.');
+				onDelta({ content: 'Da DeepSeek.' });
+			} : undefined),
+			key: () => undefined, noteAgnes: () => {}, touch: () => {}, endConversation: () => {},
+		};
+		const { a } = makeAssistant({
+			apple: true,
+			cervelli,
+			stream: async () => (brains.push('agnes'), Promise.reject(new Error('Rete giu\' verso Agnes.'))),
+			appleStream: async (m, t, onDelta) => (brains.push('apple'), onDelta({ content: 'Dal Mac.' })),
+		});
+		assert.match(await a.turn('ciao', false), /Agnes non risponde, ti rispondo con DeepSeek\. Da DeepSeek\./);
+		assert.strictEqual(a.getState().brain, 'deepseek');
+		assert.match(await a.turn('e adesso?', false), /Da DeepSeek\./);
+		deepseekVa = false;
+		assert.match(await a.turn('e ora?', false), /Neanche DeepSeek risponde, ti rispondo dal Mac\. Dal Mac\./);
+		assert.deepStrictEqual(brains, ['agnes', 'deepseek', 'deepseek', 'deepseek', 'apple']);
+	});
 
 	await test('guarda_schermo: chiede al Nucleo, a Melissa arriva solo il testo; senza permesso lo dice', async () => {
 		const { a, nucleo } = makeAssistant({});

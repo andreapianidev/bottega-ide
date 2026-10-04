@@ -70,6 +70,29 @@ test('nome corto: relativo alla cartella di lavoro che lo contiene, altrimenti c
 	assert.strictEqual(O.nomeCorto('/altrove/x/db.py', ['/u/p']), 'x/db.py');
 });
 
+test('racconta: senza selezione tutto il file, non solo lo schermo; con selezione quelle righe', () => {
+	const testo = Array.from({ length: 300 }, (_, i) => `riga ${i + 1}`).join('\n');
+	const intero = O.codiceDaRaccontare(testo, vista({ righe: 300, schermo: [53, 79], cursore: 60 }));
+	assert.match(intero.domanda, /tutto il file avo_bnb\/db\.py/);
+	assert.match(intero.domanda, /non solo la parte che ho sullo schermo/);
+	assert.ok(!/sullo schermo le righe/.test(intero.testo), 'lo schermo non entra nel testo');
+	assert.match(intero.testo, /^1\| riga 1$/m);
+	assert.match(intero.testo, /^300\| riga 300$/m);
+	const sel = O.codiceDaRaccontare(testo, vista({ righe: 300, schermo: [53, 79], selezione: { da: 10, a: 12, testo: 'riga 10\nriga 11\nriga 12' } }));
+	assert.match(sel.domanda, /le righe 10-12 che ho selezionato/);
+	assert.match(sel.testo, /Selezionato col mouse, righe 10-12/);
+	const una = O.codiceDaRaccontare(testo, vista({ selezione: { da: 7, a: 7, testo: 'riga 7' } }));
+	assert.match(una.domanda, /la riga 7 che ho selezionato/);
+	// file enorme: dall'inizio finche' ci sta, e il resto si dichiara non letto
+	const enorme = Array.from({ length: 20000 }, (_, i) => `x`.repeat(20) + i).join('\n');
+	const e = O.codiceDaRaccontare(enorme, vista({ righe: 20000 }));
+	assert.match(e.testo, /qui le righe 1-\d+ di 20000/);
+	assert.ok(e.testo.length < O.LIMITE_RACCONTO + 300, `${e.testo.length}`);
+	assert.ok(!LINEETTE.test(intero.domanda + sel.domanda + e.testo.slice(0, 300)));
+	// i segreti restano fuori anche qui
+	assert.match(O.codiceDaRaccontare('KEY=1', vista({ file: '/u/.env', nome: '.env' })).testo, /file di segreti/);
+});
+
 test('un altro file per nome: nome intero, poi pezzo del nome, poi pezzo del percorso', () => {
 	const c = [{ file: '/u/p/avo_bnb/db.py' }, { file: '/u/p/avo_bnb/pipeline.py' }, { file: '/u/p/web/pipeline_test.py' }];
 	assert.strictEqual(O.scegliFile('pipeline.py', c).file, '/u/p/avo_bnb/pipeline.py');

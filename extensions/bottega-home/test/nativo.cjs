@@ -26,6 +26,19 @@ test('auto: Agnes per tutto finche\' risponde, anche le domande brevi e le liste
 	for (const q of ['ciao', 'che ore sono?', 'annota: provare il widget', 'apri Peak']) assert.equal(r.choose(q).brain, 'agnes', q);
 });
 
+test('riserva di Agnes: prima DeepSeek, poi il Mac, poi nessuna', () => {
+	const mk = (ds, apple) => {
+		const r = new C.BrainRouter({ mode: () => 'auto', appleAvailable: () => apple, deepseekAvailable: () => ds });
+		r.agnesFailed(new Error('Agnes ha risposto 429.'));
+		return r;
+	};
+	assert.deepEqual(mk(true, true).reserves(), ['deepseek', 'apple']);
+	assert.deepEqual(mk(true, true).choose('ciao'), { brain: 'deepseek', why: 'interruttore' });
+	assert.deepEqual(mk(true, false).choose('ciao'), { brain: 'deepseek', why: 'interruttore' });
+	assert.deepEqual(mk(false, true).choose('ciao'), { brain: 'apple', why: 'interruttore' });
+	assert.deepEqual(mk(false, false).choose('ciao'), { brain: 'agnes', why: 'senza-apple' });
+});
+
 test('interruttore: 429 e rete aprono, il barge-in no; dopo 2 minuti si richiude', () => {
 	let now = 1_000_000;
 	const r = new C.BrainRouter({ mode: () => 'auto', appleAvailable: () => true, now: () => now });

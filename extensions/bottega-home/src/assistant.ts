@@ -43,7 +43,7 @@ export interface AssistantState {
 	/** Livello audio in diretta 0..1 (per l'animazione della plancia), aggiornato ~10/s. */
 	level?: number;
 	log: { role: 'tu' | 'melissa' | 'azione'; text: string; at: number }[];
-	brain: 'agnes' | 'apple' | 'nessuno';
+	brain: 'agnes' | 'deepseek' | 'apple' | 'nessuno';
 	/** Il terminale della barra: cosa sta facendo Melissa, passo per passo, in diretta (ultimi 40). */
 	attivita?: Passo[];
 	/** «racconta» in corso: il pulsante della barra diventa «ferma». */
@@ -62,6 +62,8 @@ export interface DaRaccontare {
 	/** «db.py», «la stanza App Store» */
 	titolo: string;
 	testo: string;
+	/** la domanda da fare: «spiegami le righe selezionate» o «raccontami tutto il file» (src/occhio.ts) */
+	domanda?: string;
 }
 
 // ---------- tipi OpenAI / streaming ----------
@@ -581,6 +583,7 @@ export class Assistant {
 	readonly router = new BrainRouter({
 		mode: () => (this.deps.cervelli?.choice().provider === 'apple' ? 'apple' : 'auto'),
 		appleAvailable: () => this.appleAvailable(),
+		deepseekAvailable: () => !!this.deps.cervelli?.riservaDeepseek?.(),
 	});
 	private appleStream?: OpenAiStreamFn;
 
@@ -1030,7 +1033,7 @@ export class Assistant {
 			return '';
 		}
 		this.passo(c.tipo === 'codice' ? `leggo ${c.titolo}: ${c.testo.split('\n').length} righe` : `leggo ${c.titolo}`, 'corre');
-		const domanda = c.tipo === 'codice' ? 'Spiegami il codice che ho davanti.' : `Raccontami ${c.titolo}.`;
+		const domanda = c.domanda ?? (c.tipo === 'codice' ? 'Spiegami il codice che ho davanti.' : `Raccontami ${c.titolo}.`);
 		const allegato =
 			c.tipo === 'codice'
 				? `Il codice davanti ad Andrea, gia' letto (non serve codice_leggi):\n${c.testo}`
@@ -1128,18 +1131,22 @@ export class Assistant {
 				this.afterTurn(speak);
 				return msg;
 			}
-			// Agnes a terra (429, rete, server): lo stesso turno sul Mac, CON gli strumenti, se non ha ancora detto niente.
+			// Agnes a terra (429, rete, server): lo stesso turno passa alla riserva, CON gli strumenti, se non ha ancora
+			// detto niente. Prima DeepSeek, poi il Mac (ordine di Andrea, 4/10/2026).
 			if (pick.brain === 'agnes' && viaRouter) this.router.agnesFailed(e);
-			if (pick.brain === 'agnes' && this.appleAvailable() && !this.turnText.trim()) {
-				const note2 = this.router.announce('apple', 'interruttore');
-				if (note2 && speak) this.emitClause(note2);
-				try {
-					this.history.pop(); // la domanda la rimette runAgent
-					const answer = await this.runAgent(userText, speak, ac.signal, 'apple');
-					return done(answer, 'apple', note2);
-				} catch (e2) {
-					if (ac.signal.aborted) return interrupted();
-					this.out.warn(`cervello apple: ${(e2 as any)?.message ?? e2}`);
+			if (pick.brain !== 'apple' && viaRouter) {
+				for (const riserva of this.router.reserves().filter(b => b !== pick.brain)) {
+					if (this.turnText.trim()) break;
+					const note2 = this.router.announce(riserva, 'interruttore');
+					if (note2 && speak) this.emitClause(note2);
+					try {
+						this.history.pop(); // la domanda la rimette runAgent
+						const answer = await this.runAgent(userText, speak, ac.signal, riserva);
+						return done(answer, riserva, note2);
+					} catch (e2) {
+						if (ac.signal.aborted) return interrupted();
+						this.out.warn(`cervello ${riserva}: ${(e2 as any)?.message ?? e2}`);
+					}
 				}
 			}
 			// Ultima spiaggia: Apple senza strumenti (vecchio ripiego).
@@ -1310,12 +1317,14 @@ export class Assistant {
 		const forzato = this.racconto && brain !== 'apple' && this.deps.cervelli?.key?.('deepseek')
 			? { provider: 'deepseek' as const, model: choice?.effort === 'profondo' ? 'deepseek-v4-pro' : 'deepseek-flash', effort: choice?.effort ?? ('normale' as const) }
 			: undefined;
+		// DeepSeek come riserva di Agnes (interruttore aperto o Agnes appena caduta)
+		const riserva = brain === 'deepseek' ? this.deps.cervelli?.riservaDeepseek?.() : undefined;
 		let stream: LlmStreamFn = brain === 'apple'
 			? (this.deps.appleStream ?? this.appleStreamFn())
-			: (forzato && this.deps.cervelli!.streamFor(forzato)) || (choice && choice.provider !== 'agnes' && choice.provider !== 'apple' && this.deps.cervelli!.streamFor(choice)) || agnes;
+			: (forzato && this.deps.cervelli!.streamFor(forzato)) || (riserva && this.deps.cervelli!.streamFor(riserva)) || (choice && choice.provider !== 'agnes' && choice.provider !== 'apple' && this.deps.cervelli!.streamFor(choice)) || agnes;
 		const tools = brain === 'apple' ? (appleToolSpecs(this.specs) as ToolSpec[]) : this.specs;
 		const chosen = stream !== agnes && brain !== 'apple';
-		const chosenName = forzato ? brainName(forzato.model) : choice ? brainName(choice.model) : '';
+		const chosenName = forzato ? brainName(forzato.model) : riserva ? brainName(riserva.model) : choice ? brainName(choice.model) : '';
 		this.passo(`${chosen ? chosenName : brain === 'apple' ? 'Apple Intelligence' : 'Agnes'} ${this.racconto ? 'analizza' : 'pensa'}`, 'corre');
 
 		// Stesso strumento con gli stessi argomenti nello stesso turno: non si riesegue (niente progetto aperto due
@@ -1347,8 +1356,9 @@ export class Assistant {
 			try {
 				await run(stream);
 			} catch (e: any) {
-				// il cervello scelto non risponde (402, rete): stessa domanda ad Agnes, e lo si dice
-				if (!chosen || stream === agnes || got || signal.aborted) throw e;
+				// il cervello scelto non risponde (402, rete): stessa domanda ad Agnes, e lo si dice. DeepSeek come
+				// riserva no: Agnes e' appena caduta, il turno passa al Mac (turn)
+				if (!chosen || stream === agnes || got || signal.aborted || riserva) throw e;
 				this.azione(`${chosenName} non risponde (${e?.message ?? e}): torno ad Agnes`);
 				this.deps.cervelli?.endConversation();
 				stream = agnes;
@@ -1526,8 +1536,8 @@ export class Assistant {
 			}
 			this.deps.cervelli?.noteAgnes(res.status);
 			if (res.status === 429) {
-				// Con il Mac a disposizione niente attese cieche: il turno passa subito ad Apple Intelligence.
-				if (this.appleAvailable()) throw new Error('Agnes ha risposto 429.');
+				// Con una riserva (DeepSeek o il Mac) niente attese cieche: il turno passa subito a quella.
+				if (this.router.reserves().length) throw new Error('Agnes ha risposto 429.');
 				await sleep(wait, signal);
 				wait = Math.min(wait * 2, 16_000);
 				continue;

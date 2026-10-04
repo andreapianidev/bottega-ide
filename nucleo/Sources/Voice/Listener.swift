@@ -384,6 +384,9 @@ final class Listener {
         // ElevenLabs got no audio at all and dropped the socket after 14 s. A conversation closes
         // after 60 s of silence, so the extra audio is bounded.
         s.setGated(newMode == .wake)
+        // The warm session may still be muted from a reply cut short (voice off while Melissa
+        // spoke): reused as it was, it got the microphone and transcribed nothing (4/10/2026).
+        s.setMuted(false)
         resetWindow()
         tap.setEmitLevels(newMode != .wake)
         tap.armVAD(false)

@@ -437,8 +437,8 @@ async function daRaccontare(): Promise<DaRaccontare | undefined> {
 	const o = occhioGlobale;
 	const davanti = o?.davanti() ?? (panelHost?.isOpen ? 'home' : undefined);
 	if (davanti === 'file' && o) {
-		const v = o.vista();
-		if (v) return { tipo: 'codice', titolo: v.nome, testo: o.leggi() };
+		const r = o.racconto();
+		if (r) return { tipo: 'codice', ...r };
 	}
 	if (davanti !== 'home' && !(davanti === undefined && panelHost?.isOpen)) return undefined;
 	const view = vistaHome in NOMI_VISTE ? vistaHome : 'plancia';
@@ -957,8 +957,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
 		}),
 		vscode.commands.registerCommand('bottega.spiegaCodice', () => {
 			barraView?.reveal();
-			const v = occhio.vista();
-			void assistant?.racconta(v ? { tipo: 'codice', titolo: v.nome, testo: occhio.leggi() } : undefined);
+			const r = occhio.racconto();
+			void assistant?.racconta(r ? { tipo: 'codice', ...r } : undefined);
 		}),
 		vscode.commands.registerCommand('bottega.raccontaFerma', () => assistant?.fermaRacconto()),
 		// i conti dei servizi: il Cruscotto, sulla sezione «Servizi» (dalla barra di Melissa e dagli avvisi di ricarica)

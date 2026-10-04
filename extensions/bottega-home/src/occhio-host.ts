@@ -3,7 +3,7 @@
    vuoto, e «spiegami questo» deve valere per il file che Andrea stava guardando un attimo prima. */
 
 import * as vscode from 'vscode';
-import { nomeCorto, rigaContesto, scegliFile, testoDaLeggere, VistaEditor } from './occhio';
+import { codiceDaRaccontare, nomeCorto, rigaContesto, scegliFile, testoDaLeggere, VistaEditor } from './occhio';
 
 export interface Occhio {
 	vista(): VistaEditor | undefined;
@@ -11,6 +11,8 @@ export interface Occhio {
 	riga(): string | undefined;
 	/** il codice per lo strumento codice_leggi: il file attivo, o un altro per nome */
 	leggi(nome?: string): string;
+	/** «racconta» sul file: la selezione se c'e', altrimenti il file intero, con la domanda giusta */
+	racconto(): { titolo: string; testo: string; domanda: string } | undefined;
 	/** cosa c'e' nella scheda attiva dell'editor: un file di codice, la Home, o niente («racconta») */
 	davanti(): 'file' | 'home' | undefined;
 }
@@ -72,6 +74,12 @@ export function registraOcchio(ctx: vscode.ExtensionContext): Occhio {
 		},
 		vista,
 		riga: () => rigaContesto(vista()),
+		racconto() {
+			const ed = attuale();
+			if (!ed) return undefined;
+			const v = vistaDi(ed, ed.document);
+			return { titolo: v.nome, ...codiceDaRaccontare(ed.document.getText(), v) };
+		},
 		leggi(nomeFile) {
 			if (nomeFile && nomeFile.trim()) {
 				const visibili = vscode.window.visibleTextEditors.filter(e => buono(e.document)).map(e => ({ file: e.document.uri.fsPath, ed: e as vscode.TextEditor | undefined, doc: e.document }));
