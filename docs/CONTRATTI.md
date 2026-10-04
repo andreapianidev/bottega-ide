@@ -1922,8 +1922,15 @@ rete di casa dicono al Mac dov'e' l'iPhone, non portano dati.
   massimo 80 turni e conserva 16 turni nel contesto del modello. Non si inviano strumenti del Mac.
 - Con la voce accesa, `VoceTelefono` apre direttamente il WebSocket ElevenLabs Text to Dialogue con
   `eleven_v4_turbo`, la stessa `voiceID` e `pcm_24000` del Nucleo. Le frasi arrivano a `FlussoVoce` mentre il modello
-  scrive; `is_final_audio_for_turn` chiude il turno audio dopo `close_socket`, anche se la chiusura finale del
-  WebSocket arriva dopo. Un tocco cancella la richiesta e il socket. Se ElevenLabs non manda audio, l'app mostra un errore chiaro;
+  scrive. Dopo `close_socket`, solo `is_final` conferma che tutto il PCM del racconto e' arrivato:
+  `is_final_audio_for_turn` puo' riferirsi a una frase precedente e non interrompe mai la ricezione.
+  L'attesa finale scade dopo 20 secondi senza PCM, rinnovati a ogni frammento, non dopo 20 secondi di racconto.
+  Un errore durante l'invio della chiusura viene propagato anche se arriva prima dell'attesa; tutti i percorsi
+  di uscita cancellano socket e timer. Test di regressione: `ios/Tests/VoceTelefonoTests.swift`, eseguibili
+  senza rete o dispositivo con `scripts/test-ios-voice.sh`. La prova del servizio reale e' separata e opt-in
+  (`BOTTEGA_TEST_REALE=1`, chiave e voce nell'ambiente): confronta il PCM di un'introduzione con quello di un
+  racconto di piu' frasi, includendo l'audio che arriva dopo la richiesta di chiusura.
+  Un tocco cancella la richiesta e il socket. Se ElevenLabs non manda audio, l'app mostra un errore chiaro;
   non sostituisce silenziosamente la voce di Melissa nella modalita' autonoma.
 - «Racconta» nelle Stanze e nella scheda di una sessione legge la copia dei dati gia' visibili, con i filtri attivi
   sull'iPhone. La narrazione a voce parte da `deepseek-flash` senza ragionamento lungo; se DeepSeek non risponde prima del testo,
@@ -1999,6 +2006,23 @@ fornitore scelto in Cline (per Andrea DeepSeek, `deepseek-v4-pro`). Codice: `src
   impostazioni.
 
 ## 12. Il terminale, quarta voce della barra di destra
+
+### Barra delle sessioni (build 88)
+
+La barra nativa mantiene separati i selettori delle viste, le sessioni del terminale e le azioni.
+In barra laterale secondaria, il nome singolo è sostituito dalle schede delle sessioni del pannello:
+nomi contenuti con ellissi, selezione aggiornata in diretta e scorrimento orizzontale quando lo spazio
+finisce. Il menu resta sempre raggiungibile. I terminali aperti nell'editor non vengono duplicati.
+
+Passare su «Terminale» per 250 ms apre il menu senza spostare il fuoco dalla shell. Freccia giù o
+il pulsante della tendina lo aprono da tastiera; Esc chiude. Il menu permette di creare un terminale
+nella cartella corrente e scegliere le sessioni aperte. Nessun passaggio del mouse crea o chiude
+processi. I titoli sono inseriti come testo, mai HTML. Eventi e timer vengono smaltiti con la vista.
+
+Implementazione: `brand/terminal-bar.ts`, `brand/workbench.css`, applicati esclusivamente da
+`scripts/patch-source.py` ai sorgenti nativi. L'estensione conserva la gestione della cartella
+(`bottega.terminaleQui`), della shell e di Agnes. Gli altri contenitori mantengono il selettore
+originale, con il titolo lungo correttamente contenuto.
 
 Codice: `src/terminale.ts` (logica pura, provata da `test/terminale.cjs`) e `src/terminale-host.ts`. Colori e carattere
 in `extensions/bottega-theme`.

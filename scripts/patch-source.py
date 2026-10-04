@@ -95,3 +95,94 @@ replace(p, "\t\tthis.logService.trace('windowsManager#openAgentsWindow');\n",
         "\t\tthis.logService.trace('windowsManager#openAgentsWindow');\n\t\tif (isMacintosh) {\n\t\t\treturn this.open(openConfig);\n\t\t}\n")
 replace(p, "\t\t\tisSessionsWindow: isWorkspaceIdentifier(options.workspace) && isEqual(options.workspace.configPath, this.environmentMainService.agentSessionsWorkspace),",
         "\t\t\tisSessionsWindow: false,")
+replace(p,
+        "import { extUriBiasedIgnorePathCase, isEqual, isEqualAuthority, normalizePath, originalFSPath, removeTrailingPathSeparator }",
+        "import { extUriBiasedIgnorePathCase, isEqualAuthority, normalizePath, originalFSPath, removeTrailingPathSeparator }")
+
+# 10. Terminali nella barra: nomi contenuti, sessioni e menu al passaggio del mouse.
+# Il modulo resta nei sorgenti Bottega; vendor/ viene sempre rigenerata da questo script.
+shutil.copyfile(ROOT / 'brand/terminal-bar.ts', SRC / 'src/vs/workbench/contrib/terminal/browser/bottegaTerminalBar.ts')
+p = 'src/vs/workbench/contrib/terminal/browser/terminalView.ts'
+replace(p,
+        "import * as nls from '../../../../nls.js';",
+        "import { BottegaTerminalTabs } from './bottegaTerminalBar.js';\nimport * as nls from '../../../../nls.js';")
+replace(p,
+        "import { IViewDescriptorService } from '../../../common/views.js';",
+        "import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';")
+replace(p,
+        'const item = this._instantiationService.createInstance(SingleTerminalTabActionViewItem, action, actions);',
+        '''// The pane header and the composite title each own an ActionBar instance.
+					// Do not put both controls in the same disposable map: replacing one
+					// would unsubscribe the other while it is still visible.
+					if (this.viewDescriptorService.getViewLocationById(this.id) === ViewContainerLocation.AuxiliaryBar) {
+						return this._instantiationService.createInstance(BottegaTerminalTabs, action);
+					}
+					const item = this._instantiationService.createInstance(SingleTerminalTabActionViewItem, action, actions);''')
+# I nodi testo diretti dentro display:flex non accettano text-overflow. Avvolgerli
+# conserva icone/status nativi e rende efficace l'ellissi anche fuori dalla barra.
+replace(p,
+        "\t\t\tif (this._altCommand) {\n\t\t\t\tlabel.classList.remove(this._altCommand);",
+        '''			for (const node of Array.from(label.childNodes)) {
+				if (node.nodeType === 3) {
+					const text = dom.$('span.bottega-terminal-label');
+					text.textContent = node.textContent;
+					node.replaceWith(text);
+				}
+			}
+
+			if (this._altCommand) {
+				label.classList.remove(this._altCommand);''')
+p = 'src/vs/workbench/contrib/terminal/browser/terminalMenus.ts'
+replace(p,
+        "ContextKeyExpr.equals(`config.${TerminalSettingId.TabsShowActiveTerminal}`, 'always')",
+        "ContextKeyExpr.equals(`config.${TerminalSettingId.TabsShowActiveTerminal}`, 'always'),\n\t\t\t\t\t\t\tContextKeyExpr.equals('viewLocation', 'auxiliarybar')")
+p = 'src/vs/workbench/browser/parts/compositeBarActions.ts'
+old = '''		this._register(this.hoverService.setupDelayedHover(this.container, () => ({
+			content: this.computeTitle(),
+			style: HoverStyle.Pointer,
+			position: {
+				hoverPosition: this.options.hoverOptions.position(),
+			},
+			persistence: {
+				hideOnKeyDown: true,
+			},
+		}), { groupId: 'composite-bar-actions' }));'''
+replace(p, old, "\t\tif (this.compositeBarActionItem.id !== 'terminal' || this.options.icon) {\n" + old + "\n\t\t}")
+replace(p,
+        '\t\tthis.updateChecked();\n\t\tthis.updateEnabled();',
+        '''		this.updateChecked();
+		this.updateEnabled();
+
+		if (this.compositeBarActionItem.id === 'terminal' && !this.options.icon) {
+			container.classList.add('bottega-terminal-trigger');
+			container.setAttribute('aria-haspopup', 'menu');
+			container.setAttribute('aria-expanded', 'false');
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			const cancel = () => { clearTimeout(timer); timer = undefined; };
+			this._register(toDisposable(cancel));
+			this._register(addDisposableListener(container, 'mouseenter', () => {
+				cancel();
+				timer = setTimeout(() => {
+					if (container.isConnected) {
+						void this.commandService.executeCommand('bottega.terminalMenu', container, false);
+					}
+				}, 250);
+			}));
+			this._register(addDisposableListener(container, 'mouseleave', cancel));
+			this._register(addDisposableListener(container, 'mousedown', cancel));
+			this._register(addDisposableListener(container, 'dragstart', cancel));
+			this._register(addDisposableListener(container, 'keydown', (event: KeyboardEvent) => {
+				if (event.key === 'ArrowDown') {
+					EventHelper.stop(event, true);
+					cancel();
+					void this.commandService.executeCommand('bottega.terminalMenu', container, true);
+				}
+			}, true));
+		}''')
+
+# La toolbar nativa deve conoscere la larghezza minima reale del selettore,
+# altrimenti lo considera una semplice icona da 22 px quando decide l'overflow.
+p = 'src/vs/workbench/browser/parts/auxiliarybar/auxiliaryBarPart.ts'
+replace(p,
+        'getActionMinWidth: action => action instanceof SubmenuItemAction && action.item.isSplitButton ? 36 : undefined,',
+        "getActionMinWidth: action => action.id === 'workbench.action.terminal.focus' ? 76 : action instanceof SubmenuItemAction && action.item.isSplitButton ? 36 : undefined,")

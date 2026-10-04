@@ -52,3 +52,179 @@
 .monaco-workbench .part.statusbar {
 	font-size: 11.5px;
 }
+
+/* Terminali: una sola riga, tre spazi distinti (viste, sessioni, azioni).
+   Palette ereditata da Notte/Calima: navy #0f1627, superficie #1b2540,
+   testo #e8e2d0, secondario #8f98ad, fuoco #9cc2ff, accento #f4ab3c.
+   Carattere UI nativo, 12px; nessuna animazione autonoma. */
+.monaco-workbench .part.auxiliarybar {
+	container-type: inline-size;
+}
+
+.monaco-workbench .part.auxiliarybar > .title > .composite-bar-container {
+	min-width: 0;
+	overflow: hidden;
+}
+
+.monaco-workbench .auxiliarybar.part.pane-composite-part > .composite.title > .title-actions {
+	flex: 0 1 auto;
+	min-width: 0;
+}
+
+/* Anche la label nativa resta contenuta se il terminale viene spostato altrove. */
+.monaco-workbench .pane-composite-part .single-terminal-tab {
+	min-width: 0;
+	max-width: 100%;
+	overflow: hidden;
+}
+
+.monaco-workbench .pane-composite-part .single-terminal-tab > .bottega-terminal-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .part.auxiliarybar > .title.has-composite-bar > .title-actions .monaco-action-bar .action-item.bottega-terminal-tabs-item {
+	width: clamp(76px, 25cqw, 300px);
+	max-width: none;
+	min-width: 0;
+	flex: 0 1 auto;
+	padding: 0;
+}
+
+.bottega-terminal-tabs-item {
+	display: flex !important;
+	align-items: center;
+	gap: 3px;
+}
+
+.bottega-terminal-tabs {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow-x: auto;
+	scrollbar-width: none;
+	overscroll-behavior: contain;
+}
+
+.bottega-terminal-tabs::-webkit-scrollbar { display: none; }
+
+.monaco-workbench .bottega-terminal-chip,
+.monaco-workbench .bottega-terminal-menu-button {
+	appearance: none;
+	border: 1px solid transparent;
+	border-radius: 5px;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font: inherit;
+	font-size: 12px;
+	height: 24px;
+	line-height: 20px;
+	padding: 1px 7px;
+	cursor: pointer;
+}
+
+.monaco-workbench .bottega-terminal-chip {
+	flex: 0 0 auto;
+	max-width: min(150px, 100%);
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .bottega-terminal-chip[aria-selected="true"] {
+	background: var(--vscode-list-activeSelectionBackground);
+	color: var(--vscode-list-activeSelectionForeground);
+	border-color: var(--vscode-widget-border, transparent);
+}
+
+.monaco-workbench .bottega-terminal-menu-button {
+	flex: 0 0 auto;
+	min-width: 25px;
+	padding: 1px 4px;
+}
+
+.monaco-workbench .bottega-terminal-chip:hover,
+.monaco-workbench .bottega-terminal-menu-button:hover {
+	background: var(--vscode-toolbar-hoverBackground);
+	color: var(--vscode-foreground);
+}
+
+.monaco-workbench .bottega-terminal-chip:focus-visible,
+.monaco-workbench .bottega-terminal-menu-button:focus-visible,
+.bottega-terminal-menu-row:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -2px;
+}
+
+.bottega-terminal-trigger .action-label::after {
+	content: '⌄';
+	font-size: 11px;
+	margin-left: 5px;
+	opacity: .65;
+}
+
+.bottega-terminal-menu {
+	box-sizing: border-box;
+	width: min(340px, calc(100vw - 24px));
+	max-height: min(420px, calc(100vh - 90px));
+	overflow-y: auto;
+	padding: 6px;
+	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+	border-radius: 10px;
+	background: var(--vscode-menu-background);
+	color: var(--vscode-menu-foreground);
+	box-shadow: 0 12px 32px var(--vscode-widget-shadow);
+	font-size: 12px;
+}
+
+.bottega-terminal-menu-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 32px;
+	padding: 7px 9px;
+	border: 0;
+	border-radius: 5px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	overflow-wrap: anywhere;
+	cursor: pointer;
+}
+
+.bottega-terminal-menu-row:hover,
+.bottega-terminal-menu-row:focus {
+	background: var(--vscode-menu-selectionBackground);
+	color: var(--vscode-menu-selectionForeground);
+}
+
+.bottega-terminal-menu hr,
+.bottega-terminal-menu-separator {
+	border: 0;
+	border-top: 1px solid var(--vscode-menu-separatorBackground);
+	margin: 5px 4px;
+}
+
+.bottega-terminal-menu-check {
+	flex: 0 0 16px;
+	text-align: center;
+	color: var(--vscode-textLink-foreground);
+}
+
+.bottega-terminal-menu-text {
+	min-width: 0;
+}
+
+@container (max-width: 420px) {
+	.monaco-workbench .part.auxiliarybar > .title.has-composite-bar > .title-actions .monaco-action-bar .action-item.bottega-terminal-tabs-item {
+		width: 76px;
+	}
+}
