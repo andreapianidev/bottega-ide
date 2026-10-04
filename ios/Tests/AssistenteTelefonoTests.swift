@@ -1,8 +1,69 @@
 import XCTest
+import ActivityKit
 @testable import Bottega
 
 @MainActor
 final class AssistenteTelefonoTests: XCTestCase {
+    func testPonteTLSConIndirizzoTailscale() async throws {
+        let ponte = Ponte.shared
+        ponte.ricarica()
+        let c = try XCTUnwrap(ponte.collegamento)
+        let sicuro = try XCTUnwrap(Collegamento.sicuro)
+        let url = try XCTUnwrap(URL(string: "https://\(c.ip):\(sicuro.porta)/v1/stato"))
+        var richiesta = URLRequest(url: url, timeoutInterval: 15)
+        richiesta.setValue("Bearer \(c.token)", forHTTPHeaderField: "authorization")
+        let sessione = URLSession(configuration: .ephemeral, delegate: FiduciaPonte.shared, delegateQueue: nil)
+        defer { sessione.invalidateAndCancel() }
+        let (dati, risposta) = try await sessione.data(for: richiesta)
+        XCTAssertEqual((risposta as? HTTPURLResponse)?.statusCode, 200)
+        let stato = try JSONDecoder().decode(StatoMac.self, from: dati)
+        XCTAssertLessThan(abs(Date().timeIntervalSince1970 * 1000 - stato.ora), 30_000)
+        XCTAssertTrue(Set(["claude", "codex", "cline", "terminale"])
+            .isSubset(of: Set(try XCTUnwrap(stato.attivita).map(\.source))))
+    }
+
+    func testLiveActivityRiparteDopoRiaccensione() async throws {
+        guard ActivityAuthorizationInfo().areActivitiesEnabled, Avvisi.shared.liveAccese else {
+            throw XCTSkip("Live Activity disabilitate nelle preferenze del dispositivo")
+        }
+        let ponte = Ponte.shared
+        ponte.ricarica()
+        await ponte.aggiornaStato()
+        let stato = try XCTUnwrap(ponte.stato)
+        guard stato.conteggiAttivita.inCorso + stato.conteggiAttivita.tiAspetta > 0 else {
+            throw XCTSkip("Nessuna attività attuale da mostrare")
+        }
+        Avvisi.shared.avvia()
+        await Avvisi.shared.cambiaLive(false)
+        await Avvisi.shared.cambiaLive(true)
+        var correnti: [Activity<BottegaAttivita>] = []
+        for _ in 0..<45 {
+            correnti = Activity<BottegaAttivita>.activities.filter {
+                $0.activityState == .active && Date().timeIntervalSince1970 * 1000 - $0.content.state.aggiornato < 90_000
+            }
+            if !correnti.isEmpty { break }
+            try await Task.sleep(for: .seconds(1))
+        }
+        XCTAssertFalse(correnti.isEmpty, "La Live Activity deve essere attiva con un dato recente")
+        if let contenuto = correnti.first?.content.state {
+            XCTAssertTrue(contenuto.righe.allSatisfy { $0.fonte != nil })
+            print("Live Activity recente: righe=\(contenuto.righe.count), inCorso=\(contenuto.inCorso), inAttesa=\(contenuto.tiAspetta)")
+        }
+    }
+
+    override func setUp() async throws {
+        // Solo il runner dei test può fornire il collegamento: nessun gettone nel codice o nei risultati.
+        guard let link = ProcessInfo.processInfo.environment["BOTTEGA_TEST_LINK"],
+              let url = URL(string: link) else { return }
+        await MainActor.run {
+            let attuale = Ponte.shared.collegamento
+            let richiesto = Collegamento(url: url)
+            if attuale?.host != richiesto?.host || attuale?.token != richiesto?.token || attuale?.porta != richiesto?.porta {
+                XCTAssertTrue(Ponte.shared.collega(url), "Il collegamento di prova deve essere valido")
+            }
+        }
+    }
+
     func testAttivitaDelMacEContestoMelissa() async throws {
         let ponte = Ponte.shared
         ponte.ricarica()

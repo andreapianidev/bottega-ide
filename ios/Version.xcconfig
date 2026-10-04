@@ -1,3 +1,3 @@
-// Build 96 solo iPhone e Watch: la build Mac 95 resta installata senza riavvii.
+// Build 98 solo iPhone e Watch: la build Mac 95 resta installata senza riavvii.
 MARKETING_VERSION = 0.1.0
-CURRENT_PROJECT_VERSION = 96
+CURRENT_PROJECT_VERSION = 98

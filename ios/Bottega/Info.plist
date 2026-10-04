@@ -49,6 +49,15 @@
 		<true/>
 		<key>NSExceptionDomains</key>
 		<dict>
+			<!-- iOS 17+: anche gli IP Tailscale richiedono l'eccezione per il certificato privato.
+			     Le richieste restano HTTPS e FiduciaPonte verifica l'impronta del Mac abbinato. -->
+			<key>100.64.0.0/10</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSExceptionMinimumTLSVersion</key>
+				<string>TLSv1.2</string>
+			</dict>
 			<key>ts.net</key>
 			<dict>
 				<key>NSIncludesSubdomains</key>

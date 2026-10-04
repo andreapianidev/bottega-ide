@@ -196,10 +196,21 @@ final class FiduciaPonte: NSObject, URLSessionTaskDelegate, @unchecked Sendable 
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               let trust = challenge.protectionSpace.serverTrust else { return (.performDefaultHandling, nil) }
         guard let attesa = Collegamento.sicuro?.impronta,
-              let catena = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let foglia = catena.first else {
+              verifica(trust: trust, improntaAttesa: attesa) else {
             return (.cancelAuthenticationChallenge, nil)
         }
+        return (.useCredential, URLCredential(trust: trust))
+    }
+
+    static func verifica(trust: SecTrust, improntaAttesa: String) -> Bool {
+        guard let catena = SecTrustCopyCertificateChain(trust) as? [SecCertificate],
+              let foglia = catena.first else { return false }
         let impronta = SHA256.hash(data: SecCertificateCopyData(foglia) as Data).map { String(format: "%02x", $0) }.joined()
-        return impronta == attesa ? (.useCredential, URLCredential(trust: trust)) : (.cancelAuthenticationChallenge, nil)
+        guard impronta == improntaAttesa else { return false }
+        // Il pin autorizza esclusivamente questa ancora. La policy TLS originale
+        // continua a verificare nome/IP, validita' temporale e uso del certificato.
+        return SecTrustSetAnchorCertificates(trust, [foglia] as CFArray) == errSecSuccess
+            && SecTrustSetAnchorCertificatesOnly(trust, true) == errSecSuccess
+            && SecTrustEvaluateWithError(trust, nil)
     }
 }

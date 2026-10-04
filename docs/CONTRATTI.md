@@ -1836,6 +1836,20 @@ Il dettaglio ore, token e grafici di `/v1/stanza?nome=cruscotto` del Mac 95 rest
 l'iPhone e il racconto di Melissa dichiarano questo ambito, senza dedurre ore dalle quantità di sessioni.
 La build mobile 96 è indipendente dalla build Mac 95, lasciata in esecuzione senza reinstallazione.
 
+La build mobile 97 serializza le registrazioni dei token APNs: ogni richiesta conserva il proprio snapshot,
+il delta si calcola dopo la conferma precedente e solo i valori confermati vengono memorizzati. Una vecchia
+richiesta di spegnimento non può quindi sorpassare la riaccensione della Live Activity. Il cambio Mac invalida
+gli invii accodati e le conferme della destinazione precedente. La chiusura manuale della Live Activity resta
+distinta dallo spegnimento e dalla riaccensione espliciti.
+
+La build mobile 98 estende all'intervallo IP Tailscale `100.64.0.0/10` l'eccezione ATS per il certificato
+privato del ponte, sia nell'app sia nel widget. Le richieste restano HTTPS, con TLS minimo 1.2: il certificato
+deve coincidere con l'impronta del Mac abbinato e superare la verifica di nome/IP e scadenza. Il percorso IP
+funziona anche senza risoluzione MagicDNS; non viene introdotto un ripiego HTTP. L'ambiente APNs deriva dal
+profilo di firma incorporato, non da Debug/Release: una Release installata con firma development registra
+token di sviluppo. Gli ACK salvati senza ambiente, o per un ambiente diverso, vengono invalidati e reinviati.
+Le modifiche restano mobile: il Mac 95 non viene reinstallato o riavviato.
+
 ### 9.7 La stanza App Store sull'iPhone: piu' dati, grafici e azioni (`src/ponte-stanze.ts`, `ios/Bottega/Stanze/AppStore/`)
 
 Parita' con la stanza del Mac (sezione 13): l'iPhone vede tutto quello che mostra `media/appstore.js` e puo' fare le

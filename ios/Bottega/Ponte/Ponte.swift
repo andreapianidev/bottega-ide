@@ -539,23 +539,37 @@ final class Ponte {
     }
 
     private func mandaDati(_ percorso: String, _ corpo: [String: Any], timeout: TimeInterval) async throws -> Data {
-        var req = try richiesta(percorso, timeout: timeout)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "content-type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: corpo)
-        do {
-            let (d, r) = try await sessione.data(for: req)
-            try controlla(r, corpo: d)
-            return d
-        } catch {
-            if await rinnovaCertificatoSeServe(error) {
-                return try await mandaDati(percorso, corpo, timeout: timeout)
-            }
-            if collegamento?.ripiegaSuHttp(error, ripetibile: false) == true || scambiaSuIP(error) {
-                return try await mandaDati(percorso, corpo, timeout: timeout)
-            }
-            throw (error as? ErrorePonte) ?? ErrorePonte(messaggio: spiega(error))
+        // Un cambio di abbinamento durante un await non deve spostare una POST
+        // (o il suo retry) sul nuovo Mac. I retry conservano questa identita'.
+        let originale = collegamento
+        func verificaCollegamento() throws {
+            try Task.checkCancellation()
+            guard collegamento == originale else { throw CancellationError() }
         }
+        func invia() async throws -> Data {
+            try verificaCollegamento()
+            var req = try richiesta(percorso, timeout: timeout)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "content-type")
+            req.httpBody = try JSONSerialization.data(withJSONObject: corpo)
+            do {
+                let (d, r) = try await sessione.data(for: req)
+                try verificaCollegamento()
+                try controlla(r, corpo: d)
+                return d
+            } catch {
+                try verificaCollegamento()
+                if error is CancellationError { throw error }
+                let rinnovato = await rinnovaCertificatoSeServe(error)
+                try verificaCollegamento()
+                if rinnovato { return try await invia() }
+                if collegamento?.ripiegaSuHttp(error, ripetibile: false) == true || scambiaSuIP(error) {
+                    return try await invia()
+                }
+                throw (error as? ErrorePonte) ?? ErrorePonte(messaggio: spiega(error))
+            }
+        }
+        return try await invia()
     }
 
     private func richiesta(_ percorso: String, timeout: TimeInterval = 90) throws -> URLRequest {

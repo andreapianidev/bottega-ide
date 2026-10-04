@@ -47,6 +47,78 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 }
 
+/// I token passano al Mac nello stesso ordine delle scelte sul telefono. Il delta
+/// si calcola dopo l'ACK precedente, mai contro richieste ancora in volo.
+@MainActor
+final class InvioTokenDispositivo {
+    private(set) var mandati: [String: String]
+    private let invia: ([String: String]) async throws -> Void
+    private let conserva: ([String: String]) -> Void
+    private var ultimo: Task<Void, Error>?
+    private var generazione = 0
+    private var epoca = 0
+    private var inCongedo = false
+
+    init(mandati: [String: String] = [:],
+         invia: @escaping ([String: String]) async throws -> Void,
+         conserva: @escaping ([String: String]) -> Void = { _ in }) {
+        self.mandati = mandati
+        self.invia = invia
+        self.conserva = conserva
+    }
+
+    func manda(_ desiderati: [String: String]) async throws {
+        guard !inCongedo else { return }
+        let precedente = ultimo
+        let epocaRichiesta = epoca
+        generazione += 1
+        let mia = generazione
+        let task = Task { @MainActor in
+            // Un errore precedente non impedisce alla richiesta successiva di riprovare.
+            _ = try? await precedente?.value
+            guard epocaRichiesta == self.epoca else { return }
+            let nuovi = desiderati.filter { self.mandati[$0.key] != $0.value }
+            guard !nuovi.isEmpty else { return }
+            try await self.invia(nuovi)
+            guard epocaRichiesta == self.epoca else { return }
+            for (campo, valore) in nuovi { self.mandati[campo] = valore }
+            self.conserva(self.mandati)
+        }
+        ultimo = task
+        defer { if mia == generazione { ultimo = nil } }
+        try await task.value
+    }
+
+    /// Ferma i nuovi invii e scarta quelli accodati. La rimozione resta l'ultima
+    /// scrittura, anche se un token era gia' partito prima di «Scollega».
+    func congeda(_ rimuovi: @escaping () async throws -> Void) async throws {
+        if inCongedo {
+            try await ultimo?.value
+            return
+        }
+        inCongedo = true
+        epoca += 1
+        let epocaRichiesta = epoca
+        let precedente = ultimo
+        generazione += 1
+        let mia = generazione
+        let task = Task { @MainActor in
+            _ = try? await precedente?.value
+            guard epocaRichiesta == self.epoca else { return }
+            try await rimuovi()
+        }
+        ultimo = task
+        defer { if mia == generazione { ultimo = nil } }
+        try await task.value
+    }
+
+    func dimentica() {
+        epoca += 1
+        inCongedo = false
+        mandati = [:]
+    }
+}
+
 @MainActor
 final class Avvisi {
     static let shared = Avvisi()
@@ -68,7 +140,16 @@ final class Avvisi {
 
     private var ponte: Ponte { Ponte.shared }
     /// Quello che il Mac sa gia': non si rimanda a ogni apertura.
-    private var mandati: [String: String] = Condiviso.preferenze.dictionary(forKey: "tokenMandati") as? [String: String] ?? [:]
+    private lazy var invii = InvioTokenDispositivo(
+        mandati: AmbientePush.tokenConfermati(preferenze: Condiviso.preferenze, ambiente: ambiente),
+        invia: { [weak self] nuovi in
+            guard let self else { return }
+            var campi = nuovi
+            campi["ambiente"] = self.ambiente
+            try await self.ponte.registraDispositivo(campi)
+        },
+        conserva: { Condiviso.preferenze.set($0, forKey: "tokenMandati") })
+    private var mandati: [String: String] { invii.mandati }
     private var inAttesa: [String: String] = [:]
     private var osservaAttivita: Task<Void, Never>?
     /// Il token di ogni Live Activity (per id): alla fine di una si toglie dal Mac solo se e' ancora il suo.
@@ -81,11 +162,7 @@ final class Avvisi {
     static let chiaveLive = "liveActivityAccese"
     var liveAccese: Bool { Condiviso.preferenze.object(forKey: Self.chiaveLive) as? Bool ?? true }
 
-    #if DEBUG
-    private let ambiente = "sviluppo"
-    #else
-    private let ambiente = "produzione"
-    #endif
+    private let ambiente = AmbientePush.attuale()
 
     /// Da quando l'app parte, anche lanciata dietro dal sistema senza scena (push-to-start): i token delle Live
     /// Activity e quello del widget arrivano e vanno al Mac. Il permesso delle notifiche no, quello solo con l'app
@@ -116,20 +193,23 @@ final class Avvisi {
 
     /// Scollegato, o collegato a un altro Mac: quel Mac non sa niente di questo iPhone.
     func dimentica() {
-        mandati = [:]
+        invii.dimentica()
         Condiviso.preferenze.removeObject(forKey: "tokenMandati")
     }
 
-    /// «Scollega»: prima il Mac toglie i token di questo iPhone (campi vuoti), poi si chiudono le Live Activity
-    /// aperte qui. Pochi secondi al massimo: con il Mac spento si scollega lo stesso.
+    /// «Scollega»: dopo gli invii gia' partiti, il Mac toglie tutti i token. La
+    /// richiesta finale ha un timeout di sei secondi; poi si chiudono le Live Activity.
     func congeda() async {
-        if ponte.collegato {
-            do {
+        let originale = ponte.collegamento
+        do {
+            try await invii.congeda { [self] in
+                guard let originale else { return }
+                guard ponte.collegamento == originale else { throw CancellationError() }
                 try await ponte.registraDispositivo(["ambiente": ambiente, "token": "", "avvio": "", "attivita": "", "widget": ""],
                                                     timeout: 6)
-            } catch {
-                Log.warn("notifiche: il Mac non ha tolto i token (\(error.localizedDescription)), scollego lo stesso")
             }
+        } catch {
+            Log.warn("notifiche: il Mac non ha tolto i token (\(error.localizedDescription)), scollego lo stesso")
         }
         for a in Activity<BottegaAttivita>.activities {
             await a.end(nil, dismissalPolicy: .immediate)
@@ -182,17 +262,14 @@ final class Avvisi {
     }
 
     private func manda() async {
-        let nuovi = inAttesa.filter { mandati[$0.key] != $0.value }
-        guard !nuovi.isEmpty else { return }
-        // lanciata dietro prima del primo sblocco il gettone non si leggeva: si riprova qui
+        // Valori immutabili per questa chiamata: un cambio successivo resta nella sua
+        // generazione, anche quando la richiesta precedente non ha ancora risposto.
+        let desiderati = inAttesa
+        guard !desiderati.isEmpty else { return }
         ponte.ricarica()
         guard ponte.collegato else { return }
-        var campi = nuovi
-        campi["ambiente"] = ambiente
         do {
-            try await ponte.registraDispositivo(campi)
-            for (k, v) in nuovi { mandati[k] = v }
-            Condiviso.preferenze.set(mandati, forKey: "tokenMandati")
+            try await invii.manda(desiderati)
         } catch {
             Log.warn("notifiche: il Mac non ha preso i token (\(error.localizedDescription)), riprovo alla prossima apertura")
         }
