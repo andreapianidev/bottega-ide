@@ -86,8 +86,10 @@ struct SessioneView: View {
     private var azioni: some View {
         HStack(spacing: 10) {
             Pulsante(titolo: titoloRiassunto, simbolo: riassunto.stato == .fermo ? "waveform" : "stop.fill", acceso: riassunto.stato != .fermo) {
-                riassunto.avvia(lavoro.chiave)
+                if riassunto.stato != .fermo { riassunto.ferma() }
+                else if let scheda { riassunto.avvia(titolo: "la sessione di \(scheda.progetto)", contesto: contestoRacconto(scheda)) }
             }
+            .disabled(scheda == nil && riassunto.stato == .fermo)
             Pulsante(titolo: scheda?.seguita == true ? "La segui" : "Segui", simbolo: scheda?.seguita == true ? "pin.fill" : "pin", acceso: scheda?.seguita == true) {
                 Task { await cambiaSegui() }
             }
@@ -97,10 +99,22 @@ struct SessioneView: View {
 
     private var titoloRiassunto: String {
         switch riassunto.stato {
-        case .fermo: "Riassumimelo"
+        case .fermo: "Racconta"
         case .pensa: "Melissa legge…"
         case .parla: "Fermala"
         }
+    }
+
+    private func contestoRacconto(_ s: SchedaSessione) -> String {
+        var righe = ["Progetto: \(s.progetto)", "Titolo: \(s.titolo)", "Stato: \(s.stato)"]
+        if let richiesta = s.richiesta { righe.append("Richiesta: \(richiesta.prefix(1200))") }
+        if !s.passi.isEmpty {
+            righe.append("Passi recenti:\n" + s.passi.suffix(12).map { "- \($0.testo)\($0.inCorso == true ? " (in corso)" : "")" }.joined(separator: "\n"))
+        }
+        if !s.file.isEmpty { righe.append("File toccati: " + s.file.prefix(20).joined(separator: ", ")) }
+        if let risposta = s.risposta { righe.append("Ultima risposta: \(risposta.prefix(1500))") }
+        if let domanda = s.domanda { righe.append("Ora aspetta Andrea: \(domanda.testo.prefix(500))") }
+        return righe.joined(separator: "\n")
     }
 
     private var attesa: some View {

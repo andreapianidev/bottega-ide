@@ -1,13 +1,5 @@
-//
-//  Riassunto.swift
-//  Bottega per iPhone
-//
-//  «Riassumimelo» nella scheda di una sessione: Melissa legge la sessione sul Mac e la racconta in due frasi
-//  (POST /v1/sessione/riassunto, docs/CONTRATTI.md 9.5). La voce arriva a pezzi come per /v1/parla e suona
-//  subito (FlussoVoce); se dal Mac non arriva l'audio parla la voce italiana di iOS. Un tocco mentre parla la
-//  ferma, anche sul Mac (si chiude la connessione).
-//
-
+// Il racconto di Melissa per una stanza o una sessione: DeepSeek Pro, Agnes di riserva,
+// testo e voce ElevenLabs in streaming sul telefono.
 import AVFoundation
 import Observation
 
@@ -21,61 +13,50 @@ final class Riassunto {
     var errore: String?
 
     private let flusso = FlussoVoce()
-    private let parlato = Parlato()
     private var compito: Task<Void, Never>?
+    private var numero = 0
 
-    func avvia(_ chiave: String) {
+    func avvia(titolo: String, contesto: String) {
         guard stato == .fermo else { return ferma() }
         errore = nil
         testo = ""
         stato = .pensa
-        compito = Task { await giro(chiave) }
+        numero += 1
+        let corrente = numero
+        compito = Task { await giro(titolo: titolo, contesto: contesto, numero: corrente) }
     }
 
     func ferma() {
+        numero += 1
         compito?.cancel()
         compito = nil
-        flusso.ferma()
-        parlato.ferma()
+        flusso.spegni()
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         stato = .fermo
     }
 
-    private func giro(_ chiave: String) async {
-        defer {
-            if !Task.isCancelled { stato = .fermo }
-            flusso.spegni()
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        }
-        let pronto = (try? flusso.prepara()) != nil
-        var frasi: [String] = []
-        var audio = false
+    private func giro(titolo: String, contesto: String, numero corrente: Int) async {
         do {
-            try await PonteSessioni.shared.riassunto(chiave) { riga in
-                switch riga {
-                case .frase(let f):
-                    frasi.append(f)
-                    testo = frasi.joined(separator: " ")
-                case .audio(let pcm):
-                    guard pronto else { break }
-                    audio = true
-                    stato = .parla
-                    flusso.accoda(pcm)
-                case .fine(let r):
-                    if !r.isEmpty { testo = r }
-                default:
-                    break
-                }
+            try flusso.prepara()
+            _ = try await AssistenteTelefono.shared.racconta(contesto, titolo: titolo) { [weak self] pezzo in
+                guard let self, self.numero == corrente else { return }
+                self.testo += pezzo
+            } audio: { [weak self] pcm in
+                guard let self, self.numero == corrente else { return }
+                self.stato = .parla
+                self.flusso.accoda(pcm)
             }
-        } catch {
-            if !Task.isCancelled { errore = error.localizedDescription }
-            return
-        }
-        if Task.isCancelled { return }
-        stato = .parla
-        if audio {
+            try Task.checkCancellation()
             await flusso.aspettaFine()
-        } else if !testo.isEmpty {
-            await parlato.dici(testo)
+        } catch is CancellationError {
+            // Il pulsante Ferma chiude sia la richiesta sia la voce.
+        } catch {
+            if numero == corrente { errore = error.localizedDescription }
         }
+        guard numero == corrente else { return }
+        flusso.spegni()
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        compito = nil
+        stato = .fermo
     }
 }

@@ -25,7 +25,6 @@ final class Melissa {
 
     private let ponte: Ponte
     private let ascolto = Ascolto()
-    private let parlato = Parlato()
     private let flusso = FlussoVoce()
     private var turno: Task<Void, Never>?
     /// La risposta a voce in arrivo dal Mac: cancellarla chiude la connessione e il Mac smette di rispondere.
@@ -57,7 +56,6 @@ final class Melissa {
             rete?.cancel()
             lavoroTelefono?.cancel()
             flusso.ferma()
-            parlato.ferma()
         case .pensa:
             break
         case .riposo, .errore:
@@ -78,7 +76,6 @@ final class Melissa {
         rete?.cancel()
         lavoroTelefono?.cancel()
         flusso.ferma()
-        parlato.ferma()
         if sfera != .pensa { sfera = .riposo }
         parziale = ""
         // con una domanda ancora in corso l'audio lo lascia chi la chiude (chiedi)
@@ -93,7 +90,6 @@ final class Melissa {
         let g = giro
         conversazione = false
         ascolto.ferma()
-        parlato.ferma()
         turno = Task { await chiedi(t, giro: g) }
     }
 
@@ -135,7 +131,6 @@ final class Melissa {
                 conversazione = false
                 sfera = .riposo
                 parziale = ""
-                if voceAccesa { await parlato.dici("A dopo.") }
                 if g == giro { liberaAudio() }
                 return
             }
@@ -205,23 +200,11 @@ final class Melissa {
     }
 
     /// La risposta arriva a frasi e la voce suona mentre Melissa sta ancora rispondendo (ponte /v1/parla).
-    /// Se dal Mac non arriva la voce, parla la voce italiana di iOS con il testo; se si perde a meta', la voce di
-    /// iOS dice le frasi arrivate dopo l'ultimo audio.
+    /// Se ElevenLabs non manda audio, mostriamo l'errore senza cambiare la voce di Melissa.
     private func chiediAVoce(_ testo: String) async throws {
-        let pronto: Bool
-        do {
-            try flusso.prepara()
-            pronto = true
-        } catch {
-            // niente coda su un motore fermo: alla fine parla la voce di iOS
-            Log.warn("voce: il motore audio non parte (\(error.localizedDescription)), parla la voce di iOS")
-            pronto = false
-        }
+        try flusso.prepara()
         var vocePonte = true
-        var persa = false
-        var frasi: [String] = []
-        /// Le frasi arrivate fino all'ultimo audio: quelle dopo, se la voce si perde, le dice iOS.
-        var coperte = 0
+        var erroreVoce: String?
         var risposta = ""
         let compito = Task { @MainActor in
             try await ponte.parla(testo) { riga in
@@ -229,15 +212,13 @@ final class Melissa {
                 case .voce(let ok): vocePonte = ok
                 case .frase(let f):
                     if sfera == .pensa { parziale = "" }
-                    frasi.append(f)
+                    parziale = f
                 case .audio(let pcm):
-                    guard pronto, !persa else { break }
-                    coperte = frasi.count
                     if sfera != .parla { sfera = .parla }
                     flusso.accoda(pcm)
-                case .vocePersa:
+                case .vocePersa(let errore):
                     vocePonte = false
-                    persa = true
+                    erroreVoce = errore
                 case .fine(let r): risposta = r
                 }
             }
@@ -250,17 +231,9 @@ final class Melissa {
         if flusso.haSuonato {
             sfera = .parla
             await flusso.aspettaFine()
-            let resto = frasi.dropFirst(coperte).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-            // interrotta con un tocco mentre suonava: il resto non si dice
-            if persa, !resto.isEmpty, !compito.isCancelled, sfera == .parla {
-                Log.warn("la voce del Mac si e' persa a meta': il resto lo dice la voce di iOS")
-                await parlato.dici(resto)
-            }
-        } else if !risposta.isEmpty {
-            // nessun audio dal Mac (ElevenLabs o il Nucleo giu'): la voce di iOS, con il testo intero
-            if vocePonte { Log.warn("il ponte non ha mandato audio: parla la voce di iOS") }
-            sfera = .parla
-            await parlato.dici(risposta)
+        }
+        if !vocePonte || (!risposta.isEmpty && !flusso.haSuonato) {
+            throw ErrorePonte(messaggio: erroreVoce ?? "ElevenLabs non ha mandato la voce di Melissa.")
         }
     }
 

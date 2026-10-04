@@ -147,6 +147,9 @@ private struct ApriStanza: View {
 struct CorniceStanza<T: Decodable, Contenuto: View>: View {
     let lettura: LetturaStanza<T>
     let query: [String: String]
+    @Environment(\.scenePhase) private var fase
+    @State private var riassunto = Riassunto()
+    @State private var erroreRacconto: String?
     /// L'ora (ms) del dato sul Mac, se la stanza ce l'ha: per dire «dati del Mac di 3 ore fa».
     var datiDelMac: ((T) -> Double?)?
     @ViewBuilder let contenuto: (T) -> Contenuto
@@ -156,6 +159,30 @@ struct CorniceStanza<T: Decodable, Contenuto: View>: View {
             VStack(alignment: .leading, spacing: 14) {
                 if let d = lettura.dati {
                     stato(d)
+                    HStack {
+                        Button(riassunto.stato == .fermo ? "Racconta con Melissa" : "Ferma Melissa") {
+                            if riassunto.stato == .fermo { avviaRacconto() } else { riassunto.ferma() }
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Tinte.ambra)
+                        Spacer()
+                        if riassunto.stato != .fermo { ProgressView().tint(Tinte.ambra) }
+                    }
+                    if riassunto.stato != .fermo || !riassunto.testo.isEmpty || riassunto.errore != nil || erroreRacconto != nil {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Melissa racconta").font(.caption.weight(.semibold)).foregroundStyle(Tinte.ambra)
+                            if let errore = riassunto.errore ?? erroreRacconto {
+                                Text(errore).foregroundStyle(Tinte.rosso)
+                            } else {
+                                Text(riassunto.testo.isEmpty ? "Preparo il racconto e la voce…" : riassunto.testo)
+                                    .foregroundStyle(Tinte.testo)
+                            }
+                        }
+                        .font(.callout)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .background(RoundedRectangle(cornerRadius: 14).fill(Tinte.notteFonda))
+                    }
                     contenuto(d)
                 } else if lettura.caricando {
                     HStack(spacing: 10) {
@@ -188,6 +215,27 @@ struct CorniceStanza<T: Decodable, Contenuto: View>: View {
         }
         .refreshable { await lettura.carica(query) }
         .task(id: query) { await lettura.carica(query) }
+        .onChange(of: query) { _, _ in riassunto.ferma(); riassunto = Riassunto(); erroreRacconto = nil }
+        .onChange(of: fase) { _, nuova in if nuova == .background { riassunto.ferma() } }
+        .onDisappear { riassunto.ferma() }
+    }
+
+    private func avviaRacconto() {
+        erroreRacconto = nil
+        guard let copia = PonteStanze.shared.ultima(lettura.nome, query) else {
+            erroreRacconto = "Aspetta che i dati della stanza siano pronti."
+            return
+        }
+        let contenuto: String
+        if let json = try? JSONSerialization.jsonObject(with: copia.dati),
+           let ordinato = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) {
+            contenuto = String(decoding: ordinato, as: UTF8.self)
+        } else {
+            contenuto = String(decoding: copia.dati, as: UTF8.self)
+        }
+        let nome = StanzaPlancia(rawValue: lettura.nome)?.titolo ?? lettura.nome
+        let contesto = "Dati visti il \(copia.visto.formatted(date: .complete, time: .shortened)):\n\(contenuto)"
+        riassunto.avvia(titolo: "la stanza \(nome)", contesto: contesto)
     }
 
     @ViewBuilder

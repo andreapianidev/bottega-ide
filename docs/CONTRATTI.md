@@ -1889,6 +1889,10 @@ rete di casa dicono al Mac dov'e' l'iPhone, non portano dati.
   `eleven_v4_turbo`, la stessa `voiceID` e `pcm_24000` del Nucleo. Le frasi arrivano a `FlussoVoce` mentre il modello
   scrive; un tocco cancella la richiesta e il socket. Se ElevenLabs non manda audio, l'app mostra un errore chiaro;
   non sostituisce silenziosamente la voce di Melissa nella modalita' autonoma.
+- «Racconta» nelle Stanze e nella scheda di una sessione legge la copia dei dati gia' visibili, con i filtri attivi
+  sull'iPhone. L'analisi parte da `deepseek-v4-pro` con impegno alto; se DeepSeek non risponde prima del testo,
+  prova Agnes. Le frasi SSE vanno subito a ElevenLabs e il PCM alla sfera, con il testo visibile durante il racconto.
+  Un secondo tocco ferma la richiesta e l'audio. Il racconto non entra nella storia della conversazione.
 - I turni offline hanno UUID e sono salvati in Application Support con protezione dati. Quando il Mac torna, l'app
   manda al massimo 24 turni per volta a `/v1/assistente/storia`, poi li segna sincronizzati. Una scelta locale di
   cervello o impegno fatta offline viene applicata al Mac come scelta «sempre». Siri usa lo stesso percorso di testo

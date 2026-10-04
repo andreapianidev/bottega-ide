@@ -454,6 +454,10 @@ e la installi da Xcode sul tuo iPhone. Tailscale acceso sull'iPhone e sul Mac, c
 Per le notifiche serve una chiave APNs del tuo account (Certificates, Identifiers & Profiles, Keys), scritta in
 `~/.secrets/bottega.env` come `APNS_KEY_PATH`, `APNS_KEY_ID` e `APNS_TEAM_ID`.
 
+Nelle Stanze e nei dettagli delle sessioni, «Racconta» fa leggere a Melissa i dati mostrati: DeepSeek V4 Pro li
+spiega (Agnes risponde se DeepSeek non è disponibile) e ElevenLabs parla sull'iPhone mentre arriva il testo. Per usarlo
+una prima volta, apri Impostazioni e importa dal Mac le chiavi di Agnes, DeepSeek ed ElevenLabs.
+
 ## Cosa esce dal tuo Mac
 
 - verso Agnes AI: le domande che fai a Melissa e il testo delle sessioni da riassumere (al massimo

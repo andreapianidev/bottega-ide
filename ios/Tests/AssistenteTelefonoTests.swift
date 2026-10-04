@@ -36,6 +36,16 @@ final class AssistenteTelefonoTests: XCTestCase {
         XCTAssertGreaterThan(telefono.ultimiByteVoce, 0, "ElevenLabs deve inviare audio direttamente all'iPhone")
         XCTAssertNil(melissa.avviso, "Melissa deve finire la voce senza errore")
 
+        let turniPrimaDelRacconto = telefono.turni.count
+        var testoRacconto = ""
+        var audioRacconto = 0
+        let racconto = try await telefono.racconta("Sessione di prova: stato in corso, ha letto un file Swift e aspetta una conferma.",
+                                                  titolo: "la sessione di prova") { testoRacconto += $0 } audio: { audioRacconto += $0.count }
+        XCTAssertFalse(racconto.isEmpty, "DeepSeek Pro o Agnes deve raccontare i dati")
+        XCTAssertEqual(racconto, testoRacconto, "Il testo deve arrivare in streaming")
+        XCTAssertGreaterThan(audioRacconto, 0, "Il racconto deve avere la voce ElevenLabs")
+        XCTAssertEqual(telefono.turni.count, turniPrimaDelRacconto, "Il racconto non entra nella conversazione")
+
         telefono.impostaPerProva(provider: "deepseek", impegno: "rapido")
         let deepseek = try await telefono.rispondi("Dì soltanto: prova DeepSeek riuscita.", voce: false) { _ in }
         XCTAssertFalse(deepseek.isEmpty, "DeepSeek deve rispondere direttamente all'iPhone")
