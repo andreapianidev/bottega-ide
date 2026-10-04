@@ -157,6 +157,12 @@
 		return m % 60 ? `${h} h ${m % 60} min` : `${h} h`;
 	}
 
+	/** Etichetta corta per sette colonne anche quando la finestra e' stretta. */
+	function hmCorto(min) {
+		const m = Math.round(min || 0);
+		return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`;
+	}
+
 	function money(v, cur) {
 		try {
 			return Number(v || 0).toLocaleString('it-IT', { style: 'currency', currency: cur || 'USD', maximumFractionDigits: 2 });
@@ -1242,7 +1248,11 @@
 		if (radar && radar.totals) {
 			const t = radar.totals;
 			const age = radar.admobAt ? `, dato di ${ago(radar.admobAt)}` : '';
-			cells.push(cifra('soldi', 'vedetta', 'Ieri', esc(money(t.yesterday, t.currency)), `7 giorni ${esc(money(t.last7, t.currency))}${esc(age)}`, ''));
+			const lastDay = radar.admobAt ? new Date(radar.admobAt) : new Date();
+			const fresh = dayKey(lastDay) === dayKey();
+			lastDay.setDate(lastDay.getDate() - 1);
+			const label = fresh ? 'Ieri' : `Il ${lastDay.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })}`;
+			cells.push(cifra('soldi', 'vedetta', esc(label), esc(money(t.yesterday, t.currency)), `7 giorni ${esc(money(t.last7, t.currency))}${esc(age)}`, ''));
 		}
 		const rules = snap('rules');
 		if (rules && rules.counts) {
@@ -1305,7 +1315,7 @@
 			cards.push(`<article class="andamento andamento-ore">
 				<div class="andamento-testa"><div><h3>Ore di lavoro</h3><p>Tempo tuo nelle sessioni Claude Code</p></div><button type="button" class="link" data-view="cruscotto" data-fk="andamento:ore">Apri il Cruscotto</button></div>
 				<p class="andamento-kpi"><strong>${esc(hm(total))}</strong><span>${active} ${active === 1 ? 'giorno attivo' : 'giorni attivi'}${esc(change)}</span></p>
-				${barreSette(days, d => d.you, hm, d => d.date)}
+				${barreSette(days, d => d.you, hm, d => d.date, hmCorto)}
 			</article>`);
 		}
 		const radar = snap('radar');

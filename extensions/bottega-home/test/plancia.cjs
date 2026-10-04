@@ -461,6 +461,7 @@ test('la Home apre con KPI e grafici dei sette giorni, da dati reali e facoltati
 	assert.strictEqual(t.$$('.andamento-ore .andamento-barre li').length, 7);
 	assert.strictEqual(t.$$('.andamento-ricavi .andamento-barre li').length, 7);
 	assert.strictEqual(t.$('.andamento-ore .andamento-barra').getAttribute('height'), '14', 'le barre sono SVG senza stili inline, compatibili con la CSP');
+	assert.strictEqual(t.$$('.andamento-ore .andamento-valore').at(-1).textContent, '1h10', 'i minuti restano leggibili in una finestra stretta');
 	assert.match(t.$('.andamento-ore .andamento-kpi').textContent, /4 h 40 min.*1 h 10 min in più/);
 	assert.match(t.$('.andamento-ricavi .andamento-kpi').textContent, /80,1.*Ieri 12,3/);
 	t.click(t.$('.andamento-ore [data-view="cruscotto"]'));
@@ -468,6 +469,12 @@ test('la Home apre con KPI e grafici dei sette giorni, da dati reali e facoltati
 	t.key('1');
 	t.click(t.$('.andamento-ricavi [data-view="appstore"]'));
 	assert.strictEqual(t.$('#tab-appstore').getAttribute('aria-selected'), 'true');
+	t.key('1');
+	const stale = snapshot();
+	stale.radar.admobAt = NOW - 2 * DAY;
+	t.send({ type: 'snapshot', snapshot: stale });
+	assert.match(t.$('#quadro-cifre .cifra-h:nth-child(2) .cifra-nome').textContent, /^Il \d/);
+	assert.doesNotMatch(t.$('.andamento-ricavi .andamento-testa p').textContent, /fino a ieri/);
 	assert.deepStrictEqual(t.errors, []);
 });
 
