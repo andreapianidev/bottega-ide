@@ -881,6 +881,24 @@ test('worktree dentro il loro progetto: «+ ramo idee» nella riga, una riga nel
 	assert.deepStrictEqual(t.posted.at(-1), { type: 'open', path: P('Faro-idee') });
 });
 
+test('nuova sessione dalla lista resta nella IDE e manda solo la chiave osservata', () => {
+ const t = boot();
+ const activity = ['claude', 'cline', 'codex', 'terminale'].map(source => ({ key: source + ':x', source, id: 'x', project: 'Faro', path: P('Faro'), title: 'Sessione', status: 'in corso', updatedAt: NOW }));
+ t.send({ type: 'snapshot', snapshot: snapshot({ activity }) });
+ for (const place of ['home', 'lavori']) {
+  if (place === 'lavori') t.click(t.$('#tab-lavori'));
+  const buttons = t.$$('#attivita-' + place + '-lista [data-act="activity.new"]');
+  assert.strictEqual(buttons.length, 4);
+  for (const button of buttons) {
+   t.click(button);
+   assert.deepStrictEqual(t.posted.at(-1), { type: 'activity.new', id: button.getAttribute('data-id') });
+  }
+ }
+ t.click(t.$('[data-act="session.new"]'));
+ assert.deepStrictEqual(t.posted.at(-1), { type: 'session.new' });
+ assert.deepStrictEqual(t.errors, []);
+});
+
 // ---------- robustezza ----------
 
 test('Home e Lavori mostrano tutte le fonti osservate, gli stati e la provenienza senza interpretare HTML', () => {

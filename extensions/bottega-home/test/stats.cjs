@@ -21,7 +21,7 @@ esbuild.buildSync({
 	target: 'node20',
 	logLevel: 'silent',
 });
-const { StatsEngine, mergeSpans, minutesIn, costOf, whereOf, concurrency, lengthsOf, summarizeObservedActivity } = require(path.join(OUT, 'stats.js'));
+const { StatsEngine, mergeSpans, minutesIn, costOf, whereOf, concurrency, lengthsOf, summarizeObservedActivity, collectSourceMetrics } = require(path.join(OUT, 'stats.js'));
 
 let passed = 0, failed = 0;
 async function test(name, fn) {
@@ -118,6 +118,33 @@ const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}
 		assert.strictEqual(s.days.at(-2).codex, 1);
 		assert.strictEqual(s.days[0].cline, 1);
 		assert.strictEqual(s.days.reduce((n, d) => n + d.terminale, 0), 0);
+	});
+	await test('consumi Codex e Cline: differenze cumulative, messaggi unici e fonti separate', async () => {
+		const codex = path.join(TMP, 'codex');
+		const cline = path.join(TMP, 'cline');
+		const d = new Date(BASE);
+		const dir = path.join(codex, String(d.getUTCFullYear()), String(d.getUTCMonth() + 1).padStart(2, '0'), String(d.getUTCDate()).padStart(2, '0'));
+		const ev = (min, type, info) => JSON.stringify({ type: 'event_msg', timestamp: at(min), payload: { type, ...(info ? { info } : {}) } });
+		write(dir, 'rollout-test.jsonl', [
+			ev(0, 'task_started'),
+			ev(2, 'token_count', { total_token_usage: { input_tokens: 100, output_tokens: 20 } }),
+			ev(4, 'token_count', { total_token_usage: { input_tokens: 150, output_tokens: 40 } }),
+			ev(5, 'token_count', { total_token_usage: { input_tokens: 150, output_tokens: 40 } }),
+			ev(10, 'task_complete'),
+		]);
+		const cdir = path.join(cline, 'session-test');
+		fs.mkdirSync(cdir, { recursive: true });
+		const message = { id: 'one', role: 'assistant', ts: BASE + 3 * 60_000, metrics: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 5, cost: 0.125 } };
+		fs.writeFileSync(path.join(cdir, 'session-test.messages.json'), JSON.stringify({ version: 1, messages: [message, message] }));
+		const s = await collectSourceMetrics(codex, cline, NOW);
+		assert.strictEqual(s['7'].codex.tokens, 190);
+		assert.strictEqual(s['7'].codex.durationMinutes, 10);
+		assert.strictEqual(s['7'].codex.cost, null);
+		assert.strictEqual(s['7'].cline.tokens, 155);
+		assert.strictEqual(s['7'].cline.cost, 0.125);
+		assert.strictEqual(s['7'].cline.durationMinutes, null);
+		assert.strictEqual(s['7'].codex.records, 1);
+		assert.strictEqual(s['90'].cline.tokens, 155);
 	});
 	console.log('cruscotto');
 	let s1;

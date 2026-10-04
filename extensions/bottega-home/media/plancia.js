@@ -304,7 +304,7 @@
 		return `<li class="attivita-riga fonte-${a.source} stato-${status.replace(' ', '-')}">
 			<div class="attivita-riga-testa"><span class="attivita-fonte">${source}</span><span class="attivita-stato"><i aria-hidden="true"></i>${ACTIVITY_STATUS[status]}</span><span class="attivita-ora">${esc(age)}</span></div>
 			<div class="attivita-riga-corpo"><div><b class="attivita-progetto">${esc(a.project || 'Senza progetto')}</b><p class="attivita-titolo">${esc(title)}</p>${a.summary && a.summary !== title ? `<p class="attivita-sunto">${esc(a.summary)}</p>` : ''}</div>
-			${a.path ? `<button type="button" class="link" data-act="open" data-path="${esc(a.path)}" data-fk="activity-open:${esc(a.key || a.source + ':' + a.id)}">Apri progetto</button>` : ''}</div>
+			${a.path ? `<div class="attivita-azioni"><button type="button" class="act" data-act="activity.new" data-id="${esc(a.key || a.source + ':' + a.id)}" data-fk="activity-new:${esc(a.key || a.source + ':' + a.id)}" title="Sessione indipendente nella barra Terminale, in questa finestra">Nuova sessione ${source}</button><button type="button" class="link" data-act="open" data-path="${esc(a.path)}" data-fk="activity-open:${esc(a.key || a.source + ':' + a.id)}">Progetto in un’altra finestra</button></div>` : ''}</div>
 			${steps.length ? `<ol class="attivita-passi">${steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
 			${a.evidence ? `<p class="attivita-evidenza">Fonte dello stato: ${esc(a.evidence)}</p>` : ''}
 		</li>`;
@@ -415,7 +415,7 @@
 			<ul class="lamps" id="lampade" aria-label="Sessioni Claude aperte adesso"></ul>
 			<p class="quiet" id="lampade-vuote" hidden>Nessuna sessione Claude Code aperta in questo momento.</p>
 			<section class="attivita" id="attivita-home" aria-labelledby="attivita-home-titolo" hidden>
-				<div class="attivita-intro"><h2 id="attivita-home-titolo">Le sessioni osservate</h2><p id="attivita-home-sunto"></p></div>
+				<div class="attivita-intro"><h2 id="attivita-home-titolo">Le sessioni osservate</h2><p id="attivita-home-sunto"></p><button type="button" class="act" data-act="session.new" data-fk="session-new:home">Nuova sessione</button></div>
 				<ul class="attivita-lista" id="attivita-home-lista"></ul>
 				<button type="button" class="act attivita-toggle" id="attivita-home-toggle" data-act="activity-toggle" data-place="home" data-fk="activity-toggle:home" aria-controls="attivita-home-lista" aria-expanded="false" hidden></button>
 				<p class="attivita-vuoto" id="attivita-home-vuoto" hidden>Quando Claude Code, Cline, Codex o un terminale iniziano a lavorare, li trovi qui.</p>
@@ -2775,6 +2775,10 @@
 		const p = b.getAttribute('data-path') || '';
 		const id = b.getAttribute('data-id') || '';
 		switch (act) {
+			case 'activity.new':
+				return vscode.postMessage({ type: 'activity.new', id });
+			case 'session.new':
+				return vscode.postMessage({ type: 'session.new' });
 			case 'activity-toggle': {
 				const place = b.getAttribute('data-place');
 				if (place !== 'home' && place !== 'lavori') return;

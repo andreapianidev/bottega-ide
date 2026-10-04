@@ -203,6 +203,7 @@ CommandsRegistry.registerCommand('bottega.terminalMenu', (accessor, anchor: HTML
 			if (focusedId === id) { row.focus(); }
 		};
 		addRow('new', 'Nuovo terminale', undefined, () => commandService.executeCommand('bottega.terminaleQui'));
+		addRow('agent', 'Nuova sessione agente…', undefined, () => commandService.executeCommand('bottega.nuovaSessione'));
 		addRow('profiles', 'Nuovo con profilo…', undefined, () => commandService.executeCommand('workbench.action.terminal.newWithProfile'));
 		if (groupService.instances.length) {
 			const separator = dom.append(menu, dom.$('.bottega-terminal-menu-separator'));

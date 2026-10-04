@@ -411,12 +411,19 @@ const finale = (t, k) => t.$(`.cifra[data-k="${k}"] dd > .sr`).textContent;
 			],
 			days: dates.map((date, i) => ({ date, claude: i === 89 ? 1 : 0, cline: i === 88 ? 2 : 0, codex: i === 89 ? 3 : 0, terminale: i === 89 ? 1 : 0 })),
 		};
+		s.sourceMetrics = { '30': {
+			codex: { tokens: 190, cost: null, durationMinutes: 10, records: 1, files: 2, skipped: 0 },
+			cline: { tokens: 155, cost: 0.125, durationMinutes: null, records: 1, files: 1, skipped: 0 },
+		} };
 		t.api.setStats(s);
 		assert.ok(!t.$('#crus-attivita').hidden);
 		assert.strictEqual(t.root.querySelectorAll('.attivita-fonte').length, 4);
 		assert.match(t.$('#attivita-fonti').textContent, /Codex.*3.*aggiornate nel periodo.*3 aperte/s);
 		assert.strictEqual(t.root.querySelectorAll('#attivita-grafico .attivita-barra').length, 4);
-		assert.match(t.$('#attivita-nota').textContent, /ore, i token e i costi.*solo per Claude Code/);
+		assert.match(t.$('#attivita-nota').textContent, /cifre principali.*Claude Code/);
+		assert.match(t.$('.attivita-fonte.codex').textContent, /Token 190.*Turni conclusi 10 min.*Costo N\/D/s);
+		assert.match(t.$('.attivita-fonte.cline').textContent, /Token 155.*Durata N\/D.*Costo Cline 0,13 \$/s);
+		assert.match(t.$('.attivita-fonte.terminale').textContent, /Token N\/D.*Durata N\/D.*Costo N\/D/s);
 		t.click(t.$('[data-c="tabella"][data-id="attivita"]'));
 		assert.strictEqual(t.root.querySelectorAll('#attivita-tabella tbody tr').length, 30);
 		assert.deepStrictEqual(t.errori, []);

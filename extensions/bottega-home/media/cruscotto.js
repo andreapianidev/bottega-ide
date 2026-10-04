@@ -1,5 +1,5 @@
-/* Bottega, il cruscotto: la quinta stanza della plancia. Ore di lavoro, token e progetti letti dai
-   registri di Claude Code (src/stats.ts li riassume, docs/CONTRATTI.md sezione 3 ne descrive la forma).
+/* Bottega, il cruscotto: la quinta stanza della plancia. Ore di lavoro e progetti dai registri
+   Claude Code; consumi Codex e Cline separati nella sezione attività (src/stats.ts).
 
    Idea: un osservatorio. Il pezzo forte e' la carta del cielo: ogni progetto e' una stella su un
    orologio di 24 ore (come l'ascensione retta, che si misura in ore), grande quanto le ore che ci
@@ -1722,12 +1722,27 @@ struct VG {
 			const bySource = Object.fromEntries(sources.map(([source]) => [source, days.reduce((n, d) => n + (Number(d[source]) || 0), 0)]));
 			const latest = Object.fromEntries((observed.sources || []).map(s => [s.source, s]));
 			put($('attivita-legenda'), sources.map(([source, name]) => `<li><i class="attivita-colore ${source}" aria-hidden="true"></i>${name}</li>`).join(''));
-			$('attivita-nota').textContent = `Ultimo aggiornamento negli ultimi ${ui.period} giorni. Ogni attività conta una volta nel giorno in cui è stata vista l'ultima volta; le ore, i token e i costi negli altri grafici sono misurati solo per Claude Code.`;
+			$('attivita-nota').textContent = `Ultimo aggiornamento negli ultimi ${ui.period} giorni. Ogni attività conta una volta nel giorno in cui è stata vista l'ultima volta. Il registro delle attività copre fino a 7 giorni e 100 sessioni Codex, 45 giorni Cline e i soli terminali aperti; i consumi locali sotto possono coprire fino a 90 giorni. Le cifre principali e gli altri grafici riguardano Claude Code.`;
+			const sourceMetrics = stats.sourceMetrics && stats.sourceMetrics[ui.period] || {};
+			const claudePeriod = P();
+			const metriche = source => {
+				if (source === 'claude') return `<div class="attivita-metriche"><span>Token ${tk(sum4(claudePeriod.tok))}</span><span>Ore stimate ${hm(claudePeriod.claude)}</span><span>Valore API a listino ${usd(claudePeriod.cost)}</span><em>Registri Claude Code; ore inferite con pause di ${stats.gapMinutes} minuti. Il listino non è la spesa dell'abbonamento.</em></div>`;
+				if (source === 'terminale') return '<div class="attivita-metriche"><span>Token N/D · Durata N/D · Costo N/D</span><em>Solo eventi della shell osservati mentre la Bottega è aperta; nessuno storico dei consumi.</em></div>';
+				const m = sourceMetrics[source];
+				const tokens = m && m.tokens != null ? tk(m.tokens) : 'N/D';
+				const durata = source === 'codex' && m && m.durationMinutes != null ? hm(m.durationMinutes) : 'N/D';
+				const costo = source === 'cline' && m && m.cost != null ? `${it(m.cost, m.cost > 0 && m.cost < 0.01 ? 4 : 2)} $` : 'N/D';
+				const files = m ? `${it(m.records)} sessioni nel periodo, ${it(m.files)} file locali esaminati${m.skipped ? `, ${it(m.skipped)} omessi` : ''}` : 'Registri locali non disponibili';
+				const origine = source === 'codex'
+					? 'Rollout Codex: input e output; la durata è il tempo trascorso fra inizio e fine dei turni conclusi, include eventuali attese. Nessun costo affidabile.'
+					: 'Messaggi Cline SDK con metriche: input, output e cache; somma dei costi riportati da Cline. La durata della sessione include le attese e non è contata.';
+				return `<div class="attivita-metriche"><span>Token ${tokens}</span><span>${source === 'codex' ? 'Turni conclusi' : 'Durata'} ${durata}</span><span>${source === 'cline' ? 'Costo Cline' : 'Costo'} ${costo}</span><em>${origine} ${files}.</em></div>`;
+			};
 			put($('attivita-fonti'), sources.map(([source, name]) => {
 				const s = latest[source] || {};
 				const active = (s.inCorso || 0) + (s.tiAspetta || 0);
 				const status = [active && `${it(active)} ${active === 1 ? 'aperta' : 'aperte'}`, s.errore && `${it(s.errore)} ${s.errore === 1 ? 'errore' : 'errori'}`].filter(Boolean).join(' · ');
-				return `<div class="attivita-fonte ${source}"><span class="attivita-nome">${name}</span><strong>${it(bySource[source])}</strong><span class="attivita-periodo">aggiornate nel periodo</span><small>${status || `${it(s.total || 0)} nel registro`}</small></div>`;
+				return `<div class="attivita-fonte ${source}"><span class="attivita-nome">${name}</span><strong>${it(bySource[source])}</strong><span class="attivita-periodo">aggiornate nel periodo</span><small>${status || `${it(s.total || 0)} nel registro`}</small>${metriche(source)}</div>`;
 			}).join(''));
 			const max = Math.max(1, ...days.map(d => sources.reduce((n, [source]) => n + (Number(d[source]) || 0), 0)));
 			const width = 900, height = 140, top = 8, bottom = 25, plot = height - top - bottom;

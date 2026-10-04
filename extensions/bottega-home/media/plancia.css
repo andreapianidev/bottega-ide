@@ -428,6 +428,12 @@ kbd {
 .attivita-ora { color: var(--tinta); font-variant-numeric: tabular-nums; }
 .attivita-riga-corpo { align-items: flex-start; justify-content: space-between; }
 .attivita-riga-corpo > div { flex: 1 1 250px; min-width: 0; }
+.attivita-riga-corpo > .attivita-azioni { flex: 0 1 230px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 100%; }
+.attivita-azioni .act { max-width: 100%; white-space: normal; text-align: left; }
+.attivita-intro > .act { margin-left: auto; flex: 0 0 auto; }
+@media (max-width: 600px) {
+	.attivita-riga-corpo > .attivita-azioni { flex-basis: 100%; margin-top: 8px; }
+}
 .attivita-progetto { font: 600 16px/1.3 var(--serif); overflow-wrap: anywhere; }
 .attivita-titolo, .attivita-sunto { margin: 2px 0 0; overflow-wrap: anywhere; }
 .attivita-titolo { color: var(--calima); }

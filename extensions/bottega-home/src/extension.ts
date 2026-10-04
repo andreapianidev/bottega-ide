@@ -21,6 +21,7 @@ import { CategorieMinuti, Osservatorio, categorieMinuti, fraseCategorie } from '
 import { registerPonte } from './ponte-host';
 import { registerAggiornamenti } from './aggiorna-host';
 import { registerCline } from './cline-host';
+import { registraSessioni } from './sessioni';
 import { Aggiornamenti } from './aggiorna';
 import { TOOLS } from './assistant';
 import { registraStrumentiConnettori, STRUMENTI_CONNETTORI } from './strumenti-connettori';
@@ -625,6 +626,13 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 			return void fullScan();
 		case 'open':
 			return m.path ? openProject(m.path) : undefined;
+		case 'activity.new': {
+			const activity = snapshot.activity?.find(a => a.key === m.id);
+			if (!activity?.path) return void vscode.window.showWarningMessage('La cartella di questa attività non è disponibile.');
+			return void await vscode.commands.executeCommand('bottega.nuovaSessione', activity.source, activity.path);
+		}
+		case 'session.new':
+			return void await vscode.commands.executeCommand('bottega.nuovaSessione');
 		case 'here':
 			return m.path ? openProject(m.path, false) : undefined;
 		case 'claude':
@@ -722,6 +730,7 @@ function showHome(view?: string, focusPath?: string, activate = false): void {
 
 export async function activate(ctx: vscode.ExtensionContext) {
 	const extPath = ctx.extensionPath;
+	registraSessioni(ctx);
 	terminalActivity = registerTerminalActivity(ctx, () => refreshDynamic());
 
 	nucleo = new Nucleo(extPath);

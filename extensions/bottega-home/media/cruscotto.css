@@ -432,6 +432,8 @@ body.vscode-light .crus {
 .attivita-fonte strong { font: 500 30px/1.25 var(--serif); font-variant-numeric: tabular-nums; color: var(--calima); }
 .attivita-fonte .attivita-periodo, .attivita-fonte small { font-size: 11px; color: var(--tinta); }
 .attivita-fonte small { margin-top: 9px; }
+.attivita-metriche { display: flex; flex-direction: column; gap: 4px; margin-top: 13px; padding-top: 11px; border-top: 1px solid var(--linea); font-size: 11px; color: var(--calima); font-variant-numeric: tabular-nums; }
+.attivita-metriche em { margin-top: 5px; font-style: normal; line-height: 1.4; color: var(--tinta); }
 .attivita-grafico { overflow-x: auto; }
 .attivita-grafico svg { display: block; width: 100%; min-width: 480px; height: auto; }
 .attivita-grafico line { stroke: var(--linea); stroke-width: 1; }

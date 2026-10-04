@@ -119,7 +119,7 @@ test('hover menu preserves terminal input focus and creates nothing', async () =
 		const input = f.document.getElementById('terminal-input'); input.focus();
 		await f.open(false);
 		assert.equal(f.document.activeElement, input);
-		assert.equal(f.document.querySelectorAll('.bottega-terminal-menu-row').length, 4);
+		assert.equal(f.document.querySelectorAll('.bottega-terminal-menu-row').length, 5);
 		assert.equal(f.calls.includes('bottega.terminaleQui'), false);
 		f.document.getElementById('anchor').dispatchEvent(new f.window.MouseEvent('mouseleave'));
 		await new Promise(resolve => setTimeout(resolve, 320));
@@ -136,6 +136,17 @@ test('new terminal action invokes the existing create command only on click', as
 		assert.equal(f.calls.filter(id => id === 'bottega.terminaleQui').length, 1);
 		assert.equal(f.document.querySelector('.bottega-terminal-menu'), null);
 		assert.deepEqual(f.errors, []);
+	} finally { f.close(); }
+});
+
+test('new agent session uses the same IDE command from the hover menu', async () => {
+	const f = fixture();
+	try {
+		await f.open(false);
+		assert.equal(f.calls.includes('bottega.nuovaSessione'), false);
+		f.document.querySelector('[data-menu-id="agent"]').click();
+		assert.equal(f.calls.filter(id => id === 'bottega.nuovaSessione').length, 1);
+		assert.equal(f.document.querySelector('.bottega-terminal-menu'), null);
 	} finally { f.close(); }
 });
 
@@ -162,7 +173,7 @@ test('keyboard menu supports arrows and Escape returns focus to its trigger', as
 		await f.open(true);
 		assert.equal(f.document.activeElement.dataset.menuId, 'new');
 		f.document.activeElement.dispatchEvent(new f.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
-		assert.equal(f.document.activeElement.dataset.menuId, 'profiles');
+		assert.equal(f.document.activeElement.dataset.menuId, 'agent');
 		f.document.activeElement.dispatchEvent(new f.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 		assert.equal(f.document.querySelector('.bottega-terminal-menu'), null);
 		assert.equal(f.document.activeElement.id, 'anchor');

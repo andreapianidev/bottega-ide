@@ -1,4 +1,37 @@
-# Passaggio di consegne, build 89
+# Passaggio di consegne, build 90
+
+## Aggiornamento del 4 ottobre 2026
+
+- iPhone: release 90 firmata, installata e avviata sul dispositivo fisico; `devicectl` conferma la build 90.
+- Prove reali su iPhone: quattro test di integrazione superati con il Mac acceso, inclusi attività Codex,
+  voce Agnes e DeepSeek diretta, racconto della stanza e autonomia quando il Mac diventa irraggiungibile.
+  I dieci test automatici del WebSocket ElevenLabs sono superati sul simulatore.
+- Mac, codice pronto per la confezione finale: «Racconta» chiude esplicitamente la sessione ElevenLabs
+  dopo l'ultima frase, conserva «ferma» finché l'audio suona e non apre il microfono di conferma prima
+  della fine della voce. Il prompt percorre il codice rilevante invece di fermarsi al riepilogo. Il
+  registro conserva le ultime 30 righe fra i riavvii; i log indicano quanti segmenti e byte PCM
+  sono arrivati senza scrivere il testo o le chiavi. La prova Python sul WebSocket reale ha ricevuto
+  audio per tre frasi, tre marker di turno e il marker finale. La prova completa dall'IDE all'altoparlante
+  della build 90 richiede l'installazione Mac conclusiva.
+- Cruscotto: token Codex e Cline, durata dei turni Codex e costo riportato da Cline compaiono per fonte
+  e periodo, con N/D quando il dato manca. Le cifre principali Claude restano separate.
+- Home, Lavori e barra Terminale: azione per avviare una nuova sessione Claude Code, Codex, Cline o
+  Terminale nella stessa finestra dell'IDE, senza inviare automaticamente un compito. Test estensione
+  completi, typecheck e sette test della barra Terminale superati.
+- Issue GitHub #1 resta aperta: il difetto Live Activity sul blocco schermo era documentato fino alla
+  build 74; le modifiche 76–78 non hanno una verifica fisica registrata. L'audit del codice attuale non
+  trova un difetto certo, quindi non dichiariamo risolta la schermata di blocco.
+
+## Verifiche ancora da fare dopo l'installazione Mac 90
+
+- Un racconto lungo dall'interfaccia Mac con ascolto reale fino all'ultima frase, confrontando i nuovi
+  conteggi nel registro Melissa e in `~/.bottega/nucleo.log` se si interrompe.
+- Una richiesta continua al microfono Mac oltre due minuti e la Live Activity sulla schermata di blocco
+  dell'iPhone. La prima ha test automatici di rotazione, la seconda richiede osservazione fisica.
+- La cronologia Mac persa prima della build 90 non si può ricostruire dal nuovo archivio; i turni nuovi
+  vengono persistiti e sincronizzati con l'iPhone.
+
+## Stato precedente: build 89
 
 4 ottobre 2026. Bottega 0.1.0 build 89 installata sull'iPhone di prova. L'installazione Mac è l'ultimo passo di questa consegna.
 

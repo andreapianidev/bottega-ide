@@ -54,7 +54,7 @@ Una riga JSON per messaggio su stdin/stdout, UTF-8. Lo stderr e' log libero.
 | `capabilities` | | `foundationModels: bool`, `speechLocaleInstalled: bool` (non c'e' piu' un modello vocale locale: vale true quando la chiave ElevenLabs c'e', cioe' quando la trascrizione e' usabile), `speechLocale`, `embedding: bool`, `metal: string`, `memoryGB`, `cores`; in piu': `version`, `foundationModelsReason?` (se non disponibile), `speechBackend` (`elevenlabs:scribe_v2_realtime`), `sttSecondsThisSession` (secondi di audio mandati alla trascrizione da quando il Nucleo e' partito), `embeddingDimension`, `ttsEngine` (`elevenlabs` o `apple`), `ttsModel`, `elevenLabsConfigured`, `elevenLabsVoice`, `elevenLabsCharsThisMonth`, `appleVoice`, `echoCancellation` (`hardware` o `software`, l'ultimo percorso usato in conversazione), `echoCancellationTested: bool`, `conversing: bool`, `hotkey` (etichetta o null) | |
 | `voice.listen` | `mode`: `push` o `utterance`, `locale` | `backend` | trascrizione in tempo reale, con il riconoscimento vocale di Apple come Avo (vedi `voice.converse.start`; ElevenLabs con `BOTTEGA_STT=elevenlabs`). `utterance` finisce da sola alla prima frase che il server chiude (~0.8 s di silenzio), o dopo 8 s se nessuno parla; `push` resta aperto fino a `voice.stop` (massimo 120 s). Se Melissa sta parlando viene zittita: fuori dalla conversazione il microfono e' chiuso mentre lei parla. Se ElevenLabs non risponde: risposta di errore ed evento `voice.state {state:"error", message}` |
 | `voice.stop` | | | chiude l'ascolto, chiude a mano la frase (commit) ed emette l'ultimo `voice.final` (~0.25 s dopo) |
-| `voice.speak` | `text`, `voice?`, `append?: bool`, `final?: bool`, `model?` | `engine` | evento `voice.spoken {text, engine}` quando un pezzo e' stato davvero ascoltato. Senza `append` il testo e' una risposta intera. Con `append: true` l'estensione manda i pezzi man mano che l'LLM li scrive: la prima frase (o il primo inciso lungo) parte subito, poi una frase alla volta; `final: true` (anche con `text` vuoto) chiude il turno. `model` sceglie il modello ElevenLabs (default `eleven_v4_turbo`). `voice`: `apple` forza la voce Apple, `com.apple...` sceglie una voce Apple precisa, qualsiasi altro valore e' un voice id ElevenLabs |
+| `voice.speak` | `text`, `voice?`, `append?: bool`, `final?: bool`, `model?` | `engine` | evento `voice.spoken {text, engine}` quando un pezzo e' stato davvero ascoltato. Senza `append` il testo e' una risposta intera. Con `append: true` l'estensione manda i pezzi man mano che l'LLM li scrive: la prima frase (o il primo inciso lungo) parte subito, poi una frase alla volta; `final: true` (anche con `text` vuoto) chiude il turno e invia `close_socket` a ElevenLabs, che consegna l'audio rimanente e `is_final`. Il Nucleo riapre poi una connessione calda. `model` sceglie il modello ElevenLabs (default `eleven_v4_turbo`). `voice`: `apple` forza la voce Apple, `com.apple...` sceglie una voce Apple precisa, qualsiasi altro valore e' un voice id ElevenLabs |
 | `voice.stopSpeaking` | | | interruzione (barge-in): silenzio subito, coda svuotata |
 | `voice.converse.start` | `locale?` | `echoCancellation`, `backend` | modalita' conversazione: microfono sempre aperto, ogni frase che il server chiude (~0.8 s di silenzio) e' un turno dell'utente (`voice.final {text, mode:"converse"}`). Trascrizione (2/10/2026, `Voice/AppleSTT.swift`): come la Melissa di Avo Agency AI, SFSpeechRecognizer it-IT sul Mac,
 i buffer del microfono passati cosi' come sono, risultati parziali, una richiesta nuova per ogni frase, frase chiusa
@@ -236,11 +236,18 @@ interface AssistantState {
 
 Fonte: i registri di Claude Code `~/.claude/projects/<cartella>/<sessione>.jsonl` piu'
 `<sessione>/subagents/*.jsonl` (i sottoagenti appartengono alla sessione che li ha lanciati).
-Ore, token, costi, progetti e grafici di durata continuano a misurare solo Claude Code. La sezione
-"Attivita' osservate" usa invece lo stesso registro multi-fonte della Home (`snapshot.activity`):
+Le cifre principali di ore, token, valore a listino, progetti e grafici di durata misurano Claude Code.
+La sezione "Attivita' osservate" usa lo stesso registro multi-fonte della Home (`snapshot.activity`):
 conteggia Claude Code, Cline, Codex e terminali integrati per stato corrente e per giorno
 dell'ultimo `updatedAt`. Un'attivita' entra in un solo giorno; questa serie non misura ore di lavoro,
-numero di messaggi, token o costi. La copertura storica dipende dal registro disponibile per ogni fonte.
+numero di messaggi, token o costi. Accanto a ciascuna fonte il Cruscotto mostra separatamente i
+consumi che i registri locali permettono di misurare: Codex legge le differenze dei contatori
+cumulativi input/output e il tempo trascorso nei turni conclusi; Cline SDK legge input/output/cache
+e i costi dichiarati per messaggio. Codex non ha un costo locale affidabile; Cline non ha una durata
+di lavoro confrontabile; il terminale non ha uno storico di consumi. In questi casi appare N/D.
+Il lettore scandisce al massimo 90 giorni e conserva il risultato in memoria per due minuti;
+mostra quanti file ha letto e quanti ha omesso. La copertura dei conteggi delle attivita' e' piu'
+breve: fino a 7 giorni e 100 sessioni Codex, 45 giorni Cline, terminali solo durante l'app aperta.
 Regole, scritte anche in chiaro nel cruscotto:
 - attivita': le righe `user`, `assistant`, `system` con `timestamp`. Dentro una sessione due eventi a
   meno di 15 minuti valgono come lavoro, una pausa piu' lunga spezza il conto;
@@ -311,6 +318,10 @@ interface Stats {
     days: {date: string; claude; cline; codex; terminale}[];  // ultimi 90 giorni locali,
                                                                // conteggi per ultimo aggiornamento
   };
+  sourceMetrics?: Record<'7'|'30'|'90', {
+    codex: {tokens: number|null; cost: null; durationMinutes: number|null; records: number; files: number; skipped: number};
+    cline: {tokens: number|null; cost: number|null; durationMinutes: null; records: number; files: number; skipped: number};
+  }>;
 }
 ```
 
@@ -1102,7 +1113,8 @@ Il terminale (`AssistantState.attivita: {at, testo, stato}[]`, ultimi 40; `stato
 `errore`, `voce`) sta sempre in vista sotto la sfera, a caratteri da terminale, con le ultime quattro righe e le altre
 scorrendo: la domanda, quale cervello pensa, ogni strumento che parte e cosa ha trovato, ogni frase detta, la fine,
 gli errori (voce assente, niente da raccontare, fermata). Si riempie a ogni domanda, anche fuori dal racconto.
-`raccontando: boolean` dice alla barra se mostrare «ferma».
+`raccontando: boolean` dice alla barra se mostrare «ferma»; resta vero mentre il Nucleo
+riproduce l'audio anche dopo che il testo e' stato generato, fino a `voice.state` di fine.
 
 Strumenti sui connettori (5.7), sempre in sola lettura:
 - `connettori_elenco {server?, cerca?}`: senza server, i connettori con stato e tipo (diretti e gratis, oppure via
@@ -2008,6 +2020,22 @@ fornitore scelto in Cline (per Andrea DeepSeek, `deepseek-v4-pro`). Codice: `src
   impostazioni.
 
 ## 12. Il terminale, quarta voce della barra di destra
+
+### Nuove sessioni dalla plancia
+
+- `activity.new {id}` crea una sessione indipendente nella cartella e con la fonte dell'attivita'
+  presente nello snapshot. Il messaggio non puo' scegliere comandi o percorsi arbitrari.
+- `session.new` e `bottega.nuovaSessione` aprono il selettore Claude Code, Cline, Codex, Terminale.
+  Le sessioni sono processi CLI in terminali Panel nella stessa finestra, accessibili dalla barra
+  Terminale con nomi `Fonte · progetto`, numerati se duplicati. Non riutilizzano sessioni esistenti.
+  I pannelli nativi degli agenti restano disponibili nelle rispettive voci; non vengono duplicati.
+- La lista Home e Lavori espone «Nuova sessione»; l'azione separata di progetto indica esplicitamente
+  che apre un'altra finestra. Titoli e azioni vanno a capo su pannelli stretti.
+- Cline usa un core dedicato (`instance new`, client con `--address`), terminato alla chiusura del suo
+  terminale senza toccare gli altri core. Il launcher verifica un runtime Node compatibile con SQLite
+  prima di avviare il core. Non cambia le modalita' di approvazione degli agenti e non invia un compito.
+- Sorgenti: `src/sessioni.ts`, `shell/cline-session.cjs`. Test: `test/sessioni.cjs`, `test/plancia.cjs`
+  e `scripts/test-terminal-bar.cjs`.
 
 ### Barra delle sessioni (build 88)
 

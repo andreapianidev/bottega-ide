@@ -242,7 +242,7 @@ export function nowLine(date = new Date()): string {
 /** Come spiega il codice: entra nel prompt solo quando c'e' un file aperto nell'editor. */
 const CODICE_RULE =
 	'Sul codice: prima leggi con codice_leggi, poi spiega come a un collega, a modo tuo. A cosa serve in una o due frasi, il filo principale, i punti delicati con il nome delle funzioni e le righe quando aiutano. ' +
-	'Non leggere il codice simbolo per simbolo. A voce resta breve e chiudi chiedendo se vuole entrare in una parte; per iscritto puoi dettagliare. Se servono file che non hai letto, dillo invece di inventare.';
+	'Non leggere il codice simbolo per simbolo. Nelle domande rapide a voce resta breve; con Racconta percorri tutto il codice rilevante senza fermarti dopo il riepilogo iniziale. Se servono file che non hai letto, dillo invece di inventare.';
 
 export const MELISSA_CORE = [
 	'Sei Melissa Alderson: la stessa di sempre, cresciuta tra Udine e le Canarie, Darlene di Mr. Robot fatta persona.',
@@ -251,7 +251,7 @@ export const MELISSA_CORE = [
 	'Non sei un\'assistente e non lo sarai mai: niente moine, niente entusiasmo finto, niente teatrino da call center. Non dici mai "certo!", "eccomi!", "come posso aiutarti?".',
 	'Adesso vivi nella Bottega, l\'IDE di Andrea: da qui segui i progetti, git, build e le sessioni di Claude Code, Cline, Codex e dei terminali integrati. Avvii i lavori di Claude; Cline e Codex li osservi in sola lettura dai loro registri locali.',
 	'Il dark humor e\' il condimento, non il piatto. Mai descriverti in terza persona: se dici un\'azione la dici in prima persona o niente.',
-	'COME PARLI, REGOLA NUMERO UNO: tutto viene letto ad alta voce. Parla come una persona vera che chiacchiera, frasi che scorrono. Vietato asterischi, grassetto, markdown, trattini o pallini per elenchi, numeri puntati, titoli. Niente emoji. Piu\' cose le incateni con "poi", "e anche", "intanto". Mai piu\' di tre o quattro frasi, salvo che Andrea chieda di approfondire.',
+	'COME PARLI, REGOLA NUMERO UNO: tutto viene letto ad alta voce. Parla come una persona vera che chiacchiera, frasi che scorrono. Vietato asterischi, grassetto, markdown, trattini o pallini per elenchi, numeri puntati, titoli. Niente emoji. Piu\' cose le incateni con "poi", "e anche", "intanto". Nelle risposte brevi bastano tre o quattro frasi; quando Andrea preme Racconta o chiede di approfondire, continua fino a spiegare tutto il contenuto rilevante.',
 ].join(' ');
 
 export const TRUTH_RULE = [
@@ -589,8 +589,13 @@ interface Pending {
 export class Assistant {
 	readonly deps: AssistantDeps;
 	private state: AssistantState = { enabled: true, conversing: false, state: 'idle', log: [], brain: 'agnes', attivita: [] };
+	private static readonly registroKey = 'bottega.melissa.registro.v1';
+	private registro?: vscode.Memento;
+	private registroWrites: Promise<void> = Promise.resolve();
 	/** Durante «racconta»: DeepSeek per pensare, il contenuto gia' letto attaccato alla domanda, i passi detti a voce. */
 	private racconto?: { allegato: string };
+	/** Il testo puo' essere completo mentre l'altoparlante sta ancora leggendo. */
+	private raccontoAudio = false;
 	private history: LlmMessage[] = [];
 	private pending?: Pending;
 	private statusBar?: vscode.StatusBarItem;
@@ -654,7 +659,7 @@ export class Assistant {
 		return { ...this.state,
 			answerPartial: (this.state.state === 'thinking' || this.state.state === 'speaking') && this.turnText.trim()
 				? cleanForVoice(this.turnText).slice(0, 12_000) : undefined,
-			log: this.state.log.slice(-30), attivita: (this.state.attivita ?? []).slice(-40), raccontando: !!this.racconto };
+			log: this.state.log.slice(-30), attivita: (this.state.attivita ?? []).slice(-40), raccontando: !!this.racconto || this.raccontoAudio };
 	}
 	private emit(): void {
 		this.deps.onState(this.getState());
@@ -678,6 +683,12 @@ export class Assistant {
 	private pushLog(role: 'tu' | 'melissa' | 'azione', text: string): void {
 		this.state.log.push({ role, text, at: Date.now() });
 		if (this.state.log.length > 30) this.state.log = this.state.log.slice(-30);
+		const store = this.registro;
+		if (store) {
+			const rows = this.state.log.map(r => ({ ...r }));
+			this.registroWrites = this.registroWrites.then(() => store.update(Assistant.registroKey, rows))
+				.then(() => undefined, () => { this.out.warn('Non riesco a conservare la cronologia di Melissa.'); });
+		}
 		this.emit();
 	}
 	/** Una riga di diagnosi nel registro di Melissa. */
@@ -747,6 +758,22 @@ export class Assistant {
 	// ----- avvio e cablaggio con il Nucleo -----
 
 	wire(ctx: vscode.ExtensionContext): void {
+		// globalState sopravvive alla chiusura dell'IDE. I dati vengono accettati solo nella forma del registro
+		// e con limiti stretti: una preferenza corrotta non deve impedire l'avvio di Melissa.
+		this.registro = ctx.globalState;
+		const saved: unknown = this.registro?.get(Assistant.registroKey);
+		if (Array.isArray(saved)) {
+			const now = Date.now();
+			this.state.log = saved.filter((row): row is AssistantState['log'][number] =>
+				!!row && typeof row === 'object' &&
+				(row.role === 'tu' || row.role === 'melissa' || row.role === 'azione') &&
+				typeof row.text === 'string' && row.text.trim().length > 0 && row.text.length <= 12_000 &&
+				typeof row.at === 'number' && Number.isFinite(row.at) && row.at > 0 && row.at <= now + 60_000,
+			).slice(-30);
+			this.history = this.state.log.filter(r => r.role === 'tu' || r.role === 'melissa')
+				.map(r => ({ role: r.role === 'tu' ? 'user' as const : 'assistant' as const, content: r.text }));
+			this.trimHistory();
+		}
 		this.statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 900);
 		this.statusBar.command = 'bottega.voice.converse';
 		ctx.subscriptions.push(
@@ -769,6 +796,7 @@ export class Assistant {
 			this.setState('listening', m.text);
 		});
 		n.on('voice.final', (m: any) => void this.onVoiceFinal(m.text, m.mode));
+		n.on('voice.spoken', () => { if (this.attesaVoce) this.armAttesaVoce(); });
 		n.on('voice.level', (m: any) => this.onLevel(m.level));
 		n.on('voice.bargein', () => this.onBargein());
 		// Un guasto della voce (microfono, trascrizione, connessione) arriva come voice.state {state: "error", message}:
@@ -1065,7 +1093,7 @@ export class Assistant {
 	 *  con la voce ElevenLabs, anche a voce spenta, se il Nucleo c'e'. Ogni passo va nel terminale della barra. */
 	async racconta(c: DaRaccontare | undefined): Promise<string> {
 		if (this.remote) return 'Sto rispondendo all\'iPhone: riprova tra un attimo.';
-		if (this.racconto) return 'Sto gia\' raccontando.';
+		if (this.racconto || this.raccontoAudio) return 'Sto gia\' raccontando.';
 		const voce = !!this.deps.nucleo.available;
 		this.out.info(`racconta: ${c ? `${c.tipo} ${c.titolo}, ${c.testo.length} caratteri` : 'niente davanti'}; voce ${voce ? 'ElevenLabs dal Nucleo' : 'assente (Nucleo non collegato)'}`);
 		if (!voce) this.passo('voce assente: il Nucleo non è collegato, racconto per iscritto', 'errore');
@@ -1078,7 +1106,7 @@ export class Assistant {
 		const domanda = c.domanda ?? (c.tipo === 'codice' ? 'Spiegami il codice che ho davanti.' : `Raccontami ${c.titolo}.`);
 		const allegato =
 			c.tipo === 'codice'
-				? `Il codice davanti ad Andrea, gia' letto (non serve codice_leggi):\n${c.testo}`
+				? `Il codice davanti ad Andrea, gia' letto (non serve codice_leggi):\n${c.testo}\n\nRacconta il file fino in fondo: spiega il suo scopo, poi percorri i blocchi o le funzioni in ordine e i punti delicati. Non fermarti alla prima frase e non applicare il limite delle risposte brevi. Se il file e' lungo, raggruppa le parti simili ma copri quelle che contano. Parla in frasi naturali, senza leggere simboli o codice riga per riga.`
 				: `I dati veri di ${c.titolo}, come li vede Andrea adesso:\n${c.testo}\n\nRaccontali a voce: il quadro in una frase, poi le due o tre cose che contano con i loro numeri, poi dove intervenire. Non aggiungere numeri che qui non ci sono; se ti serve il dettaglio, usa gli strumenti.`;
 		this.racconto = { allegato };
 		this.emit();
@@ -1093,6 +1121,7 @@ export class Assistant {
 	/** «ferma»: zitta subito e la risposta in corso si interrompe. */
 	fermaRacconto(): void {
 		this.currentAbort?.abort();
+		this.raccontoAudio = false;
 		this.deps.nucleo.fireAndForget('voice.stopSpeaking');
 		this.passo('fermata', 'errore');
 	}
@@ -1241,6 +1270,7 @@ export class Assistant {
 	private afterTurn(speak: boolean): void {
 		if (this.remote) return; // dall'iPhone: il Mac non si mette in ascolto
 		if (this.pending && speak && !this.state.conversing) {
+			if (this.attesaVoce) return; // voice.listen fermerebbe la frase ancora in riproduzione
 			// azione a rischio: resto in ascolto per il si/no
 			this.setState('listening');
 			this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });
@@ -1257,7 +1287,27 @@ export class Assistant {
 	private fineAttesaVoce(): void {
 		this.attesaVoce = false;
 		clearTimeout(this.attesaVoceTimer);
-		if (this.state.conversing && !this.speaking && this.state.state === 'speaking') this.setState('listening');
+		this.raccontoAudio = false;
+		if (!this.speaking && this.state.state === 'speaking') {
+			if (this.state.conversing) this.setState('listening');
+			else if (this.pending) {
+				this.setState('listening');
+				this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });
+				void this.deps.nucleo.request('voice.listen', { mode: 'utterance' }, 15_000).catch((e: any) => this.voiceFailed(e?.message ?? String(e)));
+			}
+			else {
+				this.setState('idle');
+				this.deps.nucleo.fireAndForget('orb.state', { state: 'idle' });
+				clearTimeout(this.orbHideTimer);
+				this.orbHideTimer = setTimeout(() => this.restOrb(), 4000);
+			}
+		} else this.emit();
+	}
+
+	private armAttesaVoce(): void {
+		clearTimeout(this.attesaVoceTimer);
+		this.attesaVoceTimer = setTimeout(() => this.fineAttesaVoce(), 180_000);
+		this.attesaVoceTimer.unref?.();
 	}
 
 	private trimHistory(): void {
@@ -1315,7 +1365,9 @@ export class Assistant {
 			args.model = this.model();
 			this.firstSpeakChunk = false;
 		}
-		this.deps.nucleo.fireAndForget('voice.speak', args);
+		void this.deps.nucleo.request('voice.speak', args, 8000).catch((e: any) => {
+			this.out.warn(`voce: invio frase al Nucleo fallito (${e?.message ?? e})`);
+		});
 	}
 	private finalizeSpeech(sendFinal: boolean): void {
 		if (!this.speaking) return;
@@ -1327,13 +1379,16 @@ export class Assistant {
 			this.setState('idle');
 			return;
 		}
-		if (sendFinal) this.deps.nucleo.fireAndForget('voice.speak', { final: true });
+		this.out.info(`voce: testo concluso, ${this.saidClauses.size} frasi inviate, ${this.turnText.length} caratteri generati`);
+		if (sendFinal) void this.deps.nucleo.request('voice.speak', { final: true }, 8000).catch((e: any) => {
+			this.out.warn(`voce: chiusura del turno nel Nucleo fallita (${e?.message ?? e})`);
+		});
 		this.speaking = false;
-		if (this.state.conversing && this.saidClauses.size > 0 && !this.voceFinita) {
-			// Il Nucleo sta ancora parlando: «ti ascolto» arriva con la sua voice.state, non adesso.
+		if (this.saidClauses.size > 0 && !this.voceFinita) {
+			// La generazione del testo e' finita, ma il Nucleo potrebbe ancora riprodurre le frasi.
 			this.attesaVoce = true;
-			clearTimeout(this.attesaVoceTimer);
-			this.attesaVoceTimer = setTimeout(() => this.fineAttesaVoce(), 180_000);
+			this.raccontoAudio = !!this.racconto;
+			this.armAttesaVoce();
 		} else if (this.state.conversing) {
 			this.setState('listening');
 			this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });

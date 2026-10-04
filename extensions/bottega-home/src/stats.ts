@@ -20,6 +20,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as readline from 'readline';
 import { performance } from 'perf_hooks';
 import { sessionOwner, projectKey, canonKey } from './scan';
 import type { AgentActivity } from './attivita-tipi';
@@ -226,7 +227,19 @@ export interface Stats {
 	concurrency7: StatsConcurrency;
 	/** Registro multi-fonte: conteggi e date dell'ultimo aggiornamento, non durate o consumi. */
 	observedActivity?: StatsObservedActivity;
+	/** Consumi locali per fonte, separati dalle cifre Claude. */
+	sourceMetrics?: StatsSourceMetrics;
 }
+
+export interface StatsSourceMetric {
+	tokens: number | null;
+	cost: number | null; // USD dichiarati dalla fonte, mai sommati al valore Claude a listino
+	durationMinutes: number | null; // solo durata dei turni Codex conclusi, non ore di lavoro
+	records: number;
+	files: number;
+	skipped: number;
+}
+export type StatsSourceMetrics = Record<'7' | '30' | '90', { codex: StatsSourceMetric; cline: StatsSourceMetric }>;
 
 export type ActivitySource = AgentActivity['source'];
 export interface StatsObservedActivity {
@@ -264,6 +277,141 @@ export function summarizeObservedActivity(activity: readonly AgentActivity[], no
 		}
 	}
 	return { sources: sources.map(source => totals.get(source)!), days };
+}
+
+type MetricSource = 'codex' | 'cline';
+interface MetricDay { tokens: number; cost: number; minutes: number; files: Set<string> }
+interface MetricScan { days: Map<string, MetricDay>; files: number; skipped: number; hasTokens: boolean; hasCost: boolean; hasMinutes: boolean }
+const metricScan = (): MetricScan => ({ days: new Map(), files: 0, skipped: 0, hasTokens: false, hasCost: false, hasMinutes: false });
+const nonnegative = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+const metricTime = (value: unknown): number | null => {
+	const t = typeof value === 'number' ? value : typeof value === 'string' ? Date.parse(value) : NaN;
+	return Number.isFinite(t) && t > 0 ? t : null;
+};
+function addMetric(scan: MetricScan, sourceFile: string, timestamp: number, cutoff: number, now: number,
+	tokens: number | null, cost: number | null, minutes: number | null): void {
+	if (timestamp < cutoff || timestamp > now + 60_000) return;
+	const key = dayKey(timestamp);
+	let day = scan.days.get(key);
+	if (!day) scan.days.set(key, (day = { tokens: 0, cost: 0, minutes: 0, files: new Set() }));
+	day.files.add(sourceFile);
+	if (tokens !== null) { day.tokens += tokens; scan.hasTokens = true; }
+	if (cost !== null) { day.cost += cost; scan.hasCost = true; }
+	if (minutes !== null) { day.minutes += minutes; scan.hasMinutes = true; }
+}
+
+/** Legge soltanto i contatori di consumo e gli eventi di inizio/fine turno dei rollout Codex.
+ *  Ogni total_token_usage e' cumulativo nel file: si aggiunge solo la differenza positiva. */
+async function scanCodexMetrics(root: string, cutoff: number, now: number): Promise<MetricScan> {
+	const scan = metricScan();
+	const files: string[] = [];
+	const days = Math.ceil((now - cutoff) / DAY) + 1;
+	for (let i = 0; i <= days; i++) {
+		const d = new Date(now - i * DAY);
+		const dir = path.join(root, String(d.getUTCFullYear()), String(d.getUTCMonth() + 1).padStart(2, '0'), String(d.getUTCDate()).padStart(2, '0'));
+		let names: string[];
+		try { names = await fs.promises.readdir(dir); } catch { continue; }
+		for (const name of names) if (/^rollout-.*\.jsonl$/.test(name)) files.push(path.join(dir, name));
+	}
+	for (const file of [...new Set(files)]) {
+		let st: fs.Stats;
+		try { st = await fs.promises.stat(file); } catch { continue; }
+		if (!st.isFile() || st.mtimeMs < cutoff) continue;
+		scan.files++;
+		let input = 0, output = 0;
+		let turnStart: number | null = null;
+		try {
+			const lines = readline.createInterface({ input: fs.createReadStream(file, { encoding: 'utf8' }), crlfDelay: Infinity });
+			for await (const line of lines) {
+				if (!line.includes('"token_count"') && !line.includes('"task_started"') && !line.includes('"task_complete"') && !line.includes('"turn_aborted"')) continue;
+				let row: any;
+				try { row = JSON.parse(line); } catch { continue; }
+				if (row?.type !== 'event_msg' || !row.payload || typeof row.payload !== 'object') continue;
+				const at = metricTime(row.timestamp);
+				if (at === null || at > now + 60_000) continue;
+				const p = row.payload;
+				if (p.type === 'token_count' && p.info?.total_token_usage) {
+					const u = p.info.total_token_usage;
+					const i = nonnegative(u.input_tokens), o = nonnegative(u.output_tokens);
+					if (i === null || o === null) continue;
+					const delta = Math.max(0, i - input) + Math.max(0, o - output);
+					input = Math.max(input, i); output = Math.max(output, o);
+					if (delta > 0) addMetric(scan, file, at, cutoff, now, delta, null, null);
+				} else if (p.type === 'task_started') {
+					turnStart = at;
+				} else if (p.type === 'task_complete' || p.type === 'turn_aborted') {
+					if (turnStart !== null) {
+						const elapsed = (at - turnStart) / 60_000;
+						if (elapsed > 0 && elapsed <= 24 * 60) addMetric(scan, file, at, cutoff, now, null, null, elapsed);
+					}
+					turnStart = null;
+				}
+			}
+		} catch { scan.skipped++; }
+	}
+	return scan;
+}
+
+/** Metriche per messaggio dei soli registri Cline SDK 4.x. Il campo cost e' riportato da Cline. */
+async function scanClineMetrics(root: string, cutoff: number, now: number): Promise<MetricScan> {
+	const scan = metricScan();
+	let names: string[];
+	try { names = await fs.promises.readdir(root); } catch { return scan; }
+	for (const name of names) {
+		if (!/^[a-zA-Z0-9_-]{5,100}$/.test(name)) continue;
+		const file = path.join(root, name, `${name}.messages.json`);
+		let st: fs.Stats;
+		try { st = await fs.promises.stat(file); } catch { continue; }
+		if (!st.isFile() || st.mtimeMs < cutoff) continue;
+		scan.files++;
+		if (st.size > 16 * 1024 * 1024) { scan.skipped++; continue; }
+		try {
+			const transcript = JSON.parse(await fs.promises.readFile(file, 'utf8'));
+			if (!Array.isArray(transcript?.messages)) { scan.skipped++; continue; }
+			const seen = new Set<string>();
+			for (const message of transcript.messages) {
+				if (message?.role !== 'assistant' || !message.metrics || typeof message.metrics !== 'object') continue;
+				const at = metricTime(message.ts);
+				if (at === null) continue;
+				const id = typeof message.id === 'string' ? message.id : '';
+				if (id && seen.has(id)) continue;
+				if (id) seen.add(id);
+				const m = message.metrics;
+				const i = nonnegative(m.inputTokens), o = nonnegative(m.outputTokens);
+				const read = nonnegative(m.cacheReadTokens), write = nonnegative(m.cacheWriteTokens);
+				const tokens = i === null || o === null ? null : i + o + (read ?? 0) + (write ?? 0);
+				addMetric(scan, file, at, cutoff, now, tokens, nonnegative(m.cost), null);
+			}
+		} catch { scan.skipped++; }
+	}
+	return scan;
+}
+
+export async function collectSourceMetrics(codexRoot: string, clineRoot: string, now = Date.now()): Promise<StatsSourceMetrics> {
+	const cutoff = addDays(startOfDay(now), -89);
+	const [codex, cline] = await Promise.all([scanCodexMetrics(codexRoot, cutoff, now), scanClineMetrics(clineRoot, cutoff, now)]);
+	const period = (source: MetricSource, days: number): StatsSourceMetric => {
+		const scan = source === 'codex' ? codex : cline;
+		const from = addDays(startOfDay(now), 1 - days);
+		let tokens = 0, cost = 0, minutes = 0;
+		const files = new Set<string>();
+		for (const [key, d] of scan.days) {
+			if (new Date(`${key}T12:00:00`).getTime() < from) continue;
+			tokens += d.tokens; cost += d.cost; minutes += d.minutes;
+			for (const file of d.files) files.add(file);
+		}
+		return {
+			tokens: scan.hasTokens ? Math.round(tokens) : null,
+			cost: scan.hasCost ? Math.round(cost * 10000) / 10000 : null,
+			durationMinutes: scan.hasMinutes ? Math.round(minutes * 10) / 10 : null,
+			records: files.size, files: scan.files, skipped: scan.skipped,
+		};
+	};
+	return {
+		'7': { codex: period('codex', 7), cline: period('cline', 7) },
+		'30': { codex: period('codex', 30), cline: period('cline', 30) },
+		'90': { codex: period('codex', 90), cline: period('cline', 90) },
+	};
 }
 
 /** Il minimo che serve dei progetti e delle sessioni vive (sottoinsieme dello Snapshot). */
@@ -714,6 +862,8 @@ export type Ledger = Map<string | null, { name: string; spans: number[] }>;
 export interface StatsEngineOptions {
 	storageDir?: string;
 	projectsDir?: string;
+	codexSessionsDir?: string;
+	clineSessionsDir?: string;
 	log?: (s: string) => void;
 }
 
@@ -723,6 +873,9 @@ export class StatsEngine {
 	private running: Promise<Stats> | undefined;
 	private readonly root: string;
 	private readonly cacheFile: string | undefined;
+	private readonly codexRoot: string | undefined;
+	private readonly clineRoot: string | undefined;
+	private sourceMetricsCache: { at: number; day: string; value: StatsSourceMetrics } | undefined;
 	/** Tempi dell'ultimo calcolo, per il banco di prova. */
 	lastTiming = { listMs: 0, readMs: 0, aggregateMs: 0, saveMs: 0, busyMs: 0 };
 	/** Intervalli per progetto dell'ultimo calcolo. */
@@ -731,6 +884,9 @@ export class StatsEngine {
 	constructor(private readonly opts: StatsEngineOptions = {}) {
 		this.root = opts.projectsDir ?? path.join(os.homedir(), '.claude', 'projects');
 		this.cacheFile = opts.storageDir ? path.join(opts.storageDir, 'cruscotto-cache.json') : undefined;
+		// Una root Claude finta nei test non deve leggere i registri personali del Mac.
+		this.codexRoot = opts.codexSessionsDir ?? (opts.projectsDir ? undefined : path.join(os.homedir(), '.codex', 'sessions'));
+		this.clineRoot = opts.clineSessionsDir ?? (opts.projectsDir ? undefined : path.join(os.homedir(), '.cline', 'data', 'sessions'));
 	}
 
 	/** Un calcolo alla volta: chi chiede mentre si calcola riceve lo stesso risultato. */
@@ -829,6 +985,18 @@ export class StatsEngine {
 		const t2 = performance.now();
 		const ledger: Ledger = new Map();
 		const stats = aggregate(next, input, input.now ?? Date.now(), ledger);
+		if (this.codexRoot && this.clineRoot) {
+			try {
+				const at = input.now ?? Date.now();
+				const recent = this.sourceMetricsCache;
+				if (recent && at >= recent.at && at - recent.at < 120_000 && recent.day === dayKey(at)) stats.sourceMetrics = recent.value;
+				else {
+					stats.sourceMetrics = await collectSourceMetrics(this.codexRoot, this.clineRoot, at);
+					this.sourceMetricsCache = { at, day: dayKey(at), value: stats.sourceMetrics };
+				}
+			}
+			catch (err) { this.opts.log?.(`cruscotto: metriche delle altre fonti non disponibili: ${err}`); }
+		}
 		this.lastLedger = ledger;
 		const t3 = performance.now();
 		try {

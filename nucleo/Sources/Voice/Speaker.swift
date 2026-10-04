@@ -35,6 +35,7 @@ final class Speaker: NSObject {
         let text: String
         let engine: Engine
         var started = false
+        var pcmBytes = 0
         init(id: Int, text: String, engine: Engine) {
             self.id = id; self.text = text; self.engine = engine
         }
@@ -48,6 +49,7 @@ final class Speaker: NSObject {
         let appleVoice: String?
         var buffer = ""            // text not yet handed to an engine
         var firstSent = false
+        var piecesSent = 0
         var open = true
         init(engine: Engine, model: String, voiceID: String?, appleVoice: String?) {
             self.engine = engine; self.model = model; self.voiceID = voiceID; self.appleVoice = appleVoice
@@ -196,6 +198,14 @@ final class Speaker: NSObject {
         t.open = false
         drain(t, final: true)
         if turn === t { turn = nil }
+        Log.info("voce: turno chiuso, \(t.piecesSent) segmenti inviati a \(t.engine.rawValue)")
+        // `flush` forces the current sentence, but does not finalize the dialogue
+        // session. Close only after the final text frame: ElevenLabs then emits all
+        // remaining PCM and its terminal marker. Otherwise the last sentence can
+        // remain pending until the server's idle timeout.
+        if t.engine == .elevenlabs, t.firstSent, let key = key(t) {
+            streams[key]?.finish()
+        }
     }
 
     /// Hands complete pieces of the turn's buffer to its engine. The first clause goes
@@ -232,11 +242,12 @@ final class Speaker: NSObject {
             ElevenLabsUsage.add(clean.count)
             unflushed[key, default: ""] += (unflushed[key]?.isEmpty ?? true) ? clean : " " + clean
             t.firstSent = true
+            t.piecesSent += 1
             flush(key)
         case .apple:
             t.firstSent = true
             let spoken = SpokenText.strippingAudioTags(clean)
-            if !spoken.isEmpty { enqueueApple(spoken, voice: t.appleVoice) }
+            if !spoken.isEmpty { t.piecesSent += 1; enqueueApple(spoken, voice: t.appleVoice) }
         }
     }
 
@@ -294,16 +305,28 @@ final class Speaker: NSObject {
                 head.started = true
                 scheduleStartMarker(head)
             }
+            head.pcmBytes += pcm.count
             AudioOut.shared.enqueuePCM16(pcm, generation: AudioOut.shared.generation)
         case .turnFinished:
             guard var list = inflight[key], !list.isEmpty else { return }
             let seg = list.removeFirst()
             inflight[key] = list
             if list.isEmpty { watchdogs[key]?.cancel() }
+            Log.info("voce: segmento \(seg.id) concluso, \(seg.pcmBytes) byte PCM, \(list.count) in attesa")
             if seg.started { scheduleEndMarker(seg) }
             endEpisodeIfIdle()
         case .sessionFinished:
-            if !(inflight[key]?.isEmpty ?? true) { failStream(key, reason: "sessione ElevenLabs chiusa") }
+            if !(inflight[key]?.isEmpty ?? true) { failStream(key, reason: "sessione ElevenLabs chiusa prima dell'audio finale") }
+            else if keepWarm {
+                // ElevenLabsStream closes the old socket just after this callback.
+                // Reconnect on the next main-loop turn so the following reply is warm.
+                DispatchQueue.main.async { [weak s] in
+                    MainActor.assumeIsolated {
+                        guard let s, !s.isOpen, Speaker.shared.keepWarm else { return }
+                        s.connect()
+                    }
+                }
+            }
         case .failed(let error):
             let pending = !(inflight[key]?.isEmpty ?? true)
             if pending {

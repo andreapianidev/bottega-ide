@@ -162,6 +162,8 @@ final class ElevenLabsStream {
     /// Asked every keep-alive tick: false lets the socket close after `idleCutoff`.
     var keepWarm: (() -> Bool)?
     private var task: URLSessionWebSocketTask?
+    /// A close_socket frame is already queued. New text must use a fresh socket.
+    private var finishing = false
     private var pump: Task<Void, Never>?
     private var keepAlive: Timer?
     private var lastSend = Date()
@@ -182,7 +184,7 @@ final class ElevenLabsStream {
 
     @discardableResult
     func connect() -> Bool {
-        guard task == nil else { return true }
+        guard task == nil else { return !finishing }
         var comps = URLComponents(string: "wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input")!
         comps.queryItems = [URLQueryItem(name: "model_id", value: model),
                             URLQueryItem(name: "output_format", value: "pcm_24000")]
@@ -192,6 +194,7 @@ final class ElevenLabsStream {
         request.timeoutInterval = 20
         let socket = URLSession.shared.webSocketTask(with: request)
         task = socket
+        finishing = false
         hasSpokenBefore = false
         residue.removeAll()
         lastSend = Date()
@@ -208,6 +211,7 @@ final class ElevenLabsStream {
         residue.removeAll()
         let socket = task
         task = nil
+        finishing = false
         socket?.cancel(with: .goingAway, reason: nil)
     }
 
@@ -227,7 +231,8 @@ final class ElevenLabsStream {
 
     /// The final marker belongs to the socket, not to each flushed sentence.
     func finish() {
-        guard isOpen else { return }
+        guard isOpen, !finishing else { return }
+        finishing = true
         send(["close_socket": true])
     }
 

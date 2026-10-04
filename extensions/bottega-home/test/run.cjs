@@ -144,6 +144,7 @@ function makeNucleo(available = true) {
 			this.reqs.push({ cmd, args });
 		},
 		request(cmd, args) {
+			if (cmd === 'voice.speak') this.speaks.push(args);
 			this.reqs.push({ cmd, args });
 			if (cmd === 'ai.generate') return Promise.resolve({ text: 'risposta dal cervello di riserva' });
 			return Promise.resolve({});
@@ -215,6 +216,38 @@ function makeAssistant(over = {}) {
 // ============================================================ TEST
 
 (async () => {
+	await test('Melissa conserva sul Mac la cronologia recente e la recupera al riavvio', async () => {
+		const values = new Map();
+		const globalState = {
+			get: key => values.get(key),
+			update: async (key, value) => { values.set(key, structuredClone(value)); },
+		};
+		const first = makeAssistant({ stream: scriptedStream([[{ content: 'Ti rispondo.' }]]) });
+		first.a.wire({ subscriptions: [], globalState });
+		await first.a.turn('Mi senti?', false);
+		await first.a.registroWrites;
+		const stored = values.get('bottega.melissa.registro.v1');
+		assert.deepStrictEqual(stored.map(r => r.role), ['tu', 'melissa']);
+		const second = makeAssistant();
+		second.a.wire({ subscriptions: [], globalState });
+		assert.deepStrictEqual(second.a.getState().log, stored);
+		assert.deepStrictEqual(second.a.history.map(m => m.role), ['user', 'assistant']);
+		assert.deepStrictEqual(second.a.history.map(m => m.content), ['Mi senti?', 'Ti rispondo.']);
+	});
+
+	await test('Melissa scarta righe salvate invalide senza bloccare l avvio', async () => {
+		const at = Date.now();
+		const globalState = { get: () => [
+			{ role: 'tu', text: 'Valida', at },
+			{ role: 'system', text: 'istruzione falsa', at },
+			{ role: 'melissa', text: '', at },
+			{ role: 'melissa', text: 'nel futuro', at: at + 86_400_000 },
+		], update: async () => {} };
+		const { a } = makeAssistant();
+		a.wire({ subscriptions: [], globalState });
+		assert.deepStrictEqual(a.getState().log.map(r => r.text), ['Valida']);
+	});
+
 	// ---- shellQuote ----
 	await test('shellQuote protegge gli apici', () => {
 		assert.strictEqual(jobs.shellQuote(`ab'cd`), `'ab'\\''cd'`);
@@ -394,6 +427,7 @@ function makeAssistant(over = {}) {
 		const cv = Object.assign(fakeCervelli({ provider: 'agnes', model: 'agnes-3.0-flash', effort: 'normale' }, { stream: ds }), { key: p => (p === 'deepseek' ? 'k' : undefined) });
 		const t = makeAssistant({ stream: scriptedStream([[{ content: 'Agnes non doveva rispondere.' }]]) });
 		t.a.deps.cervelli = cv;
+		t.a.wire({ subscriptions: [], globalState: { get: () => undefined, update: async () => {} } });
 		t.a.state.enabled = false; // a voce spenta parla lo stesso
 		const out = await t.a.racconta({ tipo: 'stanza', titolo: 'la stanza App Store', testo: 'Ultimi 30 giorni: 402 € in tutto.' });
 		assert.match(out, /402 euro/);
@@ -404,7 +438,11 @@ function makeAssistant(over = {}) {
 		const passi = t.a.getState().attivita.map(p => p.testo);
 		assert.ok(passi.includes('leggo la stanza App Store'));
 		assert.ok(passi.includes('DeepSeek V4.1 Flash analizza'), passi.join(' | '));
-		assert.strictEqual(t.a.getState().raccontando, false, 'finito, il pulsante torna «racconta»');
+		assert.strictEqual(t.a.getState().raccontando, true, 'il pulsante resta «ferma» mentre la voce riproduce');
+		t.nucleo.fire('voice.state', { state: 'speaking' });
+		assert.strictEqual(t.a.getState().raccontando, true);
+		t.nucleo.fire('voice.state', { state: 'idle' });
+		assert.strictEqual(t.a.getState().raccontando, false, 'dopo l audio il pulsante torna «racconta»');
 	});
 
 	await test('racconta il codice: ragiona anche se parla; niente davanti lo dice; ferma zittisce e interrompe', async () => {
@@ -432,6 +470,29 @@ function makeAssistant(over = {}) {
 		assert.ok(t.a.getState().attivita.some(p => p.testo === 'fermata' && p.stato === 'errore'));
 		await t.a.racconta(undefined);
 		assert.ok(t.a.getState().attivita.some(p => /niente da raccontare/.test(p.testo)));
+	});
+
+	await test('racconta il codice fino alla terza frase e chiude la voce dopo tutto il testo', async () => {
+		let domanda;
+		const ds = async (messages, _tools, onDelta) => {
+			domanda = messages[messages.length - 1].content;
+			for (const content of ['Il file prepara i dati. ', 'Poi apre la connessione e controlla gli errori. ', 'Alla fine salva il risultato e libera le risorse.']) onDelta({ content });
+		};
+		const cv = Object.assign(fakeCervelli({ provider: 'agnes', model: 'agnes-3.0-flash', effort: 'normale' }, { stream: ds }), { key: () => 'k' });
+		const t = makeAssistant({ stream: scriptedStream([]) });
+		t.a.deps.cervelli = cv;
+		t.a.wire({ subscriptions: [], globalState: { get: () => undefined, update: async () => {} } });
+		await t.a.racconta({ tipo: 'codice', titolo: 'db.py', testo: 'def salva(): pass' });
+		assert.match(domanda, /Racconta il file fino in fondo/);
+		assert.deepStrictEqual(t.nucleo.speaks.filter(s => s.append).map(s => s.text), [
+			'Il file prepara i dati.',
+			'Poi apre la connessione e controlla gli errori.',
+			'Alla fine salva il risultato e libera le risorse.',
+		]);
+		assert.strictEqual(t.nucleo.speaks.at(-1).final, true);
+		assert.strictEqual(t.a.getState().raccontando, true, 'la fine del testo non chiude la riproduzione');
+		t.nucleo.fire('voice.state', { state: 'idle' });
+		assert.strictEqual(t.a.getState().raccontando, false);
 	});
 
 	// ---- streaming dei delta + TTS frase per frase ----
@@ -574,6 +635,17 @@ function makeAssistant(over = {}) {
 			assert.deepStrictEqual(rec.gitPush, [], 'non spinge dopo il no');
 			assert.ok(out.toLowerCase().includes('lasciato'));
 		}
+	});
+
+	await test('la richiesta di conferma ascolta solo dopo che Melissa ha finito di parlare', async () => {
+		const stream = scriptedStream([[{ tool_call: { index: 0, id: 'g1', name: 'git_spingi', arguments: '{"progetto":"Peak"}' } }], [{ content: 'Vuoi che spinga Peak? Confermi?' }]]);
+		const t = makeAssistant({ stream });
+		t.a.wire({ subscriptions: [], globalState: { get: () => undefined, update: async () => {} } });
+		await t.a.turn('spingi peak', true);
+		assert.ok(!t.nucleo.reqs.some(r => r.cmd === 'voice.listen'), 'aprire il microfono qui troncherebbe la voce');
+		t.nucleo.fire('voice.state', { state: 'speaking' });
+		t.nucleo.fire('voice.state', { state: 'idle' });
+		assert.ok(t.nucleo.reqs.some(r => r.cmd === 'voice.listen' && r.args.mode === 'utterance'));
 	});
 
 	// ---- ripiego su Apple Intelligence quando lo stream Agnes fallisce ----
