@@ -1,4 +1,20 @@
-# Passaggio di consegne, build 93
+# Passaggio di consegne, build 94
+
+## Installazione del 4 ottobre 2026, build 94
+
+- La build 94 corregge la data del KPI AdMob quando il report è vecchio e rende leggibili le
+  etichette delle ore nella Plancia stretta. Plancia 31/31, barra 7/7 e APNs 18/18 verificati
+  dall'audit indipendente; il pacchetto Mac è stato firmato prima dell'installazione.
+- iPhone Release 94 firmata, installata e avviata. Mac e Nucleo 94 firmati installati in
+  `/Applications/Bottega.app` con un solo riavvio, dopo autorizzazione esplicita di Andrea.
+  I bundle installati dell'estensione e della Plancia hanno lo stesso SHA256 dei sorgenti
+  compilati. Ponte HTTPS Tailscale autenticato con certificato verificato: HTTP 200 dopo il
+  riavvio, 194 attività (Claude 130, Codex 57, Cline 4, terminali 3), iPhone collegato.
+- Restano aperte la verifica fisica della Live Activity sul blocco schermo (issue #1), l'ascolto
+  completo di un Racconta nell'interfaccia Mac e un parlato al microfono oltre due minuti. Il
+  test Xcode sul telefono era stato annullato prima dell'esecuzione perché risultava bloccato;
+  non conta come test superato sulla 94. Le quattro prove fisiche della build 90 usavano lo stesso
+  percorso voce iOS; i test Widget 8/8 sono passati su simulatore con i nuovi campi.
 
 ## Aggiornamento del 4 ottobre 2026, build 93
 
