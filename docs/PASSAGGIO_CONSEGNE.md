@@ -6,13 +6,18 @@
 - Prove reali su iPhone: quattro test di integrazione superati con il Mac acceso, inclusi attività Codex,
   voce Agnes e DeepSeek diretta, racconto della stanza e autonomia quando il Mac diventa irraggiungibile.
   I dieci test automatici del WebSocket ElevenLabs sono superati sul simulatore.
-- Mac, codice pronto per la confezione finale: «Racconta» chiude esplicitamente la sessione ElevenLabs
+- Mac e Nucleo: build 90 firmata installata in `/Applications/Bottega.app`, app riavviata e processi
+  della build installata in esecuzione. Il controllo HTTPS autenticato dopo il riavvio restituisce 200
+  con il registro attivita'. I file della plancia, il launcher Cline e il bundle dell'estensione installati
+  coincidono con la build dei sorgenti. Il controllo iniziale senza gettone aveva restituito 429:
+  era il limite ai tentativi non autenticati, non un guasto del ponte.
+- «Racconta» chiude esplicitamente la sessione ElevenLabs
   dopo l'ultima frase, conserva «ferma» finché l'audio suona e non apre il microfono di conferma prima
   della fine della voce. Il prompt percorre il codice rilevante invece di fermarsi al riepilogo. Il
   registro conserva le ultime 30 righe fra i riavvii; i log indicano quanti segmenti e byte PCM
   sono arrivati senza scrivere il testo o le chiavi. La prova Python sul WebSocket reale ha ricevuto
   audio per tre frasi, tre marker di turno e il marker finale. La prova completa dall'IDE all'altoparlante
-  della build 90 richiede l'installazione Mac conclusiva.
+  della build 90 resta una verifica di ascolto fisico, non eseguita dall'audit da codice.
 - Cruscotto: token Codex e Cline, durata dei turni Codex e costo riportato da Cline compaiono per fonte
   e periodo, con N/D quando il dato manca. Le cifre principali Claude restano separate.
 - Home, Lavori e barra Terminale: azione per avviare una nuova sessione Claude Code, Codex, Cline o
@@ -22,7 +27,7 @@
   build 74; le modifiche 76–78 non hanno una verifica fisica registrata. L'audit del codice attuale non
   trova un difetto certo, quindi non dichiariamo risolta la schermata di blocco.
 
-## Verifiche ancora da fare dopo l'installazione Mac 90
+## Verifiche fisiche ancora aperte (build 90 installata)
 
 - Un racconto lungo dall'interfaccia Mac con ascolto reale fino all'ultima frase, confrontando i nuovi
   conteggi nel registro Melissa e in `~/.bottega/nucleo.log` se si interrompe.
