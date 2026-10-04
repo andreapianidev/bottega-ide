@@ -12,11 +12,11 @@
   superati sulla build 90 con il Mac acceso, inclusi attività Codex,
   voce Agnes e DeepSeek diretta, racconto della stanza e autonomia quando il Mac diventa irraggiungibile.
   I dieci test automatici del WebSocket ElevenLabs sono superati sul simulatore.
-- Mac e Nucleo: build 90 firmata installata in `/Applications/Bottega.app` prima della correzione del
-  separatore; la build 91 sara' installata dopo i test. Il controllo HTTPS autenticato della build 90 restituisce 200
-  con il registro attivita'. I file della plancia, il launcher Cline e il bundle dell'estensione installati
-  coincidono con la build dei sorgenti. Il controllo iniziale senza gettone aveva restituito 429:
-  era il limite ai tentativi non autenticati, non un guasto del ponte.
+- Mac e Nucleo: build 91 firmata installata in `/Applications/Bottega.app`, app riaperta e Nucleo 91
+  in esecuzione. Il controllo HTTPS autenticato dopo il riavvio restituisce 200 con 184 attività delle
+  quattro fonti. Il bundle dell'estensione installato ha lo stesso SHA256 di quello testato. Il
+  controllo iniziale senza gettone nella build 90 aveva restituito 429: era il limite ai tentativi
+  non autenticati, non un guasto del ponte.
 - «Racconta» chiude esplicitamente la sessione ElevenLabs
   dopo l'ultima frase, conserva «ferma» finché l'audio suona e non apre il microfono di conferma prima
   della fine della voce. Il prompt percorre il codice rilevante invece di fermarsi al riepilogo. Il
