@@ -467,6 +467,8 @@ export function workItems(
 	const pending = jobs.filter(j => !j.sessionId && (j.status === 'in corso' || j.status === 'ti aspetta'));
 	for (const s of live) {
 		if (claimed.has(s.sessionId)) continue;
+		// un pannello di Claude Code aperto e mai usato non e' lavoro: non aspetta nessuno
+		if (s.empty && s.status !== 'busy') continue;
 		if (pending.some(j => norm(s.cwd) === norm(j.path) && (s.startedAt ?? 0) >= (j.startedAt ?? 0) - 2000)) continue;
 		const p = projectOfLive(s);
 		out.push({

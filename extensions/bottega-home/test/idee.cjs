@@ -317,6 +317,16 @@ const DASH = /[—–]/;
 		assert.deepStrictEqual(workCounts(w), { inCorso: 2, tiAspetta: 1, nelTerminale: 1, inCoda: 0, stanotte: 1, vive: 4 });
 	});
 
+	await test('un pannello di Claude Code aperto e mai usato non ti aspetta', () => {
+		const live = [
+			{ pid: 5, sessionId: 's5', cwd: '/p/vuoto', status: 'idle', statusSince: 50, startedAt: 10, empty: true },
+			{ pid: 6, sessionId: 's6', cwd: '/p/usato', status: 'idle', statusSince: 60, startedAt: 10 },
+		];
+		const w = workItems([], live, () => undefined, '/Users/x');
+		assert.deepStrictEqual(w.map(x => [x.key, x.status]), [['sess:s6', 'ti aspetta']]);
+		assert.deepStrictEqual(workCounts(w), { inCorso: 0, tiAspetta: 1, nelTerminale: 0, inCoda: 0, stanotte: 0, vive: 1 });
+	});
+
 	// ---------- worktree ----------
 	await test('worktree: non e\' un progetto, sta dentro il principale, e le sue sessioni vanno li\'', async () => {
 		const root = path.join(tmp, 'radice');

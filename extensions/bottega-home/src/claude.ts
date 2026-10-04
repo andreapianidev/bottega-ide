@@ -20,6 +20,9 @@ export interface LiveSession {
 	startedAt: number;
 	statusSince: number;
 	title?: string;
+	/** Nessun messaggio ancora: il pannello di Claude Code nell'editor avvia il processo appena si apre, e il registro
+	 *  lo dice `idle` anche se Andrea non ha scritto niente. Il jsonl della sessione nasce col primo messaggio. */
+	empty?: boolean;
 }
 
 /** Sessione salvata su disco (~/.claude/projects/<cwd codificata>/<id>.jsonl). */
@@ -46,6 +49,14 @@ export function isDelega(cwd: unknown): boolean {
 	return typeof cwd === 'string' && (cwd === DELEGHE_DIR || cwd.startsWith(DELEGHE_DIR + path.sep));
 }
 
+/** Il jsonl di una sessione: Claude Code mette la cartella sotto ~/.claude/projects con ogni carattere non
+ *  alfanumerico cambiato in '-'. Oltre 200 caratteri la tronca e aggiunge un hash: li' non sappiamo, quindi undefined. */
+function transcriptExists(cwd: string, sessionId: string): boolean | undefined {
+	const dir = String(cwd ?? '').replace(/[^a-zA-Z0-9]/g, '-');
+	if (!dir || !sessionId || dir.length > 200) return undefined;
+	return fs.existsSync(path.join(PROJECTS_DIR, dir, `${sessionId}.jsonl`));
+}
+
 export function readLiveSessions(): LiveSession[] {
 	let files: string[] = [];
 	try {
@@ -68,6 +79,7 @@ export function readLiveSessions(): LiveSession[] {
 				status: d.status ?? 'idle',
 				startedAt: d.startedAt ?? 0,
 				statusSince: d.statusUpdatedAt ?? d.updatedAt ?? d.startedAt ?? 0,
+				...(transcriptExists(d.cwd, d.sessionId) === false ? { empty: true } : {}),
 			});
 		} catch {
 			// file scritto a meta' mentre lo leggiamo: lo riprendiamo al prossimo giro

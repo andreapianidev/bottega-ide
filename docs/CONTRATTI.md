@@ -637,7 +637,9 @@ interface WorkCounts { inCorso: number; tiAspetta: number; nelTerminale: number;
 // Snapshot: work: WorkItem[] (prima chi ti aspetta), workCounts: WorkCounts
 ```
 
-Da `registro ~/.claude/sessions`: `busy` = in corso, `idle` = ti aspetta, `shell` = nel terminale. Un lavoro della
+Da `registro ~/.claude/sessions`: `busy` = in corso, `idle` = ti aspetta, `shell` = nel terminale. Una sessione senza
+ancora il suo jsonl in `~/.claude/projects` (`LiveSession.empty`, da `readLiveSessions`) e non `busy` non e' lavoro: e' il
+pannello di Claude Code nell'editor, che avvia il processo appena si apre anche se nessuno scrive. Un lavoro della
 Bottega appena partito, che non ha ancora la sua sessione, assorbe la sessione nata dopo nella stessa cartella (niente
 doppioni). `workItems` e `workCounts` (in `src/jobs.ts`) sono le sole funzioni che contano: frasi della Home e di
 Lavori, numero sulla scheda Lavori, barra di stato, barra dei menu del Nucleo, `stato.json` e gli strumenti di Melissa

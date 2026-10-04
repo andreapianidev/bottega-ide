@@ -329,7 +329,7 @@ class LiveTree implements vscode.TreeDataProvider<LiveSession> {
 		const project = snapshot.projects.find(p => p.live.some(l => l.pid === s.pid));
 		const label = project?.name ?? (s.cwd === snapshot.home ? 'home' : path.basename(s.cwd));
 		const item = new vscode.TreeItem(label);
-		item.description = `${STATUS[s.status] ?? s.status}, ${ago(s.statusSince)}`;
+		item.description = `${s.empty && s.status !== 'busy' ? 'aperta, ancora vuota' : STATUS[s.status] ?? s.status}, ${ago(s.statusSince)}`;
 		item.tooltip = new vscode.MarkdownString(`**${s.title ?? s.name}**\n\n${s.cwd}\n\nPID ${s.pid}`);
 		item.iconPath = new vscode.ThemeIcon(
 			s.status === 'busy' ? 'loading~spin' : 'circle-filled',
