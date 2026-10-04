@@ -9,7 +9,9 @@
 - Mac: pacchetto 93 firmato e verificato in `dist/Bottega.app`, con Nucleo 93 e bundle estensione
   identico a quello compilato. La copia in `/Applications` e il processo in esecuzione sono ancora
   alla 91. Il pacchetto è stato preparato con `scripts/package.sh --stage-only`; non è stata chiusa
-  l'app. Andrea ha chiesto espressamente di essere consultato prima del riavvio.
+  l'app. Il Nucleo 93 del pacchetto, avviato separatamente via protocollo CLI, ha riprodotto in 9,2 s
+  tre frasi con tre eventi `voice.spoken` nell'ordine esatto. Andrea ha chiesto espressamente di essere
+  consultato prima del riavvio.
 - Voce Mac: corretto il timer di inattività che poteva fermare una risposta dopo 60 secondi di
   generazione o riproduzione. Nel Nucleo, il commit finale della trascrizione non viene più perso
   durante la chiusura del microfono; il limite push passa da 120 a 600 secondi; start/stop, vecchi
