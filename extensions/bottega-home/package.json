@@ -228,9 +228,19 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "bottega",
-          "title": "Bottega",
-          "icon": "media/activity.svg"
+          "id": "bottegaRegia",
+          "title": "Regia",
+          "icon": "media/regia.svg"
+        },
+        {
+          "id": "bottegaCruscotto",
+          "title": "Cruscotto",
+          "icon": "media/cruscotto.svg"
+        },
+        {
+          "id": "bottegaPlancia",
+          "title": "Plancia",
+          "icon": "media/plancia.svg"
         }
       ],
       "secondarySidebar": [
@@ -242,11 +252,19 @@
       ]
     },
     "views": {
-      "bottega": [
+      "bottegaRegia": [
         {
           "id": "bottega.live",
           "name": "Sessioni attive"
-        },
+        }
+      ],
+      "bottegaCruscotto": [
+        {
+          "id": "bottega.cruscotto",
+          "name": "Situazione"
+        }
+      ],
+      "bottegaPlancia": [
         {
           "id": "bottega.projects",
           "name": "Progetti"
@@ -278,7 +296,7 @@
       "view/title": [
         {
           "command": "bottega.openRegia",
-          "when": "view == bottega.live || view == bottega.projects",
+          "when": "view == bottega.live",
           "group": "navigation@0"
         },
         {

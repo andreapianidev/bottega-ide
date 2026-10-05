@@ -2,6 +2,31 @@
    Appeso in coda a src/vs/workbench/browser/media/style.css da scripts/patch-source.py.
    Regola: si cambia la forma e il ritmo, non la struttura. Niente che sposti i layout di VS Code. */
 
+/* Il comando in basso apre la sfera WebGPU di Melissa e avvia la conversazione.
+   Questa miniatura e' statica: il motore Metal vive nella vista esistente. */
+.monaco-workbench .activitybar .action-label.bottega-melissa-action {
+	padding: 0 !important;
+	font-size: 0 !important;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+}
+
+.monaco-workbench .activitybar .action-label.bottega-melissa-action::before {
+	content: '';
+	width: 24px;
+	height: 24px;
+	flex: 0 0 24px;
+	border-radius: 50%;
+	background: radial-gradient(circle at 35% 29%, #e9f2ff 0, #83b9e8 14%, #2a70ad 36%, #24406e 62%, #0b142b 82%);
+	box-shadow: inset -3px -4px 6px #09142f, inset 2px 2px 4px #d6eaff88, 0 0 0 1px #88add580;
+}
+
+.monaco-workbench .activitybar .action-item:hover > .action-label.bottega-melissa-action::before,
+.monaco-workbench .activitybar .action-item:focus-within > .action-label.bottega-melissa-action::before {
+	box-shadow: inset -3px -4px 6px #09142f, inset 2px 2px 4px #d6eaff88, 0 0 0 1px #88add5, 0 0 10px #7cbbf888;
+}
+
 /* Titoli in maiuscolo: diventano testo normale, piu' leggibile */
 .monaco-workbench .part.sidebar > .title > .title-label h2,
 .monaco-workbench .part.auxiliarybar > .title > .title-label h2,

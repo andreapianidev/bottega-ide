@@ -987,8 +987,18 @@ Impostazioni della sezione: `bottega.connettori.mappa` ({}), `bottega.connettori
 
 ## 6. La barra di Melissa
 
+La barra verticale sinistra mostra, nell'ordine, File, Cerca, Regia, Cruscotto e Plancia.
+Le ultime tre voci sono contenitori dell'estensione: riusano gli alberi delle attività e dei
+progetti e aprono la rispettiva stanza della Home quando diventano visibili. Il Cruscotto
+mostra quattro conteggi correnti. Le altre icone ereditate da VS Code non sono fissate.
+Nel gruppo in basso, Melissa sostituisce l'account: il pulsante apre la vista esistente
+e avvia la conversazione; Impostazioni resta al suo posto. La miniatura della sfera è
+statica, la sfera nella vista è disegnata dal motore WebGPU su Metal. La posizione delle
+icone viene scritta una sola volta nel profilo dopo la chiusura dell'app durante
+l'installazione; le modifiche successive fatte dall'utente restano sue.
+
 Melissa come Jarvis, con il suo carattere, nella barra laterale DESTRA della Bottega (secondary side bar).
-Contributo standard di VS Code 1.140, senza API proposte e senza patch:
+La vista e' un contributo standard di VS Code 1.140, senza API proposte:
 
 ```json
 "viewsContainers": { "secondarySidebar": [{ "id": "melissaBarra", "title": "Melissa", "icon": "media/melissa.svg" }] },

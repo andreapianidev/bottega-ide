@@ -506,6 +506,31 @@ class ProjectTree implements vscode.TreeDataProvider<Project> {
 	}
 }
 
+class CruscottoTree implements vscode.TreeDataProvider<vscode.TreeItem> {
+	readonly onDidChangeTreeData = treesChanged.event;
+	getChildren(): vscode.TreeItem[] {
+		const rows: [string, string, string][] = [
+			['Progetti', String(snapshot.projects.length), 'folder-library'],
+			['Agenti al lavoro', String(snapshot.activity.filter(a => a.status === 'in corso').length), 'pulse'],
+			['Richieste in attesa', String(snapshot.workCounts.tiAspetta), 'bell'],
+			['Lavori in coda', String(snapshot.workCounts.inCoda), 'list-ordered'],
+		];
+		return rows.map(([label, value, icon]) => {
+			const item = new vscode.TreeItem(label);
+			item.description = value;
+			item.iconPath = new vscode.ThemeIcon(icon);
+			item.command = { command: 'bottega.openCruscotto', title: 'Apri il cruscotto' };
+			return item;
+		});
+	}
+	getTreeItem(item: vscode.TreeItem): vscode.TreeItem { return item; }
+}
+
+function roomView(id: string, provider: vscode.TreeDataProvider<any>, room: string): vscode.Disposable[] {
+	const view = vscode.window.createTreeView(id, { treeDataProvider: provider });
+	return [view, view.onDidChangeVisibility(e => { if (e.visible) showPlancia(room); })];
+}
+
 // ---------- azioni per l'assistente ----------
 
 function searchProjects(text: string): { name: string; path: string }[] {
@@ -1031,8 +1056,9 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 		changed.event(paint),
 		{ dispose: () => nucleo?.dispose() },
 		{ dispose: () => jobManager?.dispose() },
-		vscode.window.registerTreeDataProvider('bottega.live', new LiveTree()),
-		vscode.window.registerTreeDataProvider('bottega.projects', new ProjectTree()),
+		...roomView('bottega.live', new LiveTree(), 'regia'),
+		...roomView('bottega.cruscotto', new CruscottoTree(), 'cruscotto'),
+		...roomView('bottega.projects', new ProjectTree(), 'plancia'),
 		vscode.window.registerWebviewPanelSerializer('bottega.plancia', {
 			deserializeWebviewPanel: async panel => panelHost?.adopt(panel),
 		}),

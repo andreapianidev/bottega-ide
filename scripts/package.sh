@@ -141,6 +141,11 @@ if pgrep -a -f "$MAIN" >/dev/null; then
   echo "Bottega è ancora aperta; installazione interrotta prima di sostituire l'app." >&2
   exit 1
 fi
+# VS Code riscrive la posizione delle icone quando si chiude: si allinea il profilo solo ora.
+STATE_DB="$HOME/Library/Application Support/Bottega/User/globalStorage/state.vscdb"
+if [[ -f "$STATE_DB" ]]; then
+  python3 "$ROOT/scripts/personalizza-barra.py" "$STATE_DB"
+fi
 source "$ROOT/scripts/widget-lifecycle.sh"
 stop_installed_bottega_widget
 rm -rf /Applications/Bottega.app

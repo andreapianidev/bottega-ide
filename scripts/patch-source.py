@@ -201,3 +201,19 @@ replace('src/vs/platform/dialogs/electron-browser/dialog.ts',
 replace('src/vs/workbench/browser/parts/dialogs/dialog.ts',
         "return localize('aboutDetail',",
         "return " + about_prefix + "localize('aboutDetail',")
+
+# La sfera di Melissa occupa il posto dell'account nella barra sinistra. La sua vista
+# usa gia' il motore WebGPU/Metal condiviso: qui c'e' solo il comando che la apre.
+p = 'src/vs/workbench/browser/parts/globalCompositeBar.ts'
+replace(p,
+        "private readonly accountAction = this._register(new Action(ACCOUNTS_ACTIVITY_ID));",
+        "private readonly accountAction = this._register(new Action(ACCOUNTS_ACTIVITY_ID));\n\tprivate readonly melissaAction = this._register(new Action('bottega.melissa', localize('bottegaMelissa', \"Parla con Melissa\"), 'bottega-melissa-action', true, async () => {\n\t\tawait this.commandService.executeCommand('bottega.barra.apri');\n\t\tawait this.commandService.executeCommand('bottega.voice.converse');\n\t}));")
+replace(p,
+        "@IExtensionService private readonly extensionService: IExtensionService,",
+        "@IExtensionService private readonly extensionService: IExtensionService,\n\t\t@ICommandService private readonly commandService: ICommandService,")
+replace(p,
+        "if (action.id === ACCOUNTS_ACTIVITY_ID) {\n\t\t\t\t\treturn this.instantiationService.createInstance(AccountsActivityActionViewItem,",
+        "if (action.id === 'bottega.melissa') {\n\t\t\t\t\treturn undefined;\n\t\t\t\t}\n\n\t\t\t\tif (action.id === ACCOUNTS_ACTIVITY_ID) {\n\t\t\t\t\treturn this.instantiationService.createInstance(AccountsActivityActionViewItem,")
+replace(p,
+        "\t\tthis.globalActivityActionBar.push(this.globalActivityAction);",
+        "\t\tthis.globalActivityActionBar.push(this.melissaAction, { icon: true, label: false });\n\t\tthis.globalActivityActionBar.push(this.globalActivityAction);")
