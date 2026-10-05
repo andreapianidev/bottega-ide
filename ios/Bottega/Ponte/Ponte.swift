@@ -187,8 +187,10 @@ final class Ponte {
 
     private func segui() async {
         var attesa: UInt64 = 1
+        // Il motivo dell'errore resta visibile durante i tentativi automatici.
+        // Riscrivere .provo a ogni giro nascondeva il timeout dietro "Cerco il Mac".
+        if ultimoSuccesso.map({ Date().timeIntervalSince($0) > 45 }) ?? true { linea = .provo }
         while !Task.isCancelled {
-            if ultimoSuccesso.map({ Date().timeIntervalSince($0) > 45 }) ?? true { linea = .provo }
             if Collegamento.sicuro == nil { _ = await preparaHttps() }
             do {
                 let req = try richiesta("/v1/eventi", timeout: 60)
@@ -466,7 +468,7 @@ final class Ponte {
             if await preparaHttps() { return }
         }
         do {
-            let (d, r) = try await sessione.data(for: richiesta("/v1/stato"))
+            let (d, r) = try await sessione.data(for: richiesta("/v1/stato", timeout: 12))
 #if DEBUG
             if macAssentePerProva { return }
 #endif

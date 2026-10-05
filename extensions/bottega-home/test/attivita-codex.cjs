@@ -29,6 +29,12 @@ assert.equal(active.title, 'Sistema la Home e lancia i test');
 assert.deepEqual(active.steps, ['Ha eseguito npm']);
 assert.ok(!JSON.stringify(active).includes('finto-dato-riservato'));
 
+const idePrompt = text => row(now, 'response_item', { type: 'message', role: 'user', content: [{ type: 'input_text', text }] });
+const ideContext = '# Context from my IDE setup:\n\n## Active file: test.swift\n\n## Open tabs:\n- test.swift\n\n';
+assert.equal(parseCodexRollout(meta, start + idePrompt(ideContext + '## My request:\nCorreggi i widget\nPoi esegui i test'), filename, now, now).title, 'Correggi i widget');
+assert.equal(parseCodexRollout(meta, start + idePrompt(ideContext), filename, now, now).title, 'Sessione Codex');
+assert.equal(parseCodexRollout(meta, start + idePrompt(ideContext + '## My request:\nUsa il token abcdefgh12345678'), filename, now, now).title, 'Sessione Codex');
+
 const finished = parseCodexRollout(meta, start + prompt + command + finish, filename, now - 10_000, now);
 assert.equal(finished.status, 'finito');
 const stale = parseCodexRollout(meta, row(now - 400_000, 'event_msg', { type: 'task_started' }), filename, now - 400_000, now);

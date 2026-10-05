@@ -129,6 +129,44 @@ final class AssistenteTelefonoTests: XCTestCase {
         XCTAssertFalse(racconto.testo.isEmpty)
     }
 
+    func testRaccontoTutteLeFontiReale() async throws {
+        let ponte = Ponte.shared
+        ponte.ricarica()
+        await ponte.aggiornaStato()
+        try await ponte.importaConfigurazioneAssistente()
+        for fonte in ["claude", "codex", "cline", "terminale"] {
+            let attivita = StatoMac.Attivita(key: "\(fonte):prova", source: fonte, project: "Prova voce",
+                                            status: "in corso", title: "Verifica i widget", summary: "Ha completato i test",
+                                            updatedAt: Date().timeIntervalSince1970 * 1000,
+                                            steps: ["Compilazione riuscita"])
+            var audio = 0
+            let testo = try await AssistenteTelefono.shared.racconta(
+                "Rispondi in una sola frase.\n" + ContestoRacconto.attivita(attivita, salvata: fonte == "cline"),
+                titolo: "la sessione \(attivita.fonte)", testo: { _ in }, audio: { audio += $0.count })
+            XCTAssertFalse(testo.isEmpty, fonte)
+            XCTAssertGreaterThan(audio, 0, fonte)
+            print("Racconto \(fonte): testo presente, PCM \(audio) byte")
+        }
+    }
+
+    func testRaccontoTutteLeStanzeReale() async throws {
+        let ponte = Ponte.shared
+        ponte.ricarica()
+        await ponte.aggiornaStato()
+        try await ponte.importaConfigurazioneAssistente()
+        for stanza in StanzaPlancia.allCases {
+            let copia = try await PonteStanze.shared.leggi(stanza.rawValue, [:])
+            XCTAssertFalse(copia.dati.isEmpty, stanza.titolo)
+            var audio = 0
+            let testo = try await AssistenteTelefono.shared.racconta(
+                "Descrivi in una sola frase il fatto principale. Non leggere elenchi. Dati ricevuti ora dal Mac:\n" + String(decoding: copia.dati, as: UTF8.self),
+                titolo: "la stanza \(stanza.titolo)", testo: { _ in }, audio: { audio += $0.count })
+            XCTAssertFalse(testo.isEmpty, stanza.titolo)
+            XCTAssertGreaterThan(audio, 0, stanza.titolo)
+            print("Racconto stanza \(stanza.rawValue): testo presente, PCM \(audio) byte")
+        }
+    }
+
     func testVoceDirettaConMacCollegato() async throws {
         let ponte = Ponte.shared
         ponte.ricarica()

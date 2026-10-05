@@ -281,9 +281,16 @@ struct OggiWidgetView: View {
     private var giorni: [StatoNativo.Giorno] { n.ultimiSette(entry.date) }
     private var waiting: [StatoNativo.Voce] { n.tiAspettano }
     private var waitingCount: Int { max(waiting.count, n.lavori?.tiAspetta ?? 0) }
+    private var workingCount: Int { n.lavori?.inCorso ?? 0 }
+    private var statoLavori: String {
+        var parti: [String] = []
+        if workingCount > 0 { parti.append("\(workingCount) in corso") }
+        if waitingCount > 0 { parti.append("\(waitingCount) in attesa") }
+        return parti.isEmpty ? "Nessun lavoro attivo" : parti.joined(separator: " · ")
+    }
 
     var body: some View {
-        if !n.present || !n.hasOre {
+        if !n.present {
             vuoto
         } else {
             switch family {
@@ -303,13 +310,14 @@ struct OggiWidgetView: View {
                 Spacer(minLength: 4)
                 SemaforoPiccolo(stato: entry.stato)
             }
-            OreGrandi(minuti: oggi, size: 30)
+            oreOggi(size: 30)
             aggiornamento
-            if waitingCount > 0 {
-                Text(waitingCount == 1 ? "1 lavoro ti aspetta" : "\(waitingCount) lavori ti aspettano")
+            if waitingCount + workingCount > 0 {
+                Text(statoLavori)
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(Notte.sodium)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             } else {
                 Text("settimana \(Formato.durata(n.minutiSettimana(entry.date)))")
                     .font(.caption2).foregroundStyle(Notte.dim).lineLimit(1)
@@ -333,7 +341,7 @@ struct OggiWidgetView: View {
             }
             HStack(alignment: .bottom, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    OreGrandi(minuti: oggi, size: 30)
+                    oreOggi(size: 30)
                     Text("settimana \(Formato.durata(n.minutiSettimana(entry.date)))")
                         .font(.caption2).foregroundStyle(Notte.dim).lineLimit(1)
                     attesaBreve
@@ -355,13 +363,13 @@ struct OggiWidgetView: View {
         if waitingCount > 0 {
             let names = Array(Set(waiting.map(\.progetto))).sorted().prefix(2)
             let tail = names.isEmpty ? "" : ": " + names.joined(separator: ", ")
-            Text("\(waitingCount) ti \(waitingCount == 1 ? "aspetta" : "aspettano")\(tail)")
+            Text("\(statoLavori)\(tail)")
                 .font(.system(size: 11, weight: .medium, design: .rounded))
                 .foregroundStyle(Notte.sodium)
-                .lineLimit(1)
+                .lineLimit(2)
                 .frame(maxWidth: 150, alignment: .leading)
         } else {
-            Text("niente ti aspetta").font(.caption2).foregroundStyle(Notte.dim)
+            Text(statoLavori).font(.caption2).foregroundStyle(workingCount > 0 ? Notte.sodium : Notte.dim)
         }
     }
 
@@ -376,7 +384,7 @@ struct OggiWidgetView: View {
                 SemaforoPiccolo(stato: entry.stato)
             }
             HStack(alignment: .firstTextBaseline) {
-                OreGrandi(minuti: oggi, size: 42)
+                oreOggi(size: 42)
                 Spacer(minLength: 8)
                 VStack(alignment: .trailing, spacing: 2) {
                     if let ieri = n.minutiIeri(entry.date) { riga("ieri", Formato.durata(ieri)) }
@@ -406,6 +414,9 @@ struct OggiWidgetView: View {
             }
         } else {
             VStack(alignment: .leading, spacing: 5) {
+                if workingCount > 0 {
+                    Text("\(workingCount) in corso").font(.caption).foregroundStyle(Notte.dim)
+                }
                 Text(waiting.count == 1 ? "Ti aspetta" : "Ti aspettano")
                     .font(.caption2.weight(.semibold)).foregroundStyle(Notte.sodium)
                 ForEach(waiting.prefix(3), id: \.key) { v in
@@ -451,6 +462,11 @@ struct OggiWidgetView: View {
     }
 
     // MARK: helpers
+
+    @ViewBuilder private func oreOggi(size: CGFloat) -> some View {
+        if n.hasOre { OreGrandi(minuti: oggi, size: size) }
+        else { Text("Ore non disponibili").font(.caption).foregroundStyle(Notte.dim) }
+    }
 
     private var aggiornamento: some View {
         ViewThatFits(in: .horizontal) {

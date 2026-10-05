@@ -463,6 +463,11 @@ struct SchedaLavoroSalvato: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    RaccontoView(titolo: "la sessione salvata di \(lavoro.progetto)") {
+                        ContestoRacconto.lavoroSalvato(lavoro, ora: ora)
+                    }
+                }
                 Section("Ultimo registro") {
                     if let ora {
                         Text("Ricevuto dal Mac alle \(Date(timeIntervalSince1970: ora / 1000).formatted(date: .abbreviated, time: .shortened)). Il lavoro potrebbe essere cambiato.")
@@ -537,6 +542,11 @@ struct SchedaAttivita: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    RaccontoView(titolo: "la sessione \(attivita.fonte) di \(attivita.project)") {
+                        ContestoRacconto.attivita(attivita, salvata: scomparsa || ponte.linea != .collegato)
+                    }
+                }
                 if scomparsa {
                     Section {
                         Text("Questa sessione non compare più nel registro attuale del Mac. Qui vedi l'ultimo stato ricevuto.")

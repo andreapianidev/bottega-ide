@@ -15,9 +15,16 @@ final class Riassunto {
     private let flusso = FlussoVoce()
     private var compito: Task<Void, Never>?
     private var numero = 0
+    private static weak var attivo: Riassunto?
+
+    init() {
+        flusso.interrotta = { [weak self] in self?.ferma() }
+    }
 
     func avvia(titolo: String, contesto: String) {
         guard stato == .fermo else { return ferma() }
+        Self.attivo?.ferma()
+        Self.attivo = self
         errore = nil
         testo = ""
         stato = .pensa
@@ -27,15 +34,18 @@ final class Riassunto {
     }
 
     func ferma() {
+        guard stato != .fermo || compito != nil else { return }
         numero += 1
         compito?.cancel()
         compito = nil
         flusso.spegni()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         stato = .fermo
+        if Self.attivo === self { Self.attivo = nil }
     }
 
     private func giro(titolo: String, contesto: String, numero corrente: Int) async {
+        guard numero == corrente, !Task.isCancelled else { return }
         do {
             try flusso.prepara()
             _ = try await AssistenteTelefono.shared.racconta(contesto, titolo: titolo) { [weak self] pezzo in
@@ -58,5 +68,6 @@ final class Riassunto {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         compito = nil
         stato = .fermo
+        if Self.attivo === self { Self.attivo = nil }
     }
 }

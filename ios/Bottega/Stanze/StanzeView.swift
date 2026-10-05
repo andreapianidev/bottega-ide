@@ -251,6 +251,9 @@ struct CorniceStanza<T: Decodable, Contenuto: View>: View {
         }
         let nome = StanzaPlancia(rawValue: lettura.nome)?.titolo ?? lettura.nome
         var contesto = "Dati visti il \(copia.visto.formatted(date: .complete, time: .shortened)):\n\(contenuto)"
+        if lettura.errore != nil || Ponte.shared.linea != .collegato {
+            contesto = "Questa è una copia salvata. Il Mac non ha confermato dati aggiornati: descrivi solo lo stato all'ora indicata.\n" + contesto
+        }
         if lettura.nome == "cruscotto" {
             let ambito = "I consumi, le ore e i token del JSON del Cruscotto riguardano soltanto Claude Code. Non presentarli come totali di tutti gli strumenti e non ricavare durate di Codex, Cline o terminali dal numero di sessioni."
             let registro = Ponte.shared.contestoMelissa(per: "Riepilogo delle attività e sessioni Claude Code, Codex, Cline e terminali")

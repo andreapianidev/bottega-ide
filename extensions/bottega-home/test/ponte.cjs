@@ -46,7 +46,7 @@ ok('quadro Lavori iPhone: progetti completi e attività per giorno del Mac');
 function call(port, method, url, { token, body, raw } = {}) {
 	return new Promise((resolve, reject) => {
 		const data = body === undefined ? undefined : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
-		const req = http.request({ host: '127.0.0.1', port, method, path: url, headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(data ? { 'content-type': 'application/json', 'content-length': data.length } : {}) } }, res => {
+		const req = http.request({ host: '127.0.0.1', port, method, path: url, agent: false, headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(data ? { 'content-type': 'application/json', 'content-length': data.length } : {}) } }, res => {
 			const parts = [];
 			res.on('data', c => parts.push(c));
 			res.on('end', () => {
@@ -85,6 +85,8 @@ function call(port, method, url, { token, body, raw } = {}) {
 	const imported = [];
 	let cavo = false;
 	let rispostaParziale = '';
+	let erroreRete = false;
+	let reteSpenta = false;
 	const port = 20000 + Math.floor(Math.random() * 20000);
 	// i Cervelli veri, con rete finta e chiavi finte: DeepSeek ha credito, Apple Intelligence no
 	const secrets = path.join(dir, 'secrets');
@@ -99,7 +101,10 @@ function call(port, method, url, { token, body, raw } = {}) {
 		dir,
 		versione: '9.9.9',
 		porta: port,
-		indirizzo: async () => ({ ip: '127.0.0.1', nome: 'mac-di-prova.tailnet.ts.net', diretti: ['100.70.0.9'] }),
+		indirizzo: async () => {
+			if (erroreRete) throw new Error('Controllo scaduto');
+			return reteSpenta ? null : { ip: '127.0.0.1', nome: 'mac-di-prova.tailnet.ts.net', diretti: ['100.70.0.9'] };
+		},
 		cavo: () => cavo,
 		cervelli: rotteCervelli(() => cv),
 		configTelefono: async () => ({ agnes: 'test-agnes', deepseek: 'test-deepseek', elevenlabs: 'test-voice', voiceID: 'voice-test', prompt: 'Sei Melissa.' }),
@@ -147,6 +152,19 @@ function call(port, method, url, { token, body, raw } = {}) {
 	assert.strictEqual(s.body.versione, '9.9.9');
 	assert.strictEqual(s.body.conti.tiAspetta, 1);
 	ok('stato');
+
+	erroreRete = true;
+	await ponte.allinea();
+	assert.ok(ponte.info().attivo, 'un timeout del controllo non spegne il ponte');
+	assert.strictEqual((await call(port, 'GET', '/v1/stato', { token: t1 })).status, 200);
+	erroreRete = false;
+	reteSpenta = true;
+	await ponte.allinea();
+	assert.ok(!ponte.info().attivo, 'Tailscale esplicitamente spento chiude il ponte');
+	reteSpenta = false;
+	await ponte.allinea();
+	assert.strictEqual((await call(port, 'GET', '/v1/stato', { token: t1 })).status, 200);
+	ok('controllo Tailscale: timeout transitorio, spegnimento e riconnessione');
 
 	const a = await call(port, 'POST', '/v1/chiedi', { token: t1, body: { testo: '  che lavori ho?  ' } });
 	assert.strictEqual(a.status, 200);

@@ -204,9 +204,9 @@ const TAILSCALE = ['/usr/local/bin/tailscale', '/opt/homebrew/bin/tailscale', '/
 export function tailscaleSelf(): Promise<Rete | null> {
 	const bin = TAILSCALE.find(p => fs.existsSync(p));
 	if (!bin) return Promise.resolve(null);
-	return new Promise(resolve => {
+	return new Promise((resolve, reject) => {
 		execFile(bin, ['status', '--json'], { timeout: 5000, maxBuffer: 4 << 20 }, (err, out) => {
-			if (err) return resolve(null);
+			if (err) return reject(new Error('Controllo Tailscale non disponibile.'));
 			try {
 				const d = JSON.parse(out);
 				if (d.BackendState !== 'Running') return resolve(null);
@@ -214,7 +214,7 @@ export function tailscaleSelf(): Promise<Rete | null> {
 				const nome = String(d.Self?.DNSName ?? '').replace(/\.$/, '');
 				resolve(ip ? { ip, nome: nome || ip, diretti: direttiInCasa(d) } : null);
 			} catch {
-				resolve(null);
+				reject(new Error('Risposta Tailscale non valida.'));
 			}
 		});
 	});
@@ -361,16 +361,27 @@ export class Ponte {
 	}
 
 	private async riallinea(): Promise<void> {
-		const rete = await (this.deps.indirizzo ?? tailscaleSelf)();
+		let rete: Rete | null;
+		try {
+			rete = await (this.deps.indirizzo ?? tailscaleSelf)();
+		} catch {
+			if (this.fermato) return;
+			// A slow CLI is not evidence that the tunnel went down. Keep the listener
+			// bound to its existing Tailscale address; retry discovery on the next tick.
+			this.deps.log('ponte: controllo Tailscale temporaneamente non disponibile; mantengo il collegamento esistente');
+			if (!this.server) this.errore = 'Tailscale non ha risposto al controllo: riprovo.';
+			return;
+		}
 		if (this.fermato) return;
 		if (!rete) {
-			if (this.server) this.deps.log('ponte: Tailscale non risponde, il ponte verso l\'iPhone si spegne');
+			if (this.server) this.deps.log('ponte: Tailscale spento, il ponte verso l\'iPhone si spegne');
 			this.errore = 'Tailscale e\' spento o non installato su questo Mac.';
 			this.rete = null;
 			this.chiudi();
 			return;
 		}
 		if (this.server && this.rete?.ip === rete.ip) {
+			this.errore = undefined;
 			const prima = this.vicino();
 			this.rete = rete;
 			if (this.vicino() !== prima) this.notify();

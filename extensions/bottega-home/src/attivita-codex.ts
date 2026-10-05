@@ -27,7 +27,12 @@ function isRecord(value: unknown): value is RecordLike {
 
 function safeText(value: unknown, limit: number): string | undefined {
 	if (typeof value !== 'string') return undefined;
-	const line = value.split(/\r?\n/).map(s => s.trim()).find(s => s && !s.startsWith('<') && !s.startsWith('```'));
+	let content = value;
+	// The editor prepends file/tab metadata. Only the request is a useful title.
+	const request = /^#{1,6}\s*My request:\s*$/im.exec(value);
+	if (request) content = value.slice(request.index + request[0].length);
+	else if (/^#\s*Context from my IDE setup:/im.test(value)) return undefined;
+	const line = content.split(/\r?\n/).map(s => s.trim()).find(s => s && !s.startsWith('<') && !s.startsWith('```'));
 	if (!line) return undefined;
 	// If a prompt/reply discusses credentials, suppress it entirely. A partial regex replacement could
 	// expose an unfamiliar key format, so we deliberately lose some detail in these cases.

@@ -124,6 +124,12 @@ async function test(name, run) {
 		assert.deepEqual(counts, { inCorso: 3, tiAspetta: 2, nelTerminale: 2, inCoda: 3, stanotte: 4, vive: 5 });
 		assert.deepEqual(voci.map(x => x.key), ['codex:3', 'cline:4', 'claude:1', 'codex:2', 'terminale:5']);
 		assert.equal(voci[0].da, activity[2].updatedAt);
+		activity[2].startedAt = f.now - 3_600_000;
+		f.idee.activityChanged(); await f.advance(2_000);
+		assert.equal(f.writes.at(-1).lavori.voci[0].da, activity[2].startedAt);
+		activity[2].updatedAt = f.now;
+		f.idee.activityChanged(); await f.advance(2_000);
+		assert.equal(f.writes.at(-1).lavori.voci[0].da, activity[2].startedAt, 'An update must not reset the duration');
 		activity = []; f.idee.activityChanged(); await f.advance(2_000);
 		assert.equal(f.writes.at(-1).lavori.inCorso, 0); assert.equal(f.writes.at(-1).lavori.tiAspetta, 0);
 		assert.equal(f.writes.at(-1).lavori.inCoda, 3); assert.deepEqual(f.writes.at(-1).lavori.voci, []);

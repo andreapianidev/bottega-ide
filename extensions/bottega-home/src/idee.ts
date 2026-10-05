@@ -306,7 +306,7 @@ export class Idee {
 				vive: activity ? working!.length + waiting!.length : w.vive,
 				// Widget "Oggi" e Siri (CosaMiAspetta, LavoroEntity): docs/CONTRATTI.md, 7.5.
 				voci: activity
-					? [...waiting!, ...working!].slice(0, 20).map(x => ({ key: x.key, progetto: x.project, path: x.path, titolo: x.title, stato: x.status, da: x.updatedAt }))
+					? [...waiting!, ...working!].slice(0, 20).map(x => ({ key: x.key, progetto: x.project, path: x.path, titolo: x.title, stato: x.status, da: x.startedAt ?? x.updatedAt }))
 					: (this.h.work?.() ?? []).slice(0, 20).map(x => ({ key: x.key, progetto: x.project, path: x.path, titolo: x.title, stato: x.status, da: x.since })),
 			},
 			ore: st ? {

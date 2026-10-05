@@ -3,6 +3,20 @@ import XCTest
 @testable import Bottega
 
 final class SessioniWidgetTests: XCTestCase {
+    func testDurataStabileEDeduplicaPerAggiornamento() throws {
+        var prima = attivita("codex:a", "codex", "in corso", alle: 200)
+        prima.startedAt = 50
+        var dopo = attivita("codex:a", "codex", "ti aspetta", alle: 300)
+        dopo.startedAt = 50
+        let s = stato([prima, dopo])
+        XCTAssertEqual(s.sessioniWidget.count, 1)
+        XCTAssertEqual(s.sessioniWidget.first?.da, 50)
+        XCTAssertEqual(s.sessioniWidget.first?.stato, "ti aspetta")
+        let copia = try JSONDecoder().decode(StatoMac.self, from: JSONEncoder().encode(s))
+        XCTAssertEqual(copia.sessioniWidget, s.sessioniWidget)
+        XCTAssertEqual(stato([attivita("legacy", "cline", "in corso", alle: 99)]).sessioniWidget.first?.da, 99)
+    }
+
     private func attivita(_ key: String, _ source: String, _ status: String,
                           progetto: String = "Bottega", alle: Double = 100) -> StatoMac.Attivita {
         .init(key: key, source: source, project: progetto, status: status,

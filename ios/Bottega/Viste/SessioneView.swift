@@ -62,6 +62,7 @@ struct SessioneView: View {
         // in diretta solo con l'app davanti: dietro la connessione si chiude e il Mac smette di guardare
         .task(id: fase == .active) { if fase == .active { await segui() } }
         .onDisappear { riassunto.ferma() }
+        .onChange(of: fase) { _, nuova in if nuova == .background { riassunto.ferma() } }
     }
 
     // MARK: - parti
