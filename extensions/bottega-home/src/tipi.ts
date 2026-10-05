@@ -76,7 +76,30 @@ export interface VercelSito {
 	lastReady?: { at: number; url: string }; // se l'ultima non e' pronta: quella che resta online
 }
 
+/** Inventario remoto, inclusi i progetti senza cartella o pubblicazioni. Solo metadati pubblicabili nel ponte. */
+export interface VercelProject {
+	id: string;
+	name: string;
+	orgId: string;
+	repo?: string;
+	framework?: string;
+	rootDirectory?: string;
+	productionBranch?: string;
+	localPaths: string[];
+	state: string;
+	label: string;
+	tone: 'ok' | 'attesa' | 'male';
+	at: number;
+	domain?: string;
+	url: string;
+	commit?: { sha: string; message: string; ref?: string };
+}
+
 export interface VercelState {
+	catalog?: VercelProject[];
+	catalogAt?: number;
+	catalogError?: string;
+	catalogPartial?: boolean;
 	sites: VercelSito[];
 	at: number; // ultima lettura riuscita, 0 = mai
 	error?: string;

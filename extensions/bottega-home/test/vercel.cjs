@@ -344,7 +344,7 @@ function cliFinta() {
 		const n = f.calls.length;
 		await v.refresh(PROGETTI);
 		const nuove = f.calls.slice(n).map(c => c[1]);
-		assert.deepStrictEqual(nuove.map(e => e.split('?')[0]), ['/v6/deployments']);
+		assert.deepStrictEqual(nuove.map(e => e.split('?')[0]), ['/v6/deployments', '/v2/teams', '/v9/projects']);
 	});
 
 	await test('una pubblicazione nuova: si legge solo il suo dettaglio', async () => {
@@ -354,7 +354,7 @@ function cliFinta() {
 		const n = f.calls.length;
 		await v.refresh(PROGETTI);
 		const nuove = f.calls.slice(n).map(c => c[1].split('?')[0]);
-		assert.deepStrictEqual(nuove, ['/v6/deployments', '/v13/deployments/dpl_alfa3']);
+		assert.deepStrictEqual(nuove, ['/v6/deployments', '/v13/deployments/dpl_alfa3', '/v2/teams', '/v9/projects']);
 		const alfa = v.state().sites.find(s => s.projectId === 'prj_alfa');
 		assert.strictEqual(alfa.state, 'READY');
 		assert.strictEqual(alfa.lastReady, undefined);

@@ -239,14 +239,14 @@ test('stanze su una riga: quelle che non ci stanno vanno in «Altro», la stanza
 	Object.defineProperty(t.w.HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return this.id === 'stanze' ? 450 : 0; } });
 	t.click(t.$('#tab-plancia'));
 	const fuori = () => t.$$('.tabs button.fuori').map(b => b.dataset.view);
-	assert.deepStrictEqual(fuori(), ['melissa', 'cruscotto', 'vedetta', 'appstore', 'clienti', 'connettori', 'regia'], 'tre schede nella riga, le altre in «Altro»');
+	assert.deepStrictEqual(fuori(), ['melissa', 'cruscotto', 'vedetta', 'appstore', 'clienti', 'connettori', 'regia', 'vercel'], 'tre schede nella riga, le altre in «Altro»');
 	assert.strictEqual(t.$('#altro').hidden, false);
-	assert.match(t.$('#altro').title, /Melissa, Cruscotto, Vedetta, App Store, Clienti, Connettori, Regia/);
+	assert.match(t.$('#altro').title, /Melissa, Cruscotto, Vedetta, App Store, Clienti, Connettori, Regia, Vercel/);
 	// apre il pannello e sceglie Connettori: entra nella riga al posto dell'ultima
 	t.click(t.$('#altro'));
 	assert.strictEqual(t.$('#altro').getAttribute('aria-expanded'), 'true');
 	const voci = t.$$('#altro-menu button').map(b => b.dataset.view);
-	assert.deepStrictEqual(voci, ['melissa', 'cruscotto', 'vedetta', 'appstore', 'clienti', 'connettori', 'regia']);
+	assert.deepStrictEqual(voci, ['melissa', 'cruscotto', 'vedetta', 'appstore', 'clienti', 'connettori', 'regia', 'vercel']);
 	t.click(t.$('#altro-menu button[data-view="connettori"]'));
 	assert.strictEqual(t.$('#tab-connettori').getAttribute('aria-selected'), 'true');
 	assert.ok(!fuori().includes('connettori'), 'la stanza in cui sei e\' sempre nella riga');
@@ -267,13 +267,13 @@ test('stanze su una riga: quelle che non ci stanno vanno in «Altro», la stanza
 	assert.deepStrictEqual(t.errors, []);
 });
 
-test('dieci schede, con i tasti da 1 a 9 invariati', () => {
+test('undici schede, con i tasti da 1 a 9 invariati', () => {
 	const t = boot();
 	t.send({ type: 'snapshot', snapshot: snapshot() });
 	const tabs = t.$$('[role="tab"]');
 	assert.deepStrictEqual(
 		tabs.map(x => x.querySelector('span:not(.segnale)').textContent),
-		['Plancia', 'Lavori', 'Memoria', 'Melissa', 'Cruscotto', 'Vedetta', 'App Store', 'Clienti', 'Connettori', 'Regia'],
+		['Plancia', 'Lavori', 'Memoria', 'Melissa', 'Cruscotto', 'Vedetta', 'App Store', 'Clienti', 'Connettori', 'Regia', 'Vercel'],
 	);
 	assert.match(tabs[5].getAttribute('title'), /tasto 6/);
 	const ids = ['plancia', 'lavori', 'memoria', 'melissa', 'cruscotto', 'vedetta', 'appstore', 'clienti', 'connettori'];
@@ -289,9 +289,11 @@ test('dieci schede, con i tasti da 1 a 9 invariati', () => {
 	t.key('ArrowRight', t.$('#tab-connettori'));
 	assert.strictEqual(t.$('#tab-regia').getAttribute('aria-selected'), 'true');
 	t.key('ArrowRight', t.$('#tab-regia'));
+	assert.strictEqual(t.$('#tab-vercel').getAttribute('aria-selected'), 'true');
+	t.key('ArrowRight', t.$('#tab-vercel'));
 	assert.strictEqual(t.$('#tab-plancia').getAttribute('aria-selected'), 'true');
 	t.key('End', t.$('#tab-plancia'));
-	assert.strictEqual(t.$('#tab-regia').getAttribute('aria-selected'), 'true');
+	assert.strictEqual(t.$('#tab-vercel').getAttribute('aria-selected'), 'true');
 	assert.deepStrictEqual(t.errors, []);
 });
 

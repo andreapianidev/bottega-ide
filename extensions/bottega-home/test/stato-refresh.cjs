@@ -41,7 +41,8 @@ function fixture() {
 	const modules = { fs, os: { homedir: () => '/fixture' }, path, vscode, child_process: {},
 		'./regole': { RulesEngine }, './radar': { Radar }, './notte': { NightScheduler },
 		'./briefing': { readBriefing: () => ({ briefing: null }), today: day },
-		'./clienti': {}, './continua': {}, './dimenticati': { findForgotten: () => [] }, './ricerca': {} };
+		'./stack-clienti': { GithubInventory: class { state() { return { repos: [], at: 0 }; } async refresh() { return this.state(); } } },
+		'./clienti': { readClients: () => ({ clients: [] }) }, './continua': {}, './dimenticati': { findForgotten: () => [] }, './ricerca': {} };
 	const module = { exports: {} };
 	class ClockDate extends Date { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } }
 	vm.runInNewContext(code, { module, exports: module.exports, Date: ClockDate, URLSearchParams,

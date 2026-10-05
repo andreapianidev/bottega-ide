@@ -36,7 +36,6 @@ import { leggiStanza } from './strumenti-stanze';
 import type { DaRaccontare } from './assistant';
 import { allarmiAppStore, briefingAppStore, handleAppStore, registerAppStore, STRUMENTI_APPSTORE } from './appstore-host';
 import { registraStrumentiStanze, STRUMENTI_STANZE } from './strumenti-stanze';
-import { buildReport, readClients } from './clienti';
 import { conteggiOsservati, type AgentActivity } from './attivita-tipi';
 import { readCodexActivities } from './attivita-codex';
 import { readClineActivities } from './attivita-cline';
@@ -596,7 +595,7 @@ function showPlancia(section?: string): void {
 
 const NOMI_VISTE: Record<string, string> = {
 	plancia: 'la Plancia', regia: 'la Regia', lavori: 'i Lavori', memoria: 'la Memoria', melissa: 'la Plancia', cruscotto: 'il Cruscotto',
-	vedetta: 'la Vedetta', appstore: 'la stanza App Store', clienti: 'la stanza Clienti', connettori: 'i Connettori',
+	vercel: 'la stanza Vercel', vedetta: 'la Vedetta', appstore: 'la stanza App Store', clienti: 'la stanza Clienti', connettori: 'i Connettori',
 };
 
 /** Il file di codice nella scheda attiva, oppure la stanza che la Home sta mostrando, gia' letti. */
@@ -1006,7 +1005,8 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 	};
 	registraStrumentiStanze({
 		progetto: resolveProject, stats: calcolaStats, appStore: () => appStore?.state(), regole: () => idee?.rules.state(), radar: () => idee?.radar.state(),
-		clienti: async mese => ((await calcolaStats()) && statsEngine ? buildReport(statsEngine.lastLedger, readClients(), snapshot.projects, mese) : null),
+		rileggiStack: async () => { await Promise.all([idee?.radar.vercel?.refresh(snapshot.projects, { force: true }), idee?.github.refresh(true)]); },
+		clienti: async mese => ((await calcolaStats()) && idee ? idee.clientReport(mese) : null),
 		memoria: () => memoria, connettori: stanzaConnettori, notte: () => idee?.night.state(),
 		mostra: (view, p) => showHome(view, p), send: msg => panelHost?.send(msg), osservatorio: () => vscode.commands.executeCommand('bottega.openOsservatorio'),
 	});
@@ -1191,6 +1191,7 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 				vscode.window.showWarningMessage(e?.message ?? String(e));
 			}
 		}),
+		vscode.commands.registerCommand('bottega.openVercel', () => showPlancia('vercel')),
 		vscode.commands.registerCommand('bottega.openClienti', () => showPlancia('clienti')),
 		vscode.commands.registerCommand('bottega.openAppStore', () => showPlancia('appstore')),
 		vscode.commands.registerCommand('bottega.briefing', () => {

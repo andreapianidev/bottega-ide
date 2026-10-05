@@ -11,13 +11,14 @@ import SwiftUI
 
 /// Le stanze che l'iPhone sa aprire. Il valore e' il `nome` di /v1/stanza e del link bottega://stanze?nome=..
 enum StanzaPlancia: String, CaseIterable, Identifiable {
-    case appstore, cruscotto, vedetta, dafare, posta, clienti, notte
+    case appstore, cruscotto, vercel, vedetta, dafare, posta, clienti, notte
     var id: String { rawValue }
 
     var titolo: String {
         switch self {
         case .appstore: "App Store"
         case .cruscotto: "Cruscotto"
+        case .vercel: "Vercel"
         case .vedetta: "Vedetta"
         case .dafare: "Cose da fare"
         case .posta: "Posta e WhatsApp"
@@ -30,10 +31,11 @@ enum StanzaPlancia: String, CaseIterable, Identifiable {
         switch self {
         case .appstore: "Guadagni, download, buchi"
         case .cruscotto: "Ore, sessioni, token"
+        case .vercel: "Progetti, GitHub e pubblicazioni"
         case .vedetta: "Semaforo e siti"
         case .dafare: "Dalla Memoria"
         case .posta: "Chi ha scritto"
-        case .clienti: "Ore e importi del mese"
+        case .clienti: "Progetti, stack e ore"
         case .notte: "Coda e resoconto"
         }
     }
@@ -42,6 +44,7 @@ enum StanzaPlancia: String, CaseIterable, Identifiable {
         switch self {
         case .appstore: "chart.bar.xaxis"
         case .cruscotto: "gauge.with.dots.needle.33percent"
+        case .vercel: "network"
         case .vedetta: "light.beacon.max"
         case .dafare: "checklist"
         case .posta: "envelope"
@@ -121,6 +124,7 @@ private struct ApriStanza: View {
                 switch stanza {
                 case .appstore: AppStoreView(ponte: ponte)
                 case .cruscotto: CruscottoView(ponte: ponte)
+                case .vercel: VercelView(ponte: ponte)
                 case .vedetta: VedettaView(ponte: ponte)
                 case .dafare: DaFareView(ponte: ponte)
                 case .posta: PostaView(ponte: ponte)

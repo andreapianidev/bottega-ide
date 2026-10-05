@@ -294,6 +294,22 @@ function call(port, token, method, url, corpo) {
 	assert.match(ignota.body.errore, /servizi, consigli/);
 	ok('solo GET con il gettone, stanza sconosciuta 400');
 
+	// Vercel è una stanza autonoma, anche quando la Vedetta non ha ancora regole.
+	let refreshStack = 0;
+	f = fonti({ regole: () => undefined, radar: () => ({ ...RADAR, vercel: { sites: [], at: ORA, catalogAt: ORA, refreshing: false,
+		catalog: [{ id: 'prj_cloud', name: 'Solo cloud', localPaths: [], state: 'NONE', label: 'nessuna produzione', tone: 'attesa', at: 0, url: 'https://vercel.com/dashboard' }] } }),
+		rileggiStack: async () => { refreshStack++; } });
+	const inventory = pulita(await get('nome=vercel'));
+	assert.strictEqual(inventory.progetti[0].id, 'prj_cloud');
+	assert.strictEqual(inventory.totale, 1);
+	assert.strictEqual((await call(port, 'sbagliato', 'POST', '/v1/stanza/azione', { stanza: 'vercel', azione: 'aggiorna' })).status, 401);
+	assert.strictEqual(refreshStack, 0);
+	assert.strictEqual((await call(port, token, 'POST', '/v1/stanza/azione', { stanza: 'vercel', azione: 'aggiorna' })).body.avviato, true);
+	assert.strictEqual(refreshStack, 1);
+	assert.strictEqual((await call(port, token, 'POST', '/v1/stanza/azione', { stanza: 'vercel', azione: 'deploy' })).status, 400);
+	f = fonti();
+	ok('Vercel indipendente dalle regole, inventario cloud e refresh autenticato senza deploy');
+
 	// App Store: mese, ieri, anno, un progetto
 	let s = pulita(await get('nome=appstore'));
 	assert.strictEqual(s.periodo, 30);

@@ -13,6 +13,7 @@ import {
 	ADVICE_INSTRUCTIONS, Advice, adviceCandidates, adviceFacts, Briefing, BRIEFING_INSTRUCTIONS, BriefingMemory, briefingPoints,
 	Facts, factsForModel, parseAdvice, briefingFrame, briefingText, readBriefing, ruleAdvice, storeMemory, today, writeBriefing,
 } from './briefing';
+import { GithubInventory } from './stack-clienti';
 import { buildReport, monthName, readClients, toCsv, toMarkdown, writeClients } from './clienti';
 import { prepareContinuation } from './continua';
 import { findForgotten, Forgotten } from './dimenticati';
@@ -80,12 +81,15 @@ function money(n: number, cur = 'USD'): string {
 
 export class Idee {
 	readonly rules: RulesEngine;
+	readonly github = new GithubInventory();
 	readonly radar: Radar;
 	readonly night: NightScheduler;
 	private briefing: Briefing | null;
 	private briefingMemory?: BriefingMemory;
 	private advice: Advice | null;
 	private forgotten: Forgotten[] = [];
+	private clientsRequest = 0;
+	private clientsMonth: string | undefined;
 	private making = false;
 	private advising = false;
 	private menubarCounts = { busy: 0, waiting: 0, queued: 0 };
@@ -129,6 +133,7 @@ export class Idee {
 		this.rules.onChange(() => this.changed());
 		this.radar.onChange(() => {
 			this.changed();
+			if (this.clientsMonth !== undefined) this.h.send({ type: 'clients', report: this.report(this.clientsMonth) });
 			// lo stato di una versione su App Store Connect entra nella regola del rilascio
 			void this.rules.check(h.projects());
 		});
@@ -228,6 +233,7 @@ export class Idee {
 			void this.maybeAdvice(false);
 		});
 		void this.radar.refresh(projects);
+		if (readClients().clients.length) void this.github.refresh();
 		void this.indexSpotlight(projects);
 		this.changed();
 	}
@@ -535,11 +541,21 @@ export class Idee {
 			case 'notte.now':
 				if (m.id) this.night.startNow(m.id);
 				return true;
+			case 'vercel.refresh':
+				await this.radar.vercel?.refresh(projects, { force: true });
+				return true;
+			case 'clients.refresh':
+				await Promise.all([this.github.refresh(true), this.radar.vercel?.refresh(projects, { force: true })]);
+				this.h.refresh();
 			case 'clients.request':
 			case 'clients.save': {
 				if (m.type === 'clients.save' && Array.isArray(m.clients)) writeClients(m.clients);
-				await this.ensureLedger();
-				this.h.send({ type: 'clients', report: buildReport(this.h.stats.lastLedger, readClients(), projects, m.month) });
+				const request = ++this.clientsRequest;
+				this.clientsMonth = typeof m.month === 'string' ? m.month : '';
+				this.h.send({ type: 'clients', report: await this.clientReport(this.clientsMonth) });
+				void this.github.refresh().then(() => {
+					if (request === this.clientsRequest) this.h.send({ type: 'clients', report: this.report(this.clientsMonth) });
+				});
 				return true;
 			}
 			case 'clients.export':
@@ -578,6 +594,19 @@ export class Idee {
 		return false;
 	}
 
+	async clientReport(month?: string) {
+		await this.ensureLedger();
+		// Le letture di rete non bloccano la stanza: al termine arriva un nuovo report.
+		void this.github.refresh();
+		return this.report(month);
+	}
+
+	private report(month?: string) {
+		return buildReport(this.h.stats.lastLedger, readClients(), this.h.projects(), month, Date.now(), {
+			vercel: this.radar.vercel?.state(), github: this.github.state(),
+		});
+	}
+
 	private async ensureLedger(): Promise<void> {
 		if (this.h.stats.lastLedger.size) return;
 		try {
@@ -589,7 +618,7 @@ export class Idee {
 
 	private async exportClients(month: string | undefined, format: 'csv' | 'md'): Promise<void> {
 		await this.ensureLedger();
-		const report = buildReport(this.h.stats.lastLedger, readClients(), this.h.projects(), month);
+		const report = this.report(month);
 		const name = `ore-clienti-${report.month}.${format}`;
 		const target = await vscode.window.showSaveDialog({
 			defaultUri: vscode.Uri.file(path.join(os.homedir(), 'Downloads', name)),

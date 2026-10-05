@@ -580,3 +580,11 @@ Melissa parlano italiano), il carattere di Melissa. Segnalazioni e proposte sono
 Anthropic.
 
 © 2026 Bottega · Andrea Piani · NIE Z2331796-S · Tijarafe, Santa Cruz de Tenerife · Islas Canarias
+
+### Vercel e lo stack dei clienti
+
+La stanza **Vercel**, nella Home del Mac e nelle Stanze dell'iPhone, mostra l'inventario dell'account: repository GitHub, cartelle riconosciute, ramo di produzione, dominio e stato delle pubblicazioni. Include anche progetti presenti solo nel cloud. Si aggiorna con **Sincronizza Vercel** sull'iPhone o **Aggiorna Vercel** sul Mac; senza rete resta la data dell'ultima lettura riuscita. Il Mac usa `vercel login` e `gh auth login` già configurati, senza trasferire token all'iPhone.
+
+In **Clienti → Modifica i clienti**, scegli una cartella, un repository GitHub o un progetto Vercel. **Sincronizza GitHub e Vercel** aggiorna l'inventario e le associazioni. Le ore delle cartelle collegate vengono attribuite al cliente; in caso di associazioni in conflitto vengono lasciate non assegnate. Le schede mostrano lo stack anche con zero ore nel mese. La sincronizzazione riguarda dati e associazioni; push e deploy restano azioni esplicite.
+
+Il [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) permette di incorporare il motore di Claude Code in un processo TypeScript/Python sul Mac o su un server, con strumenti, sessioni e permessi. È utile per una futura esecuzione programmabile degli agenti; questa integrazione non aggiunge un secondo motore né cambia l'autenticazione esistente di Claude. Le [Vercel Functions](https://vercel.com/docs/functions) possono fornire API HTTPS a un'app Swift tramite `URLSession`. Qui il Mac legge direttamente gli inventari e li condivide attraverso il ponte: non è stato pubblicato un nuovo backend cloud e la sincronizzazione dall'iPhone richiede il Mac collegato.

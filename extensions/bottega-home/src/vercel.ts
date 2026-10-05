@@ -23,7 +23,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { Project } from './scan';
-import type { RuleHit, VercelSito, VercelState } from './tipi';
+import type { RuleHit, VercelSito, VercelState, VercelProject } from './tipi';
 
 export type { VercelSito, VercelState };
 
@@ -68,7 +68,7 @@ const OPZIONI: Record<string, boolean> = {
 	'--non-interactive': false,
 	'--no-color': false,
 };
-const ENDPOINT = /^\/v\d{1,2}\/(deployments|projects|user)(\/[A-Za-z0-9_.-]{1,80})?(\?[A-Za-z0-9_.=&%-]*)?$/;
+const ENDPOINT = /^\/v\d{1,2}\/(deployments|projects|user|teams)(\/[A-Za-z0-9_.-]{1,80})?(\?[A-Za-z0-9_.=&%-]*)?$/;
 
 /** Vero solo per i comandi di sola lettura dell'elenco chiuso. Ogni altra cosa si rifiuta. */
 export function comandoAmmesso(args: string[]): boolean {
@@ -289,16 +289,22 @@ function dalleCartelle(dir: string): Omit<Collegamento, 'path'>[] {
 
 /** Il repository GitHub del remoto origin, letto da .git/config (niente processi). */
 export function repoGithub(dir: string): string | undefined {
-	let cfg = '';
 	try {
-		cfg = fs.readFileSync(path.join(dir, '.git', 'config'), 'utf8');
-	} catch {
-		return undefined;
-	}
-	const sez = /\[remote "origin"\]([^[]*)/.exec(cfg)?.[1] ?? cfg;
-	const url = /^\s*url\s*=\s*(\S+)/m.exec(sez)?.[1];
-	const m = url && /github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(url);
-	return m ? `${m[1]}/${m[2]}`.toLowerCase() : undefined;
+		let git = path.join(dir, '.git');
+		if (fs.statSync(git).isFile()) {
+			const target = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(git, 'utf8'))?.[1];
+			if (!target) return undefined;
+			git = path.resolve(dir, target.trim());
+			const common = path.join(git, 'commondir');
+			if (fs.existsSync(common)) git = path.resolve(git, fs.readFileSync(common, 'utf8').trim());
+		}
+		const cfg = fs.readFileSync(path.join(git, 'config'), 'utf8');
+		const section = /\[remote "origin"\]([^[]*)/.exec(cfg)?.[1];
+		const url = section && /^\s*url\s*=\s*(\S+)/m.exec(section)?.[1];
+		if (!url) return undefined;
+		const m = /^(?:git@github\.com:|https:\/\/github\.com\/|ssh:\/\/git@github\.com\/)([a-z0-9_.-]+)\/([a-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(url);
+		return m ? `${m[1]}/${m[2]}`.toLowerCase() : undefined;
+	} catch { return undefined; }
 }
 
 /** I collegamenti espliciti (project.json, repo.json, anche in una sottocartella) e i candidati per repository e nome. */
@@ -363,6 +369,29 @@ export function vercelHits(projectPath: string, stato: VercelState | undefined):
 		});
 	}
 	return out;
+}
+
+/** Il progetto API viene ridotto subito: mai env, credenziali o deploy hooks nella cache. */
+export function leggiProgetto(d: any, projects: Pick<Project, 'path' | 'name'>[], explicit: Collegamento[], repositories?: Map<string, string | undefined>): VercelProject | undefined {
+	if (!d || !/^prj_[a-z0-9_-]+$/i.test(d.id ?? '') || typeof d.name !== 'string') return undefined;
+	const repo = d.link?.type === 'github' && /^[a-z0-9_.-]+$/i.test(d.link.org ?? '') && /^[a-z0-9_.-]+$/i.test(d.link.repo ?? '')
+		? `${d.link.org}/${d.link.repo}`.toLowerCase() : undefined;
+	const exact = explicit.filter(l => l.projectId === d.id).map(l => l.path);
+	const localPaths = exact.length ? exact : repo ? projects.filter(p => (repositories ? repositories.get(p.path) : repoGithub(p.path)) === repo).map(p => p.path) : [];
+	const latest = (Array.isArray(d.latestDeployments) ? d.latestDeployments : []).filter((p: any) => p.target === 'production')
+		.sort((a: any, b: any) => Number(b.createdAt ?? b.created) - Number(a.createdAt ?? a.created))[0] ?? d.targets?.production;
+	const deployment = latest && leggiPubblicazione({ ...latest, projectId: d.id });
+	const state = deployment?.state ?? 'NONE';
+	return {
+		id: d.id, name: d.name.slice(0, 100), orgId: String(d.accountId ?? ''), repo, localPaths,
+		framework: typeof d.framework === 'string' ? d.framework : undefined,
+		rootDirectory: typeof d.rootDirectory === 'string' ? d.rootDirectory : undefined,
+		productionBranch: typeof d.link?.productionBranch === 'string' ? d.link.productionBranch : undefined,
+		state, ...(state === 'NONE' ? { label: 'nessuna produzione', tone: 'attesa' as const } : statoVercel(state)),
+		at: deployment?.at ?? 0, commit: deployment?.commit,
+		domain: sceltaDominio(d.targets?.production?.alias),
+		url: deployment?.inspector ?? 'https://vercel.com/dashboard',
+	};
 }
 
 // ---------- il lettore ----------
@@ -511,6 +540,39 @@ export class Vercel {
 
 	private api(endpoint: string): Promise<any> {
 		return this.cli(['api', endpoint, '-X', 'GET', '--raw']);
+	}
+
+	private async catalogo(projects: Pick<Project, 'path' | 'name'>[], explicit: Collegamento[]): Promise<void> {
+		const catalog = new Map<string, VercelProject>();
+		const repositories = new Map(projects.map(p => [p.path, repoGithub(p.path)]));
+		const orgs = new Set(explicit.map(l => l.orgId));
+		orgs.add(''); // include anche lo scope attivo della CLI
+		let partial = false;
+		try {
+			const teams = await this.api('/v2/teams?limit=100');
+			if (!Array.isArray(teams?.teams)) throw new Error('Elenco team inatteso');
+			for (const t of teams.teams) if (/^team_[a-z0-9_-]+$/i.test(t.id ?? '')) orgs.add(t.id);
+			partial = !!teams.pagination?.next;
+		} catch { partial = true; }
+		for (const org of orgs) {
+			let until = '';
+			for (let page = 0; page < 10; page++) {
+				const data = await this.api(ep('/v9/projects', { limit: 100, ...(until ? { until } : {}) }, org));
+				if (!Array.isArray(data?.projects)) throw new CliError('Inventario Vercel in un formato inatteso.');
+				for (const raw of data.projects) {
+					const p = leggiProgetto(raw, projects, explicit, repositories);
+					if (p) catalog.set(p.id, p);
+				}
+				const next = data.pagination?.next;
+				if (!next) break;
+				if (String(next) === until || page === 9) { partial = true; break; }
+				until = String(next);
+			}
+		}
+		this.cache.state.catalog = [...catalog.values()].sort((a, b) => a.name.localeCompare(b.name));
+		this.cache.state.catalogAt = this.now();
+		this.cache.state.catalogPartial = partial;
+		delete this.cache.state.catalogError;
 	}
 
 	private async run(projects: Pick<Project, 'path' | 'name'>[]): Promise<VercelState> {
@@ -668,7 +730,19 @@ export class Vercel {
 		}
 		for (const u of Object.keys(c.dettagli)) if (!uids.has(u)) delete c.dettagli[u];
 
-		c.state = { sites, at: this.now() };
+		c.state = { ...c.state, sites, at: this.now(), error: undefined };
+		try {
+			await this.catalogo(projects, espliciti);
+			// La lista di produzione può conoscere un fallimento più recente del target ancora online.
+			for (const item of c.state.catalog ?? []) {
+				const recent = ultime.get(item.id);
+				if (recent && recent.at >= item.at) {
+					Object.assign(item, { state: recent.state, ...statoVercel(recent.state), at: recent.at, commit: recent.commit });
+					if (recent.inspector) item.url = recent.inspector;
+				}
+			}
+		}
+		catch (e) { c.state.catalogError = e instanceof CliError ? e.message : 'Inventario Vercel non disponibile.'; }
 		this.save();
 		return this.state();
 	}

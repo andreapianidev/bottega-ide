@@ -12,7 +12,7 @@ const esbuild = require('esbuild');
 const SRC = path.join(__dirname, '..', 'src');
 const OUT = path.join(__dirname, 'test-out', 'idee');
 esbuild.buildSync({
-	entryPoints: ['clienti', 'dimenticati', 'continua', 'notte', 'briefing', 'jobs', 'scan', 'ricerca', 'stats', 'claude'].map(n => path.join(SRC, n + '.ts')),
+	entryPoints: ['stack-clienti', 'vercel', 'clienti', 'dimenticati', 'continua', 'notte', 'briefing', 'jobs', 'scan', 'ricerca', 'stats', 'claude'].map(n => path.join(SRC, n + '.ts')),
 	outdir: OUT,
 	format: 'cjs',
 	platform: 'node',

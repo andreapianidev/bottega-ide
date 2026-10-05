@@ -113,7 +113,7 @@ export class PlanciaPanel {
 		const js = panel.webview.asWebviewUri(vscode.Uri.joinPath(media, 'plancia.js'));
 		// cruscotto, vedetta e clienti stanno in file loro; i loro script vanno caricati prima di plancia.js, che li monta
 		// conti.js prima di cruscotto.js, che lo monta nella sezione «Servizi»
-		const rooms = ['conti', 'regia', 'cruscotto', 'vedetta', 'clienti', 'connettori', 'appstore'];
+		const rooms = ['conti', 'regia', 'cruscotto', 'vedetta', 'vercel', 'clienti', 'connettori', 'appstore'];
 		const css2 = rooms.map(r => `<link rel="stylesheet" href="${panel.webview.asWebviewUri(vscode.Uri.joinPath(media, r + '.css'))}">`).join('\n');
 		const nonce = Array.from({ length: 24 }, () => Math.floor(Math.random() * 36).toString(36)).join('');
 		// i componenti condivisi in WebGPU (sfera, cielo), se ci sono: prima delle stanze, che li montano

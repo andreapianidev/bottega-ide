@@ -76,6 +76,7 @@ export interface FontiStanze {
 	appStore?(): StatoStore | undefined;
 	regole?(): RulesState | undefined;
 	radar?(): RadarState | undefined;
+	rileggiStack?(): Promise<void>;
 	/** Le ore per cliente del mese (YYYY-MM, default quello in corso), come nella stanza Clienti. */
 	clienti?(mese?: string): Promise<ClientReport | null>;
 	memoria?(): { recent(project?: string, opts?: { kinds?: string[]; limit?: number }): Promise<MemoryItem[]>; bacheca(project?: string, minutes?: number): Promise<BoardItem[]> } | undefined;
@@ -585,6 +586,18 @@ function sitoDetto(s: VercelSito, now: number, dettagli: boolean): string {
 function leggiSiti(f: FontiStanze, a: Richiesta, now: number): string {
 	const v = f.radar?.()?.vercel;
 	if (!v) return 'Non leggo i siti su Vercel: il radar non è collegato a Vercel.';
+	if (v.catalog) {
+		const p = a.progetto ? risolvi(f, a.progetto) : undefined;
+		const q = a.progetto ? norma(a.progetto) : '';
+		const rows = v.catalog.filter(x => !q || norma(x.name).includes(q) || (p && x.localPaths.includes(p.path)));
+		return componi([
+			`Vercel: ${rows.length} progetti${a.progetto ? ' trovati' : ''}.`,
+			...rows.slice().sort((a, b) => Number(b.tone === 'male') - Number(a.tone === 'male')).slice(0, 5)
+				.map(x => `${x.name}: ${x.label}${x.domain ? ', su ' + x.domain : ''}.${x.localPaths.length ? '' : ' Cartella locale non rilevata.'}`),
+			'Guardo lo stato delle pubblicazioni, non se i siti rispondono in questo momento.',
+			v.catalogError ?? v.error, v.catalogPartial ? 'Inventario parziale.' : undefined, eta(v.catalogAt ?? 0, now),
+		]);
+	}
 	if (!v.at) return v.refreshing ? 'Sto leggendo i siti su Vercel per la prima volta: riprova tra un minuto.' : `Non ho ancora letto i siti su Vercel.${v.error ? ` ${pulisci(v.error, 160)}` : ''}`;
 	const onesta = 'Guardo lo stato delle pubblicazioni, non se i siti rispondono in questo momento.';
 	if (a.progetto) {
@@ -869,7 +882,7 @@ const VISTE: Record<string, [view: string, nome: string]> = {
 	cruscotto: ['cruscotto', 'il cruscotto'],
 	appstore: ['appstore', 'la stanza App Store'],
 	vedetta: ['vedetta', 'la Vedetta'],
-	siti: ['vedetta', 'la Vedetta, con i siti'],
+	siti: ['vercel', 'la stanza Vercel'],
 	clienti: ['clienti', 'la stanza Clienti'],
 	posta: ['connettori', 'i Connettori, con la posta'],
 	whatsapp: ['connettori', 'i Connettori, con WhatsApp'],

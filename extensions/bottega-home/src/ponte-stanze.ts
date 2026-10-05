@@ -39,7 +39,7 @@ import type { AgentActivity } from './attivita-tipi';
 import type { RotteStanze } from './ponte';
 import { FontiStanze, meseDa, periodoDa, pulisci, SerieStore, StatoStore } from './strumenti-stanze';
 
-export const STANZE_PONTE = ['appstore', 'cruscotto', 'vedetta', 'dafare', 'posta', 'clienti', 'notte', 'servizi', 'consigli'] as const;
+export const STANZE_PONTE = ['appstore', 'cruscotto', 'vedetta', 'vercel', 'dafare', 'posta', 'clienti', 'notte', 'servizi', 'consigli'] as const;
 export type StanzaPonte = (typeof STANZE_PONTE)[number];
 
 export interface StanzeDeps {
@@ -658,6 +658,14 @@ function vedetta(f: FontiStanze, d: Domanda, now: number) {
 	};
 }
 
+// Inventario indipendente dalla Vedetta: disponibile anche senza regole locali.
+function vercel(f: FontiStanze, now: number) {
+	const v = f.radar?.()?.vercel;
+	return { stanza: 'vercel', ora: now, aggiornatoAt: v?.catalogAt ?? 0,
+		errore: v?.catalogError ?? v?.error, parziale: !!v?.catalogPartial, aggiornando: !!v?.refreshing,
+		progetti: v?.catalog ?? [], totale: v?.catalog?.length ?? 0 };
+}
+
 // ---------- cose da fare ----------
 
 async function daFare(f: FontiStanze, d: Domanda, now: number, tempo: number) {
@@ -754,6 +762,7 @@ async function clienti(f: FontiStanze, d: Domanda, now: number, tempo: number) {
 		inCorso: r.month === chiaveMese(new Date(now)),
 		arrotondamento: r.rounding,
 		configurati: r.config.length,
+		stack: r.stack ? { ...r.stack, assets: r.stack.assets.filter(a => a.clientId || a.conflict) } : undefined,
 		clienti: elenco.slice(0, 30).map(c => ({
 			id: c.id,
 			nome: testo(c.nome, 60),
@@ -1044,6 +1053,7 @@ export class StanzePonte implements RotteStanze {
 			case 'appstore': return appStore(f, d, now);
 			case 'cruscotto': return cruscotto(f, d, now, tempo);
 			case 'vedetta': return vedetta(f, d, now);
+			case 'vercel': return vercel(f, now);
 			case 'dafare': return daFare(f, d, now, tempo);
 			case 'posta': return posta(f, d, now);
 			case 'clienti': return clienti(f, d, now, tempo);
@@ -1059,6 +1069,13 @@ export class StanzePonte implements RotteStanze {
 	/** POST /v1/stanza/azione (CONTRATTI 9.7). Il corpo e' gia' letto e limitato a 16 KB da ponte.ts. */
 	async azione(corpo: unknown): Promise<unknown> {
 		const c = (corpo && typeof corpo === 'object' ? corpo : {}) as Record<string, unknown>;
+		if (['vercel', 'clienti'].includes(String(c.stanza)) && c.azione === 'aggiorna') {
+			const f = this.deps.fonti();
+			if (!f?.rileggiStack) throw errore(503, 'La sincronizzazione non è disponibile sul Mac.');
+			// La lettura prosegue sul Mac anche se l'iPhone interrompe la richiesta.
+			void f.rileggiStack().catch(() => undefined);
+			return { ok: true, avviato: true };
+		}
 		if (norma(String(c.stanza ?? '')) !== 'appstore') throw errore(400, 'Dall\'iPhone si agisce solo sulla stanza App Store.');
 		const azione = String(c.azione ?? '') as (typeof AZIONI_APPSTORE)[number];
 		if (!AZIONI_APPSTORE.includes(azione)) throw errore(400, `Azione sconosciuta. Ci sono: ${AZIONI_APPSTORE.join(', ')}.`);

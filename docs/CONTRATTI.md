@@ -2665,3 +2665,15 @@ Il rendiconto Clienti usa questo registro e dichiara la copertura Claude+Codex.
 significato. Il Cruscotto letto da Melissa distingue ore osservate, conteggi di tutte
 le fonti e consumi per fonte. Cline e terminali non diventano ore o costi zero quando
 la misura non e' disponibile. Copertura completa: `docs/AUDIT_FONTI_INTEGRATE.md`.
+
+### Inventari Vercel e stack dei clienti (ottobre 2026)
+
+`RadarState.vercel.catalog` è l'inventario dei progetti Vercel, compresi quelli senza cartella o pubblicazioni di produzione. `catalogAt` indica l'ultima lettura riuscita; `catalogError` conserva l'errore senza cancellare lo stato precedente; `catalogPartial` segnala i limiti di paginazione. Il lettore usa la CLI autenticata, solo GET su team e progetti, con paginazione (massimo 10 pagine per scope). Cache privata in `~/.bottega/radar/vercel.json`. Nessuna variabile d'ambiente, credenziale Git o deploy hook viene serializzato.
+
+La Home aggiunge `vercel`, il comando `bottega.openVercel` e il messaggio `vercel.refresh`. I tasti rapidi delle nove stanze originarie restano invariati. Melissa apre la nuova stanza anche chiedendo «mostra i siti» e legge l'inventario completo quando disponibile.
+
+`clienti.json` resta la fonte delle assegnazioni. `Client.progetti` accetta percorsi locali, `github:owner/repository` e `vercel:prj_id`; i vecchi file restano validi. L'identità del repository e gli ID Vercel risolvono gli abbinamenti a ogni lettura. Le somiglianze di nome non assegnano clienti. Il `ClientReport.stack` aggiunge cartelle, stato Git locale, metadati GitHub e progetti Vercel. Le ore delle cartelle collegate a un'assegnazione remota entrano nello stesso conto; associazioni in conflitto restano fuori dalla fatturazione finché non sono risolte. I conteggi avanti/indietro di Git si riferiscono all'ultimo fetch, non a una lettura corrente del ramo remoto.
+
+`GithubInventory` legge `/user/repos` con `gh api`, conserva solo repository, ramo predefinito, ultimo push, visibilità e stato archiviato. Cache 600 in `~/.bottega/github-stack.json`, cadenza 15 minuti, aggiornamento richiesto al massimo ogni minuto; paginazione fino a 1.000 repository con indicazione di inventario parziale. Errori e assenza di autenticazione conservano l'ultimo dato e la sua data. `clients.refresh` rilegge entrambi i servizi e aggiorna il report; le scansioni locali alimentano lo stesso collegamento. Nessun commit, fetch, pull, push o deploy viene eseguito dalla sincronizzazione.
+
+L'iPhone legge `GET /v1/stanza?nome=vercel`, indipendente dalle regole della Vedetta. Il payload Clienti include solo gli asset assegnati o in conflitto. `POST /v1/stanza/azione` ammette `{stanza: "vercel" | "clienti", azione: "aggiorna"}`: avvia le letture sul Mac e restituisce `{ok:true,avviato:true}`; i dati aggiornati arrivano con le successive GET. Il gettone e il controllo dell'origine del ponte restano obbligatori. Le nuove stanze non includono credenziali e Clienti mantiene la cache solo in memoria sull'iPhone.

@@ -14,6 +14,9 @@ struct ClientiView: View {
     @State private var lettura = LetturaStanza<StanzaClienti>("clienti")
     /// "" = il mese in corso
     @State private var mese = ""
+    @State private var richiestaSync = 0
+    @State private var sincronizzando = false
+    @State private var erroreSync: String?
 
     var body: some View {
         CorniceStanza(lettura: lettura, query: ["mese": mese]) { d in
@@ -45,6 +48,48 @@ struct ClientiView: View {
                     } else {
                         Text("Nessuna ora questo mese.").font(.callout).foregroundStyle(Tinte.tinta)
                     }
+                    if let stack = d.stack {
+                        ForEach(stack.assets.filter { $0.clientId == c.id }) { asset in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(asset.name).font(.callout.weight(.semibold))
+                                Text(asset.path ?? "Nessuna cartella locale").font(.caption).foregroundStyle(Tinte.tinta)
+                                if let git = asset.git {
+                                    Text("\(git.branch): \(git.changes) file modificati. \(git.ahead) commit avanti, \(git.behind) indietro rispetto all’ultimo fetch.")
+                                        .font(.caption).foregroundStyle(Tinte.tinta)
+                                }
+                                if let repo = asset.repo, let u = linkStack("https://github.com/" + repo) {
+                                    Link(repo, destination: u).font(.caption)
+                                }
+                                if let github = asset.github, github.pushedAt > 0 {
+                                    Text("Ultimo push: \(Date(timeIntervalSince1970: github.pushedAt / 1000).formatted(date: .abbreviated, time: .shortened))")
+                                        .font(.caption2).foregroundStyle(Tinte.tinta)
+                                }
+                                ForEach(asset.vercel) { v in
+                                    if let u = linkStack(v.url) {
+                                        Link("\(v.name): \(v.label)", destination: u).font(.caption)
+                                    }
+                                }
+                            }
+                            .padding(.top, 8)
+                        }
+                    }
+                }
+            }
+            if let stack = d.stack {
+                RiquadroStanza(titolo: "Sincronizzazione") {
+                    Button { richiestaSync += 1 } label: {
+                        Label(sincronizzando ? "Sincronizzazione in corso…" : "Sincronizza GitHub e Vercel", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .disabled(sincronizzando || ponte.linea != .collegato)
+                    if let erroreSync { Text(erroreSync).font(.caption).foregroundStyle(Tinte.rosso) }
+                    if stack.githubAt > 0 { Text("GitHub: \(Date(timeIntervalSince1970: stack.githubAt / 1000).formatted(date: .abbreviated, time: .shortened))").font(.caption) }
+                    if stack.vercelAt > 0 { Text("Vercel: \(Date(timeIntervalSince1970: stack.vercelAt / 1000).formatted(date: .abbreviated, time: .shortened))").font(.caption) }
+                    if let e = stack.githubError { Text(e).font(.caption).foregroundStyle(Tinte.rosso) }
+                    if let e = stack.vercelError { Text(e).font(.caption).foregroundStyle(Tinte.rosso) }
+                    if stack.partial { Text("Inventario parziale").font(.caption).foregroundStyle(Tinte.ambra) }
+                    if stack.assets.contains(where: { $0.conflict == true }) {
+                        Text("Alcune associazioni sono in conflitto. Controlla i clienti sul Mac.").font(.caption).foregroundStyle(Tinte.ambra)
+                    }
                 }
             }
             if !d.fuori.isEmpty {
@@ -59,6 +104,22 @@ struct ClientiView: View {
                 }
             }
             Text("Ore arrotondate al quarto d'ora, giorno per giorno.").font(.caption2).foregroundStyle(Tinte.tinta)
+        }
+        .task(id: richiestaSync) {
+            guard richiestaSync > 0 else { return }
+            sincronizzando = true
+            erroreSync = nil
+            defer { sincronizzando = false }
+            let prima = lettura.dati?.stack
+            do {
+                _ = try await PonteStanze.shared.azione(["stanza": "clienti", "azione": "aggiorna"])
+                for _ in 0..<12 {
+                    try await Task.sleep(for: .seconds(3))
+                    await lettura.carica(["mese": mese])
+                    if let nuovo = lettura.dati?.stack,
+                       nuovo.githubAt > (prima?.githubAt ?? 0), nuovo.vercelAt > (prima?.vercelAt ?? 0) { break }
+                }
+            } catch is CancellationError { } catch { erroreSync = error.localizedDescription }
         }
     }
 

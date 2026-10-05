@@ -196,6 +196,28 @@ struct StanzaPosta: Decodable {
 // MARK: - clienti
 
 struct StanzaClienti: Decodable {
+    struct Stack: Decodable {
+        struct Asset: Decodable, Identifiable {
+            struct Git: Decodable { let branch: String; let changes: Int; let ahead: Int; let behind: Int }
+            struct Github: Decodable { let branch: String; let pushedAt: Double; let archived: Bool }
+            let id: String
+            let name: String
+            let path: String?
+            let repo: String?
+            let git: Git?
+            let github: Github?
+            let vercel: [ProgettoVercel]
+            let clientId: String?
+            let conflict: Bool?
+        }
+        let assets: [Asset]
+        let githubAt: Double
+        let githubError: String?
+        let vercelAt: Double
+        let vercelError: String?
+        let partial: Bool
+    }
+    let stack: Stack?
     struct ProgettoOre: Decodable, Identifiable {
         let nome: String
         let path: String?

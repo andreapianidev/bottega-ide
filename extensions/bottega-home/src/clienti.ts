@@ -9,6 +9,9 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { buildStack, type StackState, type GithubState } from './stack-clienti';
+import type { VercelState } from './tipi';
+import type { Project } from './scan';
 import { dayKey, Ledger, mergeSpans, minutesIn } from './stats';
 
 export interface Client {
@@ -25,6 +28,7 @@ export interface ClientsFile {
 }
 
 export interface ClientReport {
+	stack?: StackState;
 	month: string;
 	months: string[];
 	rounding: number;
@@ -114,7 +118,7 @@ function perDay(spans: number[], a: number, b: number): Map<string, number> {
 /** Arrotonda al multiplo di `q` minuti piu' vicino (12 min e mezzo diventano 15, 7 diventano 0). */
 export const roundTo = (m: number, q: number) => Math.round(m / q) * q;
 
-export function buildReport(ledger: Ledger, cfg: ClientsFile, projects: { path: string; name: string }[], month?: string, now = Date.now()): ClientReport {
+export function buildReport(ledger: Ledger, cfg: ClientsFile, projects: Pick<Project, 'path' | 'name' | 'git'>[], month?: string, now = Date.now(), sources?: { vercel?: VercelState; github?: GithubState }): ClientReport {
 	const q = cfg.rounding || 15;
 	const months = new Set<string>();
 	for (const { spans } of ledger.values()) {
@@ -134,9 +138,14 @@ export function buildReport(ledger: Ledger, cfg: ClientsFile, projects: { path: 
 	const byPath = new Map<string, { name: string; spans: number[] }>();
 	for (const [p, v] of ledger) if (p) byPath.set(norm(p), v);
 
+	const stack = sources ? buildStack(projects, cfg.clients, sources.vercel, sources.github) : undefined;
 	const assigned = new Set<string>();
 	const clients: ClientReport['clients'] = cfg.clients.map(c => {
-		const own = c.progetti.map(p => ({ path: p, rec: byPath.get(p) }));
+		const paths = stack ? [...new Set([
+			...c.progetti.filter(p => p.startsWith('/') && !stack.assets.some(a => a.path === p && (a.conflict || a.clientId !== c.id))),
+			...stack.assets.filter(a => a.clientId === c.id && a.path).map(a => a.path!),
+		])] : c.progetti;
+		const own = paths.map(p => ({ path: p, rec: byPath.get(p) }));
 		for (const o of own) assigned.add(o.path);
 		const union = mergeSpans(own.flatMap(o => o.rec?.spans ?? []), 0);
 		const days = [...perDay(union, a, b)].map(([date, raw]) => ({ date, raw, minutes: roundTo(raw, q) }));
@@ -178,7 +187,8 @@ export function buildReport(ledger: Ledger, cfg: ClientsFile, projects: { path: 
 		clients: clients.sort((x, y) => y.minutes - x.minutes),
 		unassigned,
 		config: cfg.clients,
-		projects: projects.map(p => ({ path: norm(p.path), name: p.name })),
+		stack,
+		projects: stack ? stack.assets.map(a => ({ path: a.id, name: a.name + (a.path ? "" : a.id.startsWith("vercel:") ? " (Vercel)" : " (GitHub)") })) : projects.map(p => ({ path: norm(p.path), name: p.name })),
 	};
 }
 

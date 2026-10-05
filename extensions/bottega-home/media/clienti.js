@@ -132,6 +132,7 @@
 				<p class="invito cli-sottofrase" id="cli-sottofrase" hidden></p>
 			</div>
 			<div class="cli-comandi" id="cli-comandi">
+				<button type="button" class="act" data-c="sincronizza">Sincronizza GitHub e Vercel</button>
 				<div class="cli-mese" role="group" aria-label="Mese">
 					<button type="button" class="ghost cli-freccia" data-c="prima" data-fk="c:prima" aria-label="Mese prima">‹</button>
 					<label class="sr" for="cli-mese">Mese</label>
@@ -144,6 +145,7 @@
 				</div>
 				<button type="button" class="ghost cli-modifica" id="cli-modifica" data-c="modifica" data-fk="c:modifica" aria-expanded="false" aria-controls="cli-editor">Modifica i clienti</button>
 			</div>
+			<p class="cli-nota" id="cli-sync"></p>
 			<p class="cli-esito" id="cli-esito" role="status" aria-live="polite"></p>
 
 			<section class="pannello cli-editor" id="cli-editor" aria-labelledby="cli-editor-titolo" hidden>
@@ -357,6 +359,7 @@
 					<p class="cli-sotto">${esc(cap(sotto.join(', ')))}</p>
 				</div>
 				${calendario(r, c)}
+				${stackHTML(c.id)}
 				<div class="cli-c-progetti">
 					${
 						progetti.length
@@ -373,8 +376,26 @@
 			</li>`;
 		}
 
+		function stackHTML(id) {
+			const assets = report?.stack?.assets?.filter(a => a.clientId === id) || [];
+			if (!assets.length) return '';
+			return `<div class="cli-stack"><h4>File, GitHub e Vercel</h4><ul>${assets.map(a => `<li><b>${esc(a.name)}</b>
+				<p>${a.path ? esc(corto(a.path)) : 'Nessuna cartella locale'}</p>
+				${a.git ? `<p>${esc(a.git.branch)}: ${a.git.changes} file modificati, ${a.git.ahead} commit avanti e ${a.git.behind} indietro rispetto all’ultimo fetch.</p>` : ''}
+				${a.repo ? `<p><a href="https://github.com/${esc(a.repo)}">${esc(a.repo)}</a>${a.github?.pushedAt ? ' · ultimo push ' + esc(new Date(a.github.pushedAt).toLocaleString('it-IT')) : ' · stato remoto non ancora verificato'}</p>` : '<p>GitHub non collegato</p>'}
+				${a.vercel.map(v => `<p><a href="${/^https:\/\/vercel\.com\//.test(v.url) ? esc(v.url) : 'https://vercel.com/dashboard'}">${esc(v.name)}</a>: ${esc(v.label)}${v.domain ? ' · ' + esc(v.domain) : ''}</p>`).join('') || '<p>Vercel non collegato</p>'}
+			</li>`).join('')}</ul></div>`;
+		}
+
 		function renderClienti() {
 			const r = report;
+			const stack = r.stack;
+			$('cli-sync').textContent = stack ? [
+				stack.githubAt ? `GitHub letto il ${new Date(stack.githubAt).toLocaleString('it-IT')}.` : 'GitHub in attesa della prima lettura.',
+				stack.vercelAt ? `Vercel letto il ${new Date(stack.vercelAt).toLocaleString('it-IT')}.` : 'Vercel in attesa della prima lettura.',
+				stack.githubError, stack.vercelError, stack.partial ? 'Inventario parziale.' : '',
+				stack.assets.some(a => a.conflict) ? 'Associazioni in conflitto: controlla i progetti in Modifica i clienti.' : '',
+			].filter(Boolean).join(' ') : '';
 			const vuoto = $('cli-vuoto');
 			const list = [...r.clients].sort((a, b) => b.minutes - a.minutes || a.nome.localeCompare(b.nome, 'it'));
 			if (!r.config.length) {
@@ -583,6 +604,10 @@
 			const mesi = report ? [...new Set([report.month, ...(report.months || [])])].sort().reverse() : [];
 			const i = report ? mesi.indexOf(report.month) : -1;
 			switch (c) {
+				case 'sincronizza':
+					post({ type: 'clients.refresh', month: ui.month });
+					esito('Sincronizzazione di GitHub e Vercel in corso…');
+					return;
 				case 'prima':
 					if (i >= 0 && i < mesi.length - 1) chiedi(mesi[i + 1]);
 					return;

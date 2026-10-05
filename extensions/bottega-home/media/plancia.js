@@ -25,6 +25,7 @@
 		['clienti', 'Clienti'],
 		['connettori', 'Connettori'],
 		['regia', 'Regia'],
+		['vercel', 'Vercel'],
 	];
 	const reduced = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
 
@@ -626,6 +627,7 @@
 	</section>
 
 	<section class="vista" id="vista-cruscotto" role="tabpanel" aria-labelledby="tab-cruscotto" hidden></section>
+	<section class="vista" id="vista-vercel" role="tabpanel" aria-labelledby="tab-vercel" hidden></section>
 	<section class="vista" id="vista-vedetta" role="tabpanel" aria-labelledby="tab-vedetta" hidden></section>
 	<section class="vista" id="vista-clienti" role="tabpanel" aria-labelledby="tab-clienti" hidden></section>
 	<section class="vista" id="vista-connettori" role="tabpanel" aria-labelledby="tab-connettori" hidden></section>
@@ -663,6 +665,7 @@
 		['regia', 'BottegaRegia', 'regia', 'La Regia'],
 		['cruscotto', 'BottegaCruscotto', 'crus', 'Il cruscotto'],
 		['vedetta', 'BottegaVedetta', 'vedetta', 'La Vedetta'],
+		['vercel', 'BottegaVercel', 'vercel', 'La stanza Vercel'],
 		['clienti', 'BottegaClienti', 'clienti', 'La stanza dei clienti'],
 		['connettori', 'BottegaConnettori', 'connettori', 'La stanza dei connettori'],
 		['appstore', 'BottegaAppStore', 'appstore', 'La stanza App Store'],
@@ -2902,7 +2905,7 @@
 	app.addEventListener('click', e => {
 		const t = /** @type {HTMLElement} */ (e.target);
 		// le stanze esterne gestiscono i loro clic da sole
-		if (t.closest('#vista-regia, #vista-cruscotto, #vista-vedetta, #vista-clienti, #vista-appstore')) return;
+		if (t.closest('#vista-regia, #vista-cruscotto, #vista-vedetta, #vista-vercel, #vista-clienti, #vista-appstore')) return;
 		const tab = t.closest('[data-view]');
 		// una scheda si apre dov'e'; una cifra della Home porta il fuoco sulla scheda della stanza
 		if (tab) return show(tab.getAttribute('data-view') || 'plancia', tab.getAttribute('role') !== 'tab');
@@ -3343,6 +3346,7 @@
 				state.snapshot = m.snapshot;
 				room('regia', 'update', m.snapshot);
 				room('vedetta', 'update', m.snapshot);
+				room('vercel', 'update', m.snapshot);
 				room('clienti', 'update', m.snapshot);
 				if (m.snapshot.assistant) {
 					state.assistant = m.snapshot.assistant;
