@@ -55,4 +55,37 @@ final class LavoriTutteFontiTests: XCTestCase {
         XCTAssertEqual(q.progetti.count, 5)
         XCTAssertFalse(q.progetti.contains { $0.nome == "P0" })
     }
+
+    func testProgettiOmonimiRestanoSeparatiAncheConStessoGenitore() throws {
+        var a = attivita("codex:a", "codex", "in corso", progetto: "Faro")
+        a.path = "/cliente-a/app/Faro"
+        var b = attivita("cline:b", "cline", "ti aspetta", progetto: "Faro")
+        b.path = "/cliente-b/app/Faro"
+        var c = attivita("claude:c", "claude", "in corso", progetto: "Faro")
+        c.path = a.path
+        let s = stato([a, b, c])
+        let copia = try JSONDecoder().decode(StatoMac.self, from: JSONEncoder().encode(s))
+        let q = try XCTUnwrap(QuadroAttivitaLavori(stato: copia))
+        XCTAssertEqual(q.progetti.map(\.conteggio), [2, 1])
+        XCTAssertEqual(q.progetti.map(\.nome), ["Faro · /cliente-a/app", "Faro · /cliente-b/app"])
+        XCTAssertEqual(copia.sessioniWidget.first { $0.id == a.key }?.path, a.path)
+    }
+
+    func testFiniteNonSchiaccianoLeBarreAttuali() throws {
+        let rows = [attivita("codex:attivo", "codex", "in corso", progetto: "A")]
+            + (0..<196).map { attivita("codex:finito-\($0)", "codex", "finito", progetto: "A") }
+        let q = try XCTUnwrap(QuadroAttivitaLavori(stato: stato(rows)))
+        XCTAssertEqual(q.finite, 196)
+        XCTAssertEqual(q.statiDaSeguire.map(\.1).max(), 1)
+        XCTAssertFalse(q.statiDaSeguire.contains { $0.0 == "Finite" })
+    }
+
+    func testPercorsoMancanteRestaCompatibileESiDistingueDaQuelloNoto() {
+        let a = ProgettoLavori(nome: "Faro", path: nil)
+        let b = ProgettoLavori(nome: "Faro", path: "/lavoro/Faro")
+        let etichette = ProgettoLavori.etichette([a, b])
+        XCTAssertNotEqual(a.id, b.id)
+        XCTAssertEqual(etichette[a.id], "Faro · percorso non disponibile")
+        XCTAssertEqual(etichette[b.id], "Faro · /lavoro")
+    }
 }

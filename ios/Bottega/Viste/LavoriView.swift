@@ -14,6 +14,8 @@ struct LavoriView: View {
     @Environment(\.scenePhase) private var fase
     @State private var scelta: Selezione?
     @State private var riassunto = Riassunto()
+    @State private var vistaPerProgetto = true
+    @State private var mostraTutte = false
 
     private var statoVisibile: StatoMac? { ponte.collegato ? ponte.stato ?? StatoMac.ultimo() : nil }
     private var datoSalvato: Bool { ponte.linea != .collegato || ponte.stato == nil }
@@ -27,15 +29,65 @@ struct LavoriView: View {
             case .attivita(let a): "attivita:\(a.id)"
             }
         }
+        var progetto: String {
+            switch self {
+            case .lavoro(let l): l.progetto
+            case .attivita(let a): a.project
+            }
+        }
+        var stato: String {
+            switch self {
+            case .lavoro(let l): l.stato
+            case .attivita(let a): a.status
+            }
+        }
+        var identitaProgetto: ProgettoLavori {
+            switch self {
+            case .lavoro(let l): ProgettoLavori(nome: l.progetto, path: l.path)
+            case .attivita(let a): ProgettoLavori(nome: a.project, path: a.path)
+            }
+        }
+        var aggiornato: Double {
+            switch self {
+            case .lavoro(let l): l.da
+            case .attivita(let a): a.updatedAt
+            }
+        }
     }
 
     var body: some View {
         List {
+            if statoVisibile != nil {
+                Section {
+                    Picker("Vista", selection: $vistaPerProgetto) {
+                        Text("Progetti").tag(true)
+                        Text("Stati").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                    Picker("Sessioni", selection: $mostraTutte) {
+                        Text("Da seguire").tag(false)
+                        Text("Tutte").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                .listRowBackground(Tinte.notteFonda.opacity(0.7))
+            }
             if datoSalvato, let stato = statoVisibile {
                 Text("Ultimo registro ricevuto dal Mac alle \(Date(timeIntervalSince1970: stato.ora / 1000).formatted(date: .abbreviated, time: .shortened)). Le sessioni potrebbero essere cambiate.")
                     .font(.caption)
                     .foregroundStyle(Tinte.tinta)
                     .listRowBackground(Color.clear)
+            }
+            if let digest = statoVisibile?.regiaDigest {
+                Section("Il punto della situazione") {
+                    Text(digest.text)
+                        .font(.callout)
+                        .textSelection(.enabled)
+                    Text("\(digest.engine == "apple" ? "Apple Intelligence" : "Agnes") · \(Date(timeIntervalSince1970: digest.at / 1000).formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(Tinte.tinta)
+                }
+                .listRowBackground(Tinte.notteFonda.opacity(0.7))
             }
             if let stato = statoVisibile, stato.quadroLavori != nil || stato.attivita != nil {
                 QuadroLavoriIPhone(conti: stato.conti,
@@ -77,12 +129,33 @@ struct LavoriView: View {
             }
             .listRowBackground(Tinte.notteFonda.opacity(0.7))
 
-            if attivita.isEmpty && lavoriNonRappresentati.isEmpty {
+            if righeVisibili.isEmpty {
                 Text(messaggioVuoto)
                     .foregroundStyle(Tinte.tinta)
                     .listRowBackground(Color.clear)
             }
-            if statoVisibile?.attivita != nil {
+            if vistaPerProgetto && statoVisibile != nil {
+                ForEach(gruppiPerProgetto, id: \.0) { gruppo in
+                    Section {
+                        ForEach(gruppo.1) { riga in
+                            Button { apri(riga) } label: {
+                                switch riga {
+                                case .attivita(let a): RigaAttivita(attivita: a)
+                                case .lavoro(let l): Riga(lavoro: l)
+                                }
+                            }
+                            .listRowBackground(Tinte.notteFonda.opacity(0.7))
+                        }
+                    } header: {
+                        HStack {
+                            Text(gruppo.0)
+                            Spacer()
+                            Text("\(gruppo.1.count)")
+                        }
+                        .textCase(nil)
+                    }
+                }
+            } else if statoVisibile?.attivita != nil {
                 ForEach(gruppiAttivita, id: \.0) { g in
                     Section(g.0) {
                         if g.0 == "Stato non confermato" {
@@ -92,13 +165,7 @@ struct LavoriView: View {
                                 .listRowBackground(Color.clear)
                         }
                         ForEach(g.1) { a in
-                            Button {
-                                if let l = lavori.first(where: { $0.activityKey == a.key }) {
-                                    scelta = .lavoro(l)
-                                } else {
-                                    scelta = .attivita(a)
-                                }
-                            } label: {
+                            Button { apri(.attivita(a)) } label: {
                                 RigaAttivita(attivita: a)
                             }
                             .listRowBackground(Tinte.notteFonda.opacity(0.7))
@@ -106,9 +173,9 @@ struct LavoriView: View {
                     }
                 }
             }
-            if !lavoriNonRappresentati.isEmpty {
+            if !vistaPerProgetto && !lavoriFiltrati.isEmpty {
                 Section(statoVisibile?.attivita == nil ? "Sessioni Claude" : "Altri lavori Claude") {
-                    ForEach(lavoriNonRappresentati) { l in
+                    ForEach(lavoriFiltrati) { l in
                         Button { scelta = .lavoro(l) } label: { Riga(lavoro: l) }
                             .listRowBackground(Tinte.notteFonda.opacity(0.7))
                     }
@@ -127,6 +194,7 @@ struct LavoriView: View {
         }
         .onChange(of: fase) { _, nuova in if nuova == .background { riassunto.ferma() } }
         .onDisappear { riassunto.ferma() }
+        .onChange(of: scelta?.id) { _, nuova in if nuova != nil { riassunto.ferma() } }
     }
 
     /// La lettura usa lo snapshot gia' sul telefono, con priorita' a cio' che richiede Andrea.
@@ -178,8 +246,50 @@ struct LavoriView: View {
         return lavori.filter { $0.activityKey.map { !chiavi.contains($0) } ?? true }
     }
 
+    private let statiDaSeguire: Set<String> = ["ti aspetta", "errore", "in corso", "in coda", "stanotte", "nel terminale"]
+
+    private var attivitaFiltrate: [StatoMac.Attivita] {
+        mostraTutte ? attivita : attivita.filter { statiDaSeguire.contains($0.status) }
+    }
+
+    private var lavoriFiltrati: [StatoMac.Lavoro] {
+        mostraTutte ? lavoriNonRappresentati : lavoriNonRappresentati.filter { statiDaSeguire.contains($0.stato) }
+    }
+
+    private var righeVisibili: [Selezione] {
+        attivitaFiltrate.map { .attivita($0) } + lavoriFiltrati.map { .lavoro($0) }
+    }
+
+    private var gruppiPerProgetto: [(String, [Selezione])] {
+        let ordine = ["ti aspetta", "errore", "in corso", "in coda", "stanotte", "nel terminale", "sconosciuto", "finito"]
+        let nomi = ProgettoLavori.etichette(righeVisibili.map(\.identitaProgetto))
+        let gruppi = Dictionary(grouping: righeVisibili, by: { $0.identitaProgetto.id })
+        return gruppi.map { id, righe in
+            let nome = nomi[id] ?? "Progetto non indicato"
+            return (nome, righe.sorted {
+                let a = ordine.firstIndex(of: $0.stato) ?? ordine.count
+                let b = ordine.firstIndex(of: $1.stato) ?? ordine.count
+                return a == b ? $0.aggiornato > $1.aggiornato : a < b
+            })
+        }.sorted {
+            let a = ordine.firstIndex(of: $0.1[0].stato) ?? ordine.count
+            let b = ordine.firstIndex(of: $1.1[0].stato) ?? ordine.count
+            return a == b ? $0.0.localizedStandardCompare($1.0) == .orderedAscending : a < b
+        }
+    }
+
+    private func apri(_ riga: Selezione) {
+        switch riga {
+        case .lavoro(let l): scelta = .lavoro(l)
+        case .attivita(let a):
+            if let l = lavori.first(where: { $0.activityKey == a.key }) { scelta = .lavoro(l) }
+            else { scelta = .attivita(a) }
+        }
+    }
+
     private var messaggioVuoto: String {
         guard let s = statoVisibile else { return "Aspetto il primo registro dal Mac…" }
+        if !mostraTutte && (s.attivita != nil || !s.lavori.isEmpty) { return "Nessun agente richiede attenzione adesso. Tocca «Tutte» per vedere il registro." }
         if s.attivita != nil { return "Nessuna attività osservata dal Mac." }
         return "Nessuna sessione Claude rilevata. Aggiorna la Bottega sul Mac per vedere anche Codex, Cline e i terminali."
     }
@@ -188,7 +298,7 @@ struct LavoriView: View {
         let ordine: [(String, String)] = [("ti aspetta", "Ti aspetta"), ("in corso", "In corso"),
                                           ("sconosciuto", "Stato non confermato"), ("errore", "Errore"),
                                           ("finito", "Finite")]
-        let righe = attivita.sorted { $0.updatedAt > $1.updatedAt }
+        let righe = attivitaFiltrate.sorted { $0.updatedAt > $1.updatedAt }
         let noti = Set(ordine.map(\.0))
         var gruppi = ordine.compactMap { stato, titolo -> (String, [StatoMac.Attivita])? in
             let elementi = righe.filter { $0.status == stato }
@@ -217,6 +327,11 @@ struct QuadroAttivitaLavori {
     let finite: Int
     let progetti: [StatoMac.QuadroLavori.Progetto]
 
+    var statiDaSeguire: [(String, Int)] {
+        [("Ti aspettano", tiAspetta), ("In corso", inCorso),
+         ("Errori", errori), ("Non confermate", sconosciute)]
+    }
+
     init?(stato: StatoMac) {
         guard stato.attivita != nil else { return nil }
         let righe = stato.sessioniWidget
@@ -226,8 +341,10 @@ struct QuadroAttivitaLavori {
         sconosciute = righe.filter { $0.stato == "sconosciuto" }.count
         finite = righe.filter { $0.stato == "finito" }.count
         let attive = righe.filter(\.attiva)
-        progetti = Dictionary(grouping: attive, by: { $0.progetto.isEmpty ? "Progetto non indicato" : $0.progetto })
-            .map { StatoMac.QuadroLavori.Progetto(nome: $0.key, conteggio: $0.value.count) }
+        let identita = attive.map { ProgettoLavori(nome: $0.progetto, path: $0.path) }
+        let nomi = ProgettoLavori.etichette(identita)
+        progetti = Dictionary(grouping: identita, by: \.id)
+            .map { StatoMac.QuadroLavori.Progetto(nome: nomi[$0.key]!, conteggio: $0.value.count) }
             .sorted { $0.conteggio != $1.conteggio ? $0.conteggio > $1.conteggio : $0.nome < $1.nome }
             .prefix(5).map { $0 }
     }
@@ -241,8 +358,7 @@ private struct QuadroLavoriIPhone: View {
 
     private var stati: [(String, Int)] {
         if let a = attivita {
-            return [("Ti aspettano", a.tiAspetta), ("In corso", a.inCorso),
-                    ("Errori", a.errori), ("Non confermate", a.sconosciute), ("Finite", a.finite)]
+            return a.statiDaSeguire
         }
         return [("Ti aspettano", conti.tiAspetta), ("In corso", conti.inCorso),
          ("Nel terminale", conti.nelTerminale ?? 0), ("In coda", conti.inCoda),
@@ -276,6 +392,11 @@ private struct QuadroLavoriIPhone: View {
             }
             RiquadroStanza(titolo: attivita == nil ? "Stato dei lavori Claude Code" : "Stato delle attività · tutte le fonti", nota: salvato ? "Ultimo registro" : "Adesso") {
                 barre(stati, colore: Tinte.ambra)
+                if let a = attivita {
+                    Text("\(a.finite) sessioni finite nel registro")
+                        .font(.caption)
+                        .foregroundStyle(Tinte.tinta)
+                }
             }
             if !progetti.isEmpty {
                 RiquadroStanza(titolo: attivita == nil ? "Progetti con Claude Code" : "Progetti impegnati · tutte le fonti", nota: "In corso o in attesa") {
@@ -283,7 +404,7 @@ private struct QuadroLavoriIPhone: View {
                 }
             }
             if quadro.giorni.count == 7 {
-                RiquadroStanza(titolo: "Attività osservate", nota: salvato ? "Ultimo registro" : "Ultimi 7 giorni") {
+                RiquadroStanza(titolo: "Sessioni per ultimo aggiornamento", nota: salvato ? "Ultimo registro" : "Ultimi 7 giorni") {
                     Text("\(quadro.giorni.reduce(0) { $0 + $1.conteggio }) sessioni nel registro")
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(Tinte.testo)
@@ -315,7 +436,7 @@ private struct QuadroLavoriIPhone: View {
                 let (nome, valore) = righe[indice]
                 HStack(spacing: 8) {
                     Text(nome).font(.caption).foregroundStyle(Tinte.tinta)
-                        .lineLimit(1).frame(width: 100, alignment: .leading)
+                        .lineLimit(3).frame(width: 130, alignment: .leading)
                     GeometryReader { area in
                         ZStack(alignment: .leading) {
                             RoundedRectangle(cornerRadius: 3).fill(Tinte.notte)

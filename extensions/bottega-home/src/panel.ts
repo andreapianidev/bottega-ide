@@ -20,6 +20,7 @@ export interface PlanciaMessage {
 
 export class PlanciaPanel {
 	private panel?: vscode.WebviewPanel;
+	private requestedView?: string;
 
 	constructor(
 		private readonly root: vscode.Uri,
@@ -86,6 +87,12 @@ export class PlanciaPanel {
 		this.panel?.webview.postMessage(msg);
 	}
 
+	/** Conserva la stanza richiesta finché la webview non ha mandato `ready`. */
+	view(name: string) {
+		this.requestedView = name;
+		this.send({ type: 'view', view: name });
+	}
+
 	private create(preserveFocus = false) {
 		const media = vscode.Uri.joinPath(this.root, 'media');
 		const panel = vscode.window.createWebviewPanel('bottega.plancia', 'Home', { viewColumn: vscode.ViewColumn.One, preserveFocus }, {
@@ -106,7 +113,7 @@ export class PlanciaPanel {
 		const js = panel.webview.asWebviewUri(vscode.Uri.joinPath(media, 'plancia.js'));
 		// cruscotto, vedetta e clienti stanno in file loro; i loro script vanno caricati prima di plancia.js, che li monta
 		// conti.js prima di cruscotto.js, che lo monta nella sezione «Servizi»
-		const rooms = ['conti', 'cruscotto', 'vedetta', 'clienti', 'connettori', 'appstore'];
+		const rooms = ['conti', 'regia', 'cruscotto', 'vedetta', 'clienti', 'connettori', 'appstore'];
 		const css2 = rooms.map(r => `<link rel="stylesheet" href="${panel.webview.asWebviewUri(vscode.Uri.joinPath(media, r + '.css'))}">`).join('\n');
 		const nonce = Array.from({ length: 24 }, () => Math.floor(Math.random() * 36).toString(36)).join('');
 		// i componenti condivisi in WebGPU (sfera, cielo), se ci sono: prima delle stanze, che li montano
@@ -136,8 +143,10 @@ ${rooms.map(r => `<script nonce="${nonce}" src="${panel.webview.asWebviewUri(vsc
 			if (m.type === 'ready') {
 				this.send({ type: 'fuoco', focused: vscode.window.state.focused });
 				this.send({ type: 'snapshot', snapshot: this.current() });
+				if (this.requestedView) this.send({ type: 'view', view: this.requestedView });
 				return;
 			}
+			if (m.type === 'vista' && typeof m.view === 'string') this.requestedView = m.view;
 			this.onMessage(m);
 		});
 		panel.onDidChangeViewState(e => {

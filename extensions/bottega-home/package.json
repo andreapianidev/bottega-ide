@@ -25,6 +25,12 @@
         "icon": "$(home)"
       },
       {
+        "command": "bottega.openRegia",
+        "title": "Apri la Regia",
+        "category": "Bottega",
+        "icon": "$(multiple-windows)"
+      },
+      {
         "command": "bottega.refresh",
         "title": "Aggiorna",
         "category": "Bottega",
@@ -271,9 +277,14 @@
       ],
       "view/title": [
         {
+          "command": "bottega.openRegia",
+          "when": "view == bottega.live || view == bottega.projects",
+          "group": "navigation@0"
+        },
+        {
           "command": "bottega.openPlancia",
           "when": "view == bottega.projects",
-          "group": "navigation"
+          "group": "navigation@1"
         },
         {
           "command": "bottega.refresh",

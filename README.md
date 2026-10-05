@@ -49,6 +49,20 @@ terminali osservati. Ricerca, Spotlight, Continua e Da fare condividono questi r
 l'acquisizione continua anche con la stanza chiusa. Ore e consumi dipendono dai dati disponibili
 per ciascuna fonte: [copertura e limiti delle funzioni integrate](docs/AUDIT_FONTI_INTEGRATE.md).
 
+### La Regia
+
+Dall'icona Bottega nella barra sinistra, «Apri la Regia» porta a una vista dei lavori per progetto.
+In cima stanno i progetti con sessioni che aspettano una risposta, poi errori, agenti al lavoro e code
+Claude. «Da seguire» mostra gli stati attuali; «Tutte» include anche le sessioni concluse e quelle il
+cui stato non e' confermato. Una riga apre il lavoro Claude controllato dalla Bottega, riprende una
+sessione Claude oppure apre il progetto. «Nuovo lavoro» prepara il compositore nella stanza Lavori.
+La Regia legge lo stesso registro della Home e del ponte iPhone: non avvia o controlla sessioni Codex
+e Cline che la Bottega puo' soltanto osservare.
+Ogni otto ore Agnes e Apple Intelligence ricevono gli stessi stati e titoli osservati: la Regia sceglie
+il riepilogo piu' fedele ai progetti e ai numeri, indica la fonte e conserva l'altra versione. Il
+riepilogo arriva anche ai Lavori su iPhone. «Apri cruscotto Metal» mostra il carico dei progetti in
+una finestra macOS nativa; le barre sono disegnate dalla GPU solo quando i dati cambiano.
+
 ### I lavori
 
 ![I lavori](docs/screenshot/lavori.jpg)
@@ -312,7 +326,10 @@ riconoscimento vocale di Apple. Melissa sull'iPhone chiama direttamente Agnes o 
 voce ElevenLabs, anche quando il Mac e' collegato. Il ponte del Mac resta disponibile per progetti, lavori e
 sessioni; la conversazione locale si sincronizza quando torna raggiungibile. Le chiavi si importano una volta dal Mac via HTTPS e restano
 nel portachiavi dell'iPhone. La conversazione torna sulla barra del Mac quando si ricollegano. La stanza Lavori mostra
-le attivita' osservate di Claude Code, Cline, Codex e terminali integrati, con in cima quelle in corso o in attesa.
+le attivita' osservate di Claude Code, Cline, Codex e terminali integrati, per progetto come nella Regia
+o per stato. «Da seguire» mette in evidenza attese, errori, lavori in corso e code; «Tutte» mostra anche
+il registro storico. Il ponte aggiorna le due viste dallo stesso stato del Mac, e il telefono indica quando
+sta mostrando l'ultima copia salvata.
 Ai lavori Claude della Bottega puoi scrivere da lì.
 
 Toccando una sessione si apre la sua scheda, per tutte, anche quelle aperte in iTerm: cosa le hai chiesto, cosa ha

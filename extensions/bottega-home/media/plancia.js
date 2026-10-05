@@ -24,6 +24,7 @@
 		['appstore', 'App Store'],
 		['clienti', 'Clienti'],
 		['connettori', 'Connettori'],
+		['regia', 'Regia'],
 	];
 	const reduced = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
 
@@ -69,6 +70,7 @@
 		/** @type {any} */ vedetta: saved.vedetta || {},
 		/** @type {any} */ clienti: saved.clienti || {},
 		/** @type {any} */ appstore: saved.appstore || {},
+		/** @type {any} */ regia: saved.regia || {},
 		/** numeri del cruscotto per il quadro della Home (messaggio stats) */
 		/** @type {any} */ stats: null,
 		statsAskedAt: 0,
@@ -105,6 +107,7 @@
 			vedetta: state.vedetta,
 			clienti: state.clienti,
 			appstore: state.appstore,
+			regia: state.regia,
 		});
 
 	// ---------- piccoli attrezzi ----------
@@ -414,7 +417,7 @@
 			<div class="tabs" role="tablist" aria-label="Stanze della Bottega">
 				${VIEWS.map(
 					([id, label], i) =>
-						`<button type="button" role="tab" id="tab-${id}" data-view="${id}" aria-controls="vista-${id}" aria-selected="false" tabindex="-1" title="${label}, tasto ${i + 1}"><i class="lume" aria-hidden="true"></i><span>${label}</span><span class="segnale" id="segnale-${id}" hidden></span></button>`,
+						`<button type="button" role="tab" id="tab-${id}" data-view="${id}" aria-controls="vista-${id}" aria-selected="false" tabindex="-1" title="${label}${i < 9 ? `, tasto ${i + 1}` : ''}"><i class="lume" aria-hidden="true"></i><span>${label}</span><span class="segnale" id="segnale-${id}" hidden></span></button>`,
 				).join('')}
 			</div>
 			<button type="button" class="altro" id="altro" aria-haspopup="menu" aria-expanded="false" aria-controls="altro-menu" hidden><span>Altro</span><span class="segnale punto" id="segnale-altro" hidden></span><svg class="freccina" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" /></svg></button>
@@ -463,6 +466,7 @@
 		</div>
 	</section>
 
+	<section class="vista" id="vista-regia" role="tabpanel" aria-labelledby="tab-regia" hidden></section>
 	<section class="vista" id="vista-lavori" role="tabpanel" aria-labelledby="tab-lavori" hidden>
 		<h1 class="sentence media" id="frase-lavori"></h1>
 		<section class="quadro lavori-quadro" id="lavori-quadro" aria-labelledby="lavori-quadro-titolo" hidden>
@@ -656,6 +660,7 @@
 	/* Le stanze esterne: stesso host per tutte. Se lo script manca (file non caricato o rotto) la
 	   stanza dice una frase sobria, e la plancia va avanti. */
 	const ROOMS = [
+		['regia', 'BottegaRegia', 'regia', 'La Regia'],
 		['cruscotto', 'BottegaCruscotto', 'crus', 'Il cruscotto'],
 		['vedetta', 'BottegaVedetta', 'vedetta', 'La Vedetta'],
 		['clienti', 'BottegaClienti', 'clienti', 'La stanza dei clienti'],
@@ -677,6 +682,7 @@
 						},
 						reduced,
 						focusProject: p => focusRow(p),
+						compose: p => openComposer({ path: p, task: '' }),
 					})
 				: null;
 		} catch (err) {
@@ -2896,7 +2902,7 @@
 	app.addEventListener('click', e => {
 		const t = /** @type {HTMLElement} */ (e.target);
 		// le stanze esterne gestiscono i loro clic da sole
-		if (t.closest('#vista-cruscotto, #vista-vedetta, #vista-clienti, #vista-appstore')) return;
+		if (t.closest('#vista-regia, #vista-cruscotto, #vista-vedetta, #vista-clienti, #vista-appstore')) return;
 		const tab = t.closest('[data-view]');
 		// una scheda si apre dov'e'; una cifra della Home porta il fuoco sulla scheda della stanza
 		if (tab) return show(tab.getAttribute('data-view') || 'plancia', tab.getAttribute('role') !== 'tab');
@@ -3328,10 +3334,14 @@
 	window.addEventListener('message', ev => {
 		const m = ev.data || {};
 		switch (m.type) {
+			case 'regia.digest':
+				room('regia', 'setDigest', m.digest);
+				return;
 			case 'snapshot':
 				if (!m.snapshot) return;
 				noticeJobChanges(m.snapshot.jobs || []);
 				state.snapshot = m.snapshot;
+				room('regia', 'update', m.snapshot);
 				room('vedetta', 'update', m.snapshot);
 				room('clienti', 'update', m.snapshot);
 				if (m.snapshot.assistant) {

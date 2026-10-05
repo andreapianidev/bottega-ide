@@ -77,6 +77,7 @@ export interface PonteLavoro {
 	origine: 'bottega' | 'altrove';
 	stato: string;
 	progetto: string;
+	path?: string;
 	titolo: string;
 	da: number;
 	jobId?: string;
@@ -87,12 +88,14 @@ export interface PonteAttivita {
 	key: string;
 	source: 'claude' | 'cline' | 'codex' | 'terminale';
 	project: string;
+	path?: string;
 	status: 'in corso' | 'ti aspetta' | 'finito' | 'errore' | 'sconosciuto';
 	title: string;
 	summary?: string;
 	steps?: string[];
 	evidence?: string;
 	updatedAt: number;
+	startedAt?: number;
 }
 
 /** Dov'e' l'iPhone rispetto al Mac (docs/CONTRATTI.md, 9.9). */
@@ -112,6 +115,7 @@ export interface PonteStato {
 	conti: { inCorso: number; tiAspetta: number; nelTerminale: number; inCoda: number; stanotte: number; vive: number };
 	/** Aggregati Lavori calcolati sul Mac: progetti prima del limite delle righe, giorni nel fuso del Mac. */
 	quadroLavori?: { progetti: { nome: string; conteggio: number }[]; giorni: { data: string; conteggio: number }[] };
+	regiaDigest?: { at: number; text: string; engine: 'agnes' | 'apple' };
 }
 
 export interface PonteDeps {

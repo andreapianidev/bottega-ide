@@ -2,7 +2,7 @@
 // Banco di prova della plancia (media/plancia.js) in jsdom. NON spedito (vedi .vscodeignore).
 // Finge acquireVsCodeApi (registra i postMessage) e le stanze esterne (Cruscotto, Vedetta, Clienti),
 // poi manda snapshot finti: progetti inventati, nessun dato vero, nessun nome di cliente.
-// Verifica: nove schede e tasti, briefing, consigli, cifre, progetti fermi, semaforo e filtro
+// Verifica: dieci schede e tasti, briefing, consigli, cifre, progetti fermi, semaforo e filtro
 // Regole, dialogo Continua, coda della notte, «Dove l'ho gia' risolto?», niente lineette lunghe,
 // fuoco conservato tra due snapshot, snapshot vecchi senza i campi nuovi.
 
@@ -12,6 +12,7 @@ const assert = require('assert');
 const { JSDOM, VirtualConsole } = require('jsdom');
 
 const JS = fs.readFileSync(path.join(__dirname, '..', 'media', 'plancia.js'), 'utf8');
+const REGIA_JS = fs.readFileSync(path.join(__dirname, '..', 'media', 'regia.js'), 'utf8');
 const NOW = Date.now();
 const H = 3_600_000;
 const DAY = 24 * H;
@@ -172,6 +173,7 @@ function boot({ rooms = true, saved = null } = {}) {
 	const calls = [];
 	const hosts = {};
 	if (rooms) {
+		w.eval(REGIA_JS);
 		for (const name of ['BottegaCruscotto', 'BottegaVedetta', 'BottegaClienti', 'BottegaConnettori']) {
 			w[name] = {
 				mount(root, host) {
@@ -237,14 +239,14 @@ test('stanze su una riga: quelle che non ci stanno vanno in «Altro», la stanza
 	Object.defineProperty(t.w.HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return this.id === 'stanze' ? 450 : 0; } });
 	t.click(t.$('#tab-plancia'));
 	const fuori = () => t.$$('.tabs button.fuori').map(b => b.dataset.view);
-	assert.deepStrictEqual(fuori(), ['melissa', 'cruscotto', 'vedetta', 'appstore', 'clienti', 'connettori'], 'tre schede nella riga, le altre in «Altro»');
+	assert.deepStrictEqual(fuori(), ['melissa', 'cruscotto', 'vedetta', 'appstore', 'clienti', 'connettori', 'regia'], 'tre schede nella riga, le altre in «Altro»');
 	assert.strictEqual(t.$('#altro').hidden, false);
-	assert.match(t.$('#altro').title, /Melissa, Cruscotto, Vedetta, App Store, Clienti, Connettori/);
+	assert.match(t.$('#altro').title, /Melissa, Cruscotto, Vedetta, App Store, Clienti, Connettori, Regia/);
 	// apre il pannello e sceglie Connettori: entra nella riga al posto dell'ultima
 	t.click(t.$('#altro'));
 	assert.strictEqual(t.$('#altro').getAttribute('aria-expanded'), 'true');
 	const voci = t.$$('#altro-menu button').map(b => b.dataset.view);
-	assert.deepStrictEqual(voci, ['melissa', 'cruscotto', 'vedetta', 'appstore', 'clienti', 'connettori']);
+	assert.deepStrictEqual(voci, ['melissa', 'cruscotto', 'vedetta', 'appstore', 'clienti', 'connettori', 'regia']);
 	t.click(t.$('#altro-menu button[data-view="connettori"]'));
 	assert.strictEqual(t.$('#tab-connettori').getAttribute('aria-selected'), 'true');
 	assert.ok(!fuori().includes('connettori'), 'la stanza in cui sei e\' sempre nella riga');
@@ -265,13 +267,13 @@ test('stanze su una riga: quelle che non ci stanno vanno in «Altro», la stanza
 	assert.deepStrictEqual(t.errors, []);
 });
 
-test('nove schede, nell\'ordine, con i tasti da 1 a 9', () => {
+test('dieci schede, con i tasti da 1 a 9 invariati', () => {
 	const t = boot();
 	t.send({ type: 'snapshot', snapshot: snapshot() });
 	const tabs = t.$$('[role="tab"]');
 	assert.deepStrictEqual(
 		tabs.map(x => x.querySelector('span:not(.segnale)').textContent),
-		['Plancia', 'Lavori', 'Memoria', 'Melissa', 'Cruscotto', 'Vedetta', 'App Store', 'Clienti', 'Connettori'],
+		['Plancia', 'Lavori', 'Memoria', 'Melissa', 'Cruscotto', 'Vedetta', 'App Store', 'Clienti', 'Connettori', 'Regia'],
 	);
 	assert.match(tabs[5].getAttribute('title'), /tasto 6/);
 	const ids = ['plancia', 'lavori', 'memoria', 'melissa', 'cruscotto', 'vedetta', 'appstore', 'clienti', 'connettori'];
@@ -285,9 +287,42 @@ test('nove schede, nell\'ordine, con i tasti da 1 a 9', () => {
 	assert.strictEqual(t.$('#tab-connettori').getAttribute('aria-selected'), 'true');
 	// frecce nella barra delle stanze
 	t.key('ArrowRight', t.$('#tab-connettori'));
+	assert.strictEqual(t.$('#tab-regia').getAttribute('aria-selected'), 'true');
+	t.key('ArrowRight', t.$('#tab-regia'));
 	assert.strictEqual(t.$('#tab-plancia').getAttribute('aria-selected'), 'true');
 	t.key('End', t.$('#tab-plancia'));
-	assert.strictEqual(t.$('#tab-connettori').getAttribute('aria-selected'), 'true');
+	assert.strictEqual(t.$('#tab-regia').getAttribute('aria-selected'), 'true');
+	assert.deepStrictEqual(t.errors, []);
+});
+
+test('Regia usa il registro di Lavori per progetto e apre il lavoro Claude collegato', () => {
+	const t = boot();
+	const s = snapshot({ activity: [
+		{ key: 'claude:sess-j1', id: 'sess-j1', source: 'claude', project: 'Gabbiano', path: P('Gabbiano'), title: 'Aggiorna le dipendenze', status: 'in corso', updatedAt: NOW },
+		{ key: 'codex:c1', id: 'c1', source: 'codex', project: 'Faro', path: P('Faro'), title: 'Controlla <config>', status: 'ti aspetta', summary: 'Serve una risposta', updatedAt: NOW },
+		{ key: 'cline:c2', id: 'c2', source: 'cline', project: 'Vela', path: P('Vela'), title: 'Vecchia analisi', status: 'finito', updatedAt: NOW - DAY },
+	] });
+	t.send({ type: 'snapshot', snapshot: s });
+	t.click(t.$('#tab-regia'));
+	t.send({ type: 'regia.digest', digest: { at: NOW, text: 'Faro aspetta una decisione.', engine: 'agnes', alternatives: [{ engine: 'apple', text: 'Controllare Faro.' }] } });
+	assert.strictEqual(t.$('#regia-sintesi-testo').textContent, 'Faro aspetta una decisione.');
+	assert.ok(t.$('#regia-altra').textContent.includes('Controllare Faro.'));
+	t.click(t.$('[data-regia="metal"]'));
+	assert.deepStrictEqual(t.last('regia.metal'), { type: 'regia.metal' });
+	t.click(t.$('[data-regia="refresh"]'));
+	assert.deepStrictEqual(t.last('regia.refresh'), { type: 'regia.refresh' });
+	assert.deepStrictEqual(t.$$('#regia-lista .regia-nome').map(x => x.textContent), ['Faro', 'Gabbiano', 'Vela']);
+	assert.ok(t.$('#regia-lista').textContent.includes('<config>'));
+	assert.strictEqual(t.$('#regia-lista config'), null, 'il testo dello strumento va sfuggito');
+	assert.strictEqual(t.$('#regia-lista').querySelectorAll('.regia-agente').length, 3, 'anche la coda notturna appare dal registro Lavori');
+	t.click(t.$('[data-regia="focus"]'));
+	assert.deepStrictEqual(t.last('job.focus'), { type: 'job.focus', id: 'j1' });
+	t.click(t.$('[data-regia="new"][data-path]'));
+	assert.strictEqual(t.$('#tab-lavori').getAttribute('aria-selected'), 'true');
+	assert.strictEqual(t.$('#scegli-progetto').value, 'Faro');
+	t.click(t.$('#tab-regia'));
+	t.click(t.$('[data-regia-scope="tutte"]'));
+	assert.ok(t.$('#regia-lista').textContent.includes('Vecchia analisi'));
 	assert.deepStrictEqual(t.errors, []);
 });
 

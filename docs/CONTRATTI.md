@@ -197,8 +197,15 @@ Estensione -> plancia:
 - `{type: "memoria", query, project, results: MemoryItem[], checkedAt, bacheca}` risposta a una ricerca.
   `checkedAt` e' l'ora del controllo, distinta da `createdAt` dei ricordi. In caso di errore: `{type: "memoria", query, project, error}`; la plancia conserva i risultati precedenti e mostra il problema. Risposte con query o progetto superati vengono scartate.
 - `{type: "assistant", state: AssistantState}` aggiornamento leggero mentre Melissa parla
-- `{type: "view", view}` apre una stanza: `plancia`, `lavori`, `memoria`, `melissa`, `cruscotto`
+- `{type: "view", view}` apre una stanza: `plancia`, `regia`, `lavori`, `memoria`, `melissa`, `cruscotto`
   (comandi `bottega.openMelissa`, `bottega.openCruscotto`)
+  `bottega.openRegia` e' nella testata delle viste Bottega nella barra sinistra. La Regia legge
+  `snapshot.activity` e le code in `snapshot.work`, raggruppa per percorso e apre il compositore Lavori
+  per i nuovi compiti. Il pannello conserva l'ultima stanza richiesta fino al messaggio `ready`.
+- `{type: "regia.digest", digest: {at, text, engine, alternatives}}`: sintesi conservata sul Mac e scelta
+  tra Agnes e Apple Intelligence dagli stessi stati e titoli osservati. La Regia richiede
+  `regia.digest` all'apertura; `regia.refresh` la rigenera a mano. Il giro automatico non avviene
+  prima di otto ore dall'ultima sintesi. `regia.metal` apre la finestra nativa del Nucleo.
 - `{type: "stats", stats: Stats}` il cruscotto (vedi sotto), in risposta a `stats.request` e poi a ogni
   scansione completa (ogni 2 minuti) se i numeri sono cambiati; `{type: "stats", stats: null, error}`
   se i registri non si leggono
@@ -206,6 +213,7 @@ Estensione -> plancia:
 Plancia -> estensione (`type` + campi):
 `ready`, `refresh`, `open`, `here`, `claude {path, id?}`, `finder`, `xcode`, `push`,
 `job.new {path, task}`, `job.focus {id}`, `job.stop {id}`, `job.remove {id}`,
+`regia.digest`, `regia.refresh`, `regia.metal`,
 `memoria.search {query, project?, limite?}` (senza testo gli ultimi `limite` ricordi, da 10 a 200: «Mostra altri
 ricordi» ne chiede 20 in piu'; la stanza la richiede entrando e ogni minuto finche' e' davanti senza ricerca scritta),
 `memoria.grafici` (-> `{type: 'memoria.grafici', dati}` con l'uscita di `grafici`, entrando e ogni 5 minuti),
@@ -1315,6 +1323,15 @@ solo se la finestra e' aperta e i numeri sono cambiati. Plancia -> estensione: `
 `cielo.diag` e `sfera.diag {motore: 'webgpu'|'canvas'|'svg', motivo, gpu, isSecureContext, crossOriginIsolated,
 userAgent}` (con quale motore gira e perche', scritto nel registro).
 
+### 7.7.1 Cruscotto Metal della Regia
+
+`regia.open {data}` apre una finestra nativa SwiftUI con barre disegnate da `MTKView` e shader Metal;
+`regia.data {data}` aggiorna solo la finestra aperta, `regia.close` la chiude, `regia.closed` notifica
+l'estensione. `data` contiene `projects: [{name, waiting, errors, running, queued}]`, `summary`, `engine`,
+`updatedAt`. Le barre per progetto sono impilate per stato; il renderer disegna a richiesta quando arrivano
+dati o la finestra torna visibile, senza fotogrammi continui a riposo. La vista Home e il grafico usano lo
+stesso `snapshot.activity` piu' le code in `snapshot.work`.
+
 ### 7.8 WebGPU nelle webview: un solo motore per sfera e cielo
 
 `media/motore/gpu.js` (`window.BottegaGPU`: un dispositivo per webview, ogni shader compilato in uno scope di errori,
@@ -1437,10 +1454,13 @@ iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
   riceve 429 per 10 minuti sui gettoni sbagliati (il gettone giusto passa sempre, cosi' un nuovo QR non resta
   chiuso fuori dai widget col gettone vecchio). Corpo al massimo 16 KB, testo al massimo 2000 caratteri.
 - `GET /v1/stato` -> `{versione, mac, ora, vicino (9.9), https?: {porta, impronta}, melissa: {stato, cervello, parziale?, risposta?, registro: [{chi: tu|melissa|azione,
-  testo, alle}]}, lavori: [{chiave, activityKey?, origine: bottega|altrove, stato, progetto, titolo, da, jobId?}],
-  attivita: [{key, source, project, status, title, summary?, steps?, evidence?, updatedAt}],
+  testo, alle}]}, lavori: [{chiave, activityKey?, origine: bottega|altrove, stato, progetto, path?, titolo, da, jobId?}],
+  attivita: [{key, source, project, path?, status, title, summary?, steps?, evidence?, updatedAt, startedAt?}],
   conti: {inCorso, tiAspetta, nelTerminale, inCoda, stanotte, vive},
-  quadroLavori?: {progetti: [{nome, conteggio}], giorni: [{data, conteggio}]}}`.
+  quadroLavori?: {progetti: [{nome, conteggio}], giorni: [{data, conteggio}]},
+  regiaDigest?: {at, text, engine: agnes|apple}}`.
+  `regiaDigest` e' l'ultima sintesi del Mac, facoltativa, con orario proprio: l'iPhone distingue
+  il testo conservato dallo stato delle sessioni ricevuto ora.
   `attivita` e' il registro osservato dalla Home: Claude Code, Cline, Codex e terminali integrati, con testo
   ripulito e stato della fonte. `steps` (ultimi 8 passi, massimo 180 caratteri ciascuno) ed `evidence`
   (massimo 300 caratteri) sono opzionali e passano dalla stessa redazione del testo riservato. `activityKey` collega una sessione Claude azionabile alla stessa attivita',
@@ -1451,6 +1471,13 @@ iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
   `quadroLavori.giorni` contiene gli ultimi sette giorni nel fuso del Mac: ciascuna sessione osservata di Claude,
   Cline, Codex o terminale compare solo nel giorno del suo ultimo aggiornamento, non come lavoro concluso.
   L'iPhone mostra i nuovi grafici solo se riceve questo campo; uno stato salvato conserva l'ora di origine.
+  Lavori sull'iPhone usa `attivita` e `lavori` di questa stessa risposta per le viste per progetto e per stato,
+  con il filtro «Da seguire / Tutte». `activityKey` mantiene la scheda interattiva Claude anche quando la riga
+  visualizzata viene da `attivita`.
+  `path` identifica il progetto anche quando due cartelle hanno lo stesso nome: grafico e gruppi iOS
+  mantengono le cartelle distinte, con il percorso superiore nell'etichetta degli omonimi. Senza `path`
+  resta il raggruppamento per nome dei Mac precedenti. Le sessioni finite sono contate a parte, senza
+  entrare nella scala delle barre degli stati da seguire.
   `https` (build 71): le stesse rotte cifrate su `porta + 1` (7791), con il
   certificato fatto dal Mac (`src/ponte-tls.ts`: chiave P-256 fatta da Node in PKCS#8, perche' quella di `openssl -newkey` la BoringSSL di Electron non la carica (build 72); SHA-256, 800 giorni, SAN col nome MagicDNS e l'indirizzo,
   in `~/.bottega/ponte-tls/`, rifatto se scade tra meno di 30 giorni o cambia il nome) e la sua impronta SHA-256

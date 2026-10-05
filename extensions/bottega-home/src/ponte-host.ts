@@ -36,6 +36,7 @@ export interface PonteHostDeps {
 	regole?(): RegolaProgetto[] | null;
 	/** Gli allarmi della stanza App Store (13.7); null finche' non ha fatto la prima lettura. */
 	negozio?(): AllarmeNegozio[] | null;
+	regiaDigest?(): { at: number; text: string; engine: 'agnes' | 'apple' } | null;
 	/** Per la scheda di sessione (9.5, src/ponte-sessioni.ts): le cartelle dei progetti, la scrittura grezza
 	 *  (Esc, invio) e il terminale di un lavoro della Bottega. */
 	projects?(): string[];
@@ -333,6 +334,7 @@ function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora'
 	const work = deps.work();
 	const activity = deps.activity();
 	const cv = deps.cervelli?.();
+	const digest = deps.regiaDigest?.();
 	return {
 		melissa: {
 			stato: a?.state ?? 'idle',
@@ -348,6 +350,7 @@ function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora'
 			origine: w.source,
 			stato: w.status,
 			progetto: w.project,
+			...(w.path ? { path: w.path } : {}),
 			titolo: w.title,
 			da: w.since,
 			jobId: w.jobId,
@@ -356,15 +359,18 @@ function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora'
 			key: a.key,
 			source: a.source,
 			project: a.project,
+			...(a.path ? { path: a.path } : {}),
 			status: a.status,
 			title: a.title.slice(0, 140),
 			...(a.summary ? { summary: a.summary.slice(0, 300) } : {}),
 			...(a.steps ? { steps: a.steps.slice(-8).map(s => pulisciTesto(s, 180)).filter(Boolean) } : {}),
 			...(a.evidence ? { evidence: pulisciTesto(a.evidence, 300) } : {}),
 			updatedAt: a.updatedAt,
+			...(a.startedAt !== undefined ? { startedAt: a.startedAt } : {}),
 		})),
 		conti: { inCorso: c.inCorso, tiAspetta: c.tiAspetta, nelTerminale: c.nelTerminale, inCoda: c.inCoda, stanotte: c.stanotte, vive: c.vive },
 		...(deps.ready?.() === false ? {} : { quadroLavori: quadroLavori(work, activity) }),
+		...(digest ? { regiaDigest: digest } : {}),
 	};
 }
 

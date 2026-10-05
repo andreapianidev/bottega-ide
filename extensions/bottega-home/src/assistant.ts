@@ -729,7 +729,7 @@ export class Assistant {
 	}
 
 	/** Scrive un testo con la voce di Melissa a partire da fatti dati: Agnes, poi Apple Intelligence. Null se nessuno risponde. */
-	async compose(instructions: string, facts: string, maxTokens = 400): Promise<{ text: string; engine: 'agnes' | 'apple' } | null> {
+	async compose(instructions: string, facts: string, maxTokens = 400, fallbackToApple = true): Promise<{ text: string; engine: 'agnes' | 'apple' } | null> {
 		const messages: LlmMessage[] = [
 			{ role: 'system', content: MELISSA_CORE + '\n\n' + TRUTH_RULE + '\n\n' + instructions },
 			{ role: 'user', content: facts },
@@ -748,7 +748,7 @@ export class Assistant {
 		} catch {
 			// Agnes a terra: si prova sul Mac
 		}
-		if (!this.deps.nucleo.available) return null;
+		if (!fallbackToApple || !this.deps.nucleo.available) return null;
 		try {
 			const r = await this.deps.nucleo.request<{ text: string }>('ai.generate', { prompt: facts, instructions: MELISSA_CORE + '\n\n' + instructions, maxTokens }, 30_000);
 			const text = (r?.text || '').trim();

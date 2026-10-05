@@ -8,6 +8,30 @@
 
 import Foundation
 
+/// Il nome da solo non identifica una cartella: due progetti omonimi restano distinti.
+struct ProgettoLavori {
+    let nome: String
+    let path: String?
+
+    init(nome: String, path: String?) {
+        self.nome = nome.isEmpty ? "Progetto non indicato" : nome
+        self.path = path.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    var id: String { path.map { "path:\($0)" } ?? "nome:\(nome)" }
+
+    static func etichette(_ progetti: [Self]) -> [String: String] {
+        let unici = Dictionary(progetti.map { ($0.id, $0) }, uniquingKeysWith: { primo, _ in primo })
+        let omonimi = Dictionary(grouping: unici.values, by: \.nome)
+        return unici.mapValues { p in
+            guard (omonimi[p.nome]?.count ?? 0) > 1 else { return p.nome }
+            let cartella = p.path.map { URL(fileURLWithPath: $0).deletingLastPathComponent().path }
+                ?? "percorso non disponibile"
+            return "\(p.nome) · \(cartella)"
+        }
+    }
+}
+
 struct StatoMac: Codable, Equatable {
     struct Riga: Codable, Equatable, Identifiable {
         let chi: String
@@ -47,6 +71,7 @@ struct StatoMac: Codable, Equatable {
         let da: Double
         let jobId: String?
         var activityKey: String? = nil
+        var path: String? = nil
         var id: String { chiave }
     }
     struct Conti: Codable, Equatable {
@@ -80,8 +105,10 @@ struct StatoMac: Codable, Equatable {
         let title: String
         let summary: String?
         let updatedAt: Double
+        var startedAt: Double? = nil
         var steps: [String]? = nil
         var evidence: String? = nil
+        var path: String? = nil
         var id: String { key }
 
         var fonte: String {
@@ -94,6 +121,11 @@ struct StatoMac: Codable, Equatable {
             }
         }
     }
+    struct RegiaDigest: Codable, Equatable {
+        let at: Double
+        let text: String
+        let engine: String
+    }
     let versione: String
     let mac: String
     let ora: Double
@@ -103,6 +135,7 @@ struct StatoMac: Codable, Equatable {
     /// Aggregati dal Mac prima che la lista Lavori venga limitata a 40 righe.
     var quadroLavori: QuadroLavori? = nil
     var attivita: [Attivita]? = nil
+    var regiaDigest: RegiaDigest? = nil
     /// Dov'e' l'iPhone rispetto al Mac (docs/CONTRATTI.md, 9.9): usb (attaccato col cavo), casa (stessa rete,
     /// Tailscale diretto), lontano. Assente con una Bottega sul Mac che non lo manda ancora.
     var vicino: String? = nil
@@ -126,6 +159,8 @@ struct StatoMac: Codable, Equatable {
         let progetto: String
         let titolo: String
         let da: Double
+        var aggiornato: Double? = nil
+        var path: String? = nil
 
         var attiva: Bool { stato == "ti aspetta" || stato == "in corso" }
         fileprivate var rango: Int {
@@ -139,23 +174,25 @@ struct StatoMac: Codable, Equatable {
         if let attivita {
             righe = attivita.map {
                 SessioneWidget(id: $0.key, fonte: $0.fonte, stato: $0.status,
-                               progetto: $0.project, titolo: $0.title, da: $0.updatedAt)
+                               progetto: $0.project, titolo: $0.title, da: $0.startedAt ?? $0.updatedAt,
+                               aggiornato: $0.updatedAt, path: $0.path)
             }
         } else {
             righe = lavori.map {
                 SessioneWidget(id: $0.activityKey ?? $0.chiave, fonte: "Claude Code", stato: $0.stato,
-                               progetto: $0.progetto, titolo: $0.titolo, da: $0.da)
+                               progetto: $0.progetto, titolo: $0.titolo, da: $0.da, path: $0.path)
             }
         }
         // Se una sorgente ripete la chiave, conta una sola sessione e conserva il dato piu' recente.
         var uniche: [String: SessioneWidget] = [:]
         for riga in righe {
-            if let precedente = uniche[riga.id], precedente.da >= riga.da { continue }
+            if let precedente = uniche[riga.id], (precedente.aggiornato ?? precedente.da) >= (riga.aggiornato ?? riga.da) { continue }
             uniche[riga.id] = riga
         }
         return uniche.values.sorted {
             if $0.rango != $1.rango { return $0.rango < $1.rango }
-            if $0.da != $1.da { return $0.da > $1.da }
+            let a = $0.aggiornato ?? $0.da, b = $1.aggiornato ?? $1.da
+            if a != b { return a > b }
             return $0.id < $1.id
         }
     }

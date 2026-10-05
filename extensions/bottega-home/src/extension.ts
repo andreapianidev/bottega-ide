@@ -41,6 +41,7 @@ import { conteggiOsservati, type AgentActivity } from './attivita-tipi';
 import { readCodexActivities } from './attivita-codex';
 import { readClineActivities } from './attivita-cline';
 import { registerTerminalActivity, TerminalActivityMonitor } from './attivita-terminale';
+import { makeRegiaDigest, regiaChart, REGIA_INTERVAL, type RegiaDigest } from './regia';
 import { pulisciAttivita, pulisciTesto } from './attivita-sicurezza';
 
 // Melissa usa i connettori di Claude Code in sola lettura (docs/CONTRATTI.md, 5 e 6): prima che nasca l'assistente.
@@ -93,6 +94,35 @@ let nucleo: Nucleo | undefined;
 let jobManager: JobManager | undefined;
 let memoria: Memoria | undefined;
 let assistant: Assistant | undefined;
+let regiaDigest: RegiaDigest | null = null;
+let regiaDigestRunning: Promise<void> | undefined;
+let regiaMetalOpen = false;
+let regiaMetalSignature = '';
+let saveRegiaDigest: ((digest: RegiaDigest) => void) | undefined;
+function pushRegiaMetal(force = false): void {
+	if (!regiaMetalOpen || !nucleo?.available) return;
+	const data = regiaChart(snapshot, regiaDigest);
+	const signature = JSON.stringify(data);
+	if (!force && signature === regiaMetalSignature) return;
+	regiaMetalSignature = signature;
+	nucleo.fireAndForget('regia.data', { data });
+}
+async function refreshRegiaDigest(force = false): Promise<void> {
+	if (!force && regiaDigest && Date.now() - regiaDigest.at < REGIA_INTERVAL) return;
+	if (regiaDigestRunning) return regiaDigestRunning;
+	if (!assistant || !snapshot.activity.length && !snapshot.work.length) return;
+	regiaDigestRunning = (async () => {
+		const next = await makeRegiaDigest(snapshot, (instructions, facts, max) => assistant!.compose(instructions, facts, max, false), nucleo);
+		if (next) {
+			regiaDigest = next;
+			saveRegiaDigest?.(next);
+			panelHost?.send({ type: 'regia.digest', digest: next });
+			ponte?.notify();
+			pushRegiaMetal();
+		}
+	})().finally(() => { regiaDigestRunning = undefined; });
+	return regiaDigestRunning;
+}
 let panelHost: PlanciaPanel | undefined;
 let statsEngine: StatsEngine | undefined;
 let idee: Idee | undefined;
@@ -240,6 +270,7 @@ function refreshDynamic(): void {
 	snapshot = withDynamic(snapshot);
 	idee?.activityChanged();
 	panelHost?.pushSnapshot(snapshot);
+	pushRegiaMetal();
 	vedettaNativa?.push();
 	const activitySignature = snapshot.activity.map(a => `${a.key}:${a.status}:${a.updatedAt}`).join('|');
 	if (activitySignature !== statsActivitySignature) {
@@ -533,13 +564,13 @@ function openFile(p: string): boolean {
 
 function showPlancia(section?: string): void {
 	panelHost?.show();
-	if (section) panelHost?.send({ type: 'view', view: section.toLowerCase() });
+	if (section) panelHost?.view(section.toLowerCase());
 }
 
 // ---------- «racconta»: cosa c'e' davanti ad Andrea (CONTRATTI 6) ----------
 
 const NOMI_VISTE: Record<string, string> = {
-	plancia: 'la Plancia', lavori: 'i Lavori', memoria: 'la Memoria', melissa: 'la Plancia', cruscotto: 'il Cruscotto',
+	plancia: 'la Plancia', regia: 'la Regia', lavori: 'i Lavori', memoria: 'la Memoria', melissa: 'la Plancia', cruscotto: 'il Cruscotto',
 	vedetta: 'la Vedetta', appstore: 'la stanza App Store', clienti: 'la stanza Clienti', connettori: 'i Connettori',
 };
 
@@ -556,7 +587,7 @@ async function daRaccontare(): Promise<DaRaccontare | undefined> {
 	const titolo = NOMI_VISTE[view];
 	let testo: string;
 	if (view === 'plancia' || view === 'melissa') testo = idee ? await idee.briefingFacts() : 'Il briefing non è pronto.';
-	else if (view === 'lavori') testo = activityList() +
+	else if (view === 'lavori' || view === 'regia') testo = activityList() +
 		(snapshot.work.some(w => w.status === 'in coda' || w.status === 'stanotte')
 			? '\nLavori della Bottega in fila: ' + snapshot.work.filter(w => w.status === 'in coda' || w.status === 'stanotte').map(w => `${w.project}: ${w.status}`).join('; ')
 			: '');
@@ -643,6 +674,21 @@ async function datiOsservatorio(): Promise<Record<string, any> | null> {
 
 async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 	switch (m.type) {
+		case 'regia.digest':
+			if (regiaDigest) panelHost?.send({ type: 'regia.digest', digest: regiaDigest });
+			void refreshRegiaDigest();
+			return;
+		case 'regia.refresh':
+			void refreshRegiaDigest(true);
+			return;
+		case 'regia.metal':
+			if (!nucleo?.available) return void vscode.window.showWarningMessage('Il Nucleo nativo non è acceso: non posso aprire il cruscotto Metal.');
+			try {
+				await nucleo.request('regia.open', { data: regiaChart(snapshot, regiaDigest) }, 15_000);
+				regiaMetalOpen = true;
+				regiaMetalSignature = JSON.stringify(regiaChart(snapshot, regiaDigest));
+			} catch (e: any) { vscode.window.showWarningMessage(e?.message ?? String(e)); }
+			return;
 		case 'refresh':
 			return void fullScan();
 		case 'open':
@@ -746,7 +792,7 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
  *  (clic dalla barra dei menu o da una notifica, quando l'app e' dietro). */
 function showHome(view?: string, focusPath?: string, activate = false): void {
 	panelHost?.show(focusPath);
-	if (view) panelHost?.send({ type: 'view', view });
+	if (view) panelHost?.view(view);
 	if (activate && !vscode.window.state.focused) {
 		const app = path.resolve(vscode.env.appRoot, '..', '..', '..');
 		execFile('open', ['-a', app]);
@@ -853,6 +899,14 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 
 	panelHost = new PlanciaPanel(ctx.extensionUri, () => snapshot, changed.event, m => void onPlanciaMessage(m));
 	assistant.wire(ctx);
+	const savedRegia = ctx.globalState.get<RegiaDigest>('regia.digest');
+	if (savedRegia?.text && Number.isFinite(savedRegia.at)) regiaDigest = savedRegia;
+	saveRegiaDigest = digest => { void ctx.globalState.update('regia.digest', digest); };
+	const regiaSchedule = setInterval(() => void refreshRegiaDigest(), 60 * 60_000);
+	const regiaFirst = setTimeout(() => void refreshRegiaDigest(), 15_000);
+	ctx.subscriptions.push({ dispose: () => { clearInterval(regiaSchedule); clearTimeout(regiaFirst); } });
+	nucleo.on('regia.closed', () => { regiaMetalOpen = false; regiaMetalSignature = ''; });
+	nucleo.on('down', () => { regiaMetalOpen = false; regiaMetalSignature = ''; });
 
 	// La Bottega per iPhone: Melissa e i lavori raggiungibili dalla rete Tailscale (src/ponte.ts).
 	ponte = registerPonte(ctx, {
@@ -861,6 +915,7 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 		ready: () => snapshot.scannedAt > 0,
 		work: () => snapshot.work,
 		activity: () => snapshot.activity,
+		regiaDigest: () => regiaDigest,
 		counts: () => snapshot.workCounts,
 		writeJob: (id, text) => !!jobManager?.write(id, text),
 		// la scheda di sessione dall'iPhone (CONTRATTI 9.5)
@@ -982,6 +1037,7 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 			deserializeWebviewPanel: async panel => panelHost?.adopt(panel),
 		}),
 		vscode.commands.registerCommand('bottega.openPlancia', (focus?: string) => panelHost!.show(typeof focus === 'string' ? focus : undefined)),
+		vscode.commands.registerCommand('bottega.openRegia', () => showPlancia('regia')),
 		vscode.commands.registerCommand('bottega.refresh', () => fullScan()),
 		vscode.commands.registerCommand('bottega.claudeHere', (uri?: vscode.Uri) => {
 			const cwd = uri?.fsPath ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir();

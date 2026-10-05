@@ -1,0 +1,52 @@
+/* Il banco della Regia: i progetti sono ripiani, le sessioni righe di lavoro. */
+.regia { max-width: 1120px; }
+.regia-testa { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding-bottom: 24px; border-bottom: 1px solid var(--linea); }
+.regia-testa h1 { font: 500 clamp(38px, 6vw, 66px)/1 var(--serif); letter-spacing: -.04em; margin: 0 0 12px; }
+.regia-testa p { color: var(--tinta); margin: 0; font-size: 14px; }
+.regia-testa-azioni { display: flex; gap: 9px; align-items: center; }
+.regia-metal { flex: none; border: 1px solid var(--linea); border-radius: 8px; background: var(--basalto); color: var(--calima); padding: 9px 14px; font-weight: 600; cursor: pointer; }
+.regia-metal:hover { border-color: var(--stella); color: var(--stella); }
+.regia-sintesi { padding: 23px 0 20px; border-bottom: 1px solid var(--linea); max-width: 76ch; }
+.regia-sintesi-titolo { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.regia-sintesi h2 { margin: 0; color: var(--calima); font: 500 24px/1.25 var(--serif); }
+.regia-sintesi-titolo button { border: 0; background: transparent; color: var(--stella); cursor: pointer; padding: 5px; }
+.regia-sintesi > p:not(.regia-sintesi-fonte) { margin: 13px 0 5px; line-height: 1.65; font-size: 15px; }
+.regia-sintesi-fonte, .regia-sintesi details { color: var(--tinta); font-size: 12px; }
+.regia-sintesi details summary { cursor: pointer; color: var(--stella); }
+.regia-sintesi details p { line-height: 1.55; }
+.regia-nuovo, .regia-vuoto button { flex: none; border: 1px solid var(--sodio); border-radius: 8px; background: var(--sodio); color: var(--su-sodio); padding: 9px 14px; font-weight: 650; cursor: pointer; }
+.regia-comandi { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 24px 0 9px; }
+.regia-scelta { display: inline-flex; border: 1px solid var(--linea); border-radius: 8px; padding: 3px; gap: 2px; }
+.regia-scelta button { border: 0; border-radius: 5px; background: none; color: var(--tinta); padding: 6px 11px; cursor: pointer; }
+.regia-scelta button[aria-pressed="true"] { background: var(--basalto); color: var(--calima); }
+.regia-cerca input { min-width: min(260px, 75vw); border: 1px solid var(--linea); border-radius: 8px; background: var(--basalto); padding: 8px 12px; }
+.regia-nota { color: var(--tinta); font-size: 12px; margin: 0 0 24px; max-width: 72ch; }
+.regia-progetto { border-top: 1px solid var(--linea); }
+.regia-progetto-testa { display: flex; align-items: center; gap: 12px; padding: 11px 0; }
+.regia-espandi { display: flex; align-items: baseline; gap: 10px; flex: 1; min-width: 0; text-align: left; border: 0; background: none; padding: 3px 0; cursor: pointer; }
+.regia-chevron { align-self: center; width: 7px; height: 7px; border-right: 1.5px solid var(--tinta); border-bottom: 1.5px solid var(--tinta); transform: rotate(45deg); transition: transform .15s; }
+.regia-espandi[aria-expanded="false"] .regia-chevron { transform: rotate(-45deg); }
+.regia-nome { font: 500 22px/1.2 var(--serif); color: var(--calima); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.regia-conti { color: var(--tinta); font-size: 12px; white-space: nowrap; }
+.regia-qui { border: 0; background: none; color: var(--sodio); cursor: pointer; padding: 7px 2px; white-space: nowrap; }
+.regia-progetto ul { list-style: none; padding: 0 0 9px 17px; margin: 0; }
+.regia-agente { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 14px; align-items: center; min-height: 76px; padding: 13px 12px; border-top: 1px solid color-mix(in srgb, var(--linea) 65%, transparent); }
+.regia-agente:first-child { border-top: 0; }
+.regia-segno { width: 8px; height: 8px; border-radius: 50%; background: var(--tinta); }
+.regia-agente.stato-ti-aspetta .regia-segno { background: var(--sodio); box-shadow: 0 0 0 4px var(--sodio-velo); }
+.regia-agente.stato-in-corso .regia-segno { background: var(--laurisilva); }
+.regia-agente.stato-errore .regia-segno { background: var(--brace); border-radius: 2px; transform: rotate(45deg); }
+.regia-agente.stato-in-coda .regia-segno, .regia-agente.stato-stanotte .regia-segno { background: var(--stella); }
+.regia-agente-meta { display: flex; flex-wrap: wrap; gap: 5px 12px; align-items: baseline; color: var(--tinta); font-size: 11.5px; }
+.regia-fonte { color: var(--calima); font-weight: 650; }
+.regia-stato { text-transform: capitalize; }
+.stato-ti-aspetta .regia-stato { color: var(--sodio); }
+.stato-errore .regia-stato { color: var(--brace); }
+.regia-compito { margin: 3px 0 0; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+.regia-passo { margin: 3px 0 0; color: var(--tinta); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.regia-azione button { border: 1px solid var(--linea); border-radius: 7px; background: var(--basalto); padding: 6px 9px; cursor: pointer; white-space: nowrap; }
+.regia-azione button:hover, .regia-qui:hover { color: var(--sodio); border-color: var(--sodio); }
+.regia-vuoto { padding: 48px 20px; text-align: center; color: var(--tinta); }
+.regia-vuoto p { font: 500 23px/1.3 var(--serif); }
+@media (max-width: 740px) { .regia-testa { align-items: flex-start; flex-direction: column; } .regia-testa-azioni { flex-wrap: wrap; } .regia-progetto-testa { flex-wrap: wrap; } .regia-conti { white-space: normal; } .regia-agente { grid-template-columns: 10px minmax(0, 1fr); } .regia-azione { grid-column: 2; } }
+@media (prefers-reduced-motion: reduce) { .regia-chevron { transition: none; } }
