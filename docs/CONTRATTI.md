@@ -138,6 +138,41 @@ Nessuna interfaccia: niente Dock, niente barra dei menu, esce appena ha risposto
 
 Il percorso stabile per chi sta fuori dall'IDE e' il collegamento `~/.bottega/bin/nucleo`.
 
+### Modalita' isola (Melissa dentro Claude Code, `nucleo/Sources/Isola/`)
+
+La usa la mod `melissa` di Claude Code (`andreapianidev/claude-code-mods`, cartella `melissa/`). Un solo processo
+per Mac, lanciato dalla mod attraverso LaunchServices, cosi' i permessi di microfono e riconoscimento vocale sono
+del Nucleo e non del terminale in cui gira Claude:
+
+```
+open -n -g -a "<Bottega Nucleo.app>" --args --isola      (l'app e' quella a cui punta ~/.bottega/bin/nucleo)
+```
+
+Serve HTTP/1.1 su un socket Unix, `~/.bottega/nucleo/isola.sock` (permessi 600). Ogni risposta e' JSON con `ok`;
+gli errori hanno `ok: false` ed `errore`.
+
+| Richiesta | Corpo | Risposta |
+|---|---|---|
+| `GET /ping` | | `{ok, versione}` |
+| `POST /detta` | `{sessione, progetto}` | `{ok}`: apre il microfono (riconoscimento di Apple, `it-IT`, modo push). 409 se ascolta gia' un'altra sessione |
+| `POST /detta/fine` | | `{ok}`: chiude la frase; il testo arriva come evento |
+| `POST /stato` | `{stato: pensa\|pronto\|riposo, testo?}` | `{ok}`: l'isola mostra lo stato (`pronto` si ritira da sola dopo 1,8 s) |
+| `POST /parla` | `{sessione, testo}` | `{ok, voce}`: Melissa lo dice (ElevenLabs, voce di sistema se non risponde). 409 mentre ascolta |
+| `POST /zitta` | | `{ok}`: silenzio subito |
+| `GET /eventi?sessione=X` | | trattenuta fino a 15 s: `{ok, eventi: [...]}`, vuota se non succede niente |
+
+Eventi di una sessione: `{tipo: "parziale", testo}` mentre parli, `{tipo: "testo", testo}` a dettato finito,
+`{tipo: "errore", messaggio}`, `{tipo: "ferma"}` (clic sull'isola mentre Melissa raccontava quella sessione:
+la mod ferma il turno di Claude).
+
+Il dettato si chiude da solo 3,5 s dopo l'ultima parola nuova, o dopo 10 s senza parole. Un clic sull'isola chiude
+il dettato; mentre Melissa racconta, ferma Claude. L'isola sta nella tacca del MacBook (sugli schermi senza tacca
+pende sotto la barra dei menu) e si ritira quando non ha niente da dire. Il processo esce dopo 15 minuti senza
+richieste, dettato o voce; un secondo `--isola` trova il socket vivo ed esce subito.
+
+L'isola segue la voce del proprio processo con `Out.tap` (gli stessi eventi `voice.*` della modalita' servizio):
+stdout non porta niente, `Out.enabled` e' spento.
+
 ## 2. Memoria
 
 Dati in `~/.bottega/memoria/` (cartella 700):

@@ -2,7 +2,7 @@
 //  main.swift
 //  Bottega Nucleo
 //
-//  Three lives in one binary:
+//  Four lives in one binary:
 //   - service mode (default): launched by the Bottega extension, JSON lines on
 //     stdin/stdout, owns the orb, the voice, the hotkey, notifications, the menu bar;
 //   - macOS mode: launched by LaunchServices for an App Intent or a Spotlight click
@@ -23,6 +23,12 @@ if let i = arguments.firstIndex(of: "--cli") {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if Isola.attiva {
+            // Melissa for Claude Code in a terminal (Isola.swift): launched by the mod
+            // through LaunchServices, so stdin is /dev/null like the macOS mode.
+            MainActor.assumeIsolated { Isola.shared.start() }
+            return
+        }
         if LaunchMode.fromMacOS {
             // Nobody reads our stdout: no JSON lines, no voice, no orb, no menu bar.
             Out.enabled = false

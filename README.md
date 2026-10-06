@@ -108,6 +108,12 @@ push, chiedono sempre conferma.
 - La sfera vive dentro la Bottega, nella barra laterale e nella barra di stato. Con `bottega.voice.sfera` su
   `schermo` torna la sfera disegnata in Metal dal Nucleo, in un pannello di vetro sopra le finestre.
 
+- Dentro Claude Code: con la mod `melissa` per Claude Code
+  sopra il prompt di ogni sessione c'e' il pulsante **🎙 Melissa**. Lo clicchi nella sessione giusta, parli, e il
+  testo arriva nel suo prompt esattamente come l'hai detto. Mentre ascolta, Melissa esce dalla tacca del MacBook come
+  una Dynamic Island, con la sfera e la forma d'onda della tua voce. Con **🔊 cronaca** racconta a voce cosa sta facendo Claude, e un
+  clic sull'isola lo ferma. Ascolto, voce e isola sono del Nucleo, in modalita' `--isola`.
+
 ### Il Nucleo
 
 Un'app Swift nativa nascosta dentro la Bottega (`nucleo/`), per tutto quello che Electron non sa

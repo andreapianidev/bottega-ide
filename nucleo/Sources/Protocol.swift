@@ -175,7 +175,12 @@ enum Out {
         line(["id": id, "ok": false, "error": message])
     }
 
+    /// --isola: the island follows the voice events of its own process (Isola.swift).
+    /// Called on whatever thread emits the event.
+    nonisolated(unsafe) static var tap: ((String, [String: Any?]) -> Void)?
+
     static func event(_ name: String, _ fields: [String: Any?] = [:]) {
+        tap?(name, fields)
         var o = fields
         o["event"] = name
         line(o)
