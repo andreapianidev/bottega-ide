@@ -105,6 +105,12 @@ final class Ponte {
         return (stato ?? StatoMac.ultimo())?.contestoMelissa(per: domanda, salvato: linea != .collegato)
     }
 
+    /// La memoria della Bottega per il prompt di Melissa e dei personaggi; senza rete l'ultima salvata, con la sua ora.
+    func memoriaMelissa() -> String? {
+        guard collegato else { return nil }
+        return (stato ?? StatoMac.ultimo())?.contestoMemoria(salvato: linea != .collegato)
+    }
+
     // MARK: - collegamento
 
     @discardableResult

@@ -9,6 +9,52 @@
     "Eccomi, Melissa ha detto che avevi bisogno di qualcuno con un po' di fegato.",
     "Darlene. Dimmi tutto, e fai in fretta che ho un server da bucare."
   ],
+  "riempitivi": {
+    "domanda": [
+      "Uh, domandona. Aspetta.",
+      "Ok ok, ci arrivo.",
+      "Aspetta, aspetta.",
+      "Fammi pensare, cazzo.",
+      "Mh, bella questa."
+    ],
+    "ordine": [
+      "Sì sì, lo faccio.",
+      "Ok capo, dammi un secondo.",
+      "Va bene, va bene.",
+      "E io che sono, la tua segretaria? Dai, ci penso.",
+      "Ci sto."
+    ],
+    "sfogo": [
+      "Eh, benvenuto nel club.",
+      "Lo so, fa schifo. Aspetta.",
+      "Calmati, tigre.",
+      "Oh, finalmente un po' di rabbia. Vediamo."
+    ],
+    "battuta": [
+      "Ahah, scemo.",
+      "Pff, ahah. Ok.",
+      "Questa era quasi divertente.",
+      "Ahah, ti voglio bene anche così."
+    ],
+    "chiacchiera": [
+      "Mh.",
+      "Allora.",
+      "Uhm, sì.",
+      "Aspetta.",
+      "Ok, senti."
+    ],
+    "lunga": [
+      "Sto pensando, non mettermi fretta.",
+      "Un attimo, sto bucando il mio stesso cervello.",
+      "Quasi, quasi.",
+      "Ancora un secondo, giuro che ne vale la pena."
+    ],
+    "eco": [
+      "{x}? Ok, vediamo.",
+      "Ah, {x}. Bella grana.",
+      "{x}, eh? Aspetta."
+    ]
+  },
   "ruolo": "quando c'e' da provocare o rompere le regole",
   "ruolo_cronaca": "quando Claude forza o rompe le cose, o serve una provocazione",
   "parole": "",

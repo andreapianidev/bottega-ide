@@ -54,7 +54,8 @@ Una riga JSON per messaggio su stdin/stdout, UTF-8. Lo stderr e' log libero.
 | `capabilities` | | `foundationModels: bool`, `speechLocaleInstalled: bool` (non c'e' piu' un modello vocale locale: vale true quando la chiave ElevenLabs c'e', cioe' quando la trascrizione e' usabile), `speechLocale`, `embedding: bool`, `metal: string`, `memoryGB`, `cores`; in piu': `version`, `foundationModelsReason?` (se non disponibile), `speechBackend` (`elevenlabs:scribe_v2_realtime`), `sttSecondsThisSession` (secondi di audio mandati alla trascrizione da quando il Nucleo e' partito), `embeddingDimension`, `ttsEngine` (`elevenlabs` o `apple`), `ttsModel`, `elevenLabsConfigured`, `elevenLabsVoice`, `elevenLabsCharsThisMonth`, `appleVoice`, `echoCancellation` (`hardware` o `software`, l'ultimo percorso usato in conversazione), `echoCancellationTested: bool`, `conversing: bool`, `hotkey` (etichetta o null) | |
 | `voice.listen` | `mode`: `push` o `utterance`, `locale` | `backend` | trascrizione in tempo reale, con il riconoscimento vocale di Apple come Avo (vedi `voice.converse.start`; ElevenLabs con `BOTTEGA_STT=elevenlabs`). `utterance` finisce da sola alla prima frase che il server chiude (~0.8 s di silenzio), o dopo 8 s se nessuno parla; `push` resta aperto fino a `voice.stop` (massimo 120 s). Se Melissa sta parlando viene zittita: fuori dalla conversazione il microfono e' chiuso mentre lei parla. Se ElevenLabs non risponde: risposta di errore ed evento `voice.state {state:"error", message}` |
 | `voice.stop` | | | chiude l'ascolto, chiude a mano la frase (commit) ed emette l'ultimo `voice.final` (~0.25 s dopo) |
-| `voice.speak` | `text`, `voice?`, `append?: bool`, `final?: bool`, `model?` | `engine` | evento `voice.spoken {text, engine}` quando un pezzo e' stato davvero ascoltato. Senza `append` il testo e' una risposta intera. Con `append: true` l'estensione manda i pezzi man mano che l'LLM li scrive: ogni frase completa porta uno spazio finale, altrimenti il Nucleo salderebbe il punto alla parola seguente e cambierebbe i confini audio. La prima frase (o il primo inciso lungo) parte subito, poi una frase alla volta; `final: true` (anche con `text` vuoto) chiude il turno e invia `close_socket` a ElevenLabs, che consegna l'audio rimanente e `is_final`. Il Nucleo riapre poi una connessione calda. `model` sceglie il modello ElevenLabs (default `eleven_v4_turbo`). `voice`: `apple` forza la voce Apple, `com.apple...` sceglie una voce Apple precisa, qualsiasi altro valore e' un voice id ElevenLabs |
+| `voice.speak` | `text`, `voice?`, `append?: bool`, `final?: bool`, `model?` | `engine` | evento `voice.spoken {text, engine, chi}` quando un pezzo e' stato davvero ascoltato; `chi` e' il nome di chi l'ha detto (`Melissa`, oppure il `nome` del personaggio la cui `voce` in `~/.bottega/personaggi/*.json` e' quella del pezzo; la voce predefinita, quella di Apple e una voce sconosciuta sono `Melissa`). Senza `append` il testo e' una risposta intera. Con `append: true` l'estensione manda i pezzi man mano che l'LLM li scrive: ogni frase completa porta uno spazio finale, altrimenti il Nucleo salderebbe il punto alla parola seguente e cambierebbe i confini audio. La prima frase (o il primo inciso lungo) parte subito, poi una frase alla volta; `final: true` (anche con `text` vuoto) chiude il turno e invia `close_socket` a ElevenLabs, che consegna l'audio rimanente e `is_final`. Il Nucleo riapre poi una connessione calda. `model` sceglie il modello ElevenLabs (default `eleven_v4_turbo`). `voice`: `apple` forza la voce Apple, `com.apple...` sceglie una voce Apple precisa, qualsiasi altro valore e' un voice id ElevenLabs |
+| `voice.scalda` | `voci: [{voce, testi}]` | `mancanti`, `inCoda` | prepara l'audio delle frasi brevi che si dicono mentre il modello pensa (riempitivi, 9.11). `voce` e' l'id ElevenLabs del personaggio, `""` per la voce di Melissa; un id non valido si salta. Risponde subito: le frasi che non sono gia' su disco si generano dopo, una alla volta, su un socket a parte, mai mentre la voce parla. Al massimo 300 testi per richiesta, ciascuno di 120 caratteri al massimo. Ogni testo si taglia nei pezzi in cui lo taglierebbe `voice.speak` (prima frase o primo inciso lungo, poi frasi intere), e la cache e' per pezzo: `mancanti` conta i pezzi non ancora pronti, `inCoda` quelli in coda. Cache in `~/.bottega/nucleo/voce-cache/` (cartella 700, file 600), un file `<sha256 della chiave>.pcm` (PCM 16 bit LE, mono, 24 kHz) per chiave `modello\|voce\|stability 0.5\|similarity 0.75\|testo pulito`, condivisa con la modalita' isola. Poi qualunque pezzo di `voice.speak` (o di `/parla`) con lo stesso testo, voce e modello parte dal disco, senza aspettare ElevenLabs e senza contare caratteri, purche' prima non ci sia altro audio ancora in arrivo; altrimenti va dal vivo. Il log lo dice (`voce: dalla cache «...»`) e per ogni turno scrive `voce: primo suono N ms dopo la richiesta`. Senza chiave ElevenLabs: errore |
 | `voice.stopSpeaking` | | | interruzione (barge-in): silenzio subito, coda svuotata |
 | `voice.converse.start` | `locale?` | `echoCancellation`, `backend` | modalita' conversazione: microfono sempre aperto, ogni frase che il server chiude (~0.8 s di silenzio) e' un turno dell'utente (`voice.final {text, mode:"converse"}`). Trascrizione (2/10/2026, `Voice/AppleSTT.swift`): come la Melissa di Avo Agency AI, SFSpeechRecognizer it-IT sul Mac,
 i buffer del microfono passati cosi' come sono, risultati parziali, una richiesta nuova per ogni frase, frase chiusa
@@ -159,6 +160,7 @@ gli errori hanno `ok: false` ed `errore`.
 | `POST /stato` | `{stato: pensa\|pronto\|riposo, testo?}` | `{ok}`: l'isola mostra lo stato (`pronto` si ritira da sola dopo 1,8 s) |
 | `POST /parla` | `{sessione, testo, append?, final?, voce?}` | `{ok, voce}`: Melissa lo dice (ElevenLabs `eleven_v4_turbo` sul socket caldo, voce di sistema se non risponde). Con `append: true` i pezzi di uno stesso testo (la risposta di Claude letta mentre arriva) si accodano nello stesso turno di voce; `final: true` lo chiude, anche con testo vuoto. `voce` e' l'id di un'altra voce ElevenLabs dell'account (un personaggio a cui Melissa passa la chiamata, dalla build 120): si manda la frase intera (`append: false`), che chiude il turno aperto e ne apre uno con quella voce; un valore che non e' un id si ignora. 409 mentre ascolta |
 | `POST /zitta` | | `{ok}`: silenzio subito |
+| `POST /scalda` | `{voci: [{voce, testi}]}` | `{ok, mancanti, inCoda}`: prepara l'audio dei riempitivi (9.11), come `voice.scalda` del servizio e con la stessa cache. `voce` e' l'id ElevenLabs (stessa regola di `/parla`, un id non valido si salta), `""` per Melissa. Risponde subito, la generazione va dopo, un pezzo alla volta; 503 senza chiave ElevenLabs. Non serve niente su `/parla`: un pezzo il cui testo e' gia' pronto parte dal disco. Corpo fino a 256 KB |
 | `GET /eventi?sessione=X` | | trattenuta fino a 15 s: `{ok, eventi: [...]}`, vuota se non succede niente |
 
 Eventi di una sessione: `{tipo: "parziale", testo}` mentre parli, `{tipo: "testo", testo}` a dettato finito,
@@ -172,11 +174,16 @@ pende sotto la barra dei menu) e si ritira quando non ha niente da dire. Il proc
 richieste, dettato o voce; un secondo `--isola` trova il socket vivo ed esce subito (e se due partono nello stesso istante decide il lock su `~/.bottega/nucleo/isola.lock`, tenuto per tutta la vita del processo). Un'isola rimasta su "pensa" o "parla" per due minuti senza voce e senza microfono torna a riposo da sola.
 
 Il microfono apre solo quando macOS lo concede (la prima volta chiede il permesso): l'orologio dei 10 s parte da li', e
-un dettato chiuso mentre il microfono si apriva lo richiude subito. Il log va dove lo manda `open --stderr` (la mod usa
-`~/.bottega/nucleo/isola.log`).
+un dettato chiuso mentre il microfono si apriva lo richiude subito. Il log sta sempre in `~/.bottega/nucleo/isola.log`:
+la mod lo passa a `open --stderr`, e se l'isola parte senza (stderr su `/dev/null`) il Nucleo apre da se' quel file in
+aggiunta e ci mette sopra stderr (resta sul terminale solo se l'isola e' lanciata a mano da un terminale).
 
 L'isola segue la voce del proprio processo con `Out.tap` (gli stessi eventi `voice.*` della modalita' servizio):
 stdout non porta niente, `Out.enabled` e' spento.
+Sopra il testo l'isola scrive chi parla: Melissa, o il personaggio la cui voce (`/parla {voce}`) e' nei file
+`~/.bottega/personaggi/*.json` (`voce` -> `nome`, riletti al massimo una volta al minuto). Nome e testo cambiano quando
+quel pezzo comincia davvero a suonare, non quando arriva la `/parla`: le battute di voci diverse stanno nella stessa
+coda. Se davanti non c'e' niente, il nome sale gia' alla `/parla`.
 
 ## 2. Memoria
 
@@ -293,6 +300,17 @@ invio, zero buchi in 5 prove; nel Nucleo i buchi comparivano solo col Mac carico
 principale, lo stesso delle animazioni dell'isola. L'isola a riposo non anima piu' l'aura a pannello chiuso: da ferma
 resta a 0% di CPU. La mod chiude il turno di voce a ogni frase della cronaca (0.14): prima lo chiudeva il Nucleo dopo
 20 s di silenzio ("manca final").
+
+Voce ElevenLabs e voce di Apple non si mescolano mai (dalla build 126). AudioOut e' una coda sola: prima l'audio di un
+turno passato ad Apple e quello ElevenLabs dei turni dopo finivano alternati, e si sentivano tutte e due insieme. Ora la
+voce di Apple comincia un segmento solo quando non c'e' piu' audio ElevenLabs in arrivo, e le frasi ElevenLabs (anche
+quelle dalla cache) aspettano, in ordine, finche' Apple ha consegnato tutto il suo audio. Una frase che trova il socket
+ancora occupato a chiudere il turno prima (`close_socket` mandato, l'audio lungo di quel turno ancora in arrivo:
+`is_final` arriva solo a generazione finita) aspetta finche' quel socket manda dati, anche ben piu' di 3 s; se resta
+muto per 8 s si chiude e si riapre, e solo se non si riapre si passa ad Apple. Mentre aspetta, dietro si accodano anche
+le frasi delle altre voci. Ogni passaggio ad Apple lascia una riga sola nel registro, con il motivo: "voce: passo alla
+voce di Apple, <motivo>". Caso del 6 ottobre 2026 (17:33 e 17:34): dopo 3 s la frase andava ad Apple mentre il socket
+consegnava ancora il turno prima, e 1,5 s dopo ElevenLabs ripartiva sopra Apple.
 
 ### Il cruscotto (`Stats`, da `src/stats.ts`)
 
@@ -1547,9 +1565,14 @@ iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
   attivita: [{key, source, project, path?, status, title, summary?, steps?, evidence?, updatedAt, startedAt?}],
   conti: {inCorso, tiAspetta, nelTerminale, inCoda, stanotte, vive},
   quadroLavori?: {progetti: [{nome, conteggio}], giorni: [{data, conteggio}]},
-  regiaDigest?: {at, text, engine: agnes|apple}}`.
+  regiaDigest?: {at, text, engine: agnes|apple}, memoria?}`.
   `regiaDigest` e' l'ultima sintesi del Mac, facoltativa, con orario proprio: l'iPhone distingue
   il testo conservato dallo stato delle sessioni ricevuto ora.
+  `memoria` (build 126, facoltativo, assente se vuoto) e' il contesto dalla memoria della Bottega che Melissa e i
+  personaggi ricevono come dati (9.11, «Sanno cosa fa Andrea»): il riassunto del progetto con l'attivita' piu' recente
+  (`~/.bottega/memoria/contesto/<projectKey>.md`) e i titoli dei riassunti degli ultimi tre giorni, al piu' 2500
+  caratteri, gia' passato da `censura` (`src/memoria-contesto.ts`). Il Mac lo rilegge al piu' ogni due minuti e lo
+  manda subito con l'ultimo letto, quindi il primo stato dopo l'avvio puo' non averlo ancora.
   `attivita` e' il registro osservato dalla Home: Claude Code, Cline, Codex e terminali integrati, con testo
   ripulito e stato della fonte. `steps` (ultimi 8 passi, massimo 180 caratteri ciascuno) ed `evidence`
   (massimo 300 caratteri) sono opzionali e passano dalla stessa redazione del testo riservato. `activityKey` collega una sessione Claude azionabile alla stessa attivita',
@@ -2159,6 +2182,103 @@ rete di casa dicono al Mac dov'e' l'iPhone, non portano dati.
   `/v1/assistente/storia` resta `tu|melissa`. Test senza simulatore: `scripts/test-ios-personaggi.sh`. Dalla build 124
 risponde chi Melissa chiama, proposto o no: col segnale o con una domanda per nome che chiude la battuta
 (`Personaggi.chiamatoPerNome`), come nella mod 0.13.
+
+### 9.11 Chi risponde quando Melissa chiama, e cosa si dice mentre si pensa (build 126, mod 0.15)
+
+Regole comuni alla mod melissa (`register.tsx`), alla barra (`src/personaggi.ts`, `src/riempitivi.ts`) e all'iPhone
+(`Voce/Personaggi.swift`, `Voce/Riempitivi.swift`). Sono implementate tre volte, identiche: i casi di prova qui sotto
+sono nei test di tutte e tre.
+
+**Un personaggio interrogato risponde sempre.** La battuta di Melissa chiama un personaggio se:
+
+1. contiene il segnale `@chiave` (ovunque), oppure
+2. il personaggio e' quello che il codice le aveva chiesto di tirare dentro (`invitato`) e il suo nome compare nella
+   battuta, ovunque, oppure
+3. in una delle ultime due frasi il nome e' usato come vocativo e la battuta si rivolge a qualcuno.
+   - Frasi: finiscono con `.`, `!`, `?`, `…` (anche ripetuti, come `...`) seguiti da uno spazio o dalla fine del testo:
+     `.env`, `3.5` e `file.txt` non chiudono una frase (`split(/(?<=[.!?…])\s+/)`).
+   - Vocativo: il nome sta a inizio frase, dopo `,` `;` `:`, oppure dopo una di `e tu`, `e te`, `dai`, `su`,
+     `senti`, `allora`, `ehi`, `oh`, `ok`, `tocca a te`, `vabbe'`/`vabbè`, `grazie`, `ciao`, `scusa`, `beh` (con una
+     virgola facoltativa); e subito dopo il nome viene
+     punteggiatura (`,` `!` `?` `:` `;` `…` `..`), la fine della frase (anche con un punto), oppure una di `tu`,
+     `che ne`, `che dici`, `cosa ne`, `cosa dici`, `dimmi`, `digli`, `dille`, `diglielo`, `ascolta`, `senti`,
+     `guarda`, `dicci`.
+   - Si rivolge a qualcuno: c'e' un `?` nelle ultime due frasi, oppure una parola fra `tu`, `te`, `ti`, `dimmi`,
+     `digli`, `diglielo`, `dille`, `dai`, `senti`, `pensaci`, `aiutami`, `aiutalo`, `spiegagli`, `spiegaci`,
+     `raccontaci`, `ascolta`, `guarda`, `ne pensi`, `che dici`, `cosa dici`, `tocca a te`, `la tua`.
+
+**Anche Andrea puo' chiamare.** Se, mentre Melissa ha la chiamata, Andrea dice il nome di un personaggio da vocativo
+(stessa regola, in qualunque frase e senza bisogno della domanda: "Vabbe' Elliot, hai ragione"), risponde quel
+personaggio, poi Melissa chiude. "Ieri Elliot mi ha detto..." non chiama nessuno.
+
+Risponde solo un personaggio con una voce. Se Melissa, chiudendo dopo un personaggio, chiede ancora qualcosa a qualcuno,
+quello risponde una volta e la parola torna ad Andrea.
+
+**Chi entra da solo nella chiacchierata.** Un ospite puo' entrare dopo ogni risposta di Melissa senza ospite, anche
+nella prima di una conversazione (il contatore parte da 1); mai nella risposta subito dopo un ospite, e in quella dopo
+ancora non entra nessuno se Andrea tocca di nuovo l'argomento dell'ospite di prima. L'invito e' deciso dopo due
+risposte senza ospite, o subito se entra quello le cui `parole` Andrea ha appena detto (Elliot sulla password). Risposte in due o tre frasi brevi, e al piu' quattro dette
+(le prime tre e l'ultima, `breve`); il prompt porta data e ora, che altrimenti il modello inventa. Nella cronaca vale la stessa regola: non serve piu' che fosse quello
+scelto in anticipo (prima della mod 0.15 una domanda spontanea a Elliot restava senza risposta, 6/10/2026). Melissa
+non parla finche' il personaggio non ha detto la sua battuta, nemmeno se intanto Claude comincia un turno nuovo.
+
+| Battuta di Melissa | Chi risponde |
+|---|---|
+| `Elliot, tu che dici?` / `Che ne pensi, Krista?` / `Allora, Darlene?` / `Elliot... tu che dici?` | elliot / krista / darlene / elliot |
+| `Dai Krista, diglielo tu.` / `E tu Krista che ne dici?` / `Tocca a te, Krista.` | krista |
+| `Krista, che ne pensi? Io dico di si'.` / `Ehi Darlene ascolta questa.` | krista / darlene |
+| `Ok Elliot, ma tu cosa faresti?` | elliot |
+| `Ti ricordi quando Elliot ha bucato E Corp?` / `Vuoi che apra il file di Krista?` | nessuno |
+| `Krista direbbe che sei pigro.` / `Darlene, al posto tuo, avrebbe gia' litigato.` | nessuno |
+| `Darlene ti ha mai detto di no? Comunque e' finita.` / `Non so. Tu che dici?` | nessuno |
+| `Krista te lo sta dicendo da mezz'ora e tu fai lo gnorri.` (`te` dopo il nome non chiama) | nessuno |
+| `Sono sicura che Krista avrebbe qualcosa da dirti.` con `invitato = krista` | krista |
+
+**Parlano fra loro (mod 0.16, build 126).** Un personaggio chiamato, nel 40% dei casi e se c'e' un altro personaggio con
+voce, riceve nel prompt "Poi chiudi chiedendo a <Nome>, per nome, cosa ne pensa" (scelto a caso fra gli altri, mai
+chi lo ha chiamato); se la sua battuta chiama davvero qualcuno (regola sopra, con quello come `invitato`), quello
+risponde una volta ("<Nome> ti ha appena chiesto qualcosa"), poi Melissa chiude con tutto il giro davanti. Gli ospiti
+entrano dopo ogni risposta di Melissa senza ospite; l'invito e' deciso dopo due, o subito per argomento.
+
+**Sanno cosa fa Andrea.** Melissa e i personaggi ricevono, in fondo al prompt e come dati e non istruzioni, il contesto
+della memoria della Bottega (al piu' 2500 caratteri, passato da `censura`, riletto al piu' ogni due minuti):
+il riassunto del progetto in `~/.bottega/memoria/contesto/<projectKey>.md` (la chiave dalla tabella `sessions` per la
+cartella di lavoro) e i titoli dei `riassunto` degli ultimi tre giorni (`progetto: titolo`). Nella barra il progetto e'
+quello della stanza o della sessione attiva; sull'iPhone il testo arriva gia' pronto dal Mac nel campo `memoria` di
+`/v1/stato` (stessa forma, progetto piu' recente), e senza Mac si usa l'ultimo salvato, dichiarandone l'ora.
+
+**Riempitivi: cosa si dice mentre il modello pensa.** Le frasi stanno nei file di `personaggi/`, campo `riempitivi`
+(vedi `personaggi/LEGGIMI.md`); quelle di Melissa in `personaggi/melissa.json`, che ha `chiave: "melissa"` e porta solo
+i suoi riempitivi: non e' un personaggio, non entra nell'elenco e non si chiama. Gruppi: `domanda`, `ordine`, `sfogo`,
+`battuta`, `chiacchiera`, `lunga` (le attese lunghe), `eco` (modelli con `{x}`).
+
+- Intenzione di quello che Andrea ha detto, la prima che vale, sul testo in minuscolo:
+  1. `sfogo`: `\b(cazz|merd|porc[aoi]|orco|vaffa|che palle|non funziona|non va\b|si e' rotto|si è rotto|odio|che schifo|stufo|incazz)`;
+  2. `battuta`: `\b(ah(ah)+|ha(ha)+|lol|scherz|rid[oei]\b|battuta)`;
+  3. `ordine`: dopo un eventuale vocativo (`parola, `) e uno o piu' fra `dai`, `allora`, `ok`, `okay`, `senti`, `ehi`,
+     `ascolta`, comincia con `fai|fammi|apri|metti|controlla|scrivi|lancia|manda|cerca|trova|leggi|dimmi|spiega|
+     spiegami|ricordami|prepara|aggiungi|togli|cambia|sistema|guarda|chiama|prova|ferma|crea|calcola|traduci|riassumi|
+     puoi|potresti|devi|voglio che|vorrei che|mi serve`;
+  4. `domanda`: finisce con `?`, oppure dopo un eventuale `e`/`ma`/`allora`/`senti` comincia con
+     `come|perch[eé]|cosa|che cosa|quando|dove|quale|quali|quanto|quanti|quante|chi|sai|secondo te|ti ricordi|hai mai|
+     c'e'|c'è|esiste`;
+  5. altrimenti `chiacchiera`.
+- Tema per l'eco: la prima parola con l'iniziale maiuscola, di almeno tre lettere, che non sta a inizio frase e non
+  e' il nome di Melissa, di Andrea o di un personaggio (il riconoscimento di Apple scrive i nomi propri con la
+  maiuscola). Con un tema, intenzione `domanda`, `ordine` o `chiacchiera` e `caso2 < 0.25`, si usa un modello di `eco`
+  con `{x}` sostituito.
+- Scelta: il gruppo dell'intenzione della voce che parla; se e' vuoto, il suo `chiacchiera`; se manca anche quello,
+  lo stesso gruppo di Melissa. Si escludono le ultime `min(3, n - 1)` frasi dette da quella voce (per l'eco conta il
+  modello, non la frase finita), poi `candidati[floor(caso * candidati.length)]`.
+- Tempi, da quando la domanda parte verso il modello: a 900 ms la prima frase (intenzione), a 5 s e a 10 s una frase
+  di `lunga`, poi piu' niente. Ognuna solo se la risposta non ha ancora cominciato a parlare. Nella barra, uno
+  strumento che dura piu' di 1,5 s dopo che la risposta e' gia' partita dice una frase di `lunga`, una volta per turno.
+- Dopo un riempitivo detto, la risposta perde l'intercalare iniziale, che sarebbe un doppione: si toglie fino a due
+  volte `^(mh+|m+h|uhm+|ehm+|allora|dunque|vediamo|ok|okay|beh|be'|bah|ah|eh|oh|ecco|si|sì)\s*[,.!…:]+\s*` (senza
+  distinguere maiuscole) e si rimette la maiuscola; se non resta niente, la risposta resta com'era.
+- Voce: un riempitivo e' un turno di voce intero, con la voce di chi parla (`final: true`). Il Nucleo ne tiene l'audio
+  gia' pronto (modalita' isola, `POST /scalda`; servizio, `voice.scalda`), cosi' parte senza aspettare ElevenLabs.
+  L'iPhone ha una sua copia in `Caches/riempitivi/`. Le frasi di `eco` cambiano ogni volta e vanno dal vivo.
 
 ## 10. Gli aggiornamenti: VS Code solo quando serve, Claude Code sempre
 

@@ -116,6 +116,10 @@ export interface PonteStato {
 	/** Aggregati Lavori calcolati sul Mac: progetti prima del limite delle righe, giorni nel fuso del Mac. */
 	quadroLavori?: { progetti: { nome: string; conteggio: number }[]; giorni: { data: string; conteggio: number }[] };
 	regiaDigest?: { at: number; text: string; engine: 'agnes' | 'apple' };
+	/** Cosa fa Andrea, dalla memoria della Bottega (progetto attivo piu' recente e riassunti degli ultimi tre giorni,
+	 *  al piu' 2500 caratteri, gia' censurato): lo stesso contesto che la barra da' a Melissa (CONTRATTI 9.11). Assente
+	 *  se vuoto o nei Mac precedenti. */
+	memoria?: string;
 }
 
 export interface PonteDeps {

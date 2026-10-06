@@ -21,10 +21,11 @@ final class Melissa {
     private(set) var conversazione = false
     /// Chi ha la chiamata: "melissa" o la chiave di un personaggio. Torna a Melissa quando la conversazione si chiude.
     private(set) var chiParla = "melissa"
-    /// Chi sta parlando adesso, da mostrare sotto la sfera: "Melissa", "Darlene", "Melissa e Darlene".
+    /// Chi sta parlando adesso, da mostrare sotto la sfera: "Melissa", "Darlene". Cambia quando la voce di quella
+    /// battuta comincia a suonare, non quando il suo audio arriva (`audio(di:)`).
     private(set) var parlante = "Melissa"
     /// Le risposte di Melissa da quando un personaggio e' intervenuto: non ne tira dentro uno ogni volta.
-    private var dallUltimoOspite = 99
+    private var dallUltimoOspite = 1
     /// Chi e' intervenuto l'ultima volta: il prossimo, se non c'e' un motivo, e' un altro.
     private var ultimoOspite: String?
     var avviso: String?
@@ -42,6 +43,12 @@ final class Melissa {
     /// Il giro di adesso: ogni tocco, domanda scritta o chiusura ne apre uno nuovo. Un giro vecchio che si
     /// risveglia dopo (i permessi, il riascolto automatico, un ascolto fermato) non tocca piu' niente.
     private var giro = 0
+    /// I riempitivi del giro di adesso: i tre tempi e la frase che si sta preparando (docs/CONTRATTI.md, 9.11).
+    private var riempitivi: Task<Void, Never>?
+    /// Un riempitivo e' gia' stato detto in questo giro: la risposta perde il suo «Allora,» iniziale.
+    private var riempito = false
+    /// Gli ultimi riempitivi detti da ciascuna voce ("melissa" o la chiave), per non ripetersi (per l'eco, il modello).
+    private var recentiRiempitivi: [String: [String]] = [:]
 
     private static let paroleFine = try! NSRegularExpression(pattern: "\\b(basta|a dopo|chiudi|ci sentiamo|stop|a pi[uù] tardi)\\b", options: .caseInsensitive)
 
@@ -57,6 +64,7 @@ final class Melissa {
 
     /// Il tocco sulla sfera.
     func tocca() {
+        annullaRiempitivi()
         switch sfera {
         case .ascolta:
             ascolto.chiudi()
@@ -66,9 +74,12 @@ final class Melissa {
             lavoroTelefono?.cancel()
             flusso.ferma()
         case .pensa:
-            break
+            // la risposta si sta pensando: il tocco tace il riempitivo, la domanda resta
+            flusso.tagliaRiempitivi()
         case .riposo, .errore:
             conversazione = true
+            // la prima risposta e' di Melissa da sola, salvo un personaggio per argomento (come la mod 0.15.1)
+            dallUltimoOspite = 1
             giro += 1
             let g = giro
             // lo stato subito, prima dei permessi: un secondo tocco o un link ascolta=1 non aprono un altro ascolto
@@ -80,6 +91,7 @@ final class Melissa {
 
     func chiudiConversazione() {
         giro += 1
+        annullaRiempitivi()
         conversazione = false
         tornaAMelissa()
         ascolto.ferma()
@@ -106,6 +118,7 @@ final class Melissa {
     /// L'app va dietro: niente microfono acceso di nascosto, e la sessione audio torna alle altre app.
     func sospendi() {
         chiudiConversazione()
+        CacheRiempitivi.shared.sospendi()
         // con una domanda ancora in corso chiudiConversazione l'audio non lo lascia: dietro si lascia comunque
         if sfera == .pensa { liberaAudio() }
     }
@@ -160,7 +173,7 @@ final class Melissa {
         parziale = testo
         do {
             if AssistenteTelefono.shared.configurato {
-                try await chiediSulTelefono(testo)
+                try await chiediSulTelefono(testo, giro: g)
             } else if voceAccesa {
                 try await chiediAVoce(testo)
             } else {
@@ -190,8 +203,13 @@ final class Melissa {
         if conversazione, g == giro, sfera == .riposo { await ascoltaFrase(g) }
     }
 
-    private func chiediSulTelefono(_ testo: String) async throws {
+    private func chiediSulTelefono(_ testo: String, giro g: Int) async throws {
+        // la risposta ha la precedenza: la cache dei riempitivi si prepara a fine giro
+        CacheRiempitivi.shared.sospendi()
+        riempito = false
         defer {
+            annullaRiempitivi()
+            if voceAccesa { scaldaRiempitivi() }
             // Anche una risposta interrotta resta nella cronologia locale. La sincronizzazione e' autonoma:
             // non ritarda la voce e il server deduplica ogni turno tramite UUID.
             if ponte.linea == .collegato {
@@ -202,6 +220,8 @@ final class Melissa {
         let telefono = AssistenteTelefono.shared
         let voce = voceAccesa
         let suona: (Data) -> Void = { pcm in
+            // il primo audio vero: niente piu' riempitivi, ne' quelli in attesa ne' quello che si sta preparando
+            self.annullaRiempitivi()
             if self.sfera != .parla { self.sfera = .parla; self.parziale = "" }
             self.flusso.accoda(pcm)
         }
@@ -210,16 +230,32 @@ final class Melissa {
                 try await self.passaA(chiesto, dopo: testo, voce: voce, audio: suona)
                 return
             }
+            // Andrea parla a un personaggio per nome mentre Melissa ha la chiamata ("Vabbe' Elliot, hai ragione"):
+            // risponde lui, poi lei chiude (docs/CONTRATTI.md, 9.11)
+            if self.chiParla == "melissa", let aLui = Personaggi.chiamatoPerNome(testo, daAndrea: true),
+               Personaggi.tutti[aLui]?.voce.isEmpty == false {
+                try await self.aTre(aLui, voce: voce, daAndrea: testo, audio: suona)
+                return
+            }
             let p = Personaggi.tutti[self.chiParla]
             // chi puo' entrare: quello che Andrea chiede, o ogni tanto, solo a voce, quello che il codice sceglie
             let voluto = p == nil ? Personaggi.ospiteChiesto(testo) : nil
-            let scelto = p == nil && self.conversazione && voce && self.dallUltimoOspite >= 2
+            // dopo ogni risposta senza ospite puo' tirarne dentro uno, dopo due lo fa; quello di cui Andrea ha toccato
+            // l'argomento lo fa subito (mod 0.16)
+            let scelto = p == nil && voluto == nil && self.conversazione && voce
+                && Personaggi.puoEntrare(testo, dallUltimo: self.dallUltimoOspite, ultimo: self.ultimoOspite)
                 ? Personaggi.adatto(testo, ultimo: self.ultimoOspite) : nil
-            // dopo due risposte senza ospiti puo' tirarlo dentro, dopo quattro lo fa (come la mod 0.12)
-            let invito = p == nil ? Personaggi.invito(voluto: voluto, scelto: scelto, vivo: self.dallUltimoOspite >= 4) : ""
+            let vivo = Personaggi.invitoDeciso(testo, dallUltimo: self.dallUltimoOspite, scelto: scelto)
+            let invito = p == nil ? Personaggi.invito(voluto: voluto, scelto: scelto, vivo: vivo) : ""
             let contesto = p == nil ? self.ponte.contestoMelissa(per: testo) : nil
-            let battuta = try await telefono.rispondi(testo, chi: self.chiParla, invito: invito, voce: voce,
-                                                      contestoMac: contesto, audio: suona)
+            // mentre il modello pensa parla chi ha la chiamata (non in passaA: il saluto e' gia' pronto)
+            if voce { self.avviaRiempitivi(per: testo, chi: self.chiParla, giro: g) }
+            let rispostaDi = self.chiParla
+            let battuta = try await telefono.rispondi(testo, chi: rispostaDi, invito: invito,
+                                                      invitato: p == nil ? (voluto ?? scelto) : nil, voce: voce,
+                                                      contestoMac: contesto, memoria: self.ponte.memoriaMelissa(),
+                                                      riempito: { self.riempito && g == self.giro },
+                                                      audio: self.audio(di: rispostaDi, voce: voce, suona))
             // contano solo le risposte di Melissa: un personaggio con la chiamata non tira dentro nessuno
             if p == nil { self.dallUltimoOspite += 1 }
             // risponde chi Melissa chiama, proposto o no: una domanda senza risposta e' peggio
@@ -228,7 +264,8 @@ final class Melissa {
             }
         }
         lavoroTelefono = task
-        defer { lavoroTelefono = nil; if chiParla == "melissa" { parlante = "Melissa" } }
+        // a fine giro, anche interrotto, il nome e' di chi ha la chiamata
+        defer { lavoroTelefono = nil; parlante = Personaggi.nome(chiParla) }
         try await task.value
         if voceAccesa {
             guard flusso.haSuonato else { throw ErrorePonte(messaggio: "ElevenLabs non ha mandato l'audio della voce di \(parlante).") }
@@ -244,36 +281,143 @@ final class Melissa {
         let telefono = AssistenteTelefono.shared
         if chi == "melissa" {
             let prima = Personaggi.tutti[chiParla]?.nome
-            tornaAMelissa()
+            chiParla = "melissa"
             try await telefono.dici(prima.map { "Eccomi, \($0) mi ha ripassato la chiamata." } ?? "Sono qui.",
-                                    chi: "melissa", domanda: testo, voce: voce, audio: audio)
+                                    chi: "melissa", domanda: testo, voce: voce, audio: self.audio(di: "melissa", voce: voce, audio))
             return
         }
         guard let p = Personaggi.tutti[chi] else { return }
         chiParla = chi
-        parlante = p.nome
-        try await telefono.dici(p.saluti.randomElement() ?? p.nome, chi: chi, domanda: testo, voce: voce, audio: audio)
+        try await telefono.dici(p.saluti.randomElement() ?? p.nome, chi: chi, domanda: testo, voce: voce,
+                                audio: self.audio(di: chi, voce: voce, audio))
     }
 
     /// Melissa ha tirato dentro un personaggio: risponde lui con la sua voce, poi lei chiude e torna ad Andrea.
-    /// La battuta dopo si pensa mentre quella prima sta ancora suonando.
-    private func aTre(_ chi: String, voce: Bool, audio: @escaping (Data) -> Void) async throws {
+    /// La battuta dopo si pensa mentre quella prima sta ancora suonando. Se chiudendo chiede comunque qualcosa a
+    /// qualcuno, quello risponde una volta (`ultima`) e la parola torna ad Andrea (docs/CONTRATTI.md, 9.11).
+    /// `daAndrea`: quello che Andrea ha detto rivolgendosi lui al personaggio; entra nella storia. `daChi`: il
+    /// personaggio che gli ha appena chiesto qualcosa (parlano fra loro, mod 0.16).
+    private func aTre(_ chi: String, voce: Bool, ultima: Bool = false, daAndrea: String? = nil, daChi: String? = nil,
+                      audio: @escaping (Data) -> Void) async throws {
         guard let p = Personaggi.tutti[chi] else { return }
         let telefono = AssistenteTelefono.shared
+        let memoria = ponte.memoriaMelissa()
         dallUltimoOspite = 0
         ultimoOspite = chi
-        parlante = "Melissa e \(p.nome)"
-        _ = try await telefono.interviene(
-            chi,
-            istruzione: "Sei in una chiacchierata a voce a tre con Melissa e Andrea; Melissa ti ha appena tirato in mezzo, e " +
-                "tocca a te per \(Personaggi.ruoli[chi] ?? "dire la tua"). Rispondi alla domanda di Melissa e ad Andrea in una " +
-                "o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero, e puoi anche punzecchiarla. Solo le parole che diresti.",
-            voce: voce, audio: audio)
-        _ = try await telefono.interviene(
+        // ogni tanto chiude chiedendo a un altro di loro, per nome, cosa ne pensa, e quello risponde: parlano fra loro
+        let altri = Personaggi.altri(di: chi, daChi: daChi)
+        let passa = Personaggi.passa(fra: altri, ultima: ultima)
+        let chiede: String
+        let a: String
+        if let daAndrea {
+            // la frase di Andrea entra nella storia dopo che il prompt e' stato fatto: per questo sta anche qui
+            chiede = "Andrea si e' appena rivolto a te: \"\(daAndrea)\""
+            a = "Rispondi ad Andrea"
+        } else if let daChi {
+            chiede = "\(Personaggi.nome(daChi)) ti ha appena chiesto qualcosa"
+            a = "Rispondi a \(Personaggi.nome(daChi)), davanti ad Andrea"
+        } else {
+            chiede = "Melissa ti ha appena tirato in mezzo, e tocca a te per \(Personaggi.ruoli[chi] ?? "dire la tua")"
+            a = "Rispondi alla domanda di Melissa e ad Andrea"
+        }
+        let istruzione = "Sei in una chiacchierata a voce con Melissa, Andrea e gli altri di Mr. Robot. \(chiede). \(a) in una " +
+            "o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero; puoi punzecchiare Melissa, ma da amici." +
+            (passa.map { " Poi chiudi chiedendo a \(Personaggi.nome($0)), per nome, cosa ne pensa." } ?? "") +
+            " Solo le parole che diresti."
+        let battuta = try await telefono.interviene(chi, istruzione: istruzione, domanda: daAndrea, invitato: passa,
+                                                    memoria: memoria, voce: voce, audio: self.audio(di: chi, voce: voce, audio))
+        // quello a cui ha chiesto risponde una volta, e basta; poi Melissa chiude con tutto il giro davanti
+        if !ultima, let altro = battuta.ospite, altri.contains(altro) {
+            try await aTre(altro, voce: voce, ultima: true, daChi: chi, audio: audio)
+        }
+        if ultima { return }
+        let chiusa = try await telefono.interviene(
             "melissa",
-            istruzione: "\(p.nome) ha appena detto la sua. Chiudi tu in una o due frasi, rivolta ad Andrea, riprendendo il filo " +
-                "o rispondendo a \(p.nome) a modo tuo. Solo le parole che diresti.",
-            voce: voce, audio: audio)
+            istruzione: "Hanno appena detto la loro. Chiudi tu in una o due frasi, rivolta ad Andrea, riprendendo il filo " +
+                "o rispondendo a modo tuo, senza fare domande a \(p.nome) ne' agli altri. Solo le parole che diresti.",
+            memoria: memoria, voce: voce, audio: self.audio(di: "melissa", voce: voce, audio))
+        // ha chiesto comunque qualcosa a qualcuno: chi e' interrogato risponde sempre, una volta ancora
+        if let altro = chiusa.ospite { try await aTre(altro, voce: voce, ultima: true, audio: audio) }
+    }
+
+    // MARK: - riempitivi
+
+    /// I tre tempi da quando la domanda parte verso il modello: a 900 ms una frase per quello che Andrea ha detto, a 5
+    /// e a 10 s una di `lunga`, con la voce di chi ha la chiamata. Ognuna solo se il giro e' lo stesso e non e' ancora
+    /// arrivato audio vero. Dalla cache; se manca si dice dal vivo (l'eco sempre), e si butta se la risposta arriva prima.
+    private func avviaRiempitivi(per testo: String, chi: String, giro g: Int) {
+        annullaRiempitivi()
+        guard let config = SegretiTelefono.leggi(), let key = config.elevenlabs, !key.isEmpty else { return }
+        let voce = chi == "melissa" ? config.voiceID : (Personaggi.tutti[chi]?.voce ?? "")
+        guard !voce.isEmpty else { return }
+        let propri = Personaggi.riempitivi(di: chi)
+        let tipo = Riempitivi.intento(testo)
+        let cache = CacheRiempitivi.shared
+        let partenza = ContinuousClock.now
+        riempitivi = Task { [weak self] in
+            for (i, quando) in Riempitivi.tempi.enumerated() {
+                do { try await Task.sleep(until: partenza + quando, clock: .continuous) } catch { return }
+                guard let self, self.riempitivoServe(g) else { return }
+                guard let s = Riempitivi.scegli(propri, melissa: Personaggi.riempitiviMelissa, gruppo: i == 0 ? tipo : .lunga,
+                                                recenti: self.recentiRiempitivi[chi] ?? [], testo: testo,
+                                                esclusi: Personaggi.nonTemi) else { continue }
+                var pcm = s.eco ? nil : cache.leggi(voce: voce, testo: s.frase)
+                if pcm == nil {
+                    pcm = try? await cache.genera(key: key, voce: voce, testo: s.frase, salva: !s.eco)
+                }
+                // pronta tardi: se intanto la risposta ha cominciato a parlare, non si dice piu'
+                guard let pcm, self.riempitivoServe(g) else { continue }
+                self.recentiRiempitivi[chi] = Array(((self.recentiRiempitivi[chi] ?? []) + [s.modello]).suffix(6))
+                self.riempito = true
+                Log.info("riempitivo a \(i == 0 ? "900 ms" : "\(quando)") (\(Personaggi.nome(chi))): \(s.frase)")
+                // il nome di chi lo dice quando comincia a suonare
+                self.flusso.segna { [weak self] in self?.parlante = Personaggi.nome(chi) }
+                self.flusso.accodaRiempitivo(pcm)
+            }
+        }
+    }
+
+    private func riempitivoServe(_ g: Int) -> Bool {
+        !Task.isCancelled && g == giro && sfera == .pensa && !flusso.haSuonato
+    }
+
+    /// Al primo audio vero, a fine giro, a un tocco, alla chiusura, a un errore: i tempi rimasti e la frase in
+    /// preparazione si buttano. Quella gia' in coda finisce di suonare (un tocco mentre pensa la tace).
+    private func annullaRiempitivi() {
+        riempitivi?.cancel()
+        riempitivi = nil
+    }
+
+    /// A fine giro, con la voce accesa: prepara l'audio delle frasi fisse di Melissa e dei personaggi con una voce.
+    private func scaldaRiempitivi() {
+        guard let config = SegretiTelefono.leggi(), let key = config.elevenlabs, !key.isEmpty, !config.voiceID.isEmpty else { return }
+        let melissa = Personaggi.riempitiviMelissa
+        var voci = [(voce: config.voiceID, frasi: Riempitivi.fisse(melissa, melissa: melissa))]
+        for k in Personaggi.ordine {
+            guard let p = Personaggi.tutti[k], !p.voce.isEmpty else { continue }
+            voci.append((voce: p.voce, frasi: Riempitivi.fisse(p.riempitivi, melissa: melissa)))
+        }
+        CacheRiempitivi.shared.scalda(key: key, voci: voci)
+    }
+
+    /// L'audio di una battuta di `chi`: il nome sotto la sfera passa a lui quando la sua voce comincia a suonare, non
+    /// quando arriva il primo PCM (la battuta dopo si pensa e si accoda mentre quella prima suona ancora). Senza
+    /// voce, subito.
+    private func audio(di chi: String, voce: Bool, _ suona: @escaping (Data) -> Void) -> (Data) -> Void {
+        let nome = Personaggi.nome(chi)
+        guard voce else {
+            parlante = nome
+            return suona
+        }
+        var primo = true
+        return { [weak self] pcm in
+            if primo {
+                primo = false
+                // prima di accodare: il segno sta subito prima del primo pezzo di questa battuta
+                self?.flusso.segna { [weak self] in self?.parlante = nome }
+            }
+            suona(pcm)
+        }
     }
 
     private func tornaAMelissa() {

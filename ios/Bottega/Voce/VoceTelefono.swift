@@ -13,6 +13,10 @@ extension URLSessionWebSocketTask: SocketVoce {}
 
 @MainActor
 final class VoceTelefono {
+    /// Modello e timbro, gli stessi del Nucleo: anche la cache dei riempitivi si chiama con questi (CacheRiempitivi).
+    nonisolated static let modello = "eleven_v4_turbo"
+    nonisolated static let stabilita = 0.5
+    nonisolated static let somiglianza = 0.75
     private let key: String
     private let voiceID: String
     private let audio: (Data) -> Void
@@ -47,7 +51,7 @@ final class VoceTelefono {
 
     func apri() async throws {
         var components = URLComponents(string: "wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input")!
-        components.queryItems = [URLQueryItem(name: "model_id", value: "eleven_v4_turbo"),
+        components.queryItems = [URLQueryItem(name: "model_id", value: Self.modello),
                                  URLQueryItem(name: "output_format", value: "pcm_24000")]
         var request = URLRequest(url: components.url!, timeoutInterval: 20)
         request.setValue(key, forHTTPHeaderField: "xi-api-key")
@@ -56,7 +60,7 @@ final class VoceTelefono {
         Log.info("voce ElevenLabs \(idDiagnostica): apertura websocket")
         task.resume()
         do {
-            try await manda(["voices": [voiceID], "voice_settings": ["stability": 0.5, "similarity_boost": 0.75]])
+            try await manda(["voices": [voiceID], "voice_settings": ["stability": Self.stabilita, "similarity_boost": Self.somiglianza]])
         } catch {
             Log.warn("voce ElevenLabs \(idDiagnostica): inizializzazione fallita, \(categoria(error))")
             ferma()

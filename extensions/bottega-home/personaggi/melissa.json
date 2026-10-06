@@ -1,0 +1,56 @@
+{
+  "chiave": "melissa",
+  "nota": "Il file di Melissa: non e' un personaggio, porta solo le frasi che dice mentre pensa. La sua voce e il suo carattere stanno altrove (docs/CONTRATTI.md, 9.11).",
+  "riempitivi": {
+    "domanda": [
+      "Mmh, vediamo.",
+      "Bella domanda, aspetta.",
+      "Uhm, fammi pensare.",
+      "Mh. Ci sto pensando.",
+      "Eh, questa è tosta. Vediamo.",
+      "Aspetta, aspetta."
+    ],
+    "ordine": [
+      "Ok, ci penso io.",
+      "Va bene, un attimo.",
+      "Sì sì, arrivo.",
+      "Ricevuto, dammi un secondo.",
+      "Agli ordini, capo.",
+      "Ok, vediamo come."
+    ],
+    "sfogo": [
+      "Ok, respira.",
+      "Eh, lo so. Aspetta.",
+      "Calma, calma. Ci guardo.",
+      "Pff, ti capisco. Un secondo.",
+      "Lo so, è una rottura. Vediamo."
+    ],
+    "battuta": [
+      "Ahah. Aspetta.",
+      "Pff, sei scemo. Ok.",
+      "Ahah, questa me la segno.",
+      "Mh, simpatico. Vediamo.",
+      "Ahah, dai."
+    ],
+    "chiacchiera": [
+      "Mmh.",
+      "Allora.",
+      "Uhm, aspetta.",
+      "Mh, vediamo.",
+      "Dunque.",
+      "Sì, un attimo."
+    ],
+    "lunga": [
+      "Ci sto mettendo un po', lo so.",
+      "Aspetta, il cervello oggi va a carbone.",
+      "Ancora un secondo, ci sono quasi.",
+      "Sto ancora pensando, non scappare.",
+      "Quasi. Giuro."
+    ],
+    "eco": [
+      "{x}? Mh, vediamo.",
+      "Ah, {x}. Aspetta.",
+      "{x}, eh? Fammi pensare."
+    ]
+  }
+}

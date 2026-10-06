@@ -26,6 +26,8 @@ final class FlussoVoce {
     private var giro = 0
     private var osservatori: [NSObjectProtocol] = []
     private(set) var haSuonato = false
+    /// Le azioni legate a un punto della coda (il nome di chi parla): SegniVoce.swift.
+    private let segni = SegniVoce()
     /// Il sistema si e' preso l'audio (Siri, una chiamata): la voce si e' fermata e il giro va chiuso.
     var interrotta: (() -> Void)?
 
@@ -88,6 +90,36 @@ final class FlussoVoce {
 
     /// Un pezzo di audio dal Mac (PCM 16 bit little endian, 24 kHz, mono). Con il motore fermo si scarta.
     func accoda(_ pcm16: Data) {
+        metti(pcm16, vero: true)
+    }
+
+    /// `azione` parte quando la voce ha finito tutto quello che e' in coda adesso: all'inizio di quello che si accoda
+    /// dopo. Subito, se non suona niente.
+    func segna(_ azione: @escaping () -> Void) {
+        segni.segna(azione)
+    }
+
+    /// Un riempitivo («Mmh, vediamo.»), detto mentre la risposta si pensa: suona come il resto ma non conta come
+    /// risposta, cosi' "ElevenLabs non ha mandato l'audio" resta vero anche dopo un riempitivo (docs/CONTRATTI.md, 9.11).
+    func accodaRiempitivo(_ pcm16: Data) {
+        metti(pcm16, vero: false)
+    }
+
+    /// Un tocco mentre si pensa: tace il riempitivo che sta suonando. Solo prima della risposta vera, che non si taglia
+    /// da qui; il lettore resta acceso per la risposta che arriva.
+    func tagliaRiempitivi() {
+        guard !haSuonato, inCoda > 0 else { return }
+        giro += 1
+        lettore.stop()
+        inCoda = 0
+        segni.svuota()
+        AudioLevels.shared.reset(.tts)
+        if motore.isRunning {
+            do { try lettore.playAudio() } catch { Log.warn("voce iPhone: il lettore non riparte dopo un riempitivo (\(error.localizedDescription))") }
+        }
+    }
+
+    private func metti(_ pcm16: Data, vero: Bool) {
         let campioni = pcm16.count / 2
         guard motore.isRunning, campioni > 0,
               let buf = AVAudioPCMBuffer(pcmFormat: formato, frameCapacity: AVAudioFrameCount(campioni)) else { return }
@@ -102,9 +134,12 @@ final class FlussoVoce {
             }
         }
         inCoda += 1
+        segni.accodato()
         bytePCM += pcm16.count
-        if !haSuonato { Log.info("voce iPhone: primo PCM in coda, \(pcm16.count) byte") }
-        haSuonato = true
+        if vero {
+            if !haSuonato { Log.info("voce iPhone: primo PCM in coda, \(pcm16.count) byte") }
+            haSuonato = true
+        }
         let g = giro
         lettore.scheduleBuffer(buf, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             Task { @MainActor in self?.suonato(g) }
@@ -129,6 +164,7 @@ final class FlussoVoce {
         giro += 1
         lettore.stop()
         inCoda = 0
+        segni.azzera()
         finisci()
     }
 
@@ -147,6 +183,7 @@ final class FlussoVoce {
     private func suonato(_ g: Int) {
         guard g == giro else { return }
         inCoda = max(0, inCoda - 1)
+        segni.suonato()
         if chiuso && inCoda == 0 { finisci() }
     }
 

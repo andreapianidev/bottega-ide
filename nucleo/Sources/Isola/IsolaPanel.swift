@@ -32,6 +32,8 @@ import SwiftUI
 final class IsolaModello {
     var fase: IsolaPanel.Fase = .riposo
     var testo = ""
+    /// Who speaks: the name over the text (Melissa, or the character whose line sounds).
+    var chi = ChiParla.melissa
     var aperta = false
     var tacca = CGSize(width: 190, height: 32)
     var haTacca = true
@@ -68,7 +70,10 @@ final class IsolaPanel {
 
     // MARK: - Public
 
-    func mostra(_ f: Fase, testo nuovo: String) {
+    /// `chi`: the name over the text. Without it a .parla keeps the name it has (the line
+    /// sounding now says who it is, Isola.segmentoIniziato), every other phase is Melissa's.
+    func mostra(_ f: Fase, testo nuovo: String, chi: String? = nil) {
+        let nome = chi ?? (f == .parla ? modello.chi : ChiParla.melissa)
         nascondi?.cancel(); nascondi = nil
         ritiro?.cancel(); ritiro = nil
         if panel == nil { costruisci() }
@@ -82,6 +87,7 @@ final class IsolaPanel {
             modello.aperta = false
             modello.fase = f
             modello.testo = testo
+            modello.chi = nome
             panel.alphaValue = 1
             panel.orderFrontRegardless()
             DispatchQueue.main.async {
@@ -94,6 +100,7 @@ final class IsolaPanel {
         withAnimation(IsolaVista.molla) {
             modello.fase = f
             modello.testo = testo
+            modello.chi = nome
         }
     }
 
@@ -142,7 +149,7 @@ final class IsolaPanel {
         } else {
             modello.haTacca = false
             let bar = max(24, f.maxY - screen.visibleFrame.maxY)
-            modello.tacca = CGSize(width: 190, height: bar)
+            modello.tacca = CGSize(width: 140, height: bar)
             let h = bar + Self.panelExtraHeight
             p.setFrame(NSRect(x: f.midX - Self.panelWidth / 2, y: f.maxY - h, width: Self.panelWidth, height: h), display: false)
         }
@@ -246,10 +253,15 @@ struct IsolaVista: View {
     let sfera: OrbMTKView?
 
     static let molla = Animation.spring(response: 0.46, dampingFraction: 0.74, blendDuration: 0.1)
-    static let sfera: CGFloat = 24
-    private static let orecchio: CGFloat = 74
-    private static let larghezzaAperta: CGFloat = 400
-    private static let spalla: CGFloat = 9
+    // Sizes of the open island, about three quarters of the first version (build 126: smaller
+    // and finer). The strip level with the notch keeps the notch's own height.
+    static let sfera: CGFloat = 18
+    private static let orecchio: CGFloat = 54
+    private static let larghezzaAperta: CGFloat = 296
+    private static let spalla: CGFloat = 7
+    /// The line being said: light, with room between the lines.
+    static let carattereTesto = Font.system(size: 11, weight: .regular, design: .rounded)
+    static let interlinea: CGFloat = 2.5
 
     @State private var sopra = false
 
@@ -276,7 +288,7 @@ struct IsolaVista: View {
     }
 
     private var isola: some View {
-        let forma = FormaTacca(spalla: Self.spalla, fondo: conTesto ? 26 : (m.aperta ? 14 : 10))
+        let forma = FormaTacca(spalla: Self.spalla, fondo: conTesto ? 19 : (m.aperta ? 11 : 10))
         return VStack(spacing: 0) {
             barra
                 .frame(height: m.tacca.height)
@@ -290,10 +302,10 @@ struct IsolaVista: View {
         .background {
             ZStack {
                 Aura(fase: m.fase, accesa: m.aperta)
-                    .offset(y: 10)
+                    .offset(y: 7)
                 forma.fill(.black)
                 forma
-                    .stroke(Palette.bordo(m.fase), lineWidth: 1)
+                    .stroke(Palette.bordo(m.fase), lineWidth: 0.75)
                     .opacity(m.aperta ? 0.9 : 0)
                     .mask(LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom))
             }
@@ -310,43 +322,45 @@ struct IsolaVista: View {
                 ZStack {
                     Circle()
                         .fill(Palette.colori(m.fase).first ?? .white)
-                        .blur(radius: 8)
-                        .opacity(0.55)
+                        .blur(radius: 6)
+                        .opacity(0.5)
                         .frame(width: Self.sfera, height: Self.sfera)
                     if let sfera {
                         SferaVista(vista: sfera)
                             .frame(width: Self.sfera, height: Self.sfera)
                     } else {
-                        Circle().fill(Palette.gradiente(m.fase)).frame(width: 16, height: 16)
+                        Circle().fill(Palette.gradiente(m.fase)).frame(width: 12, height: 12)
                     }
                 }
-                .padding(.leading, 14)
+                .padding(.leading, 10)
                 .transition(.scale(scale: 0.3).combined(with: .opacity))
             }
             Spacer(minLength: m.tacca.width)
             if m.aperta {
                 IsolaStato(fase: m.fase)
-                    .padding(.trailing, 16)
+                    .padding(.trailing, 12)
                     .transition(.scale(scale: 0.3).combined(with: .opacity))
             }
         }
     }
 
     private var corpo: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                Text("MELISSA")
-                    .foregroundStyle(.white.opacity(0.45))
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 5) {
+                Text(m.chi.uppercased())
+                    .foregroundStyle(.white.opacity(0.4))
+                    .contentTransition(.interpolate)
                 Text(Palette.parola(m.fase).uppercased())
                     .foregroundStyle(Palette.gradiente(m.fase))
                     .contentTransition(.interpolate)
             }
-            .font(.system(size: 9.5, weight: .heavy, design: .rounded))
-            .tracking(1.4)
+            .font(.system(size: 7, weight: .semibold, design: .rounded))
+            .tracking(1.0)
 
             Text(m.testo)
-                .font(.system(size: 14.5, weight: .medium, design: .rounded))
-                .foregroundStyle(.white)
+                .font(Self.carattereTesto)
+                .lineSpacing(Self.interlinea)
+                .foregroundStyle(.white.opacity(0.94))
                 .lineLimit(3)
                 .truncationMode(.head)
                 .multilineTextAlignment(.leading)
@@ -354,12 +368,12 @@ struct IsolaVista: View {
                 .contentTransition(.interpolate)
                 .animation(.smooth(duration: 0.22), value: m.testo)
                 .overlay {
-                    if m.fase == .pensa { Luccichio().mask(Text(m.testo).font(.system(size: 14.5, weight: .medium, design: .rounded)).lineLimit(3).truncationMode(.head).frame(maxWidth: .infinity, alignment: .leading)) }
+                    if m.fase == .pensa { Luccichio().mask(Text(m.testo).font(Self.carattereTesto).lineSpacing(Self.interlinea).lineLimit(3).truncationMode(.head).frame(maxWidth: .infinity, alignment: .leading)) }
                 }
         }
-        .padding(.horizontal, 22)
-        .padding(.top, 4)
-        .padding(.bottom, 16)
+        .padding(.horizontal, 16)
+        .padding(.top, 3)
+        .padding(.bottom, 12)
     }
 }
 
@@ -386,13 +400,13 @@ struct IsolaStato: View {
                 Anello(fase: fase).transition(.blurReplace)
             case .pronto:
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Palette.gradiente(fase))
                     .symbolEffect(.bounce, value: fase)
                     .transition(.blurReplace)
             case .errore:
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(Palette.gradiente(fase))
                     .symbolEffect(.pulse)
                     .transition(.blurReplace)
@@ -400,7 +414,7 @@ struct IsolaStato: View {
                 EmptyView()
             }
         }
-        .frame(width: 34, height: 20)
+        .frame(width: 26, height: 15)
     }
 }
 
@@ -413,14 +427,14 @@ struct Onda: View {
         TimelineView(.animation(minimumInterval: 1.0 / 40)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
             let snap = AudioLevels.shared.snapshot(forOrbState: fonte)
-            HStack(spacing: 2.5) {
+            HStack(spacing: 2) {
                 ForEach(0..<5, id: \.self) { i in
                     Capsule()
                         .fill(Palette.gradiente(fase))
-                        .frame(width: 3, height: Onda.altezza(snap, i, t))
+                        .frame(width: 2, height: Onda.altezza(snap, i, t))
                 }
             }
-            .frame(height: 20)
+            .frame(height: 15)
         }
     }
 
@@ -433,7 +447,7 @@ struct Onda: View {
         let peso: [Float] = [0.7, 0.9, 1.0, 0.9, 0.7]
         let v = min(1, max(banda * 1.8, s.level * 1.4) * peso[i])
         let respiro = 0.12 + 0.08 * sin(t * 5 + Double(i) * 0.9)
-        return 4 + 16 * CGFloat(max(Float(respiro), v))
+        return 3 + 12 * CGFloat(max(Float(respiro), v))
     }
 }
 
@@ -446,14 +460,14 @@ struct Anello: View {
             let a = ctx.date.timeIntervalSinceReferenceDate
             ZStack {
                 Circle()
-                    .stroke(.white.opacity(0.12), lineWidth: 2.4)
+                    .stroke(.white.opacity(0.12), lineWidth: 1.6)
                 Circle()
                     .trim(from: 0, to: 0.7)
                     .stroke(AngularGradient(colors: Palette.colori(fase) + [Palette.colori(fase)[0]], center: .center),
-                            style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
+                            style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
                     .rotationEffect(.degrees((a * 300).truncatingRemainder(dividingBy: 360)))
             }
-            .frame(width: 15, height: 15)
+            .frame(width: 11, height: 11)
         }
     }
 }
@@ -490,8 +504,8 @@ struct Aura: View {
             let forza = viva ? 0.35 + 0.15 * respiro + 0.5 * min(1, livello * 1.5) : 0
             Capsule()
                 .fill(Palette.gradienteLineare(fase))
-                .padding(.horizontal, 26)
-                .blur(radius: 22)
+                .padding(.horizontal, 20)
+                .blur(radius: 16)
                 .opacity(forza)
         }
         .allowsHitTesting(false)

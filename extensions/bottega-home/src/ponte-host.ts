@@ -44,6 +44,8 @@ export interface PonteHostDeps {
 	jobTerminal?(id: string): vscode.Terminal | undefined;
 	/** I cervelli di Melissa: il nome sotto la sfera e il selettore dell'iPhone (9.8). */
 	cervelli?(): Cervelli | undefined;
+	/** Il contesto dalla memoria per l'iPhone (campo `memoria`, 9.11): subito, l'ultimo letto. */
+	memoria?(): string;
 }
 
 function segreto(file: string, name: string): string | undefined {
@@ -335,6 +337,7 @@ function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora'
 	const activity = deps.activity();
 	const cv = deps.cervelli?.();
 	const digest = deps.regiaDigest?.();
+	const memoria = deps.memoria?.() || '';
 	return {
 		melissa: {
 			stato: a?.state ?? 'idle',
@@ -371,6 +374,7 @@ function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora'
 		conti: { inCorso: c.inCorso, tiAspetta: c.tiAspetta, nelTerminale: c.nelTerminale, inCoda: c.inCoda, stanotte: c.stanotte, vive: c.vive },
 		...(deps.ready?.() === false ? {} : { quadroLavori: quadroLavori(work, activity) }),
 		...(digest ? { regiaDigest: digest } : {}),
+		...(memoria ? { memoria } : {}),
 	};
 }
 

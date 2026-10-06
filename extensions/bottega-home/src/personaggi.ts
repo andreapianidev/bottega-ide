@@ -5,6 +5,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { leggiRiempitivi, Riempitivi } from './riempitivi';
 
 /** Un file di personaggi/ (personaggi/LEGGIMI.md). */
 export interface Personaggio {
@@ -23,6 +24,8 @@ export interface Personaggio {
 	parole: string;
 	parole_cronaca: string;
 	errori_ripetuti: number;
+	/** cosa dice mentre pensa, per gruppo (src/riempitivi.ts, CONTRATTI 9.11); senza, quelli di Melissa */
+	riempitivi?: Riempitivi;
 }
 
 /** Riempiti da `carica`: si leggono sempre questi due, mai una copia. */
@@ -30,6 +33,8 @@ export const PERSONAGGI: Record<string, Personaggio> = {};
 export const ORDINE: string[] = [];
 /** A cosa serve ciascuno nella chiacchierata (dal campo `ruolo`). */
 export const RUOLI: Record<string, string> = {};
+/** I riempitivi di Melissa, da personaggi/melissa.json: lei non e' un personaggio, di quel file conta solo questo. */
+export const RIEMPITIVI_MELISSA: Riempitivi = {};
 
 /** Dove stanno i file: quelli dell'estensione, poi la copia in ~/.bottega (quella che legge la mod). */
 export function cartelle(): string[] {
@@ -65,6 +70,7 @@ function leggi(x: any, n: string, avvisa: (msg: string) => void): Personaggio {
 	}
 	const nome = testo(x.nome);
 	const ruolo = testo(x.ruolo) || nome;
+	const riempitivi = leggiRiempitivi(x.riempitivi);
 	return {
 		chiave,
 		nome,
@@ -77,10 +83,12 @@ function leggi(x: any, n: string, avvisa: (msg: string) => void): Personaggio {
 		parole: espressione(x.parole, 'parole', n, avvisa),
 		parole_cronaca: espressione(x.parole_cronaca, 'parole_cronaca', n, avvisa),
 		errori_ripetuti: typeof x.errori_ripetuti === 'number' && x.errori_ripetuti > 0 ? Math.floor(x.errori_ripetuti) : 0,
+		...(riempitivi ? { riempitivi } : {}),
 	};
 }
 
-/** Legge un file per personaggio dalla prima cartella che ne ha. Un file rotto si salta e lo si dice. */
+/** Legge un file per personaggio dalla prima cartella che ne ha. Un file rotto si salta e lo si dice. Il file di
+ *  Melissa (`chiave: "melissa"`) non e' un personaggio: se ne prendono i riempitivi, in silenzio. */
 export function carica(dirs = cartelle(), avvisa: (msg: string) => void = () => undefined): number {
 	for (const dir of dirs) {
 		let nomi: string[];
@@ -90,9 +98,15 @@ export function carica(dirs = cartelle(), avvisa: (msg: string) => void = () => 
 			continue;
 		}
 		const letti: Personaggio[] = [];
+		let diMelissa: Riempitivi | undefined;
 		for (const n of nomi) {
 			try {
-				const p = leggi(JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')), n, avvisa);
+				const x = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
+				if (typeof x?.chiave === 'string' && x.chiave.trim() === 'melissa') {
+					diMelissa = leggiRiempitivi(x.riempitivi);
+					continue;
+				}
+				const p = leggi(x, n, avvisa);
 				if (letti.some(q => q.chiave === p.chiave)) throw new Error(`chiave ${p.chiave} gia' usata`);
 				letti.push(p);
 			} catch (e) {
@@ -103,6 +117,8 @@ export function carica(dirs = cartelle(), avvisa: (msg: string) => void = () => 
 		for (const k of Object.keys(PERSONAGGI)) delete PERSONAGGI[k];
 		for (const k of Object.keys(RUOLI)) delete RUOLI[k];
 		ORDINE.length = 0;
+		for (const k of Object.keys(RIEMPITIVI_MELISSA)) delete RIEMPITIVI_MELISSA[k as keyof Riempitivi];
+		Object.assign(RIEMPITIVI_MELISSA, diMelissa ?? {});
 		letti.sort((x, y) => x.ordine - y.ordine);
 		for (const p of letti) {
 			PERSONAGGI[p.chiave] = p;
@@ -202,37 +218,59 @@ export function senzaSegnaleInCorso(t: string): string {
 	return senzaSegnale(t).replace(/\s*@[a-z]*$/i, '');
 }
 
-/** Una risposta di Melissa puo' finire con "@darlene": il testo senza segnale e chi entra, se era tra gli offerti. */
-export function chiamata(risposta: string, offerti: readonly string[]): { testo: string; ospite: string | null } {
+/** Una risposta di Melissa puo' portare "@darlene": il testo senza segnale e chi entra, se era tra gli offerti.
+ *  `invitato`: chi il codice le aveva chiesto di tirare dentro, che conta se lo nomina, ovunque. */
+export function chiamata(risposta: string, offerti: readonly string[], invitato: string | null = null): { testo: string; ospite: string | null } {
 	const testo = senzaSegnale(risposta);
 	// senza segnale ma con una domanda per nome ("Elliot, tu che dici?"): risponde lui, o la domanda resta nel vuoto
 	const segnale = risposta.match(new RegExp(`(?<!\\w)@(${chiavi()})\\b`, 'i'))?.[1]?.toLowerCase();
-	const chi = segnale ?? chiamatoPerNome(testo);
+	const chi = segnale ?? chiamatoPerNome(testo, invitato);
 	return { testo, ospite: chi && offerti.includes(chi) ? chi : null };
 }
 
+// una parola finisce dove non segue una lettera: \b e' solo ASCII, e "sì" o "perché" non ne chiuderebbero mai una
+const FINE_PAROLA = '(?![\\p{L}\\p{N}])';
+/** Prima di un nome detto a qualcuno: l'inizio della frase, una virgola, oppure "dai", "e tu", "tocca a te", "vabbe'"... */
+const PRIMA_DEL_NOME = String.raw`(?:^|[,;:]\s*|(?<![\p{L}\p{N}])(?:e\s+tu|e\s+te|dai|su|senti|allora|ehi|oh|ok|tocca\s+a\s+te|vabb[eè]'?|grazie|ciao|scusa|beh)\s*,?\s*)`;
+/** Dopo: punteggiatura, la fine della frase, oppure "tu", "che ne", "dimmi", "ascolta"... Non "te": "Krista te lo sta
+ *  dicendo" parla di lei, non a lei. */
+const DOPO_IL_NOME = String.raw`(?=\s*(?:[,!?:;…]|\.{2,}|\.?\s*$)|\s+(?:tu|che\s+ne|che\s+dici|cosa\s+ne|cosa\s+dici|dimmi|digli|dille|diglielo|ascolta|senti|guarda|dicci)(?![\p{L}\p{N}]))`;
+/** La battuta si rivolge a qualcuno: una domanda, o una parola detta a un "tu". */
+const A_QUALCUNO = new RegExp(
+	`\\?|(?<![\\p{L}\\p{N}])(?:tu|te|ti|dimmi|digli|diglielo|dille|dai|senti|pensaci|aiutami|aiutalo|spiegagli|spiegaci|raccontaci|ascolta|guarda|ne pensi|che dici|cosa dici|tocca a te|la tua)${FINE_PAROLA}`,
+	'iu',
+);
+
 /**
- * Il personaggio a cui la battuta, alla fine, fa una domanda per nome; null se lo nomina e basta. Stessa regola della
- * mod e dell'iPhone, in ordine sul testo intero:
- * 1. vocativo a inizio frase: "Elliot, tu che dici?", "Elliot... che dici?", "Elliot! Che dici?";
- * 2. nome dopo una virgola, in fondo: "che ne pensi, Krista?";
- * 3. il nome da solo come domanda: "Darlene?".
- * "Ti ricordi quando Elliot ha bucato E Corp?" e "il file di Krista?" parlano di loro, non a loro.
+ * Il personaggio a cui Melissa parla, perche' risponda: chi e' interrogato risponde sempre. Stessa regola della mod e
+ * dell'iPhone (docs/CONTRATTI.md, 9.11). L'invitato conta se e' nominato, ovunque; gli altri se in una delle ultime due
+ * frasi il nome e' detto a loro ("Elliot, tu che dici?", "Dai Krista, diglielo tu.", "E tu Krista che ne dici?",
+ * "Tocca a te, Krista.") e la battuta si rivolge a qualcuno. "Ti ricordi quando Elliot ha bucato E Corp?" e "il file
+ * di Krista" parlano di loro, non a loro. `daAndrea`: la frase e' di Andrea, che chiama col nome da vocativo in qualunque
+ * frase e senza bisogno di una domanda ("Vabbe' Elliot, hai ragione"; "Ieri Elliot mi ha detto..." no).
  */
-export function chiamatoPerNome(testo: string): string | null {
+export function chiamatoPerNome(testo: string, invitato: string | null = null, daAndrea = false): string | null {
 	if (!ORDINE.length) return null;
-	const n = nomi();
-	const fine = '\\s*\\?\\W{0,2}$';
-	const regole = [
-		`(?:^|[.!?\u2026]\\s*)(?:e\\s+)?(${n})\\s*(?:,|!|:|\\.{3}|\u2026)[^.!?\u2026]*${fine}`,
-		`,\\s*(${n})${fine}`,
-		`(?:^|[.!?\u2026]\\s*)(${n})${fine}`,
-	];
-	for (const r of regole) {
-		const m = testo.match(new RegExp(r, 'i'));
-		if (m?.[1]) return chiaveDi(m[1]);
+	const inv = invitato && esiste(invitato) ? PERSONAGGI[invitato] : undefined;
+	if (inv && new RegExp(`(?<![\\p{L}\\p{N}@])${esc(inv.nome)}${FINE_PAROLA}`, 'iu').test(testo)) return invitato;
+	// una frase finisce con . ! ? … seguiti da uno spazio o dalla fine: ".env" o "3.5" non spezzano niente
+	const frasi = testo.split(/(?<=[.!?…])\s+/).map(f => f.trim()).filter(Boolean);
+	const coda = daAndrea ? frasi : frasi.slice(-2);
+	if (!coda.length || (!daAndrea && !A_QUALCUNO.test(coda.join(' ')))) return null;
+	const re = new RegExp(`${PRIMA_DEL_NOME}(${nomi()})${DOPO_IL_NOME}`, 'iu');
+	for (const f of [...coda].reverse()) {
+		const nome = f.match(re)?.[1];
+		if (nome) return chiaveDi(nome);
 	}
 	return null;
+}
+
+/** Il primo personaggio, in ordine, le cui `parole` compaiono in quello che Andrea ha detto; null se nessuno. */
+export function perArgomento(detto: string): string | null {
+	return ORDINE.find(k => {
+		const parole = PERSONAGGI[k]?.parole;
+		return !!parole && new RegExp(parole, 'i').test(detto);
+	}) ?? null;
 }
 
 /**
@@ -241,10 +279,8 @@ export function chiamatoPerNome(testo: string): string | null {
  * lasciato al modello era sempre Darlene (misura del 6 ottobre 2026). `caso` in [0, 1).
  */
 export function ospiteDellaFrase(detto: string, ultimo: string, caso = Math.random()): string | null {
-	for (const k of ORDINE) {
-		const parole = PERSONAGGI[k]?.parole;
-		if (parole && new RegExp(parole, 'i').test(detto)) return k;
-	}
+	const adatto = perArgomento(detto);
+	if (adatto) return adatto;
 	const altri = ORDINE.filter(k => k !== ultimo);
 	const fra = altri.length ? altri : ORDINE;
 	return fra[Math.min(fra.length - 1, Math.floor(caso * fra.length))] ?? null;

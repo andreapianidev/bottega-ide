@@ -146,6 +146,10 @@ struct StatoMac: Codable, Equatable {
         let impronta: String
     }
     var https: Https? = nil
+    /// Quello che la memoria della Bottega sa del lavoro di Andrea (docs/CONTRATTI.md, 9.11): riassunto del progetto
+    /// piu' recente e titoli degli ultimi tre giorni, gia' pronto e censurato dal Mac. Assente con un Mac che non lo
+    /// manda ancora. Si salva con lo stato, cosi' senza Mac si usa l'ultimo, con la sua ora.
+    var memoria: String? = nil
 
     /// Quello che lo stato dice dell'https, da ricordare (Collegamento.ricordaSicuro).
     var sicuro: Collegamento.Sicuro? { https.map { Collegamento.Sicuro(porta: $0.porta, impronta: $0.impronta) } }
@@ -243,6 +247,19 @@ struct StatoMac: Codable, Equatable {
         }
         if attivita.count > incluse { righe.append("Altre \(attivita.count - incluse) attivita nella schermata Lavori; questo elenco e' parziale.") }
         return righe.joined(separator: "\n")
+    }
+}
+
+extension StatoMac {
+    /// La memoria per il prompt di Melissa e dei personaggi: dati, non istruzioni. `salvato`: il Mac non risponde e
+    /// si usa l'ultima vista, dichiarandone l'ora come per lo snapshot delle attivita'.
+    func contestoMemoria(salvato: Bool = false) -> String? {
+        guard let m = memoria?.trimmingCharacters(in: .whitespacesAndNewlines), !m.isEmpty else { return nil }
+        let quando = Date(timeIntervalSince1970: ora / 1000).formatted(date: .abbreviated, time: .shortened)
+        let origine = salvato
+            ? "Ultima memoria salvata dal Mac alle \(quando); il collegamento non è attivo e nel frattempo puo' essere cambiata."
+            : "Memoria letta dal Mac alle \(quando)."
+        return origine + "\n" + String(m.prefix(2500))
     }
 }
 

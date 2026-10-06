@@ -9,6 +9,51 @@
     "Ciao, amico. Melissa mi ha passato la chiamata.",
     "Sono Elliot. Parla piano, non so chi altro ci sta ascoltando."
   ],
+  "riempitivi": {
+    "domanda": [
+      "Mh... fammi pensare.",
+      "Aspetta. Ci sto pensando.",
+      "È una buona domanda. Credo.",
+      "Un secondo, amico.",
+      "Mh. Vediamo."
+    ],
+    "ordine": [
+      "Ok. Lo faccio.",
+      "Va bene. Un attimo.",
+      "Sì. Ci penso io.",
+      "Ok... dammi un secondo."
+    ],
+    "sfogo": [
+      "Lo so. Respira.",
+      "Capisco. Anch'io, a volte.",
+      "Ok. Calmo. Ci guardo.",
+      "Hai ragione ad arrabbiarti. Aspetta."
+    ],
+    "battuta": [
+      "Mh. Quasi mi fai ridere.",
+      "Divertente. Credo.",
+      "Ah. Sì. Ok.",
+      "Ahah. Sì."
+    ],
+    "chiacchiera": [
+      "Mh.",
+      "Ok.",
+      "Sì...",
+      "Aspetta.",
+      "Mh, vediamo."
+    ],
+    "lunga": [
+      "Ancora un momento. Sto controllando.",
+      "Non è sparito niente. Sto solo pensando.",
+      "Ci sono quasi, amico.",
+      "Un attimo. La rete è lenta. O forse sono io."
+    ],
+    "eco": [
+      "{x}... vediamo.",
+      "{x}. Ok. Fammi pensare.",
+      "Mh, {x}."
+    ]
+  },
   "ruolo": "sicurezza, chiavi e codice",
   "ruolo_cronaca": "sicurezza, chiavi e codice",
   "parole": "chiav|segret|token|password|credenzial|hacker|attacc|sicurezz|virus|privacy|server|firewall|wifi|vpn",

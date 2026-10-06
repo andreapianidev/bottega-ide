@@ -11,6 +11,7 @@ import { PlanciaPanel, PlanciaMessage } from './panel';
 import { Nucleo, SystemStats } from './nucleo';
 import { Job, JobManager, computeLimit, limitReason, WorkCounts, WorkItem, workCounts, workItems } from './jobs';
 import { Memoria } from './memoria';
+import { ContestoMemoria } from './memoria-contesto';
 import { Assistant, AssistantState } from './assistant';
 import { StatsEngine, summarizeObservedActivity, type Stats } from './stats';
 import { Idee, IdeeDynamic } from './idee';
@@ -874,7 +875,15 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 	const occhio = registraOcchio(ctx);
 	occhioGlobale = occhio;
 
+	// cosa fa Andrea, dalla memoria: per Melissa e i personaggi il progetto attivo (il file davanti, o la prima cartella
+	// del workspace), per l'iPhone il progetto piu' recente (CONTRATTI 9.11)
+	const contestoMemoria = new ContestoMemoria();
+	const cartellaAttiva = (): string => {
+		const file = vscode.window.activeTextEditor?.document.uri;
+		return (file?.scheme === 'file' ? vscode.workspace.getWorkspaceFolder(file) : undefined)?.uri.fsPath || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+	};
 	assistant = new Assistant({
+		contesto: () => contestoMemoria.testo(cartellaAttiva()),
 		onMemory: row => {
 			const file = vscode.window.activeTextEditor?.document.uri;
 			const cwd = row.restored ? undefined : (file ? vscode.workspace.getWorkspaceFolder(file) : undefined)?.uri.fsPath || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -948,6 +957,7 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 		work: () => snapshot.work,
 		activity: () => snapshot.activity,
 		regiaDigest: () => regiaDigest,
+		memoria: () => contestoMemoria.subito(),
 		counts: () => snapshot.workCounts,
 		writeJob: (id, text) => !!jobManager?.write(id, text),
 		// la scheda di sessione dall'iPhone (CONTRATTI 9.5)

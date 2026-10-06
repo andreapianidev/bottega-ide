@@ -42,6 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             CavoIPhone.shared.start()
         }
         PressureMonitor.shared.start()
+        // the index of the ready voice fillers (VoceCache), off main
+        DispatchQueue.global(qos: .utility).async { _ = VoceCache.shared.quanti }
         StdinReader.start()
         Log.info("servizio avviato, versione \(Nucleo.version)")
         Out.event("ready", ["version": Nucleo.version])

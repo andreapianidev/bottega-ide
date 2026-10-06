@@ -8,7 +8,9 @@ import type { Cervelli } from './cervelli';
 import { BrainName, BrainRouter, OpenAiStreamFn, appleInstructions, appleOpenAiStream, appleToolSpecs } from './cervello';
 import { SystemStats } from './nucleo';
 import { ATTESA_MS, eFallito, fraseAttesa, fraseFine, fraseInizio } from './racconto';
-import { ORDINE, PERSONAGGI, REGOLE, RUOLI, chiChiede, chiamata, cuore, dallaRiga, elenco, esiste, invito, nomeDi, ospiteChiesto, ospiteDellaFrase, senzaSegnale, senzaSegnaleInCorso } from './personaggi';
+import { ORDINE, PERSONAGGI, REGOLE, RIEMPITIVI_MELISSA, RUOLI, chiChiede, chiamata, chiamatoPerNome, cuore, dallaRiga, elenco, esiste, invito, nomeDi, ospiteChiesto, ospiteDellaFrase, perArgomento, senzaSegnale, senzaSegnaleInCorso } from './personaggi';
+import { sezioneMemoria } from './memoria-contesto';
+import { Intento, RIEMPI_MEMORIA, RIEMPI_STRUMENTO_MS, RIEMPI_TEMPI, daScaldare, intento, scegliRiempitivo, senzaAttacco, soloAttacco } from './riempitivi';
 
 const NUCLEO_LOG = path.join(os.homedir(), '.bottega', 'nucleo.log');
 
@@ -53,6 +55,9 @@ export interface AssistantState {
 	raccontando?: boolean;
 	/** Chi ha la chiamata: 'melissa' o la chiave di un personaggio (src/personaggi.ts). */
 	personaggio?: string;
+	/** Di chi e' la voce che suona adesso ('melissa' o una chiave): nel giro a tre e' l'ospite, poi Melissa che chiude.
+	 *  Dal Nucleo (voice.spoken {chi}) quando la battuta suona davvero; con un Nucleo che non lo dice, quando parte. */
+	parla?: string;
 	/** I personaggi caricati da personaggi/, in ordine: la barra fa un pulsante ciascuno, dopo Melissa. */
 	personaggi?: { chiave: string; nome: string; ruolo: string }[];
 }
@@ -173,6 +178,9 @@ export interface AssistantDeps {
 	cervelli?: Cervelli;
 	/** Solo per i test: uno stream finto al posto di Apple Intelligence. */
 	appleStream?: LlmStreamFn;
+	/** Cosa fa Andrea, dalla memoria della Bottega per il progetto attivo (src/memoria-contesto.ts, CONTRATTI 9.11):
+	 *  in fondo al prompt di Melissa e dei personaggi, come dati. '' se non c'e'. */
+	contesto?(): Promise<string>;
 }
 
 // ---------- utilita' ----------
@@ -671,6 +679,23 @@ export class Assistant {
 	private pendingId?: number;
 	private filled = false;
 	private lastLevelEmit = 0;
+	/** Riempitivi del turno in corso (CONTRATTI 9.11): i tempi armati, se ne e' stato detto uno, se la risposta ha gia'
+	 *  cominciato a parlare. `togliAttacco`: quante frasi della risposta possono ancora perdere l'intercalare iniziale
+	 *  (una fatta solo di «Mh.» si salta, la successiva si ripulisce). */
+	private riempiTimer: ReturnType<typeof setTimeout>[] = [];
+	private riempito = false;
+	private rispostaPartita = false;
+	private togliAttacco = 0;
+	/** Gli ultimi riempitivi detti da ogni voce ('melissa' o la chiave), tra un turno e l'altro: non si ripetono. */
+	private readonly riempitiRecenti = new Map<string, string[]>();
+	/** voice.scalda gia' chiesto al Nucleo (una volta; si riprova solo se non e' andato a buon fine). */
+	private scaldato = false;
+	/** Il contesto dalla memoria per il turno in corso (deps.contesto), gia' come sezione del prompt. */
+	private memoriaTurno = '';
+	/** Il Nucleo dice chi sta parlando (voice.spoken {chi}): da li' in poi l'etichetta segue lui, non le battute accodate. */
+	private nucleoDiceChi = false;
+	/** Il caso dei giri a tre (chi passa la parola a chi): i test lo fissano. */
+	caso: () => number = Math.random;
 
 	constructor(deps: AssistantDeps) {
 		this.deps = deps;
@@ -746,6 +771,15 @@ export class Assistant {
 	/** Chi risponde adesso: dall'iPhone sempre Melissa, perche' la voce la fa il ponte con la sua. */
 	private chi(): string {
 		return this.remote ? 'melissa' : (this.state.personaggio ?? 'melissa');
+	}
+
+	/** Di chi e' la voce adesso, per le etichette della barra. `suona`: lo dice il Nucleo, la battuta suona davvero;
+	 *  altrimenti vale solo con un Nucleo che non lo dice (si cambia quando la battuta parte). */
+	private parla(chi: string, suona = false): void {
+		if (!suona && this.nucleoDiceChi) return;
+		if (this.state.parla === chi) return;
+		this.state.parla = chi;
+		this.emit();
 	}
 
 	/** La persona di chi risponde, senza le regole di verita'. */
@@ -856,7 +890,14 @@ export class Assistant {
 			this.setState('listening', m.text);
 		});
 		n.on('voice.final', (m: any) => void this.onVoiceFinal(m.text, m.mode));
-		n.on('voice.spoken', () => { if (this.attesaVoce) this.armAttesaVoce(); });
+		n.on('voice.spoken', (m: any) => {
+			if (this.attesaVoce) this.armAttesaVoce();
+			// chi sta parlando davvero (il nome, dal Nucleo che lo sa): l'etichetta della barra cambia adesso
+			if (typeof m?.chi === 'string' && m.chi.trim()) {
+				this.nucleoDiceChi = true;
+				this.parla(ORDINE.find(k => PERSONAGGI[k]!.nome.toLowerCase() === m.chi.trim().toLowerCase()) ?? 'melissa', true);
+			}
+		});
 		n.on('voice.level', (m: any) => this.onLevel(m.level));
 		n.on('voice.bargein', () => this.onBargein());
 		// Un guasto della voce (microfono, trascrizione, connessione) arriva come voice.state {state: "error", message}:
@@ -877,8 +918,8 @@ export class Assistant {
 		// Clic sulla sfera: accende o spegne la conversazione (come un tocco di Opzione+Spazio).
 		n.on('orb.clicked', () => this.onOrbClicked());
 		// La sfera a riposo e' sempre visibile finche' la Bottega e' aperta e Melissa e' accesa.
-		n.on('available', () => this.restOrb());
-		if (n.available) this.restOrb();
+		n.on('available', () => { this.restOrb(); this.scalda(); });
+		if (n.available) { this.restOrb(); this.scalda(); }
 		this.emit();
 	}
 
@@ -995,6 +1036,9 @@ export class Assistant {
 	}
 
 	private startConversation(): void {
+		// il contatore parte da 1, come nella mod: alla prima risposta l'invito non e' deciso, salvo l'argomento di un
+		// personaggio
+		this.dallUltimoOspite = 1;
 		this.out.info(`conversazione aperta (Nucleo ${this.deps.nucleo.available ? 'pronto' : 'non disponibile'})`);
 		this.state.conversing = true;
 		this.showBigOrb();
@@ -1253,9 +1297,17 @@ export class Assistant {
 		// codice, dopo due risposte senza ospiti (dopo quattro lo fa di sicuro). Come la mod e l'iPhone.
 		const conMelissa = this.chi() === 'melissa' && speak && !this.remote && !this.racconto;
 		const voluto = conMelissa ? ospiteChiesto(userText) : null;
-		const scelto = conMelissa && !voluto && this.state.conversing && this.dallUltimoOspite >= 2
+		// un ospite puo' entrare dopo ogni risposta di Melissa senza ospite (non chi ha l'argomento e c'era appena);
+		// l'invito e' deciso dopo due, o subito se Andrea tocca l'argomento di un personaggio (mod 0.16)
+		const adatto = conMelissa ? perArgomento(userText) : null;
+		const puo = this.dallUltimoOspite >= 1 && (this.dallUltimoOspite >= 2 || !adatto || adatto !== this.ultimoOspite);
+		const scelto = conMelissa && !voluto && this.state.conversing && puo
 			? ospiteDellaFrase(userText, this.ultimoOspite) : null;
-		this.invitoTurno = invito(voluto, scelto, this.dallUltimoOspite >= 4);
+		this.invitoTurno = invito(voluto, scelto, this.dallUltimoOspite >= 2 || (!!adatto && scelto === adatto));
+		// chi il codice le ha chiesto di tirare dentro: se lo nomina, ovunque, risponde
+		const invitato = voluto ?? scelto;
+		// Andrea si rivolge per nome a un personaggio ("Vabbe' Elliot, hai ragione"): risponde lui, poi Melissa chiude
+		const aLui = conMelissa ? chiamatoPerNome(userText, null, true) : null;
 		// risponde chi Melissa chiama, proposto o no: una domanda senza risposta e' peggio
 		const offerti = conMelissa ? ORDINE : [];
 
@@ -1263,6 +1315,10 @@ export class Assistant {
 		this.currentAbort = ac;
 		this.turnText = '';
 		this.filled = false;
+		this.fermaRiempitivi();
+		this.riempito = false;
+		this.rispostaPartita = false;
+		this.togliAttacco = 0;
 		this.setState('thinking');
 		if (!this.remote) this.deps.nucleo.fireAndForget('orb.state', { state: 'thinking' });
 		if (speak) this.beginSpeech();
@@ -1272,8 +1328,11 @@ export class Assistant {
 		// Agnes (o il cervello scelto a mano), oppure Apple: scelto a mano, o di riserva con l'interruttore aperto.
 		const viaRouter = !choice || choice.provider === 'agnes' || choice.provider === 'apple';
 		const pick = viaRouter ? this.router.choose(userText) : { brain: 'agnes' as BrainName, why: 'principale' as const };
-		const note = viaRouter && choice?.provider !== 'apple' ? this.router.announce(pick.brain, pick.why) : null;
+		const note = !aLui && viaRouter && choice?.provider !== 'apple' ? this.router.announce(pick.brain, pick.why) : null;
 		if (note && speak) this.emitClause(note);
+		// mentre il modello pensa: a 900 ms un riempitivo per quello che Andrea ha detto, a 5 e 10 s uno di `lunga`.
+		// Non dopo la nota del router (la voce e' gia' partita), non durante «racconta», non per l'iPhone
+		if (speak && !note && !aLui && !this.remote && !this.racconto) this.armaRiempitivi(userText, ac.signal);
 		const done = (answer: string, brain: BrainName, said?: string | null, sendFinal = true): string => {
 			this.state.brain = brain;
 			// dopo le battute a tre ogni turno di voce e' gia' chiuso: un altro final ne aprirebbe uno vuoto
@@ -1284,12 +1343,16 @@ export class Assistant {
 			this.passo(speak ? 'risposta pronta, la voce finisce di parlare' : 'risposta pronta', 'fatto');
 			return full;
 		};
+		// cosa fa Andrea, dalla memoria: di solito gia' letto (due minuti di cache), al massimo 800 ms d'attesa
+		this.memoriaTurno = await this.contestoMemoria();
 		// le battute a tre gia' dette, anche se un tocco ferma il giro a meta'
 		const altre: { chi: string; testo: string }[] = [];
 		let detta: string | undefined;
 		// Ogni risposta passa di qui, da qualunque cervello arrivi: il segnale si toglie, e chi e' chiamato risponde.
 		const chiudi = async (risposta: string, brain: BrainName, said?: string | null): Promise<string> => {
-			const { testo: answer, ospite } = chiamata(risposta, offerti);
+			const { testo, ospite } = chiamata(risposta, offerti, invitato);
+			// dopo un riempitivo il suo «Allora,» iniziale sarebbe detto due volte
+			const answer = this.riempito ? senzaAttacco(testo) : testo;
 			if (this.chi() === 'melissa') this.dallUltimoOspite++;
 			detta = answer;
 			const passata = ospite && speak ? await this.aTre(ospite, answer, ac.signal, altre, brain) : false;
@@ -1307,6 +1370,17 @@ export class Assistant {
 		};
 
 		try {
+			if (aLui) {
+				this.history.push({ role: 'user', content: userText });
+				this.trimHistory();
+				const passata = await this.aTre(aLui, '', ac.signal, altre, pick.brain, [], false, true);
+				this.state.brain = pick.brain;
+				if (speak) this.finalizeSpeech(!passata);
+				this.registraAltre(altre);
+				this.afterTurn(speak);
+				this.passo(`${nomeDi(aLui)} risponde ad Andrea`, 'fatto');
+				return altre.map(r => r.testo).join(' ');
+			}
 			const risposta = await this.runAgent(userText, speak, ac.signal, pick.brain);
 			if (pick.brain === 'agnes' && viaRouter) this.router.agnesOk();
 			return await chiudi(risposta, pick.brain, note);
@@ -1364,9 +1438,25 @@ export class Assistant {
 			this.setState('error');
 			return msg;
 		} finally {
+			this.fermaRiempitivi();
+			this.togliAttacco = 0;
 			this.invitoTurno = '';
 			if (this.currentAbort === ac) this.currentAbort = undefined;
 			if (this.dopo) void this.riprendi();
+		}
+	}
+
+	/** Il contesto dalla memoria come sezione del prompt; '' se non c'e', se non arriva in 800 ms o se si rompe. */
+	private async contestoMemoria(): Promise<string> {
+		if (!this.deps.contesto) return '';
+		let t: ReturnType<typeof setTimeout> | undefined;
+		try {
+			const m = await Promise.race([this.deps.contesto(), new Promise<string>(r => (t = setTimeout(() => r(''), 800)))]);
+			return sezioneMemoria(m);
+		} catch {
+			return '';
+		} finally {
+			clearTimeout(t);
 		}
 	}
 
@@ -1375,43 +1465,67 @@ export class Assistant {
 	 * Due battute brevi senza strumenti; ognuna si pensa mentre quella prima suona, e parte quando quella prima e'
 	 * finita (due voci ElevenLabs sono due socket, e il loro audio si mescolerebbe). Le righe dette vanno in `fatte`
 	 * appena partono, anche se un tocco ferma il giro dopo. Vero se ha preso la voce (e chiuso il turno di Melissa).
+	 * `prima`: le battute del giro gia' dette e non ancora nel registro. `ultima`: risponde e basta (l'ha chiamato un
+	 * altro personaggio, o Melissa chiudendo), niente chiusa. `daAndrea`: l'ha chiamato Andrea per nome, e Melissa non ha
+	 * detto niente prima (`detta` vuota). `daChi`: il personaggio che gli ha appena chiesto qualcosa.
+	 * Parlano fra loro (CONTRATTI 9.11): nel 40% dei casi il chiamato chiude chiedendo per nome a un altro cosa ne pensa,
+	 * e quello risponde una volta; poi Melissa chiude con tutto il giro davanti.
 	 */
-	private async aTre(chi: string, detta: string, signal: AbortSignal, fatte: { chi: string; testo: string }[], brain: BrainName = 'agnes'): Promise<boolean> {
+	private async aTre(chi: string, detta: string, signal: AbortSignal, fatte: { chi: string; testo: string }[], brain: BrainName = 'agnes', prima: string[] = [], ultima = false, daAndrea = false, daChi: string | null = null): Promise<boolean> {
 		const p = PERSONAGGI[chi];
 		if (!p || !this.speaking || this.remote) return false;
-		// la coda della risposta di Melissa va detta prima di passare la voce, e il suo turno si chiude adesso:
-		// senza final il Nucleo lo tiene aperto (e "speaking") per 20 s, e la battuta aspetterebbe tutto quel silenzio
-		const rest = this.chunker.flush();
-		if (rest) this.emitClause(rest);
-		if (!this.firstSpeakChunk) this.chiudiVoce(); // un final senza frasi aprirebbe un turno vuoto
+		if (!ultima) {
+			// la coda della risposta di Melissa va detta prima di passare la voce, e il suo turno si chiude adesso:
+			// senza final il Nucleo lo tiene aperto (e "speaking") per 20 s, e la battuta aspetterebbe tutto quel silenzio
+			const rest = this.chunker.flush();
+			if (rest) this.emitClause(rest);
+			if (!this.firstSpeakChunk) this.chiudiVoce(); // un final senza frasi aprirebbe un turno vuoto
+		}
 		this.dallUltimoOspite = 0;
 		this.ultimoOspite = chi;
-		const finora = [
-			...this.state.log.filter(r => r.role !== 'azione').slice(-10)
-				.map(r => (r.role === 'tu' ? `Andrea: ${r.text}` : dallaRiga(r.text).chi !== 'melissa' ? r.text : `Melissa: ${r.text}`)),
-			`Melissa: ${detta}`,
-		].join('\n');
+		const inizio = fatte.length;
+		const dalRegistro = this.state.log.filter(r => r.role !== 'azione').slice(-10)
+			.map(r => (r.role === 'tu' ? `Andrea: ${r.text}` : dallaRiga(r.text).chi !== 'melissa' ? r.text : `Melissa: ${r.text}`));
+		// le battute del giro non ancora nel registro: quelle di prima, la risposta di Melissa e quelle dette da qui in
+		// poi (anche dall'altro personaggio a cui passa la parola)
+		const delGiro = () => [...prima, ...(detta ? [`Melissa: ${detta}`] : []), ...fatte.slice(inizio).map(r => `${nomeDi(r.chi)}: ${r.testo}`)];
+		const finora = () => [...dalRegistro, ...delGiro()].join('\n');
+		const ora = `Adesso e' ${nowLine()} (fuso ${TZ}).`;
+		// ogni tanto si rivolge per nome a un altro di loro, e quello risponde: parlano fra loro
+		const altri = ORDINE.filter(k => k !== chi && k !== daChi && PERSONAGGI[k]?.voce);
+		const passa = !ultima && altri.length > 0 && this.caso() < 0.4 ? altri[Math.min(altri.length - 1, Math.floor(this.caso() * altri.length))]! : null;
+		const chiede = daAndrea ? "Andrea si e' appena rivolto a te" : daChi ? `${nomeDi(daChi)} ti ha appena chiesto qualcosa` : `Melissa ti ha appena tirato in mezzo, e tocca a te per ${RUOLI[chi] ?? 'dire la tua'}`;
+		const rispondi = daAndrea ? 'Rispondi ad Andrea' : daChi ? `Rispondi a ${nomeDi(daChi)}, davanti ad Andrea` : 'Rispondi alla domanda di Melissa e ad Andrea';
 		try {
-			const battuta = await this.breve(
-				`${p.carattere} Sei nella Bottega, l'IDE di Andrea, in una chiacchierata a voce a tre con lui e Melissa; Melissa ti ha appena tirato in mezzo, e tocca a te per ${RUOLI[chi] ?? 'dire la tua'}. Sai solo quello che c'e' nella chiacchierata: non inventare stati di progetti, lavori o sessioni. ${REGOLE}`,
-				`La chiacchierata:\n${finora}\n\nRispondi alla domanda di Melissa e ad Andrea in una o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero, e puoi anche punzecchiarla. Solo le parole che diresti.`,
+			const grezza = await this.breve(
+				`${p.carattere} Sei nella Bottega, l'IDE di Andrea, in una chiacchierata a voce con lui, Melissa e gli altri di Mr. Robot. ${chiede}. Sai solo quello che c'e' nella chiacchierata e nella memoria qui sotto: non inventare stati di progetti, lavori o sessioni. ${ora} ${REGOLE}`,
+				`La chiacchierata:\n${finora()}${this.memoriaTurno}\n\n${rispondi} in una o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero; puoi punzecchiare Melissa, ma da amici.${passa ? ` Poi chiudi chiedendo a ${nomeDi(passa)}, per nome, cosa ne pensa.` : ''} Solo le parole che diresti.`,
 				signal,
 				brain,
+				true,
 			);
+			// se la sua battuta chiama davvero qualcuno (quello suggerito, nominato ovunque, o un altro per nome), risponde
+			const { testo: battuta, ospite: passato } = grezza ? chiamata(grezza, altri, passa) : { testo: '', ospite: null };
 			if (!battuta) return true;
 			await this.finoAlSilenzio(signal);
-			this.direCon(battuta, p.voce);
+			this.direCon(battuta, p.voce, chi);
 			fatte.push({ chi, testo: battuta });
-			const chiusa = await this.breve(
-				`${MELISSA_CORE}\n\n${TRUTH_RULE}`,
-				`La chiacchierata:\n${finora}\n${p.nome}: ${battuta}\n\n${p.nome} ha appena detto la sua. Chiudi tu in una o due frasi, rivolta ad Andrea, riprendendo il filo o rispondendo a ${p.nome} a modo tuo. Solo le parole che diresti.`,
+			if (ultima) return true;
+			if (passato) await this.aTre(passato, '', signal, fatte, brain, delGiro(), true, false, chi);
+			const grezzaChiusa = await this.breve(
+				`${MELISSA_CORE}\n\n${TRUTH_RULE}\n\n${ora}`,
+				`La chiacchierata:\n${finora()}${this.memoriaTurno}\n\nHanno appena detto la loro. Chiudi tu in una o due frasi, rivolta ad Andrea, riprendendo il filo o rispondendo a modo tuo, senza fare domande a ${p.nome} ne' agli altri. Solo le parole che diresti.`,
 				signal,
 				brain,
+				true,
 			);
+			// se chiede comunque qualcosa a qualcuno, chi e' interrogato risponde, una volta
+			const { testo: chiusa, ospite } = grezzaChiusa ? chiamata(grezzaChiusa, ORDINE) : { testo: '', ospite: null };
 			if (chiusa) {
 				await this.finoAlSilenzio(signal);
 				this.direCon(chiusa);
 				fatte.push({ chi: 'melissa', testo: chiusa });
+				if (ospite) await this.aTre(ospite, '', signal, fatte, brain, delGiro(), true);
 			}
 		} catch (e) {
 			if (signal.aborted) throw e;
@@ -1422,7 +1536,7 @@ export class Assistant {
 
 	/** Una battuta breve, senza strumenti, con il cervello che ha risposto al turno (con Agnes a terra, la riserva).
 	 *  Null se non arriva niente. */
-	private async breve(system: string, user: string, signal: AbortSignal, brain: BrainName = 'agnes'): Promise<string | null> {
+	private async breve(system: string, user: string, signal: AbortSignal, brain: BrainName = 'agnes', conSegnale = false): Promise<string | null> {
 		let text = '';
 		const ac = new AbortController();
 		const stop = () => ac.abort();
@@ -1445,7 +1559,8 @@ export class Assistant {
 			signal.removeEventListener('abort', stop);
 		}
 		if (signal.aborted) throw new Error('interrotta');
-		return senzaSegnale(cleanForVoice(text)) || null;
+		// `conSegnale`: il segnale resta, per sapere chi chiama (lo toglie chiamata)
+		return (conSegnale ? cleanForVoice(text).trim() : senzaSegnale(cleanForVoice(text))) || null;
 	}
 
 	/** Aspetta che la voce di adesso sia partita e finita (voice.state dal Nucleo), al massimo due minuti. */
@@ -1459,14 +1574,15 @@ export class Assistant {
 
 	/** Una battuta intera con la voce di chi la dice: chiude il turno di voce aperto e ne apre uno con quella voce
 	 *  (Nucleo build 120, `voice.speak {voice}`). Senza voce, quella di Melissa. */
-	private direCon(testo: string, voce?: string): void {
+	private direCon(testo: string, voce?: string, chi = 'melissa'): void {
+		this.parla(chi);
 		this.vocePartita = false;
 		this.voceFinita = false;
 		this.saidClauses.add(normClause(testo));
 		const now = Date.now();
 		this.recentSpeech = [...this.recentSpeech.filter(x => now - x.at < 20_000), { text: testo, at: now }];
 		this.passo(testo, 'voce');
-		const args: any = { text: testo + ' ', append: false, final: true };
+		const args: any = { text: testo + ' ', append: false, final: true, chi: nomeDi(chi) };
 		if (voce) args.voice = voce;
 		void this.deps.nucleo.request('voice.speak', args, 8000).catch((e: any) => {
 			this.out.warn(`voce: battuta a tre non arrivata al Nucleo (${e?.message ?? e})`);
@@ -1594,10 +1710,27 @@ export class Assistant {
 		if (!this.speaking) return;
 		for (const clause of this.chunker.push(text)) this.emitClause(clause);
 	}
-	private emitClause(frase: string): void {
+	/** Una frase al turno di voce aperto (o all'iPhone). `riempitivo`: la frase d'attesa di uno strumento lento, che non
+	 *  conta come risposta partita. */
+	private emitClause(frase: string, riempitivo = false): void {
 		// il segnale per tirare dentro un personaggio non si legge mai
-		const clause = senzaSegnale(frase);
+		let clause = senzaSegnale(frase);
 		if (!clause) return;
+		if (!riempitivo) {
+			// la risposta comincia a parlare: i riempitivi ancora in attesa non servono piu'
+			this.fermaRiempitivi();
+			if (this.togliAttacco > 0) {
+				// dopo un riempitivo l'intercalare iniziale della risposta sarebbe un doppione
+				if (this.togliAttacco > 1 && soloAttacco(clause)) {
+					this.togliAttacco--;
+					this.out.info(`intercalare dopo il riempitivo, non lo dico: "${clause}"`);
+					return;
+				}
+				this.togliAttacco = 0;
+				clause = senzaAttacco(clause);
+			}
+			this.rispostaPartita = true;
+		}
 		const k = normClause(clause);
 		if (k && this.saidClauses.has(k)) {
 			this.out.info(`frase gia' detta in questo turno, non la ripeto: "${clause}"`);
@@ -1620,16 +1753,108 @@ export class Assistant {
 		// di saldare "." della frase precedente alla parola iniziale della successiva.
 		const args: any = { text: clause + ' ', append: true };
 		if (this.firstSpeakChunk) {
+			// un turno di voce nuovo dopo un riempitivo gia' finito: si torna ad aspettare che questo parta e finisca
+			if (this.voceFinita) {
+				this.vocePartita = false;
+				this.voceFinita = false;
+			}
 			args.model = this.model();
-			// un personaggio con la chiamata parla con la sua voce (Nucleo build 120)
+			// un personaggio con la chiamata parla con la sua voce (Nucleo build 120), e il Nucleo sa come si chiama
 			const p = PERSONAGGI[this.chi()];
 			if (p) args.voice = p.voce;
+			args.chi = nomeDi(this.chi());
+			this.parla(this.chi());
 			this.firstSpeakChunk = false;
 		}
 		void this.deps.nucleo.request('voice.speak', args, 8000).catch((e: any) => {
 			this.out.warn(`voce: invio frase al Nucleo fallito (${e?.message ?? e})`);
 		});
 	}
+	// ----- riempitivi: cosa si dice mentre il modello pensa (CONTRATTI 9.11, src/riempitivi.ts) -----
+
+	/** Arma i tre tempi del turno: a 900 ms un riempitivo per l'intenzione di quello che Andrea ha detto, a 5 e 10 s uno
+	 *  di `lunga`. Ognuno solo se la risposta non ha ancora cominciato a parlare; tutti fermi alla prima frase vera, a
+	 *  un tocco, a fine turno. */
+	private armaRiempitivi(detto: string, signal: AbortSignal): void {
+		this.fermaRiempitivi();
+		const tipo = intento(detto);
+		for (const [i, ms] of RIEMPI_TEMPI.entries()) {
+			this.riempiTimer.push(setTimeout(() => {
+				if (signal.aborted || this.rispostaPartita || !this.speaking || this.remote) return;
+				const frase = this.sceltaRiempitivo(i === 0 ? tipo : 'lunga', detto);
+				if (!frase) return;
+				this.out.info(`riempitivo a ${ms} ms (${nomeDi(this.chi())}): ${frase}`);
+				this.riempito = true;
+				this.togliAttacco = 2;
+				this.diciRiempitivo(frase);
+			}, ms));
+		}
+		signal.addEventListener('abort', () => { if (this.currentAbort?.signal === signal) this.fermaRiempitivi(); }, { once: true });
+	}
+
+	private fermaRiempitivi(): void {
+		for (const t of this.riempiTimer) clearTimeout(t);
+		this.riempiTimer = [];
+	}
+
+	/** Il riempitivo della voce di chi ha la chiamata, senza ripetere gli ultimi detti da quella voce. */
+	private sceltaRiempitivo(gruppo: Intento | 'lunga', detto = ''): string | null {
+		const chi = this.chi();
+		const recenti = this.riempitiRecenti.get(chi) ?? [];
+		const propri = chi === 'melissa' ? RIEMPITIVI_MELISSA : PERSONAGGI[chi]?.riempitivi;
+		const esclusi = ['Melissa', 'Andrea', ...ORDINE.map(k => PERSONAGGI[k]!.nome)];
+		const s = scegliRiempitivo(propri, RIEMPITIVI_MELISSA, gruppo, recenti, { testo: detto, esclusi });
+		if (!s) return null;
+		this.riempitiRecenti.set(chi, [...recenti, s.modello].slice(-RIEMPI_MEMORIA));
+		return s.frase;
+	}
+
+	/**
+	 * Un riempitivo e' un turno di voce intero (`final: true`) con la voce di chi ha la chiamata, senza modello: e' quello
+	 * del Nucleo, lo stesso con cui voice.scalda l'ha gia' preparato, cosi' parte da disco senza aspettare ElevenLabs.
+	 * Non passa da emitClause perche' quella apre un turno in streaming che la risposta continuerebbe: qui il turno si
+	 * chiude, e la prima frase vera ne apre uno nuovo (firstSpeakChunk resta vero). Entra nel filtro dell'eco e fra le
+	 * frasi gia' dette del turno; non nel testo della risposta, ne' nel registro, ne' nella storia.
+	 */
+	private diciRiempitivo(frase: string): void {
+		const k = normClause(frase);
+		if (k) this.saidClauses.add(k);
+		this.passo(frase, 'voce');
+		const now = Date.now();
+		this.recentSpeech = [...this.recentSpeech.filter(x => now - x.at < 20_000), { text: frase, at: now }];
+		if (this.voceFinita) {
+			this.vocePartita = false;
+			this.voceFinita = false;
+		}
+		const args: any = { text: frase + ' ', append: false, final: true, chi: nomeDi(this.chi()) };
+		const p = PERSONAGGI[this.chi()];
+		if (p) args.voice = p.voce;
+		this.parla(this.chi());
+		void this.deps.nucleo.request('voice.speak', args, 8000).catch((e: any) => {
+			this.out.warn(`voce: riempitivo non arrivato al Nucleo (${e?.message ?? e})`);
+		});
+	}
+
+	/** All'avvio, col Nucleo collegato, gli chiede di tenere pronto l'audio dei riempitivi (voice.scalda, build 126):
+	 *  Melissa con la voce predefinita (''), ogni personaggio con la sua; l'eco no, cambia ogni volta. Una volta sola;
+	 *  se non va (un Nucleo vecchio non la conosce, o manca la chiave) si riprova al prossimo collegamento. */
+	private scalda(): void {
+		if (this.scaldato || !this.deps.nucleo.available) return;
+		const voci = [
+			{ voce: '', testi: daScaldare(RIEMPITIVI_MELISSA) },
+			...ORDINE.filter(k => PERSONAGGI[k]?.voce).map(k => ({ voce: PERSONAGGI[k]!.voce, testi: daScaldare(PERSONAGGI[k]!.riempitivi) })),
+		].filter(v => v.testi.length);
+		if (!voci.length) return;
+		this.scaldato = true;
+		void this.deps.nucleo.request('voice.scalda', { voci }, 15_000).then(
+			(r: any) => this.out.info(`voce: riempitivi chiesti al Nucleo, ${r?.mancanti ?? '?'} pezzi da preparare`),
+			(e: any) => {
+				this.scaldato = false;
+				this.out.info(`voce: voice.scalda non riuscita (${e?.message ?? e})`);
+			},
+		);
+	}
+
 	private finalizeSpeech(sendFinal: boolean): void {
 		if (!this.speaking) return;
 		const rest = this.chunker.flush();
@@ -1818,12 +2043,15 @@ export class Assistant {
 		if (racconta) {
 			filler = setTimeout(() => di(fraseAttesa(tc.function.name), 'corre'), ATTESA_MS);
 		} else if (speak && !this.filled) {
-			// Riempitivo breve solo se un tool ci mette piu' di 1,5 s, una volta per turno.
+			// Uno strumento che ci mette piu' di 1,5 s a risposta gia' partita: una frase di `lunga`, una volta per turno.
+			// Prima che la risposta parli, l'attesa la coprono i riempitivi del pensiero (armaRiempitivi).
 			filler = setTimeout(() => {
-				if (signal.aborted) return;
+				if (signal.aborted || !this.rispostaPartita || this.filled) return;
+				const frase = this.sceltaRiempitivo('lunga');
+				if (!frase) return;
 				this.filled = true;
-				this.emitClause('Un attimo.');
-			}, 1500);
+				this.emitClause(frase, true);
+			}, RIEMPI_STRUMENTO_MS);
 		}
 		try {
 			const risultato = await def.run(args, this);
@@ -1863,7 +2091,7 @@ export class Assistant {
 			`Andrea ha ${this.deps.projectCount()} progetti. ${this.deps.actions.activityList ? this.deps.actions.activityList(undefined, undefined, 'attive') : `Sessioni di Claude vive: ${liveLine}. Lavori: ${jobLine}.`} Sistema: ${pressure}.`,
 			'Per le azioni a rischio (git push, fermare un lavoro) chiedi sempre "confermi?" e aspetta un si esplicito: il tool stesso te lo ricorda.',
 			...(this.invitoTurno ? [this.invitoTurno] : []),
-		].join('\n\n');
+		].join('\n\n') + this.memoriaTurno;
 	}
 
 	// ----- chiave Agnes -----

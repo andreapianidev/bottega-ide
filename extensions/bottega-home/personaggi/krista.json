@@ -9,6 +9,51 @@
     "Krista. Melissa dice che hai qualcosa da dirmi, e stavolta niente scuse.",
     "Eccomi. Allora, cosa stai evitando oggi?"
   ],
+  "riempitivi": {
+    "domanda": [
+      "Interessante che tu me lo chieda. Vediamo.",
+      "Mh. Fammi pensare.",
+      "Buona domanda. Ci arrivo.",
+      "Aspetta, voglio risponderti bene.",
+      "Vediamo."
+    ],
+    "ordine": [
+      "Va bene. Ma poi ne parliamo.",
+      "Ok, un attimo.",
+      "D'accordo. Dammi un secondo.",
+      "Lo faccio. Tu intanto non scappare."
+    ],
+    "sfogo": [
+      "Ok. Respira, Andrea.",
+      "Sento la frustrazione. Aspetta.",
+      "Lo so che è difficile. Vediamo.",
+      "Va bene arrabbiarsi. Un secondo."
+    ],
+    "battuta": [
+      "Mh. Usi l'ironia per evitare qualcosa?",
+      "Ahah. Ok, ok.",
+      "Divertente. Ma torniamo al punto.",
+      "Sorrido, ma non mi distrai."
+    ],
+    "chiacchiera": [
+      "Mh.",
+      "Allora.",
+      "Vediamo.",
+      "Sì.",
+      "Ok."
+    ],
+    "lunga": [
+      "Mi prendo un momento. Anche tu dovresti.",
+      "Ci sto pensando sul serio.",
+      "Ancora un attimo. Le cose fatte bene richiedono tempo.",
+      "Quasi. Resta con me."
+    ],
+    "eco": [
+      "{x}? Vediamo.",
+      "Mh, {x}. Ne parliamo.",
+      "Parliamo di {x}, allora. Aspetta."
+    ]
+  },
   "ruolo": "quando Andrea fa il vago, rimanda o cerca scuse",
   "ruolo_cronaca": "quando Claude gira in tondo, ripete gli stessi errori o rimanda",
   "parole": "domani|pi[uù] tardi|non ho voglia|non so se|forse|rimand|stanc|scus|procrastin|dovrei|non ce la faccio",

@@ -83,6 +83,12 @@ enum Service {
                                      model: r.string("model"), voice: r.string("voice"))
                 r.respond(["engine": Speaker.shared.currentEngine.rawValue])
 
+            case "voice.scalda":
+                // the fillers of each voice ({voce: id | "", testi}): rendered into VoceCache in
+                // the background, so voice.speak plays them without waiting for ElevenLabs
+                let esito = try VoceScalda.shared.scalda(r.dicts("voci") ?? [])
+                r.respond(["mancanti": esito.mancanti, "inCoda": esito.inCoda])
+
             case "voice.stopSpeaking":
                 Speaker.shared.stopSpeaking()
                 r.respond()

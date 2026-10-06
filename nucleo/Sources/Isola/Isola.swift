@@ -19,6 +19,9 @@
 //    POST /parla     {sessione, testo, append?, final?, voce?} -> {ok}  Melissa says it (ElevenLabs, Apple as
 //                                             fallback); append streams pieces of one text in order
 //    POST /zitta                              -> {ok}  silence now
+//    POST /scalda    {voci: [{voce, testi}]}  -> {ok, mancanti, inCoda}  renders the fillers not yet in
+//                                             VoceCache (VoceScalda.swift): a /parla piece whose text is
+//                                             there plays at once, without waiting for ElevenLabs
 //    GET  /eventi?sessione=X                  -> held up to 15 s: {eventi:[...]}
 //
 //  Events for a session: {tipo:"parziale", testo}, {tipo:"testo", testo} (the dictation is
@@ -33,6 +36,9 @@
 //  one (two launches in the same instant) from taking the socket away from the first. An
 //  island left showing "thinking" or "speaking" with nothing behind it for two minutes
 //  goes back to rest by itself.
+//
+//  The log always lands in ~/.bottega/nucleo/isola.log: launched with `open --stderr` there
+//  it already does; launched without, stderr would be /dev/null and the log lost.
 //
 
 import AppKit
@@ -77,6 +83,7 @@ final class Isola {
 
     func start() {
         Out.enabled = false
+        Self.registroSuFile()
         // two islands launched together both find no socket answering: the lock decides
         let lockPath = Nucleo.supportDir.appendingPathComponent("isola.lock").path
         lock = Darwin.open(lockPath, O_CREAT | O_RDWR, 0o600)
@@ -109,6 +116,10 @@ final class Isola {
         server = s
         IsolaPanel.shared.onClick = { Isola.shared.clic() }
         Log.info("isola pronta su \(Self.socketPath), versione \(Nucleo.version)")
+        // the index of the ready fillers, off main
+        DispatchQueue.global(qos: .utility).async {
+            Log.info("isola: \(VoceCache.shared.quanti) pezzi di voce pronti in voce-cache")
+        }
         // once a minute, and late is fine: the system may fold it into another wake-up
         let minuto = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
             MainActor.assumeIsolated { Isola.shared.forseEsci() }
@@ -116,9 +127,26 @@ final class Isola {
         minuto.tolerance = 10
     }
 
+    /// stderr to ~/.bottega/nucleo/isola.log (append, 600) unless it already goes there, or
+    /// to a terminal (the island started by hand to watch it).
+    private static func registroSuFile() {
+        let path = Nucleo.supportDir.appendingPathComponent("isola.log").path
+        if isatty(STDERR_FILENO) != 0 { return }
+        var suFile = stat()
+        var suErr = stat()
+        if stat(path, &suFile) == 0, fstat(STDERR_FILENO, &suErr) == 0,
+           suFile.st_dev == suErr.st_dev, suFile.st_ino == suErr.st_ino { return }
+        let fd = Darwin.open(path, O_WRONLY | O_APPEND | O_CREAT, 0o600)
+        guard fd >= 0 else { return }
+        dup2(fd, STDERR_FILENO)
+        close(fd)
+        Log.info("isola: stderr non andava nel registro, ora scrivo in \(path)")
+    }
+
     private func forseEsci() {
         riposaSeFerma()
         let occupata = dettaPer != nil || Speaker.shared.isSpeaking || Listener.shared.isCapturing
+            || VoceScalda.shared.occupata
         guard !occupata, Date().timeIntervalSince(ultimoUso) > Self.idleQuit else { return }
         Log.info("isola: \(Int(Self.idleQuit / 60)) minuti senza richieste, esco")
         server?.stop()
@@ -205,17 +233,31 @@ final class Isola {
             let final = corpo["final"] as? Bool ?? !append
             // voce: another ElevenLabs voice of the account (a character Melissa passes the call
             // to). Only an id is taken: "apple" and com.apple.* would switch the engine.
-            let voce = (corpo["voce"] as? String).flatMap { v in
-                v.range(of: "^[A-Za-z0-9]{10,40}$", options: .regularExpression) != nil ? v : nil
-            }
+            let voce = (corpo["voce"] as? String).flatMap { VoceCache.idVoceValido($0) ? $0 : nil }
             guard !testo.isEmpty || final else { return res.errore(400, "Niente da dire.") }
             guard dettaPer == nil else { return res.errore(409, "Melissa sta ascoltando.") }
             if !sessione.isEmpty { narraPer = sessione }
             Log.info("isola: parla da \(sessione.prefix(8)), \(testo.count) caratteri\(append ? ", in coda" : "")\(final ? ", fine" : "")\(voce.map { ", voce \($0.prefix(6))" } ?? "")")
-            if !testo.isEmpty { IsolaPanel.shared.mostra(.parla, testo: testo) }
+            // the name changes when a line really starts to sound (segmentoIniziato); with
+            // nothing ahead of it in the voice, this one starts now: its name goes up already
+            if !testo.isEmpty {
+                IsolaPanel.shared.mostra(.parla, testo: testo,
+                                         chi: Speaker.shared.isSounding ? nil : ChiParla.nome(voce: voce))
+            }
             // a voice of its own opens its own turn: sent whole (append false), it closes the one open
             Speaker.shared.speak(text: testo.isEmpty ? "" : testo + " ", append: append, final: final, model: nil, voice: voce)
             res.ok(["voce": Speaker.shared.currentEngine.rawValue])
+
+        case ("POST", "/scalda"):
+            // the fillers of each voice ("" is Melissa's): what is not on disk yet is rendered
+            // in the background, one piece at a time; the answer does not wait for it
+            guard let voci = corpo["voci"] as? [[String: Any]] else { return res.errore(400, "Manca voci.") }
+            do {
+                let esito = try VoceScalda.shared.scalda(voci)
+                res.ok(["mancanti": esito.mancanti, "inCoda": esito.inCoda])
+            } catch {
+                res.errore(503, error.localizedDescription)
+            }
 
         case ("POST", "/zitta"):
             Log.info("isola: zitta da \(sessione.isEmpty ? "?" : String(sessione.prefix(8)))")
@@ -333,10 +375,20 @@ final class Isola {
                 IsolaPanel.shared.riposa(dopo: 1.2)
             }
         case "voice.spoken":
-            if !testo.isEmpty, dettaPer == nil { IsolaPanel.shared.mostra(.parla, testo: testo) }
+            // nothing: the line and its name went up when it started (segmentoIniziato). At
+            // its end the next line is already sounding, showing this one would go back.
+            break
         default:
             break
         }
+    }
+
+    /// Speaker: a segment has just started to sound. The island shows its text under the
+    /// name of who says it (lines of different voices wait in one queue: the name follows
+    /// the audio, not the last /parla).
+    func segmentoIniziato(testo: String, chi: String) {
+        guard dettaPer == nil, !testo.isEmpty else { return }
+        IsolaPanel.shared.mostra(.parla, testo: testo, chi: chi)
     }
 
     // MARK: - Click
@@ -491,7 +543,8 @@ final class IsolaServer: @unchecked Sendable {
         }
     }
 
-    /// Reads one request: headers, then Content-Length bytes of body (64 KB at most).
+    /// Reads one request: headers (64 KB at most), then Content-Length bytes of body (256 KB
+    /// at most: a /scalda carries up to 300 lines).
     private static func leggi(_ c: Int32) -> IsolaRequest? {
         var data = Data()
         var buf = [UInt8](repeating: 0, count: 4096)
@@ -516,7 +569,7 @@ final class IsolaServer: @unchecked Sendable {
                 length = Int(kv[1].trimmingCharacters(in: .whitespaces)) ?? 0
             }
         }
-        guard length <= 65_536 else { return nil }
+        guard length <= 262_144 else { return nil }
         var body = Data(data[end.upperBound...])
         while body.count < length {
             let n = read(c, &buf, min(buf.count, length - body.count))

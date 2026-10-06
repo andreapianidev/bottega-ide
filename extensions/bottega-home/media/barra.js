@@ -707,11 +707,13 @@
 			const sel = r.value === chi;
 			if (r.checked !== sel) r.checked = sel;
 		});
-		setText($('stato'), !a ? WORD.idle : !on ? 'Melissa è spenta' : a.conversing && st === 'listening' ? 'In conversazione, ti ascolto' : WORD[st] || '');
+		// mentre parla un personaggio (nel giro a tre, o con la chiamata) l'etichetta e' sua, non di Melissa
+		const voce = st === 'speaking' && a && a.parla && a.parla !== 'melissa' ? NOMI[a.parla] : '';
+		setText($('stato'), !a ? WORD.idle : !on ? 'Melissa è spenta' : a.conversing && st === 'listening' ? 'In conversazione, ti ascolto' : voce ? `Parla ${voce}` : WORD[st] || '');
 		setText($('parziale'), (a && a.partial) || '');
-		const voce = $('voce');
-		show(voce, !!a);
-		setText(voce, on ? 'Spegni la voce' : 'Accendi la voce');
+		const tastoVoce = $('voce');
+		show(tastoVoce, !!a);
+		setText(tastoVoce, on ? 'Spegni la voce' : 'Accendi la voce');
 		renderLog((a && a.log) || []);
 	}
 
@@ -755,7 +757,9 @@
 				h('li', { class: 'riga azione' }, h('span', { class: 'sr', text: 'Azione di Melissa: ' }), h('time', { datetime: new Date(r.at).toISOString(), text: clock(r.at) }), h('span', { class: 'testo' }))
 			);
 		const tu = r.role === 'tu';
-		return /** @type {HTMLLIElement} */ (h('li', { class: `riga ${tu ? 'tu' : 'melissa'}` }, h('span', { class: 'sr', text: tu ? 'Tu: ' : 'Melissa: ' }), h('span', { class: 'testo' })));
+		// la riga di un personaggio comincia col suo nome ("Elliot: ..."): e' sua, non di Melissa
+		const suo = tu ? '' : Object.values(NOMI).find(n => n !== 'Melissa' && String(r.text || '').startsWith(`${n}: `)) || '';
+		return /** @type {HTMLLIElement} */ (h('li', { class: `riga ${tu ? 'tu' : 'melissa'}${suo ? ' personaggio' : ''}` }, h('span', { class: 'sr', text: tu ? 'Tu: ' : suo ? '' : 'Melissa: ' }), h('span', { class: 'testo' })));
 	}
 
 	$('sfera-tasto').addEventListener('click', () => post({ type: 'converse' }));

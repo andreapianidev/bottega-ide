@@ -27,7 +27,8 @@ struct ChiediAMelissa: AppIntent {
                 do {
                     await ponte.aggiornaStato()
                     let contesto = ponte.contestoMelissa(per: domanda)
-                    risposta = try await telefono.rispondi(domanda, voce: false, contestoMac: contesto) { _ in }
+                    risposta = try await telefono.rispondi(domanda, voce: false, contestoMac: contesto,
+                                                           memoria: ponte.memoriaMelissa()) { _ in }
                 } catch {
                     if ponte.linea == .collegato { await telefono.sincronizza(con: ponte) }
                     throw error

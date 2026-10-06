@@ -22,8 +22,10 @@ struct Personaggio: Equatable, Decodable {
     let ruolo: String
     /// espressione regolare: se Andrea la dice, Melissa tira dentro questo personaggio ("" mai, o se non e' valida)
     let parole: String
+    /// cosa dice mentre pensa, per gruppo (Riempitivi.swift); nil se il file non ne ha
+    let riempitivi: FrasiRiempitivo?
 
-    private enum CodingKeys: String, CodingKey { case chiave, nome, ordine, voce, carattere, saluti, ruolo, parole }
+    private enum CodingKeys: String, CodingKey { case chiave, nome, ordine, voce, carattere, saluti, ruolo, parole, riempitivi }
 
     /// Gli stessi campi facoltativi della mod e della Bottega: un file senza `ruolo` o `parole` funziona ovunque.
     init(from decoder: Decoder) throws {
@@ -38,7 +40,15 @@ struct Personaggio: Equatable, Decodable {
         ruolo = r.isEmpty ? nome : r
         let p = try c.decodeIfPresent(String.self, forKey: .parole) ?? ""
         parole = (try? NSRegularExpression(pattern: p)) != nil ? p : ""
+        // facoltativo: senza, o con un gruppo vuoto, si usano i suoi `chiacchiera` e poi le frasi di Melissa
+        riempitivi = try? c.decodeIfPresent(FrasiRiempitivo.self, forKey: .riempitivi)
     }
+}
+
+/// personaggi/melissa.json: non e' un personaggio, porta solo le frasi che Melissa dice mentre pensa.
+private struct FileMelissa: Decodable {
+    let chiave: String
+    let riempitivi: FrasiRiempitivo?
 }
 
 enum Personaggi {
@@ -48,20 +58,42 @@ enum Personaggi {
     /// In ordine, come li elenca Melissa.
     static let ordine: [String] = tutti.values.sorted { $0.ordine < $1.ordine }.map(\.chiave)
 
-    static func carica() -> [String: Personaggio] {
-        let cartella = ProcessInfo.processInfo.environment["BOTTEGA_PERSONAGGI"].map { URL(fileURLWithPath: $0) }
+    /// I riempitivi di Melissa, da personaggi/melissa.json: letti a parte, mai dentro `tutti`.
+    static let riempitiviMelissa: FrasiRiempitivo? = caricaMelissa()
+
+    /// La cartella dei file: nei test BOTTEGA_PERSONAGGI, altrimenti quella inclusa nell'app.
+    private static var cartella: URL? {
+        ProcessInfo.processInfo.environment["BOTTEGA_PERSONAGGI"].map { URL(fileURLWithPath: $0) }
             ?? Bundle.main.url(forResource: "personaggi", withExtension: nil)
+    }
+
+    static func carica() -> [String: Personaggio] {
         guard let cartella, let file = try? FileManager.default.contentsOfDirectory(at: cartella, includingPropertiesForKeys: nil)
         else { return [:] }
         var tutti: [String: Personaggio] = [:]
         for url in file where url.pathExtension == "json" {
             // chiave minuscola come nella mod e nella Bottega: e' anche il segnale @chiave
             guard let data = try? Data(contentsOf: url), let p = try? JSONDecoder().decode(Personaggio.self, from: data),
-                  p.chiave.range(of: "^[a-z]+$", options: .regularExpression) != nil, !p.saluti.isEmpty else { continue }
+                  p.chiave != "melissa", p.chiave.range(of: "^[a-z]+$", options: .regularExpression) != nil, !p.saluti.isEmpty
+            else { continue }
             tutti[p.chiave] = p
         }
         return tutti
     }
+
+    private static func caricaMelissa() -> FrasiRiempitivo? {
+        guard let url = cartella?.appendingPathComponent("melissa.json"), let data = try? Data(contentsOf: url),
+              let f = try? JSONDecoder().decode(FileMelissa.self, from: data), f.chiave == "melissa" else { return nil }
+        return f.riempitivi
+    }
+
+    /// Le frasi di attesa di chi parla: "melissa" o la chiave di un personaggio.
+    static func riempitivi(di chi: String) -> FrasiRiempitivo? {
+        chi == "melissa" ? riempitiviMelissa : tutti[chi]?.riempitivi
+    }
+
+    /// Chi non e' un tema per l'eco: Melissa, Andrea e i personaggi.
+    static var nonTemi: [String] { ["Melissa", "Andrea"] + ordine.compactMap { tutti[$0]?.nome } }
 
     /// Le regole che ogni personaggio rispetta, qualunque carattere abbia: voce, verita', lingua.
     static let regole = "Non hai strumenti e non vedi file, progetti o sessioni; quello che non sai lo dici, non inventi mai. " +
@@ -109,30 +141,49 @@ enum Personaggi {
         return t.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Una risposta di Melissa puo' finire con "@darlene": lei tira dentro Darlene. Il testo senza segnale e chi e'
-    /// stato chiamato, se puo' venire.
-    static func chiamata(_ risposta: String) -> (testo: String, ospite: String?) {
+    /// La battuta di Melissa chiama un personaggio: il testo senza segnale e chi risponde, se puo' venire (solo chi ha
+    /// una voce). Il segnale "@darlene" ovunque, altrimenti `chiamatoPerNome`. `invitato`: chi il codice le aveva
+    /// chiesto di tirare dentro (docs/CONTRATTI.md, 9.11).
+    static func chiamata(_ risposta: String, invitato: String? = nil) -> (testo: String, ospite: String?) {
         let testo = senzaSegnale(risposta)
-        // senza segnale ma con una domanda per nome ("Elliot, tu che dici?"): risponde lui, o la domanda resta nel vuoto
-        // solo le chiavi dei personaggi: un indirizzo email non e' un segnale
-        let chi = primo("@(\(ordine.joined(separator: "|")))\\b", in: risposta) ?? chiamatoPerNome(testo)
-        return (testo, chi.flatMap { tutti[$0] == nil ? nil : $0 })
+        // solo le chiavi dei personaggi, e non dentro un indirizzo: un'email non e' un segnale
+        let chi = primo("(?<![\\w.])@(\(ordine.joined(separator: "|")))\\b", in: risposta) ?? chiamatoPerNome(testo, invitato: invitato)
+        return (testo, chi.flatMap { tutti[$0]?.voce.isEmpty == false ? $0 : nil })
     }
 
-    /// Il personaggio a cui Melissa chiede qualcosa per nome alla fine della battuta: "Elliot, tu che dici?",
-    /// "Elliot... che dici?", "che ne pensi, Krista?", "Darlene?". Un nome dentro una domanda ("ti ricordi quando
-    /// Elliot ha bucato E Corp?") parla di loro, non a loro. La stessa regola della mod e della Bottega.
-    static func chiamatoPerNome(_ testo: String) -> String? {
+    // una parola finisce dove non segue una lettera o una cifra (come nella mod, dove \b e' ASCII)
+    private static let fineParola = "(?![\\p{L}\\p{N}])"
+    /// Prima di un nome detto a qualcuno: l'inizio della frase, una virgola, oppure "dai", "e tu", "tocca a te",
+    /// "vabbe'", "grazie", "ciao"...
+    private static let primaDelNome = "(?:^|[,;:]\\s*|(?<![\\p{L}\\p{N}])(?:e\\s+tu|e\\s+te|dai|su|senti|allora|ehi|oh|ok|tocca\\s+a\\s+te|vabb[eè]'?|grazie|ciao|scusa|beh)\\s*,?\\s*)"
+    /// Dopo: punteggiatura, la fine della frase, oppure "tu", "che ne", "dimmi", "ascolta"... Non "te": "Krista te lo
+    /// sta dicendo" parla di lei, non a lei.
+    private static let dopoIlNome = "(?=\\s*(?:[,!?:;…]|\\.{2,}|\\.?\\s*$)|\\s+(?:tu|che\\s+ne|che\\s+dici|cosa\\s+ne|cosa\\s+dici|dimmi|digli|dille|diglielo|ascolta|senti|guarda|dicci)(?![\\p{L}\\p{N}]))"
+    /// La battuta si rivolge a qualcuno: una domanda, o una parola detta a "te".
+    private static let aQualcuno = "\\?|(?<![\\p{L}\\p{N}])(?:tu|te|ti|dimmi|digli|diglielo|dille|dai|senti|pensaci|aiutami|aiutalo|spiegagli|spiegaci|raccontaci|ascolta|guarda|ne pensi|che dici|cosa dici|tocca a te|la tua)" + fineParola
+
+    /// Il personaggio a cui Melissa parla, perche' risponda: chi e' interrogato risponde sempre. L'invitato conta se il
+    /// suo nome c'e', ovunque; gli altri se in una delle ultime due frasi il nome e' detto a lui ("Elliot, tu che
+    /// dici?", "Dai Krista, diglielo tu.", "E tu Krista che ne dici?", "Tocca a te, Krista.") e la battuta si rivolge a
+    /// qualcuno. "Ti ricordi quando Elliot ha bucato E Corp?" e "il file di Krista" parlano di loro, non a loro.
+    /// La stessa regola della mod (register.tsx) e della Bottega (personaggi.ts): docs/CONTRATTI.md, 9.11.
+    /// `daAndrea`: e' Andrea che parla, con Melissa al telefono. Un nome detto a qualcuno ("Vabbe' Elliot, hai
+    /// ragione") chiama in qualunque frase e senza bisogno di una domanda; "Ieri Elliot mi ha detto..." no.
+    static func chiamatoPerNome(_ testo: String, invitato: String? = nil, daAndrea: Bool = false) -> String? {
+        if let invitato, let p = tutti[invitato],
+           primo("(?<![\\p{L}\\p{N}@])(\(NSRegularExpression.escapedPattern(for: p.nome)))" + fineParola, in: testo) != nil {
+            return invitato
+        }
         let n = nomi
         guard !n.isEmpty else { return nil }
-        let fine = "\\s*\\?\\W{0,2}$"
-        let vocativi = [
-            "(?:^|[.!?…]\\s*)(?:e\\s+)?(\(n))\\s*(?:,|!|:|\\.{3}|…)[^.!?…]*" + fine,
-            ",\\s*(\(n))" + fine,
-            "(?:^|[.!?…]\\s*)(\(n))" + fine,
-        ]
-        for v in vocativi {
-            if let nome = primo(v, in: testo) { return chiaveDi(nome) }
+        // la frase finisce con . ! ? … seguiti da spazi o dalla fine: un punto dentro ".env" o "gmail.com" non la taglia
+        let frasi = testo.replacingOccurrences(of: "(?<=[.!?…])\\s+", with: "\u{0}", options: .regularExpression)
+            .split(separator: "\u{0}").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let coda = daAndrea ? frasi : Array(frasi.suffix(2))
+        guard !coda.isEmpty, daAndrea || primo("(\(aQualcuno))", in: coda.joined(separator: " ")) != nil else { return nil }
+        for f in coda.reversed() {
+            if let nome = primo(primaDelNome + "(\(n))" + dopoIlNome, in: f) { return chiaveDi(nome) }
         }
         return nil
     }
@@ -150,13 +201,47 @@ enum Personaggi {
     /// sulla sicurezza, Krista sulle scuse), altrimenti uno diverso dall'ultimo. Lo sceglie il codice: lasciato al
     /// modello, chiamava sempre Darlene (misura del 6 ottobre 2026 sulla cronaca della mod). `caso` in [0, 1).
     static func adatto(_ testo: String, ultimo: String?, caso: Double = Double.random(in: 0..<1)) -> String? {
-        for k in ordine {
-            if let parole = tutti[k]?.parole, !parole.isEmpty, primo("(\(parole))", in: testo) != nil { return k }
-        }
+        if let k = perArgomento(testo) { return k }
         let altri = ordine.filter { $0 != ultimo }
         let fra = altri.isEmpty ? ordine : altri
         guard !fra.isEmpty else { return nil }
         return fra[min(fra.count - 1, Int(caso * Double(fra.count)))]
+    }
+
+    /// Il primo, in ordine, le cui `parole` Andrea ha detto (Elliot sulla password, Krista su una scusa), o nil.
+    static func perArgomento(_ testo: String) -> String? {
+        ordine.first { k in
+            guard let parole = tutti[k]?.parole, !parole.isEmpty else { return false }
+            return primo("(\(parole))", in: testo) != nil
+        }
+    }
+
+    /// Chi puo' entrare da solo nella risposta di adesso (docs/CONTRATTI.md, 9.11, mod 0.16): dopo ogni risposta di
+    /// Melissa senza ospite; appena dopo un ospite no, e alla prima risposta dopo non torna lo stesso per argomento.
+    /// `dallUltimo`: le risposte di Melissa dall'ultimo ospite (1 all'inizio della conversazione, come nella mod).
+    static func puoEntrare(_ testo: String, dallUltimo: Int, ultimo: String?) -> Bool {
+        guard dallUltimo >= 1 else { return false }
+        if dallUltimo >= 2 { return true }
+        let k = perArgomento(testo)
+        return k == nil || k != ultimo
+    }
+
+    /// L'invito e' deciso dopo due risposte senza ospiti, o subito se entra quello di cui Andrea ha toccato l'argomento.
+    static func invitoDeciso(_ testo: String, dallUltimo: Int, scelto: String?) -> Bool {
+        dallUltimo >= 2 || (scelto != nil && scelto == perArgomento(testo))
+    }
+
+    /// Nel giro a tre gli altri con una voce, a cui `chi` puo' passare la parola: mai se stesso, mai chi l'ha chiamato.
+    static func altri(di chi: String, daChi: String?) -> [String] {
+        ordine.filter { $0 != chi && $0 != daChi && tutti[$0]?.voce.isEmpty == false }
+    }
+
+    /// Nel 40% dei casi un ospite chiude chiedendo a un altro, scelto a caso fra `altri`, cosa ne pensa: parlano fra
+    /// loro (mod 0.16). `caso` decide se, `caso2` chi; mai al secondo di un giro (`ultima`).
+    static func passa(fra altri: [String], ultima: Bool, caso: Double = Double.random(in: 0..<1),
+                      caso2: Double = Double.random(in: 0..<1)) -> String? {
+        guard !ultima, !altri.isEmpty, caso < 0.4 else { return nil }
+        return altri[min(altri.count - 1, Int(caso2 * Double(altri.count)))]
     }
 
     /// Cosa si aggiunge al prompt di Melissa perche' sappia di poter tirare dentro qualcuno.
@@ -179,6 +264,6 @@ enum Personaggi {
 
     /// Il prompt di sistema di un personaggio che ha la chiamata sull'iPhone.
     static func sistema(_ p: Personaggio) -> String {
-        "\(p.carattere) Andrea ti parla dall'iPhone: e' una chiacchierata, di qualunque cosa. \(regole) Due o quattro frasi."
+        "\(p.carattere) Andrea ti parla dall'iPhone: e' una chiacchierata, di qualunque cosa. \(regole) Due o tre frasi brevi."
     }
 }
