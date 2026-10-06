@@ -267,7 +267,7 @@ enum Personaggi {
             cosa = "Andrea vuole il parere di \(nome(chiede)): chiediglielo tu, per nome."
         }
         return cosa.isEmpty ? "" : cosa + " Una frase breve, al massimo due, nel tuo stile: puoi punzecchiare, ma lo fai. " +
-            "Non rispondere tu alla domanda e non scrivere segnali con la chiocciola. Solo le parole che diresti."
+            "Non rispondere tu alla domanda. Solo le parole che diresti."
     }
 
     /// Il nome da mostrare per chi parla: "melissa" o la chiave di un personaggio.
@@ -294,69 +294,45 @@ enum Personaggi {
         return chi.hasPrefix("mr") ? chiaveDi("elliot") : chiaveDi(chi)
     }
 
-    /// "chiedi a Darlene", "sentiamo Elliot", "cosa ne pensa Krista": chi Andrea vuole sentire anche.
-    static func ospiteChiesto(_ testo: String) -> String? {
-        primo("\\b(?:chied(?:i(?:lo)?|ete)\\s+(?:a|al|alla|allo)\\s+|chied(?:i(?:lo)?|ete)\\s+all['’]\\s*|" +
-              "(?:sentiamo(?: anche)?|senti(?: anche)?|cosa ne pensa|che ne pensa|e tu)\\s+)(\(nomi))\\b", in: testo)
-            .flatMap(chiaveDi)
+    /// Lo strumento con cui chi parla da' la parola a un personaggio (docs/CONTRATTI.md, 9.11, «Chi parla lo decide il
+    /// modello»): la decisione viaggia nella chiamata, strutturata, e non finisce mai nel testo detto. Stesso nome e
+    /// stessa forma della Bottega (`strumentoPassaParola` in personaggi.ts). `a`: le chiavi di chi puo' rispondere adesso.
+    static let passaParola = "passa_parola"
+    static func strumentoPassaParola(_ a: [String]) -> [String: Any] {
+        ["type": "function",
+         "function": [
+            "name": passaParola,
+            "description": "Da' la parola a uno dei personaggi: risponde con la sua voce subito dopo la tua battuta. Senza " +
+                "questa chiamata nessuno risponde, anche se lo nomini.",
+            "parameters": [
+                "type": "object",
+                "properties": [
+                    "a": ["type": "string", "enum": a, "description": "la chiave di chi deve rispondere"],
+                    "perche": ["type": "string", "description": "per cosa lo chiami, in poche parole"],
+                ],
+                "required": ["a"],
+            ] as [String: Any],
+         ] as [String: Any]]
     }
 
-    /// La frase senza il segnale "@darlene", che non si legge mai ad alta voce, ovunque Melissa l'abbia messo.
-    static func senzaSegnale(_ testo: String) -> String {
-        let chiavi = ordine.isEmpty ? "darlene|elliot|krista" : ordine.joined(separator: "|")
-        var t = testo.replacingOccurrences(of: "\\s*@(?:\(chiavi))\\b[.!?]?", with: "",
-                                           options: [.regularExpression, .caseInsensitive])
-        // un segnale ancora a meta' in coda, mentre la risposta arriva ("@dar"), non si vede
-        t = t.replacingOccurrences(of: "\\s*@[a-z]*$", with: "", options: [.regularExpression, .caseInsensitive])
-        t = t.replacingOccurrences(of: "[ \\t]{2,}", with: " ", options: .regularExpression)
-        return t.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// A chi da' la parola una chiamata a passa_parola: una chiave fra le `offerte` (con la maiuscola vale lo stesso), o
+    /// nil se gli argomenti non si leggono o la chiave non e' offerta.
+    static func passaParolaA(_ argomenti: String?, offerte: [String]) -> String? {
+        guard let data = (argomenti?.isEmpty == false ? argomenti! : "{}").data(using: .utf8),
+              let x = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let a = (x["a"] as? String)?.trimmingCharacters(in: .whitespaces).lowercased(),
+              offerte.contains(a) else { return nil }
+        return a
     }
 
-    /// La battuta di Melissa chiama un personaggio: il testo senza segnale e chi risponde, se puo' venire (solo chi ha
-    /// una voce). Il segnale "@darlene" ovunque, altrimenti `chiamatoPerNome`. `invitato`: chi il codice le aveva
-    /// chiesto di tirare dentro (docs/CONTRATTI.md, 9.11).
-    static func chiamata(_ risposta: String, invitato: String? = nil) -> (testo: String, ospite: String?) {
-        let testo = senzaSegnale(risposta)
-        // solo le chiavi dei personaggi, e non dentro un indirizzo: un'email non e' un segnale
-        let chi = primo("(?<![\\w.])@(\(ordine.joined(separator: "|")))\\b", in: risposta) ?? chiamatoPerNome(testo, invitato: invitato)
-        return (testo, chi.flatMap { tutti[$0]?.voce.isEmpty == false ? $0 : nil })
-    }
-
-    // una parola finisce dove non segue una lettera o una cifra (come nella mod, dove \b e' ASCII)
-    private static let fineParola = "(?![\\p{L}\\p{N}])"
-    /// Prima di un nome detto a qualcuno: l'inizio della frase, una virgola, oppure "dai", "e tu", "tocca a te",
-    /// "vabbe'", "grazie", "ciao"...
-    private static let primaDelNome = "(?:^|[,;:]\\s*|(?<![\\p{L}\\p{N}])(?:e\\s+tu|e\\s+te|dai|su|senti|allora|ehi|oh|ok|tocca\\s+a\\s+te|vabb[eè]'?|grazie|ciao|scusa|beh)\\s*,?\\s*)"
-    /// Dopo: punteggiatura, la fine della frase, oppure "tu", "che ne", "dimmi", "ascolta"... Non "te": "Krista te lo
-    /// sta dicendo" parla di lei, non a lei.
-    private static let dopoIlNome = "(?=\\s*(?:[,!?:;…]|\\.{2,}|\\.?\\s*$)|\\s+(?:tu|che\\s+ne|che\\s+dici|cosa\\s+ne|cosa\\s+dici|dimmi|digli|dille|diglielo|ascolta|senti|guarda|dicci)(?![\\p{L}\\p{N}]))"
-    /// La battuta si rivolge a qualcuno: una domanda, o una parola detta a "te".
-    private static let aQualcuno = "\\?|(?<![\\p{L}\\p{N}])(?:tu|te|ti|dimmi|digli|diglielo|dille|dai|senti|pensaci|aiutami|aiutalo|spiegagli|spiegaci|raccontaci|ascolta|guarda|ne pensi|che dici|cosa dici|tocca a te|la tua)" + fineParola
-
-    /// Il personaggio a cui Melissa parla, perche' risponda: chi e' interrogato risponde sempre. L'invitato conta se il
-    /// suo nome c'e', ovunque; gli altri se in una delle ultime due frasi il nome e' detto a lui ("Elliot, tu che
-    /// dici?", "Dai Krista, diglielo tu.", "E tu Krista che ne dici?", "Tocca a te, Krista.") e la battuta si rivolge a
-    /// qualcuno. "Ti ricordi quando Elliot ha bucato E Corp?" e "il file di Krista" parlano di loro, non a loro.
-    /// La stessa regola della mod (register.tsx) e della Bottega (personaggi.ts): docs/CONTRATTI.md, 9.11.
-    /// `daAndrea`: e' Andrea che parla, con Melissa al telefono. Un nome detto a qualcuno ("Vabbe' Elliot, hai
-    /// ragione") chiama in qualunque frase e senza bisogno di una domanda; "Ieri Elliot mi ha detto..." no.
-    static func chiamatoPerNome(_ testo: String, invitato: String? = nil, daAndrea: Bool = false) -> String? {
-        if let invitato, let p = tutti[invitato],
-           primo("(?<![\\p{L}\\p{N}@])(\(NSRegularExpression.escapedPattern(for: p.nome)))" + fineParola, in: testo) != nil {
-            return invitato
-        }
-        let n = nomi
-        guard !n.isEmpty else { return nil }
-        // la frase finisce con . ! ? … seguiti da spazi o dalla fine: un punto dentro ".env" o "gmail.com" non la taglia
-        let frasi = testo.replacingOccurrences(of: "(?<=[.!?…])\\s+", with: "\u{0}", options: .regularExpression)
-            .split(separator: "\u{0}").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        let coda = daAndrea ? frasi : Array(frasi.suffix(2))
-        guard !coda.isEmpty, daAndrea || primo("(\(aQualcuno))", in: coda.joined(separator: " ")) != nil else { return nil }
-        for f in coda.reversed() {
-            if let nome = primo(primaDelNome + "(\(n))" + dopoIlNome, in: f) { return chiaveDi(nome) }
-        }
-        return nil
+    /// Come si chiede al modello di dare la parola: la battuta e la chiamata insieme, nella stessa risposta (misura del
+    /// 6/10: cosi' DeepSeek Flash la chiama 6 volte su 6, Agnes 3 su 3, e il testo arriva prima della chiamata). Stesso
+    /// testo di `chiamaCon` nella Bottega.
+    static func chiamaCon(_ chi: String) -> String {
+        guard let p = tutti[chi] else { return "" }
+        return "Nella stessa risposta fai due cose: scrivi la tua battuta, che chiude con una domanda rivolta a \(p.nome), " +
+            "e chiama lo strumento \(passaParola) con a = \(chi). Il testo da solo non basta: senza la chiamata \(p.nome) " +
+            "non sente la domanda."
     }
 
     /// "Darlene, Elliot e Krista".
@@ -432,22 +408,18 @@ enum Personaggi {
         return fra[min(fra.count - 1, Int(caso2 * Double(fra.count)))]
     }
 
-    /// Cosa si aggiunge al prompt di Melissa perche' sappia di poter tirare dentro qualcuno.
-    /// `voluto`: chi Andrea ha appena chiesto di sentire. `scelto`: chi puo' tirare dentro da sola adesso, se puo'.
-    /// `vivo`: piu' risposte senza ospiti, quindi lo tira dentro adesso. Stesso testo di `invitoConversa` della mod.
-    static func invito(voluto: String?, scelto: String?, vivo: Bool = false) -> String {
-        if let voluto, let p = tutti[voluto] {
-            return "Andrea vuole sentire anche \(p.nome): rispondi tu e chiudi con una domanda rivolta a lei o a lui, " +
-                "poi scrivi alla fine, da sola, la parola @\(voluto)."
-        }
+    /// Cosa si aggiunge al prompt di Melissa perche' sappia di poter tirare dentro qualcuno. `scelto`: chi puo'
+    /// tirare dentro da sola adesso, se puo'. `vivo`: piu' risposte senza ospiti, quindi lo tira dentro adesso, e
+    /// l'invito e' deciso. Chi Andrea vuole sentire lo capisce ChiVuole. Stesso testo di `invito` nella Bottega.
+    static func invito(scelto: String?, vivo: Bool = false) -> String {
         guard let scelto, let p = tutti[scelto] else { return "" }
-        let chiudi = "chiudi con una domanda rivolta a \(p.nome) e scrivi alla fine, da sola, la parola @\(scelto)"
         if vivo {
             return "Stavolta tira dentro \(p.nome) di Mr. Robot (\(ruoli[scelto] ?? p.nome)): trova l'aggancio in quello che " +
-                "ha detto Andrea, rispondi tu e \(chiudi); \(campo(di: scelto))."
+                "ha detto Andrea e rispondi tu; \(campo(di: scelto)). \(chiamaCon(scelto))"
         }
         return "Con te c'e' anche \(p.nome) di Mr. Robot (\(ruoli[scelto] ?? p.nome)). Solo quando rende la chiacchierata " +
-            "piu' viva puoi tirarlo dentro: \(chiudi); \(campo(di: scelto)). Di solito rispondi da sola."
+            "piu' viva puoi tirarlo dentro; \(campo(di: scelto)). Per farlo: \(chiamaCon(scelto)) Di solito rispondi da sola " +
+            "e non chiami nessuno."
     }
 
     /// Cosa si chiede a un ospite: solo dal suo campo (`ruolo_cronaca`). A chi ha `umore` (Krista) il lato umano anche

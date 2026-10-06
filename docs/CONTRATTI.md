@@ -1177,9 +1177,9 @@ chiamata saluta con la sua voce e risponde con gli stessi strumenti di Melissa: 
 (carattere del personaggio, regola su come si parla, regole di verita'), voce ElevenLabs del personaggio sul primo pezzo
 di ogni risposta (`voice.speak {voice}`, Nucleo build 120). «Passami Darlene», «ridammi Melissa» fanno lo stesso a voce.
 Dall'iPhone risponde sempre Melissa, perche' la voce la fa il ponte con la sua. Con Melissa al telefono e la voce accesa,
-«chiedi a Elliot» le fa chiudere con una domanda a lui; in conversazione lo fa anche da sola, col personaggio scelto da
-`ospiteDellaFrase` (dopo due risposte senza ospiti puo', dopo quattro lo fa). Risponde chi lei chiama: col segnale `@nome`
-o con una domanda per nome che chiude la battuta (`chiamatoPerNome`). Il personaggio risponde senza strumenti, poi
+«chiedi a Elliot» (capito da `chiVuole`) la fa dirigere e poi risponde lui; in conversazione lo fa anche da sola, col
+personaggio scelto da `ospiteDellaFrase`. Risponde chi lei chiama con lo strumento `passa_parola` (9.11, dalla build
+135). Il personaggio risponde senza strumenti, poi
 Melissa chiude; ogni battuta si pensa mentre quella prima suona e parte quando il Nucleo dice che e' finita
 (`voice.state`), perche' due voci sono due socket e il loro audio si mescolerebbe. Nel registro le battute dei personaggi
 hanno il nome davanti. Personaggi, ruoli e scelta sono gli stessi della mod melissa e dell'iPhone (9.10).
@@ -1188,14 +1188,12 @@ Dalla build 125: `AssistantState.personaggi` e' l'elenco dei personaggi caricati
 in ordine di `ordine`, nella forma `[{chiave, nome, ruolo}]`. La barra non ha piu' nomi scritti a mano: genera un
 pulsante per Melissa, sempre per primo, e uno per ogni voce dell'elenco (`nome` come testo, `ruolo` come suggerimento);
 senza elenco resta solo Melissa. `personaggio.set {chi}` accetta 'melissa' o una chiave caricata, ogni altro valore si
-ignora. `answerPartial` non mostra mai il segnale `@chiave`, nemmeno a meta' durante lo stream. Con le battute a tre la
+ignora. Con le battute a tre la
 risposta di Melissa chiude il suo turno con `voice.speak {final:true}` prima che parli il personaggio, e ogni battuta e'
 un turno a se' (`append:false, final:true`, con `voice`). Una frase detta mentre il turno e' in corso non apre un turno
 concorrente: si tiene e parte quando la voce ha finito. La battuta a tre usa il cervello che ha risposto al turno (anche
 la riserva o Apple). Nella storia del modello le righe di chi ha la chiamata restano sue, quelle degli altri diventano
-`user "(Nome ha detto: ...)"`. Si riconosce una domanda per nome solo se Melissa parla a lui (vocativo a inizio domanda,
-", Nome?" o "Nome?" in chiusura), con la stessa regola nella mod e sull'iPhone; un `@` dentro un indirizzo email non e'
-un segnale. `pubblica` toglie da `~/.bottega/personaggi` i file eliminati dalla sorgente.
+`user "(Nome ha detto: ...)"`. Chi e' chiamato lo dice solo `passa_parola` (9.11), mai un nome nel testo. `pubblica` toglie da `~/.bottega/personaggi` i file eliminati dalla sorgente.
 
 ### Cervelli
 
@@ -2209,52 +2207,73 @@ rete di casa dicono al Mac dov'e' l'iPhone, non portano dati.
   l'estensione li porta con se' e all'avvio li copia in `~/.bottega/personaggi/` (solo i file cambiati), da dove li legge
   la mod melissa (dalla 0.14, al piu' una volta al minuto; senza cartella Melissa parla da sola); l'app iPhone li include
   nella build (`project.yml`, cartella `personaggi`). Un personaggio nuovo e' un file nuovo: poi `scripts/package.sh`,
-  la build iPhone e `/reload-plugins`. Nomi, segnali `@chiave` e scelta di chi entra si leggono dai file.
+  la build iPhone e `/reload-plugins`. Nomi, chiavi e scelta di chi entra si leggono dai file.
   «Passami Darlene», «fammi parlare con Krista» passano la chiamata: saluta il personaggio con la sua voce e
   risponde lui finche' Andrea non dice «ridammi Melissa» o la conversazione si chiude. Con Melissa al telefono,
-  «chiedi a Elliot», «sentiamo Darlene» la fanno chiudere con `@elliot`; a voce e in conversazione lo puo' fare anche
+  «chiedi a Elliot», «sentiamo Darlene» (capiti da `ChiVuole`) la fanno dirigere, poi risponde lui; a voce e in conversazione lo puo' fare anche
   da sola, non piu' di una volta ogni tre risposte. Chi puo' tirare dentro da sola lo sceglie il codice
   (`Personaggi.adatto`, dalla build 122): Elliot se Andrea parla di sicurezza, Krista se rimanda o cerca scuse,
-  altrimenti uno diverso dall'ultimo; al prompt arriva solo quel nome, e un altro `@nome` si ignora. Lasciato al
+  altrimenti uno diverso dall'ultimo; al prompt arriva solo quel nome. Lasciato al
   modello sceglieva sempre Darlene. Dalla build 123, dopo quattro risposte senza ospiti l'invito diventa deciso
   («Stavolta tira dentro ...») e il personaggio sa per cosa e' stato chiamato. Ruoli, scelta e testo dell'invito
-  sono gli stessi della chiacchierata della mod (0.12, `ospiteDellaFrase`, `invitoConversa`). Il segnale non si mostra e non si legge: il personaggio risponde
+  sono gli stessi della barra (`ospiteDellaFrase`, `invito`). Chi e' chiamato lo dice lo strumento `passa_parola` (9.11): il personaggio risponde
   con la sua voce, poi Melissa chiude. Ogni battuta apre il suo socket ElevenLabs con la voce di chi parla. Il
   personaggio usa lo stesso cervello (Agnes o DeepSeek), senza lo snapshot del Mac. Nella storia locale `chi` e' la
   chiave del personaggio; verso il Mac e nella vista diventa `melissa` con il nome davanti («Darlene: ...»), cosi'
-  `/v1/assistente/storia` resta `tu|melissa`. Test senza simulatore: `scripts/test-ios-personaggi.sh`. Dalla build 124
-risponde chi Melissa chiama, proposto o no: col segnale o con una domanda per nome che chiude la battuta
-(`Personaggi.chiamatoPerNome`), come nella mod 0.13.
+  `/v1/assistente/storia` resta `tu|melissa`. Test senza simulatore: `scripts/test-ios-personaggi.sh`. Dalla build 135
+risponde chi riceve la parola con `passa_parola`, o l'invitato di un invito deciso (9.11); prima (build 124-134) si
+cercava il nome nel testo.
 
 ### 9.11 Chi risponde quando Melissa chiama, e cosa si dice mentre si pensa (build 126, mod 0.15)
 
-Regole comuni alla mod melissa (`register.tsx`), alla barra (`src/personaggi.ts`, `src/riempitivi.ts`) e all'iPhone
-(`Voce/Personaggi.swift`, `Voce/Riempitivi.swift`). Sono implementate tre volte, identiche: i casi di prova qui sotto
-sono nei test di tutte e tre.
+Regole comuni alla barra (`src/personaggi.ts`, `src/riempitivi.ts`, `src/assistant.ts`) e all'iPhone
+(`Voce/Personaggi.swift`, `Voce/Riempitivi.swift`, `Voce/AssistenteTelefono.swift`, `Voce/Melissa.swift`). La mod melissa
+(`register.tsx`) tiene ancora le sue regole sui nomi finche' non chiede la regia alla barra (punto 4 del brief del 6
+ottobre).
 
-**Un personaggio interrogato risponde sempre.** La battuta di Melissa chiama un personaggio se:
+**Chi parla lo decide il modello, con uno strumento (build 135; sostituisce segnale `@chiave`, `chiamatoPerNome` e la
+tabella dei vocativi delle build 124-134).** Nessun nome si cerca piu' nel testo detto. Chi risponde dopo una battuta
+lo dice la chiamata allo strumento `passa_parola`, che arriva strutturata (Chat Completions, `tool_calls`) e non finisce
+mai nella voce:
 
-1. contiene il segnale `@chiave` (ovunque), oppure
-2. il personaggio e' quello che il codice le aveva chiesto di tirare dentro (`invitato`) e il suo nome compare nella
-   battuta, ovunque, oppure
-3. in una delle ultime due frasi il nome e' usato come vocativo e la battuta si rivolge a qualcuno.
-   - Frasi: finiscono con `.`, `!`, `?`, `…` (anche ripetuti, come `...`) seguiti da uno spazio o dalla fine del testo:
-     `.env`, `3.5` e `file.txt` non chiudono una frase (`split(/(?<=[.!?…])\s+/)`).
-   - Vocativo: il nome sta a inizio frase, dopo `,` `;` `:`, oppure dopo una di `e tu`, `e te`, `dai`, `su`,
-     `senti`, `allora`, `ehi`, `oh`, `ok`, `tocca a te`, `vabbe'`/`vabbè`, `grazie`, `ciao`, `scusa`, `beh` (con una
-     virgola facoltativa); e subito dopo il nome viene
-     punteggiatura (`,` `!` `?` `:` `;` `…` `..`), la fine della frase (anche con un punto), oppure una di `tu`,
-     `che ne`, `che dici`, `cosa ne`, `cosa dici`, `dimmi`, `digli`, `dille`, `diglielo`, `ascolta`, `senti`,
-     `guarda`, `dicci`.
-   - Si rivolge a qualcuno: c'e' un `?` nelle ultime due frasi, oppure una parola fra `tu`, `te`, `ti`, `dimmi`,
-     `digli`, `diglielo`, `dille`, `dai`, `senti`, `pensaci`, `aiutami`, `aiutalo`, `spiegagli`, `spiegaci`,
-     `raccontaci`, `ascolta`, `guarda`, `ne pensi`, `che dici`, `cosa dici`, `tocca a te`, `la tua`.
+```json
+{"type": "function", "function": {"name": "passa_parola",
+  "description": "Da' la parola a uno dei personaggi: risponde con la sua voce subito dopo la tua battuta. Senza questa chiamata nessuno risponde, anche se lo nomini.",
+  "parameters": {"type": "object", "properties": {
+    "a": {"type": "string", "enum": ["<chiavi di chi puo' rispondere adesso>"], "description": "la chiave di chi deve rispondere"},
+    "perche": {"type": "string", "description": "per cosa lo chiami, in poche parole"}},
+   "required": ["a"]}}}
+```
 
-**Anche Andrea puo' chiamare.** Se, mentre Melissa ha la chiamata, Andrea dice il nome di un personaggio da vocativo
-(stessa regola, in qualunque frase e senza bisogno della domanda: "Vabbe' Elliot, hai ragione"), risponde quel
-personaggio, poi Melissa chiude. "Ieri Elliot mi ha detto..." non chiama nessuno.
+- **Chi ce l'ha.** La risposta di Melissa quando parla a voce (chiacchierata, tasto) o legge in «racconta»: `enum` =
+  i personaggi con una voce (`strumentoPassaParola`, sull'iPhone `Personaggi.strumentoPassaParola`), insieme agli altri
+  strumenti. L'ospite del giro a tre quando puo' passare la parola (non il secondo di un giro): `enum` = gli altri con
+  voce, mai se stesso ne' chi l'ha chiamato. La chiusa di Melissa dopo un ospite: tutti con voce (le si chiede di non
+  fare domande; se chiama lo strumento comunque, quello risponde una volta). Un personaggio con la chiamata no.
+- **Lettura.** `passaParolaA(argomenti, offerte)`: la chiave di `a` (con la maiuscola vale lo stesso) se e' fra quelle
+  offerte, altrimenti nessuno; JSON rotto, nessuno. Registro: `passa la parola: <chiave>` (o `niente, argomenti non
+  validi`).
+- **In streaming, senza ritardi.** Il testo arriva prima e va subito alla voce; la chiamata arriva in fondo. Se nella
+  risposta c'e' solo `passa_parola`, il giro del modello si chiude li': nessun passo in piu' (la battuta e' gia'
+  detta). Con altri strumenti insieme, quelli si eseguono e `passa_parola` riceve come risultato «Fatto: <Nome>
+  risponde dopo la tua battuta.». Solo la chiamata, senza testo: Melissa non dice niente e risponde chi ha la parola.
+- **Come si chiede.** L'invito dice battuta e chiamata insieme (`chiamaCon`, uguale sull'iPhone): «Nella stessa risposta
+  fai due cose: scrivi la tua battuta, che chiude con una domanda rivolta a <Nome>, e chiama lo strumento passa_parola con
+  a = <chiave>. Il testo da solo non basta: senza la chiamata <Nome> non sente la domanda.» Misura del 6 ottobre, con il
+  solo «chiama lo strumento»: DeepSeek Flash faceva la domanda nel testo e saltava lo strumento; con questa frase lo chiama
+  6 volte su 6, Agnes 3 su 3, testo prima della chiamata.
+- **Invito deciso.** Quando l'invito l'ha deciso il codice («Stavolta tira dentro ...», l'ospite di un fatto in
+  «racconta», il 40% in cui un ospite deve passare la parola a un altro), l'invitato risponde anche se il modello si
+  dimentica la chiamata (registro: `passa la parola: <chiave>, invito deciso senza la chiamata`). Con l'invito facoltativo
+  («Con te c'e' anche ...») risponde solo chi riceve la parola.
+- **Cervello senza strumenti.** Apple Foundation Models (scelto, riserva o ripiego): niente strumento, niente invito nel
+  prompt, nessuno viene chiamato e Melissa parla da sola, senza errori.
+- **Le frasi di Andrea.** Le capisce solo `chiVuole` (qui sotto), anche col tasto fuori dalla conversazione: "chiedi a
+  Elliot", "Vabbe' Krista, e tu?" danno `chiede`, e Melissa glielo chiede (regia) prima che risponda. Resta nel codice,
+  immediato, solo il comando col nome esatto dopo "passami", "fammi parlare con", "ridammi" (`chiChiede`). Via
+  `ospiteChiesto` e il ramo "anche Andrea puo' chiamare" per vocativo.
 
-Risponde solo un personaggio con una voce. Se Melissa, chiudendo dopo un personaggio, chiede ancora qualcosa a qualcuno,
+Risponde solo un personaggio con una voce. Se Melissa, chiudendo dopo un personaggio, da' ancora la parola a qualcuno,
 quello risponde una volta e la parola torna ad Andrea.
 
 **Chi entra da solo nella chiacchierata.** Un ospite puo' entrare dopo ogni risposta di Melissa senza ospite, anche
@@ -2277,10 +2296,9 @@ non parla finche' il personaggio non ha detto la sua battuta, nemmeno se intanto
 | `Krista te lo sta dicendo da mezz'ora e tu fai lo gnorri.` (`te` dopo il nome non chiama) | nessuno |
 | `Sono sicura che Krista avrebbe qualcosa da dirti.` con `invitato = krista` | krista |
 
-**Parlano fra loro (mod 0.16, build 126).** Un personaggio chiamato, nel 40% dei casi e se c'e' un altro personaggio con
-voce, riceve nel prompt "Poi chiudi chiedendo a <Nome>, per nome, cosa ne pensa" (scelto a caso fra gli altri, mai
-chi lo ha chiamato); se la sua battuta chiama davvero qualcuno (regola sopra, con quello come `invitato`), quello
-risponde una volta ("<Nome> ti ha appena chiesto qualcosa"), poi Melissa chiude con tutto il giro davanti. Gli ospiti
+**Parlano fra loro (mod 0.16, build 126; dalla build 135 con passa_parola).** Un personaggio chiamato, nel 40% dei casi
+e se c'e' un altro personaggio con voce, riceve nel prompt "Poi chiedi a <Nome> cosa ne pensa." piu' `chiamaCon` (scelto
+a caso fra gli altri, mai chi lo ha chiamato); quello risponde una volta (invito deciso, anche senza la chiamata) ("<Nome> ti ha appena chiesto qualcosa"), poi Melissa chiude con tutto il giro davanti. Gli ospiti
 entrano dopo ogni risposta di Melissa senza ospite; l'invito e' deciso dopo due, o subito per argomento.
 
 **La cronaca automatica non si ferma fra un turno e l'altro (mod 0.18.3, Andrea, 6 ottobre).** Con la cronaca
@@ -2367,10 +2385,10 @@ sicurezza; a Darlene la provocazione, la scorciatoia, il rischio; a Krista il la
 ci sta lavorando Andrea, se conviene fermarsi, come decidere, un parere da fuori), mai dettagli di file, errori o
 comandi che non puo' sapere. `umore` sceglie chi ce l'ha (Krista). Restano i freni: mai nelle prime due battute
 di un turno di cronaca, mai entro `OSPITE_PAUSA_MS = 60 s` dall'ultimo ospite (per `sicurezza` ed `errore` bastano 30 s:
-sono i fatti che contano di piu'). Con un'occasione Melissa riceve l'invito deciso (chiude con la domanda per lui e
-`@chiave`), e nell'invito c'e' il fatto ("Claude ha appena lanciato rm -rf", "terzo errore di fila"), cosi' la domanda
-parla di quello. Senza occasione nessun invito. Chi Andrea o Melissa chiamano per nome risponde sempre, come prima. La
-chiacchierata (pulsante Melissa) resta com'e' (risponde chi e' nominato, al 40% un personaggio passa la parola a un
+sono i fatti che contano di piu'). Con un'occasione Melissa riceve l'invito deciso (chiude con la domanda per lui e la
+chiamata a `passa_parola`), e nell'invito c'e' il fatto ("Claude ha appena lanciato rm -rf", "terzo errore di fila"),
+cosi' la domanda parla di quello. Senza occasione nessun invito. Chi riceve la parola risponde sempre. La
+chiacchierata (pulsante Melissa) resta com'e' (risponde chi riceve la parola, al 40% un personaggio passa la parola a un
 altro), con i punti sotto su memoria e attese e con un vincolo: quando nessuno e' scelto dalle `parole`, l'ospite (e a
 chi si passa la parola) si sceglie fra chi ha `chiacchiera` nelle `occasioni` (oggi tutti e tre); uno sfogo di Andrea
 (`intento` = `sfogo`) sceglie chi ha `umore` (Krista), il primo in `ordine`, come le sue `parole`. A ognuno si chiede

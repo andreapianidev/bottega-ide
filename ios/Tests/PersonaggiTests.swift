@@ -1,7 +1,7 @@
 import XCTest
 @testable import Bottega
 
-/// Le frasi che passano la chiamata e il segnale "@darlene": stesse regole della mod melissa.
+/// Le frasi che passano la chiamata e lo strumento passa_parola: stesse regole della Bottega (docs/CONTRATTI.md, 9.11).
 /// Senza simulatore: `scripts/test-ios-personaggi.sh`.
 final class PersonaggiTests: XCTestCase {
     func testChiChiedePassaLaChiamata() {
@@ -14,75 +14,26 @@ final class PersonaggiTests: XCTestCase {
         XCTAssertNil(Personaggi.chiChiede("passami il sale"))
     }
 
-    func testOspiteChiesto() {
-        XCTAssertEqual(Personaggi.ospiteChiesto("chiedi a Darlene cosa ne pensa"), "darlene")
-        XCTAssertEqual(Personaggi.ospiteChiesto("Sentiamo anche Elliot"), "elliot")
-        XCTAssertEqual(Personaggi.ospiteChiesto("e cosa ne pensa Krista?"), "krista")
-        XCTAssertNil(Personaggi.ospiteChiesto("chiedi a Marco"))
-    }
-
-    func testChiamataTogliIlSegnale() {
-        let c = Personaggi.chiamata("Io dico di si'. Tu che dici, Darlene? @darlene")
-        XCTAssertEqual(c.testo, "Io dico di si'. Tu che dici, Darlene?")
-        XCTAssertEqual(c.ospite, "darlene")
-        let m = Personaggi.chiamata("Chiediamolo a lui @Elliot. Ecco.")
-        XCTAssertEqual(m.testo, "Chiediamolo a lui Ecco.")
-        XCTAssertEqual(m.ospite, "elliot")
-        let n = Personaggi.chiamata("Niente ospiti stavolta.")
-        XCTAssertEqual(n.testo, "Niente ospiti stavolta.")
-        XCTAssertNil(n.ospite)
-        XCTAssertEqual(Personaggi.senzaSegnale("@krista."), "")
-        XCTAssertEqual(Personaggi.chiamata("Ha toccato le chiavi. Elliot, tu che dici?").ospite, "elliot")
-        XCTAssertNil(Personaggi.chiamata("Darlene ti ha mai detto di no? Comunque ha finito.").ospite)
-        XCTAssertNil(Personaggi.chiamata("Non so. Tu che dici?").ospite)
-        // la stessa regola della mod e della Bottega: il nome conta solo se Melissa parla a lui
-        XCTAssertEqual(Personaggi.chiamatoPerNome("Elliot... tu che dici?"), "elliot")
-        XCTAssertEqual(Personaggi.chiamatoPerNome("Che ne pensi, Krista?"), "krista")
-        XCTAssertEqual(Personaggi.chiamatoPerNome("Allora, Darlene?"), "darlene")
-        XCTAssertNil(Personaggi.chiamatoPerNome("Ti ricordi quando Elliot ha bucato E Corp?"))
-        XCTAssertNil(Personaggi.chiamatoPerNome("Vuoi che apra il file di Krista?"))
-        XCTAssertEqual(Personaggi.chiamata("Scrivi a andrea@gmail.com. Elliot, che dici?").ospite, "elliot")
-        XCTAssertEqual(Personaggi.senzaSegnale("Elliot, che dici? @dar"), "Elliot, che dici?")
-    }
-
-    /// La tabella di docs/CONTRATTI.md 9.11, uguale nei test della mod e della barra: chi e' interrogato risponde sempre.
-    func testChiRispondeQuandoMelissaChiama() {
-        let casi: [(String, String?)] = [
-            ("Elliot, tu che dici?", "elliot"),
-            ("Che ne pensi, Krista?", "krista"),
-            ("Allora, Darlene?", "darlene"),
-            ("Elliot... tu che dici?", "elliot"),
-            ("Dai Krista, diglielo tu.", "krista"),
-            ("E tu Krista che ne dici?", "krista"),
-            ("Tocca a te, Krista.", "krista"),
-            ("Krista, che ne pensi? Io dico di si'.", "krista"),
-            ("Ehi Darlene ascolta questa.", "darlene"),
-            ("Ok Elliot, ma tu cosa faresti?", "elliot"),
-            ("Ti ricordi quando Elliot ha bucato E Corp?", nil),
-            ("Vuoi che apra il file di Krista?", nil),
-            ("Krista direbbe che sei pigro.", nil),
-            ("Darlene, al posto tuo, avrebbe gia' litigato.", nil),
-            ("Darlene ti ha mai detto di no? Comunque e' finita.", nil),
-            ("Non so. Tu che dici?", nil),
-            // "te" dopo il nome non chiama: parla di lei, non a lei
-            ("Krista te lo sta dicendo da mezz'ora e tu fai lo gnorri.", nil),
-            // un punto dentro una parola non taglia la frase: ".env" non diventa "." e "env"
-            ("Hai guardato il file .env, Elliot?", "elliot"),
-            ("Elliot, hai visto il file .env? Io no.", "elliot"),
-            ("Darlene ha aperto il .env. Tu che dici?", nil),
-            ("Sono sicura che Krista avrebbe qualcosa da dirti.", nil),
-        ]
-        for (battuta, chi) in casi {
-            XCTAssertEqual(Personaggi.chiamatoPerNome(battuta), chi, battuta)
-            XCTAssertEqual(Personaggi.chiamata(battuta).ospite, chi, battuta)
-        }
-        // l'invitato risponde se il suo nome c'e', ovunque
-        XCTAssertEqual(Personaggi.chiamatoPerNome("Sono sicura che Krista avrebbe qualcosa da dirti.", invitato: "krista"), "krista")
-        XCTAssertEqual(Personaggi.chiamata("Sono sicura che Krista avrebbe qualcosa da dirti.", invitato: "krista").ospite, "krista")
-        // un altro invitato non cambia niente: la frase parla di Krista, non a lei
-        XCTAssertNil(Personaggi.chiamata("Sono sicura che Krista avrebbe qualcosa da dirti.", invitato: "elliot").ospite)
-        // il segnale vale ovunque, anche senza domanda
-        XCTAssertEqual(Personaggi.chiamata("Krista direbbe che sei pigro. @krista").ospite, "krista")
+    /// Chi risponde lo dice lo strumento passa_parola, mai un nome nel testo (docs/CONTRATTI.md, 9.11): la stessa forma
+    /// della Bottega.
+    func testPassaParola() throws {
+        let t = Personaggi.strumentoPassaParola(["elliot", "krista"])
+        let f = try XCTUnwrap(t["function"] as? [String: Any])
+        XCTAssertEqual(f["name"] as? String, "passa_parola")
+        let par = try XCTUnwrap(f["parameters"] as? [String: Any])
+        let a = try XCTUnwrap((par["properties"] as? [String: Any])?["a"] as? [String: Any])
+        XCTAssertEqual(a["enum"] as? [String], ["elliot", "krista"])
+        XCTAssertEqual(par["required"] as? [String], ["a"])
+        XCTAssertNotNil(try? JSONSerialization.data(withJSONObject: t), "si manda com'e' nel corpo della richiesta")
+        XCTAssertEqual(Personaggi.passaParolaA(#"{"a": "elliot", "perche": "le chiavi"}"#, offerte: ["elliot", "krista"]), "elliot")
+        XCTAssertEqual(Personaggi.passaParolaA(#"{"a": "Krista"}"#, offerte: ["elliot", "krista"]), "krista")
+        XCTAssertNil(Personaggi.passaParolaA(#"{"a": "darlene"}"#, offerte: ["elliot", "krista"]), "solo tra gli offerti")
+        XCTAssertNil(Personaggi.passaParolaA(#"{"a": "ell"#, offerte: ["elliot"]), "JSON rotto: nessuno")
+        XCTAssertNil(Personaggi.passaParolaA(nil, offerte: ["elliot"]))
+        let chiama = Personaggi.chiamaCon("elliot")
+        XCTAssertTrue(chiama.hasPrefix("Nella stessa risposta fai due cose"))
+        XCTAssertTrue(chiama.contains("passa_parola con a = elliot"))
+        XCTAssertEqual(Personaggi.chiamaCon("nessuno"), "")
     }
 
     func testMelissaNonEUnPersonaggio() {
@@ -99,22 +50,6 @@ final class PersonaggiTests: XCTestCase {
             XCTAssertTrue(r.eco.allSatisfy { $0.contains("{x}") }, chiave)
         }
         XCTAssertNil(Personaggi.chiChiede("passami Melissa").flatMap { Personaggi.tutti[$0] })
-    }
-
-    /// Prima del nome valgono anche vabbe', grazie, ciao, scusa, beh; e Andrea chiama in qualunque frase, senza domanda.
-    func testVocativiNuoviEAndreaChiama() {
-        XCTAssertEqual(Personaggi.chiamatoPerNome("Grazie Krista, tu che dici?"), "krista")
-        XCTAssertEqual(Personaggi.chiamatoPerNome("Vabbè Darlene, dimmi tu."), "darlene")
-        XCTAssertEqual(Personaggi.chiamatoPerNome("Beh Elliot? Che ne pensi?"), "elliot")
-        // Andrea: basta il vocativo, in qualunque frase
-        XCTAssertEqual(Personaggi.chiamatoPerNome("Vabbe' Elliot, hai ragione", daAndrea: true), "elliot")
-        XCTAssertEqual(Personaggi.chiamatoPerNome("Ciao Darlene!", daAndrea: true), "darlene")
-        XCTAssertEqual(Personaggi.chiamatoPerNome("Scusa Krista, hai ragione tu.", daAndrea: true), "krista")
-        XCTAssertEqual(Personaggi.chiamatoPerNome("Elliot, hai ragione. Comunque domani vado al mare. Poi vediamo.", daAndrea: true), "elliot")
-        XCTAssertNil(Personaggi.chiamatoPerNome("Ieri Elliot mi ha detto che il server era giu'.", daAndrea: true))
-        XCTAssertNil(Personaggi.chiamatoPerNome("Ho riletto il file .env di Darlene.", daAndrea: true))
-        // la stessa frase detta da Melissa, senza domanda ne' parole rivolte a qualcuno, non chiama
-        XCTAssertNil(Personaggi.chiamatoPerNome("Elliot, hai ragione. Comunque domani vado al mare. Poi vediamo."))
     }
 
     /// Chi entra da solo (mod 0.16): dopo ogni risposta di Melissa senza ospite; appena dopo un ospite no, e alla
@@ -150,23 +85,19 @@ final class PersonaggiTests: XCTestCase {
         XCTAssertNil(Personaggi.passa(fra: altri, ultima: false, caso: 0.4, caso2: 0))
         XCTAssertNil(Personaggi.passa(fra: altri, ultima: true, caso: 0, caso2: 0))
         XCTAssertNil(Personaggi.passa(fra: [], ultima: false, caso: 0, caso2: 0))
-        // quello a cui chiede risponde: e' l'invitato, quindi basta il nome
-        XCTAssertEqual(Personaggi.chiamata("Io la vedo cosi'. Krista direbbe il contrario.", invitato: "krista").ospite, "krista")
-        XCTAssertEqual(Personaggi.chiamata("Io la vedo cosi'. Tu che ne pensi, Darlene?").ospite, "darlene")
     }
 
     func testInvito() {
-        XCTAssertEqual(Personaggi.invito(voluto: nil, scelto: nil), "")
-        XCTAssertTrue(Personaggi.invito(voluto: "krista", scelto: "elliot").contains("@krista"))
-        let uno = Personaggi.invito(voluto: nil, scelto: "elliot")
-        XCTAssertTrue(uno.contains("@elliot"))
-        XCTAssertFalse(uno.contains("@darlene"))
+        XCTAssertEqual(Personaggi.invito(scelto: nil), "")
+        let uno = Personaggi.invito(scelto: "elliot")
+        XCTAssertTrue(uno.contains("passa_parola con a = elliot"))
+        XCTAssertFalse(uno.contains("@"))
         XCTAssertFalse(uno.contains("\u{2014}"))
         XCTAssertTrue(uno.contains("Solo quando"))
-        let vivo = Personaggi.invito(voluto: nil, scelto: "krista", vivo: true)
+        let vivo = Personaggi.invito(scelto: "krista", vivo: true)
         XCTAssertTrue(vivo.contains("Stavolta tira dentro Krista"))
-        XCTAssertTrue(vivo.contains("@krista"))
-        // a ognuno si chiede dal suo campo, a Krista il lato umano: lo stesso testo della mod e della Bottega (9.11)
+        XCTAssertTrue(vivo.contains("passa_parola con a = krista"))
+        // a ognuno si chiede dal suo campo, a Krista il lato umano: lo stesso testo della Bottega (9.11)
         let elliot = Personaggi.tutti["elliot"]!
         XCTAssertTrue(uno.contains("chiedi a Elliot solo dal suo campo (\(elliot.ruoloCronaca))"))
         XCTAssertFalse(uno.contains("lato umano"))
@@ -220,22 +151,14 @@ final class PersonaggiTests: XCTestCase {
         XCTAssertEqual(Personaggi.adatto("che palle, non funziona niente", ultimo: "elliot", caso: 0), "krista")
         XCTAssertTrue(Personaggi.invitoDeciso("che palle, non funziona niente", dallUltimo: 1, scelto: "krista"))
         XCTAssertFalse(Personaggi.puoEntrare("che palle", dallUltimo: 1, ultimo: "krista"))
-        // chiamata per nome
-        XCTAssertEqual(Personaggi.chiamata("Krista, tu che ne pensi?").ospite, "krista")
-        XCTAssertEqual(Personaggi.chiamatoPerNome("Vabbe' Krista, hai ragione", daAndrea: true), "krista")
-        XCTAssertEqual(Personaggi.ospiteChiesto("chiedi a Krista"), "krista")
         XCTAssertNil(Personaggi.perFatto("che bel tramonto"))
     }
 
     /// Il nome esatto passa subito nel codice; un nome capito male o un soprannome li capisce il modello (ChiVuole),
-    /// niente elenchi di nomi storpiati (9.11, mod 0.18.3). "chiedi" accetta anche al, alla, allo, all'.
+    /// niente elenchi di nomi storpiati (9.11).
     func testNomeEsattoNelCodice() {
         XCTAssertEqual(Personaggi.chiChiede("passami Krista"), "krista")
-        XCTAssertEqual(Personaggi.ospiteChiesto("chiedi alla Krista cosa ne pensa"), "krista")
-        XCTAssertEqual(Personaggi.ospiteChiesto("chiedete all'Elliot"), "elliot")
-        XCTAssertEqual(Personaggi.ospiteChiesto("e tu Elliot che ne dici"), "elliot")
-        XCTAssertEqual(Personaggi.ospiteChiesto("chiedi a Darlene"), "darlene")
-        // dal registro del 6 ottobre: nel codice non passano, li capisce il modello
+        // dal registro del 6 ottobre: nel codice non passano, li capisce il modello (anche "chiedi a Krista")
         XCTAssertNil(Personaggi.chiChiede("Passami Cristal Vista"))
         XCTAssertNil(Personaggi.chiChiede("Passami la nostra amica psicologa"))
     }

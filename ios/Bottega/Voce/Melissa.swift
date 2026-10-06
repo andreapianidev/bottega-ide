@@ -275,23 +275,17 @@ final class Melissa {
                 try await self.passaA(chiesto, dopo: testo, voce: voce, audio: suona)
                 return
             }
-            // Andrea parla a un personaggio per nome mentre Melissa ha la chiamata ("Vabbe' Elliot, hai ragione"):
-            // risponde lui, poi lei chiude (docs/CONTRATTI.md, 9.11)
-            if self.chiParla == "melissa", let aLui = Personaggi.chiamatoPerNome(testo, daAndrea: true),
-               Personaggi.tutti[aLui]?.voce.isEmpty == false {
-                try await self.aTre(aLui, voce: voce, daAndrea: testo, audio: suona)
-                return
-            }
             let p = Personaggi.tutti[self.chiParla]
-            // chi puo' entrare: quello che Andrea chiede, o ogni tanto, solo a voce, quello che il codice sceglie
-            let voluto = p == nil ? Personaggi.ospiteChiesto(testo) : nil
-            // dopo ogni risposta senza ospite puo' tirarne dentro uno, dopo due lo fa; quello di cui Andrea ha toccato
-            // l'argomento lo fa subito (mod 0.16)
-            let scelto = p == nil && voluto == nil && self.conversazione && voce
+            // chi Andrea vuole sentire ("chiedi a Elliot", "Vabbe' Krista, e tu?") lo capisce ChiVuole, qui sotto: niente
+            // nomi cercati nel testo. Ogni tanto, solo a voce, Melissa tira dentro quello che il codice sceglie: dopo
+            // ogni risposta senza ospite puo', dopo due lo fa; quello di cui Andrea ha toccato l'argomento lo fa subito
+            let scelto = p == nil && self.conversazione && voce
                 && Personaggi.puoEntrare(testo, dallUltimo: self.dallUltimoOspite, ultimo: self.ultimoOspite)
                 ? Personaggi.adatto(testo, ultimo: self.ultimoOspite) : nil
             let vivo = Personaggi.invitoDeciso(testo, dallUltimo: self.dallUltimoOspite, scelto: scelto)
-            let invito = p == nil ? Personaggi.invito(voluto: voluto, scelto: scelto, vivo: vivo) : ""
+            let invito = p == nil ? Personaggi.invito(scelto: scelto, vivo: vivo) : ""
+            // a chi Melissa puo' dare la parola, con passa_parola (docs/CONTRATTI.md, 9.11)
+            let conVoce = Personaggi.ordine.filter { Personaggi.tutti[$0]?.voce.isEmpty == false }
             let contesto = p == nil ? self.ponte.contestoMelissa(per: testo) : nil
             // mentre il modello pensa parla chi ha la chiamata (non in passaA: il saluto e' gia' pronto)
             if voce { self.avviaRiempitivi(per: testo, chi: self.chiParla, giro: g) }
@@ -301,16 +295,15 @@ final class Melissa {
             let capito = Task { @MainActor in await telefono.chiVuole(testo) }
             let risposta = Task { @MainActor in
                 try await telefono.rispondi(testo, chi: rispostaDi, invito: invito,
-                                            invitato: p == nil ? (voluto ?? scelto) : nil, voce: voce,
+                                            passaA: p == nil ? conVoce : [], deciso: p == nil && vivo ? scelto : nil, voce: voce,
                                             contestoMac: contesto, memoria: self.ponte.memoriaMelissa(),
                                             riempito: { self.riempito && g == self.giro },
                                             audio: self.audio(di: rispostaDi, voce: voce, suona))
             }
             let chi = await withTaskCancellationHandler { await capito.value } onCancel: { capito.cancel(); risposta.cancel() }
-            let conVoce = Personaggi.ordine.filter { Personaggi.tutti[$0]?.voce.isEmpty == false }
             let giro = Personaggi.giroDiVoci(chi, conVoce: conVoce, conLaChiamata: rispostaDi)
             let passa = chi?.passa.flatMap { $0 != rispostaDi && ($0 == "melissa" || conVoce.contains($0)) ? $0 : nil }
-            let chiedeUno = giro.voci.isEmpty && passa == nil && p == nil && voluto == nil
+            let chiedeUno = giro.voci.isEmpty && passa == nil && p == nil
                 ? chi?.chiede.first { conVoce.contains($0) } : nil
             // Andrea vuole un altro, il parere di qualcuno o tutti: la risposta pensata prima (che puo' essere un rifiuto)
             // si taglia, e Melissa dirige (docs/CONTRATTI.md, 9.11, «Melissa coordina, non rifiuta»). Con un personaggio
@@ -330,7 +323,7 @@ final class Melissa {
             }
             // contano solo le risposte di Melissa: un personaggio con la chiamata non tira dentro nessuno
             if p == nil { self.dallUltimoOspite += 1 }
-            // risponde chi Melissa chiama, proposto o no: una domanda senza risposta e' peggio
+            // risponde chi ha ricevuto la parola con passa_parola, o chi l'invito deciso nominava
             if let ospite = battuta.ospite {
                 try await self.aTre(ospite, voce: voce, audio: suona)
             }
@@ -425,11 +418,10 @@ final class Melissa {
     }
 
     /// Melissa ha tirato dentro un personaggio: risponde lui con la sua voce, poi lei chiude e torna ad Andrea.
-    /// La battuta dopo si pensa mentre quella prima sta ancora suonando. Se chiudendo chiede comunque qualcosa a
-    /// qualcuno, quello risponde una volta (`ultima`) e la parola torna ad Andrea (docs/CONTRATTI.md, 9.11).
-    /// `daAndrea`: quello che Andrea ha detto rivolgendosi lui al personaggio; entra nella storia. `daChi`: il
-    /// personaggio che gli ha appena chiesto qualcosa (parlano fra loro, mod 0.16).
-    private func aTre(_ chi: String, voce: Bool, ultima: Bool = false, daAndrea: String? = nil, daChi: String? = nil,
+    /// La battuta dopo si pensa mentre quella prima sta ancora suonando. Se chiudendo da' comunque la parola a
+    /// qualcuno con passa_parola, quello risponde una volta (`ultima`) e la parola torna ad Andrea (docs/CONTRATTI.md,
+    /// 9.11). `daChi`: il personaggio che gli ha appena chiesto qualcosa (parlano fra loro).
+    private func aTre(_ chi: String, voce: Bool, ultima: Bool = false, daChi: String? = nil,
                       audio: @escaping (Data) -> Void) async throws {
         guard let p = Personaggi.tutti[chi] else { return }
         let telefono = AssistenteTelefono.shared
@@ -441,11 +433,7 @@ final class Melissa {
         let passa = Personaggi.passa(fra: altri, ultima: ultima)
         let chiede: String
         let a: String
-        if let daAndrea {
-            // la frase di Andrea entra nella storia dopo che il prompt e' stato fatto: per questo sta anche qui
-            chiede = "Andrea si e' appena rivolto a te: \"\(daAndrea)\""
-            a = "Rispondi ad Andrea"
-        } else if let daChi {
+        if let daChi {
             chiede = "\(Personaggi.nome(daChi)) ti ha appena chiesto qualcosa"
             a = "Rispondi a \(Personaggi.nome(daChi)), davanti ad Andrea"
         } else {
@@ -454,9 +442,9 @@ final class Melissa {
         }
         let istruzione = "Sei in una chiacchierata a voce con Melissa, Andrea e gli altri di Mr. Robot. \(chiede). \(a) in una " +
             "o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero; puoi punzecchiare Melissa, ma da amici." +
-            (passa.map { " Poi chiudi chiedendo a \(Personaggi.nome($0)), per nome, cosa ne pensa." } ?? "") +
+            (passa.map { " Poi chiedi a \(Personaggi.nome($0)) cosa ne pensa. " + Personaggi.chiamaCon($0) } ?? "") +
             " Solo le parole che diresti."
-        let battuta = try await telefono.interviene(chi, istruzione: istruzione, domanda: daAndrea, invitato: passa,
+        let battuta = try await telefono.interviene(chi, istruzione: istruzione, passaA: ultima ? [] : altri, deciso: passa,
                                                     memoria: memoria, voce: voce, audio: self.audio(di: chi, voce: voce, audio))
         // quello a cui ha chiesto risponde una volta, e basta; poi Melissa chiude con tutto il giro davanti
         if !ultima, let altro = battuta.ospite, altri.contains(altro) {
@@ -467,8 +455,9 @@ final class Melissa {
             "melissa",
             istruzione: "Hanno appena detto la loro. Chiudi tu in una o due frasi, rivolta ad Andrea, riprendendo il filo " +
                 "o rispondendo a modo tuo, senza fare domande a \(p.nome) ne' agli altri. Solo le parole che diresti.",
+            passaA: Personaggi.ordine.filter { Personaggi.tutti[$0]?.voce.isEmpty == false },
             memoria: memoria, voce: voce, audio: self.audio(di: "melissa", voce: voce, audio))
-        // ha chiesto comunque qualcosa a qualcuno: chi e' interrogato risponde sempre, una volta ancora
+        // ha dato comunque la parola a qualcuno: risponde, una volta ancora
         if let altro = chiusa.ospite { try await aTre(altro, voce: voce, ultima: true, audio: audio) }
     }
 

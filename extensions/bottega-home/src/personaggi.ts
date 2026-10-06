@@ -204,14 +204,6 @@ export function chiChiede(t: string): string | null {
 	return chiaveDi(m[1]) ?? (m[1].startsWith('mr') ? chiaveDi('elliot') : null);
 }
 
-/** "chiedi a Darlene", "sentiamo Elliot", "cosa ne pensa Krista": chi Andrea vuole sentire anche. */
-export function ospiteChiesto(t: string): string | null {
-	const m = t
-		.toLowerCase()
-		.match(new RegExp(`\\b(?:chiedi(?:lo)? a|chiedete a|sentiamo(?: anche)?|senti(?: anche)?|cosa ne pensa|che ne pensa|e tu)\\s+(${nomi()})\\b`));
-	return m?.[1] ? chiaveDi(m[1]) : null;
-}
-
 /** chiVuole aspetta il modello al piu' 2,5 s: oltre, come se non avesse capito nessuno. */
 export const CHI_VUOLE_MS = 2500;
 
@@ -312,69 +304,50 @@ export function regia(a: { passa?: string | null; chiede?: string | null; voci?:
 	} else if (a.chiede && esiste(a.chiede)) {
 		cosa = `Andrea vuole il parere di ${nomeDi(a.chiede)}: chiediglielo tu, per nome.`;
 	}
-	return cosa ? `${cosa} Una frase breve, al massimo due, nel tuo stile: puoi punzecchiare, ma lo fai. Non rispondere tu alla domanda e non scrivere segnali con la chiocciola. Solo le parole che diresti.` : '';
+	return cosa ? `${cosa} Una frase breve, al massimo due, nel tuo stile: puoi punzecchiare, ma lo fai. Non rispondere tu alla domanda. Solo le parole che diresti.` : '';
 }
 
-/** Le chiavi caricate, per cercare il segnale "@chiave" e solo quello (un indirizzo email non e' un segnale). */
-function chiavi(): string {
-	return ORDINE.map(esc).join('|') || '(?!)';
+/** Lo strumento con cui chi parla da' la parola a un personaggio (CONTRATTI 9.11, «Chi parla lo decide il modello»): la
+ *  decisione viaggia nella chiamata, strutturata, e non finisce mai nel testo detto. Stesso nome e stessa forma
+ *  sull'iPhone (`Personaggi.strumentoPassaParola`). `a`: le chiavi di chi puo' rispondere adesso. */
+export const PASSA_PAROLA = 'passa_parola';
+export function strumentoPassaParola(a: readonly string[]): { type: 'function'; function: { name: string; description: string; parameters: any } } {
+	return {
+		type: 'function',
+		function: {
+			name: PASSA_PAROLA,
+			description: "Da' la parola a uno dei personaggi: risponde con la sua voce subito dopo la tua battuta. Senza questa chiamata nessuno risponde, anche se lo nomini.",
+			parameters: {
+				type: 'object',
+				properties: {
+					a: { type: 'string', enum: [...a], description: 'la chiave di chi deve rispondere' },
+					perche: { type: 'string', description: 'per cosa lo chiami, in poche parole' },
+				},
+				required: ['a'],
+			},
+		},
+	};
 }
 
-/** Il testo senza il segnale "@darlene", che non si mostra e non si legge mai, ovunque sia. */
-export function senzaSegnale(t: string): string {
-	return t.replace(new RegExp(`\\s*(?<!\\w)@(?:${chiavi()})\\b[.!?]?`, 'gi'), '').replace(/[ \t]{2,}/g, ' ').trim();
-}
-
-/** Durante lo stream: anche un segnale ancora a meta' in coda ("@dar") non si mostra. */
-export function senzaSegnaleInCorso(t: string): string {
-	return senzaSegnale(t).replace(/\s*@[a-z]*$/i, '');
-}
-
-/** Una risposta di Melissa puo' portare "@darlene": il testo senza segnale e chi entra, se era tra gli offerti.
- *  `invitato`: chi il codice le aveva chiesto di tirare dentro, che conta se lo nomina, ovunque. */
-export function chiamata(risposta: string, offerti: readonly string[], invitato: string | null = null): { testo: string; ospite: string | null } {
-	const testo = senzaSegnale(risposta);
-	// senza segnale ma con una domanda per nome ("Elliot, tu che dici?"): risponde lui, o la domanda resta nel vuoto
-	const segnale = risposta.match(new RegExp(`(?<!\\w)@(${chiavi()})\\b`, 'i'))?.[1]?.toLowerCase();
-	const chi = segnale ?? chiamatoPerNome(testo, invitato);
-	return { testo, ospite: chi && offerti.includes(chi) ? chi : null };
-}
-
-// una parola finisce dove non segue una lettera: \b e' solo ASCII, e "sì" o "perché" non ne chiuderebbero mai una
-const FINE_PAROLA = '(?![\\p{L}\\p{N}])';
-/** Prima di un nome detto a qualcuno: l'inizio della frase, una virgola, oppure "dai", "e tu", "tocca a te", "vabbe'"... */
-const PRIMA_DEL_NOME = String.raw`(?:^|[,;:]\s*|(?<![\p{L}\p{N}])(?:e\s+tu|e\s+te|dai|su|senti|allora|ehi|oh|ok|tocca\s+a\s+te|vabb[eè]'?|grazie|ciao|scusa|beh)\s*,?\s*)`;
-/** Dopo: punteggiatura, la fine della frase, oppure "tu", "che ne", "dimmi", "ascolta"... Non "te": "Krista te lo sta
- *  dicendo" parla di lei, non a lei. */
-const DOPO_IL_NOME = String.raw`(?=\s*(?:[,!?:;…]|\.{2,}|\.?\s*$)|\s+(?:tu|che\s+ne|che\s+dici|cosa\s+ne|cosa\s+dici|dimmi|digli|dille|diglielo|ascolta|senti|guarda|dicci)(?![\p{L}\p{N}]))`;
-/** La battuta si rivolge a qualcuno: una domanda, o una parola detta a un "tu". */
-const A_QUALCUNO = new RegExp(
-	`\\?|(?<![\\p{L}\\p{N}])(?:tu|te|ti|dimmi|digli|diglielo|dille|dai|senti|pensaci|aiutami|aiutalo|spiegagli|spiegaci|raccontaci|ascolta|guarda|ne pensi|che dici|cosa dici|tocca a te|la tua)${FINE_PAROLA}`,
-	'iu',
-);
-
-/**
- * Il personaggio a cui Melissa parla, perche' risponda: chi e' interrogato risponde sempre. Stessa regola della mod e
- * dell'iPhone (docs/CONTRATTI.md, 9.11). L'invitato conta se e' nominato, ovunque; gli altri se in una delle ultime due
- * frasi il nome e' detto a loro ("Elliot, tu che dici?", "Dai Krista, diglielo tu.", "E tu Krista che ne dici?",
- * "Tocca a te, Krista.") e la battuta si rivolge a qualcuno. "Ti ricordi quando Elliot ha bucato E Corp?" e "il file
- * di Krista" parlano di loro, non a loro. `daAndrea`: la frase e' di Andrea, che chiama col nome da vocativo in qualunque
- * frase e senza bisogno di una domanda ("Vabbe' Elliot, hai ragione"; "Ieri Elliot mi ha detto..." no).
- */
-export function chiamatoPerNome(testo: string, invitato: string | null = null, daAndrea = false): string | null {
-	if (!ORDINE.length) return null;
-	const inv = invitato && esiste(invitato) ? PERSONAGGI[invitato] : undefined;
-	if (inv && new RegExp(`(?<![\\p{L}\\p{N}@])${esc(inv.nome)}${FINE_PAROLA}`, 'iu').test(testo)) return invitato;
-	// una frase finisce con . ! ? … seguiti da uno spazio o dalla fine: ".env" o "3.5" non spezzano niente
-	const frasi = testo.split(/(?<=[.!?…])\s+/).map(f => f.trim()).filter(Boolean);
-	const coda = daAndrea ? frasi : frasi.slice(-2);
-	if (!coda.length || (!daAndrea && !A_QUALCUNO.test(coda.join(' ')))) return null;
-	const re = new RegExp(`${PRIMA_DEL_NOME}(${nomi()})${DOPO_IL_NOME}`, 'iu');
-	for (const f of [...coda].reverse()) {
-		const nome = f.match(re)?.[1];
-		if (nome) return chiaveDi(nome);
+/** A chi da' la parola una chiamata a passa_parola: una chiave fra le `offerte` (con la maiuscola vale lo stesso), o null
+ *  se gli argomenti non si leggono o la chiave non e' offerta. */
+export function passaParolaA(argomenti: string | undefined, offerte: readonly string[]): string | null {
+	try {
+		const x = JSON.parse(argomenti || '{}');
+		const a = typeof x?.a === 'string' ? x.a.trim().toLowerCase() : '';
+		return offerte.includes(a) ? a : null;
+	} catch {
+		return null;
 	}
-	return null;
+}
+
+/** Come si chiede al modello di dare la parola: la battuta e la chiamata insieme, nella stessa risposta. Misurato il 6/10:
+ *  con il solo «chiama lo strumento» DeepSeek Flash faceva la domanda nel testo e lo strumento lo saltava; cosi' lo
+ *  chiama 6 volte su 6, Agnes 3 su 3, e il testo arriva prima della chiamata (la prima frase non aspetta). */
+export function chiamaCon(chi: string): string {
+	if (!esiste(chi)) return '';
+	const p = PERSONAGGI[chi]!;
+	return `Nella stessa risposta fai due cose: scrivi la tua battuta, che chiude con una domanda rivolta a ${p.nome}, e chiama lo strumento ${PASSA_PAROLA} con a = ${chi}. Il testo da solo non basta: senza la chiamata ${p.nome} non sente la domanda.`;
 }
 
 /** Il primo personaggio, in ordine, le cui `parole` compaiono in quello che Andrea ha detto; null se nessuno. */
@@ -411,20 +384,16 @@ export function ospiteDellaFrase(detto: string, ultimo: string, caso = Math.rand
 }
 
 /**
- * Cosa si aggiunge al prompt di Melissa. `voluto`: chi Andrea ha chiesto di sentire. `scelto`: chi puo' tirare dentro
- * da sola. `vivo`: piu' risposte senza ospiti, quindi lo tira dentro adesso. Stesso testo della mod e dell'iPhone.
+ * Cosa si aggiunge al prompt di Melissa. `scelto`: chi puo' tirare dentro da sola. `vivo`: piu' risposte senza ospiti,
+ * quindi lo tira dentro adesso, e l'invito e' deciso. Va nel prompt solo se il cervello ha lo strumento passa_parola.
+ * Stesso testo dell'iPhone.
  */
-export function invito(voluto: string | null, scelto: string | null, vivo: boolean): string {
-	const v = voluto ? PERSONAGGI[voluto] : undefined;
-	if (voluto && v) {
-		return `Andrea vuole sentire anche ${v.nome}: rispondi tu e chiudi con una domanda rivolta a lei o a lui, poi scrivi alla fine, da sola, la parola @${voluto}.`;
-	}
+export function invito(scelto: string | null, vivo: boolean): string {
 	const p = scelto ? PERSONAGGI[scelto] : undefined;
 	if (!scelto || !p) return '';
-	const chiudi = `chiudi con una domanda rivolta a ${p.nome} e scrivi alla fine, da sola, la parola @${scelto}`;
 	return vivo
-		? `Stavolta tira dentro ${p.nome} di Mr. Robot (${RUOLI[scelto] ?? p.nome}): trova l'aggancio in quello che ha detto Andrea, rispondi tu e ${chiudi}; ${campoDi(scelto)}.`
-		: `Con te c'e' anche ${p.nome} di Mr. Robot (${RUOLI[scelto] ?? p.nome}). Solo quando rende la chiacchierata piu' viva puoi tirarlo dentro: ${chiudi}; ${campoDi(scelto)}. Di solito rispondi da sola.`;
+		? `Stavolta tira dentro ${p.nome} di Mr. Robot (${RUOLI[scelto] ?? p.nome}): trova l'aggancio in quello che ha detto Andrea e rispondi tu; ${campoDi(scelto)}. ${chiamaCon(scelto)}`
+		: `Con te c'e' anche ${p.nome} di Mr. Robot (${RUOLI[scelto] ?? p.nome}). Solo quando rende la chiacchierata piu' viva puoi tirarlo dentro; ${campoDi(scelto)}. Per farlo: ${chiamaCon(scelto)} Di solito rispondi da sola e non chiami nessuno.`;
 }
 
 // ---------- ospiti dai fatti (CONTRATTI 9.11, build 134): un personaggio entra da solo solo se un fatto lo chiama ----------
@@ -547,7 +516,7 @@ export function invitoRacconto(chi: string | null, fatto = ''): string {
 	const p = chi ? PERSONAGGI[chi] : undefined;
 	if (!chi || !p) return '';
 	const su = fatto ? `il fatto e' questo: ${fatto}; la domanda parla di quello` : "trova l'aggancio in quello che hai raccontato";
-	return `Racconta tutto da sola, come ti e' chiesto; solo alla fine, nell'ultima frase, tira dentro ${p.nome} di Mr. Robot: ${su}; ${campoDi(chi)}. Chiudi con una domanda rivolta a ${p.nome} e scrivi alla fine, da sola, la parola @${chi}.`;
+	return `Racconta tutto da sola, come ti e' chiesto; solo alla fine, nell'ultima frase, tira dentro ${p.nome} di Mr. Robot: ${su}; ${campoDi(chi)}. ${chiamaCon(chi)}`;
 }
 
 /** Cosa si chiede a un ospite: solo dal suo `ruolo_cronaca`. A chi ha `umore` (Krista) il lato umano anche di un fatto

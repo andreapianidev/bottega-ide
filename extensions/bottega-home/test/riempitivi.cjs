@@ -27,54 +27,28 @@ function test(name, fn) {
 	prove.push([name, fn]);
 }
 
-test('chi risponde: tutti i casi della tabella della 9.11', () => {
-	const casi = [
-		['Elliot, tu che dici?', 'elliot'],
-		['Che ne pensi, Krista?', 'krista'],
-		['Allora, Darlene?', 'darlene'],
-		['Elliot... tu che dici?', 'elliot'],
-		['Dai Krista, diglielo tu.', 'krista'],
-		['E tu Krista che ne dici?', 'krista'],
-		['Tocca a te, Krista.', 'krista'],
-		["Krista, che ne pensi? Io dico di si'.", 'krista'],
-		['Ehi Darlene ascolta questa.', 'darlene'],
-		['Ok Elliot, ma tu cosa faresti?', 'elliot'],
-		['Ti ricordi quando Elliot ha bucato E Corp?', null],
-		['Vuoi che apra il file di Krista?', null],
-		['Krista direbbe che sei pigro.', null],
-		["Darlene, al posto tuo, avrebbe gia' litigato.", null],
-		["Darlene ti ha mai detto di no? Comunque e' finita.", null],
-		['Non so. Tu che dici?', null],
-		["Krista te lo sta dicendo da mezz'ora e tu fai lo gnorri.", null],
-		['Sono sicura che Krista avrebbe qualcosa da dirti.', null],
-	];
-	for (const [t, chi] of casi) assert.strictEqual(P.chiamatoPerNome(t), chi, t);
-	assert.strictEqual(P.chiamatoPerNome('Sono sicura che Krista avrebbe qualcosa da dirti.', 'krista'), 'krista', 'l\'invitato, nominato ovunque');
-	assert.strictEqual(P.chiamatoPerNome('Sono sicura che Krista avrebbe qualcosa da dirti.', 'elliot'), null, 'un altro invitato non conta');
-});
-
-test('chi risponde: segnale, invitato, ultime due frasi, offerti', () => {
-	assert.deepStrictEqual(P.chiamata('Ti ricordi Elliot? Parliamone @darlene', ['darlene', 'elliot']), { testo: 'Ti ricordi Elliot? Parliamone', ospite: 'darlene' }, 'il segnale vince, ovunque');
-	assert.deepStrictEqual(P.chiamata('Sono sicura che Krista avrebbe qualcosa da dirti.', ['krista'], 'krista'), { testo: 'Sono sicura che Krista avrebbe qualcosa da dirti.', ospite: 'krista' });
-	assert.deepStrictEqual(P.chiamata('Elliot, tu che dici?', []), { testo: 'Elliot, tu che dici?', ospite: null }, 'solo tra gli offerti');
-	assert.strictEqual(P.chiamatoPerNome('Elliot, tu che dici? Ok. Va bene. Basta.'), null, 'il vocativo sta nelle ultime due frasi');
-	assert.strictEqual(P.chiamatoPerNome('Ho aperto il .env di prova. Elliot, che ne pensi?'), 'elliot', '".env" non spezza la frase');
-	assert.strictEqual(P.chiamatoPerNome('Il file .env? Lo guardo io. Darlene, dimmi.'), 'darlene');
-	assert.strictEqual(P.chiamatoPerNome('Ehi Krista! Sì, tu.'), 'krista', 'la parola finisce anche dopo una lettera accentata');
-	assert.strictEqual(P.chiamatoPerNome('Krista'), null, 'il nome da solo non si rivolge a nessuno');
-	assert.strictEqual(P.chiamatoPerNome('Mandalo a @krista, poi vediamo.', 'krista'), null, 'l\'invitato non conta dentro un segnale');
-});
-
-test('anche Andrea chiama: il nome da vocativo in qualunque frase, senza domanda', () => {
-	assert.strictEqual(P.chiamatoPerNome("Vabbe' Elliot, hai ragione.", null, true), 'elliot');
-	assert.strictEqual(P.chiamatoPerNome('Ieri Elliot mi ha detto che la VPN non regge.', null, true), null);
-	assert.strictEqual(P.chiamatoPerNome('Grazie Krista. Comunque domani lo faccio. Poi vediamo.', null, true), 'krista', 'anche nella prima frase');
-	assert.strictEqual(P.chiamatoPerNome('Vabbè Darlene, come vuoi.', null, true), 'darlene');
-	assert.strictEqual(P.chiamatoPerNome('Ciao Elliot.', null, true), 'elliot');
-	assert.strictEqual(P.chiamatoPerNome('Scusa Krista, non volevo.', null, true), 'krista');
-	assert.strictEqual(P.chiamatoPerNome('Beh Darlene, ci provo.', null, true), 'darlene');
-	assert.strictEqual(P.chiamatoPerNome("Vabbe' Elliot, hai ragione."), null, 'per Melissa la battuta deve rivolgersi a qualcuno');
-	assert.strictEqual(P.chiamatoPerNome("Vabbe' Elliot, tu che dici?"), 'elliot', 'e vabbe\' vale anche per lei');
+test('chi risponde: lo dice lo strumento passa_parola, mai un nome nel testo (9.11)', () => {
+	const t = P.strumentoPassaParola(['elliot', 'krista']);
+	assert.strictEqual(t.function.name, 'passa_parola');
+	assert.deepStrictEqual(t.function.parameters.properties.a.enum, ['elliot', 'krista'], 'solo chi puo\' rispondere adesso');
+	assert.deepStrictEqual(t.function.parameters.required, ['a']);
+	assert.strictEqual(P.passaParolaA('{"a": "elliot", "perche": "le chiavi"}', ['elliot', 'krista']), 'elliot');
+	assert.strictEqual(P.passaParolaA('{"a": "Krista"}', ['elliot', 'krista']), 'krista', 'con la maiuscola vale lo stesso');
+	assert.strictEqual(P.passaParolaA('{"a": "darlene"}', ['elliot', 'krista']), null, 'solo tra gli offerti');
+	assert.strictEqual(P.passaParolaA('{"a": "constructor"}', ['elliot']), null);
+	assert.strictEqual(P.passaParolaA('{"a": "ell', ['elliot']), null, 'JSON rotto: nessuno');
+	assert.strictEqual(P.passaParolaA('', ['elliot']), null);
+	assert.strictEqual(P.passaParolaA(undefined, ['elliot']), null);
+	// l'invito chiede la battuta e la chiamata insieme, nella stessa risposta
+	assert.ok(/Nella stessa risposta fai due cose[\s\S]*domanda rivolta a Elliot[\s\S]*passa_parola con a = elliot/.test(P.chiamaCon('elliot')));
+	assert.strictEqual(P.chiamaCon('constructor'), '');
+	for (const k of P.ORDINE) {
+		const testi = [P.invito(k, true), P.invito(k, false), P.invitoRacconto(k, 'un fatto')];
+		assert.ok(testi.every(x => x.includes(`passa_parola con a = ${k}`) && !/@/.test(x)), `${k}: lo strumento, niente chiocciola`);
+	}
+	assert.strictEqual(P.invito(null, true), '');
+	// le vecchie regole sui nomi non ci sono piu'
+	for (const via of ['chiamatoPerNome', 'chiamata', 'senzaSegnale', 'senzaSegnaleInCorso', 'ospiteChiesto']) assert.strictEqual(P[via], undefined, via);
 });
 
 test('intenzione di quello che Andrea ha detto: la prima regola che vale', () => {

@@ -8,7 +8,7 @@ import type { Cervelli } from './cervelli';
 import { BrainName, BrainRouter, OpenAiStreamFn, appleInstructions, appleOpenAiStream, appleToolSpecs } from './cervello';
 import { SystemStats } from './nucleo';
 import { ATTESA_MS, eFallito, fraseAttesa, fraseFine, fraseInizio } from './racconto';
-import { CHI_VUOLE_MS, NON_RIPETERE, ORDINE, PERSONAGGI, REGOLE, RIEMPITIVI_MELISSA, RUOLI, chiChiede, chiamata, chiamatoPerNome, cuore, daChiacchiera, dallaRiga, elenco, esiste, frenoOspite, invito, invitoRacconto, leggiChiVuole, nomeDi, occasione, ospiteChiesto, giroDiVoci, insieme, istruzioneGiro, ospiteDellaFrase, perArgomento, perSfogo, promptChiVuole, REGOLA_REGIA, regia, rigaChiVuole, senzaSegnale, senzaSegnaleInCorso } from './personaggi';
+import { CHI_VUOLE_MS, NON_RIPETERE, ORDINE, PASSA_PAROLA, PERSONAGGI, REGOLE, RIEMPITIVI_MELISSA, RUOLI, chiChiede, chiamaCon, cuore, daChiacchiera, dallaRiga, elenco, esiste, frenoOspite, invito, invitoRacconto, leggiChiVuole, nomeDi, occasione, giroDiVoci, insieme, istruzioneGiro, ospiteDellaFrase, passaParolaA, perArgomento, perSfogo, promptChiVuole, REGOLA_REGIA, regia, rigaChiVuole, strumentoPassaParola } from './personaggi';
 import { MemoriaPersonaggi, type RegistraMemoria } from './memoria-personaggi';
 import type { Voluto } from './personaggi';
 import { sezioneMemoria } from './memoria-contesto';
@@ -652,6 +652,10 @@ export class Assistant {
 	private umoreAt = 0;
 	/** Cosa il turno in corso aggiunge al prompt di Melissa per tirare dentro un personaggio. */
 	private invitoTurno = '';
+	/** A chi Melissa puo' dare la parola in questo turno, con lo strumento passa_parola (CONTRATTI 9.11); [] nessuno. */
+	private passaOfferti: string[] = [];
+	/** A chi l'ha data, se ha chiamato passa_parola: lo scrive runAgent. */
+	private passataA: string | null = null;
 	/** Una frase arrivata mentre un turno (con le sue battute a tre) era in corso: parte dopo, mai insieme. */
 	private dopo?: { text: string; push: boolean };
 	private dopoInAttesa = false;
@@ -728,7 +732,7 @@ export class Assistant {
 	getState(): AssistantState {
 		return { ...this.state,
 			answerPartial: (this.state.state === 'thinking' || this.state.state === 'speaking') && this.turnText.trim()
-				? senzaSegnaleInCorso(cleanForVoice(this.turnText)).slice(0, 12_000) || undefined : undefined,
+				? cleanForVoice(this.turnText).slice(0, 12_000) || undefined : undefined,
 			personaggi: elenco(),
 			log: this.state.log.slice(-30), attivita: (this.state.attivita ?? []).slice(-40), raccontando: !!this.racconto || this.raccontoAudio };
 	}
@@ -1316,17 +1320,17 @@ export class Assistant {
 			this.history.push({ role: 'user', content: userText });
 			return this.sayFull(this.saluto(chiesto, prima), speak);
 		}
-		// Melissa puo' tirare dentro un personaggio: quello che Andrea chiede, o in conversazione quello scelto dal
-		// codice, dopo due risposte senza ospiti (dopo quattro lo fa di sicuro). Come la mod e l'iPhone.
+		// Melissa puo' tirare dentro un personaggio: in conversazione quello scelto dal codice, offerto da subito e deciso
+		// dopo due risposte senza ospiti. Chi Andrea vuole sentire lo capisce chiVuole, qui sotto. Come l'iPhone.
 		const conMelissa = this.chi() === 'melissa' && speak && !this.remote && !this.racconto;
-		const voluto = conMelissa ? ospiteChiesto(userText) : null;
 		// un ospite puo' entrare dopo ogni risposta di Melissa senza ospite (non chi ha l'argomento e c'era appena);
 		// l'invito e' deciso dopo due, o subito se Andrea tocca l'argomento di un personaggio o si sfoga (CONTRATTI 9.11)
 		const adatto = conMelissa ? perArgomento(userText) ?? perSfogo(userText) : null;
 		const puo = this.dallUltimoOspite >= 1 && (this.dallUltimoOspite >= 2 || !adatto || adatto !== this.ultimoOspite);
-		const scelto = conMelissa && !voluto && this.state.conversing && puo
+		const scelto = conMelissa && this.state.conversing && puo
 			? ospiteDellaFrase(userText, this.ultimoOspite) : null;
-		this.invitoTurno = invito(voluto, scelto, this.dallUltimoOspite >= 2 || (!!adatto && scelto === adatto));
+		const vivo = this.dallUltimoOspite >= 2 || (!!adatto && scelto === adatto);
+		this.invitoTurno = invito(scelto, vivo);
 		// in «racconta» niente chiacchierata: un ospite entra solo per un fatto in quello che si legge, e la fine della
 		// lettura e' gia' un fatto; Melissa riceve l'invito con il fatto, salvo i freni (CONTRATTI 9.11, «Ospiti dai fatti»)
 		const inRacconto = this.chi() === 'melissa' && speak && !this.remote && !!this.racconto;
@@ -1340,17 +1344,18 @@ export class Assistant {
 			this.invitoTurno = invitoRacconto(ospiteRacconto, occ.fatto);
 			if (occ.tipo === 'umore') this.umoreAt = Date.now();
 		}
-		// chi il codice le ha chiesto di tirare dentro: se lo nomina, ovunque, risponde
-		const invitato = voluto ?? scelto ?? ospiteRacconto;
-		// Andrea si rivolge per nome a un personaggio ("Vabbe' Elliot, hai ragione"): risponde lui, poi Melissa chiude
-		const aLui = conMelissa ? chiamatoPerNome(userText, null, true) : null;
-		// ogni frase di Andrea in chiacchierata va nella Memoria, con chi aveva la chiamata o chi ha chiamato (CONTRATTI 9.11)
-		if (this.state.conversing && !this.remote && !this.racconto) this.memoria.scrivi(aLui ?? this.chi(), 'andrea', userText);
-		// risponde chi Melissa chiama, proposto o no: una domanda senza risposta e' peggio
-		const offerti = conMelissa || inRacconto ? ORDINE : [];
-		// in chiacchierata il modello capisce chi vuole sentire Andrea, in parallelo con la risposta (CONTRATTI 9.11,
-		// «Chi vuole sentire Andrea»): "passami la psicologa", "Cristal" capito male. Il nome esatto e' gia' passato sopra
-		const cv = this.state.conversing && speak && !this.remote && !this.racconto && !aLui && !voluto ? this.chiVuole(userText) : null;
+		// l'invito deciso dal codice: chi e' invitato risponde anche se il modello si dimentica di chiamare passa_parola
+		const deciso = ospiteRacconto ?? (scelto && vivo ? scelto : null);
+		// ogni frase di Andrea in chiacchierata va nella Memoria, con chi aveva la chiamata (CONTRATTI 9.11)
+		if (this.state.conversing && !this.remote && !this.racconto) this.memoria.scrivi(this.chi(), 'andrea', userText);
+		// a chi Melissa puo' dare la parola: lo decide il modello con passa_parola, mai un nome cercato nel testo
+		const offerti = conMelissa || inRacconto ? this.conVoce() : [];
+		this.passaOfferti = offerti;
+		this.passataA = null;
+		// a voce il modello capisce chi vuole sentire Andrea, in parallelo con la risposta (CONTRATTI 9.11, «Chi vuole
+		// sentire Andrea»): "passami la psicologa", "chiedi a Elliot", "Vabbe' Elliot, e tu?". Il nome esatto dopo
+		// "passami" e' gia' passato sopra
+		const cv = speak && !this.remote && !this.racconto ? this.chiVuole(userText) : null;
 		const passaggio: { v?: Voluto } = {};
 
 		const ac = new AbortController();
@@ -1379,11 +1384,11 @@ export class Assistant {
 		// Agnes (o il cervello scelto a mano), oppure Apple: scelto a mano, o di riserva con l'interruttore aperto.
 		const viaRouter = !choice || choice.provider === 'agnes' || choice.provider === 'apple';
 		const pick = viaRouter ? this.router.choose(userText) : { brain: 'agnes' as BrainName, why: 'principale' as const };
-		const note = !aLui && viaRouter && choice?.provider !== 'apple' ? this.router.announce(pick.brain, pick.why) : null;
+		const note = viaRouter && choice?.provider !== 'apple' ? this.router.announce(pick.brain, pick.why) : null;
 		if (note && speak) this.emitClause(note);
 		// mentre il modello pensa: a 900 ms un riempitivo per quello che Andrea ha detto, a 5 e 10 s uno di `lunga`.
 		// Non dopo la nota del router (la voce e' gia' partita), non durante «racconta», non per l'iPhone
-		if (speak && !note && !aLui && !this.remote && !this.racconto) this.armaRiempitivi(userText, ac.signal);
+		if (speak && !note && !this.remote && !this.racconto) this.armaRiempitivi(userText, ac.signal);
 		const done = (answer: string, brain: BrainName, said?: string | null, sendFinal = true): string => {
 			this.state.brain = brain;
 			// dopo le battute a tre ogni turno di voce e' gia' chiuso: un altro final ne aprirebbe uno vuoto
@@ -1399,17 +1404,21 @@ export class Assistant {
 		// le battute a tre gia' dette, anche se un tocco ferma il giro a meta'
 		const altre: { chi: string; testo: string }[] = [];
 		let detta: string | undefined;
-		// Ogni risposta passa di qui, da qualunque cervello arrivi: il segnale si toglie, e chi e' chiamato risponde.
+		// Ogni risposta passa di qui, da qualunque cervello arrivi: chi ha ricevuto la parola risponde.
 		const chiudi = async (risposta: string, brain: BrainName, said?: string | null): Promise<string> => {
 			const cvr = cv ? await cv : null;
 			// il modello ha capito tardi, con la risposta gia' partita: niente regia, ma il giro a piu' voci si fa
 			const giroTardi = cvr && !(cvr.passa && cvr.passa !== this.chi()) ? giroDiVoci(cvr, this.conVoce(), this.chi()) : { voci: [], chiude: false };
 			const unico = cvr && !giroTardi.voci.length && cvr.chiede.length === 1 ? cvr.chiede[0]! : null;
-			const { testo, ospite: chiamato } = chiamata(risposta, offerti, invitato ?? unico);
-			// Andrea voleva il parere di uno di loro: se Melissa non chiama nessuno, risponde lui
+			// chi ha la parola: quello di passa_parola; senza la chiamata, l'invitato deciso dal codice, ma solo se il
+			// cervello aveva lo strumento (Apple no: Melissa parla da sola)
+			const conStrumento = brain !== 'apple' && offerti.length > 0;
+			const chiamato = this.passataA ?? (conStrumento && deciso && offerti.includes(deciso) ? deciso : null);
+			if (!this.passataA && chiamato) this.out.info(`passa la parola: ${chiamato}, invito deciso senza la chiamata`);
+			// Andrea voleva il parere di uno di loro: se Melissa non da' la parola a nessuno, risponde lui
 			const ospite = chiamato ?? (unico && offerti.includes(unico) ? unico : null);
 			// dopo un riempitivo il suo «Allora,» iniziale sarebbe detto due volte
-			const answer = this.riempito ? senzaAttacco(testo) : testo;
+			const answer = this.riempito ? senzaAttacco(risposta) : risposta;
 			if (this.chi() === 'melissa') this.dallUltimoOspite++;
 			detta = answer;
 			const voci = giroTardi.voci.length ? [...(ospite ? [ospite] : []), ...giroTardi.voci.filter(k => k !== ospite)] : [];
@@ -1417,7 +1426,7 @@ export class Assistant {
 				: ospite && speak ? await this.aTre(ospite, answer, ac.signal, altre, brain) : false;
 			const full = done(answer, brain, said, !passata);
 			// la lettura lunga di «racconta» non entra nella memoria di Melissa: riempirebbe da sola i suoi cinque posti
-			if (!this.racconto) this.ricorda(this.chi(), answer);
+			if (!this.racconto && answer) this.ricorda(this.chi(), answer);
 			this.registraAltre(altre);
 			// il modello ha capito tardi che Andrea vuole un altro: la chiamata passa dopo la risposta
 			if (cvr?.passa && cvr.passa !== this.chi()) await this.passaChiamata(cvr.passa, speak);
@@ -1433,17 +1442,6 @@ export class Assistant {
 		};
 
 		try {
-			if (aLui) {
-				this.history.push({ role: 'user', content: userText });
-				this.trimHistory();
-				const passata = await this.aTre(aLui, '', ac.signal, altre, pick.brain, [], false, true);
-				this.state.brain = pick.brain;
-				if (speak) this.finalizeSpeech(!passata);
-				this.registraAltre(altre);
-				this.afterTurn(speak);
-				this.passo(`${nomeDi(aLui)} risponde ad Andrea`, 'fatto');
-				return altre.map(r => r.testo).join(' ');
-			}
 			const risposta = await this.runAgent(userText, speak, ac.signal, pick.brain);
 			if (pick.brain === 'agnes' && viaRouter) this.router.agnesOk();
 			return await chiudi(risposta, pick.brain, note);
@@ -1504,6 +1502,7 @@ export class Assistant {
 			this.fermaRiempitivi();
 			this.togliAttacco = 0;
 			this.invitoTurno = '';
+			this.passaOfferti = [];
 			if (this.currentAbort === ac) this.currentAbort = undefined;
 			if (this.dopo) void this.riprendi();
 		}
@@ -1706,12 +1705,11 @@ export class Assistant {
 	 * finita (due voci ElevenLabs sono due socket, e il loro audio si mescolerebbe). Le righe dette vanno in `fatte`
 	 * appena partono, anche se un tocco ferma il giro dopo. Vero se ha preso la voce (e chiuso il turno di Melissa).
 	 * `prima`: le battute del giro gia' dette e non ancora nel registro. `ultima`: risponde e basta (l'ha chiamato un
-	 * altro personaggio, o Melissa chiudendo), niente chiusa. `daAndrea`: l'ha chiamato Andrea per nome, e Melissa non ha
-	 * detto niente prima (`detta` vuota). `daChi`: il personaggio che gli ha appena chiesto qualcosa.
-	 * Parlano fra loro (CONTRATTI 9.11): nel 40% dei casi il chiamato chiude chiedendo per nome a un altro cosa ne pensa,
-	 * e quello risponde una volta; poi Melissa chiude con tutto il giro davanti.
+	 * altro personaggio, o Melissa chiudendo), niente chiusa. `daChi`: il personaggio che gli ha appena chiesto qualcosa.
+	 * Parlano fra loro (CONTRATTI 9.11): nel 40% dei casi il chiamato chiude chiedendo a un altro cosa ne pensa e gli da'
+	 * la parola con passa_parola, e quello risponde una volta; poi Melissa chiude con tutto il giro davanti.
 	 */
-	private async aTre(chi: string, detta: string, signal: AbortSignal, fatte: { chi: string; testo: string }[], brain: BrainName = 'agnes', prima: string[] = [], ultima = false, daAndrea = false, daChi: string | null = null): Promise<boolean> {
+	private async aTre(chi: string, detta: string, signal: AbortSignal, fatte: { chi: string; testo: string }[], brain: BrainName = 'agnes', prima: string[] = [], ultima = false, daChi: string | null = null): Promise<boolean> {
 		const p = PERSONAGGI[chi];
 		if (!p || !this.speaking || this.remote) return false;
 		if (!ultima) {
@@ -1743,33 +1741,32 @@ export class Assistant {
 		const altri = ORDINE.filter(k => k !== chi && k !== daChi && PERSONAGGI[k]?.voce);
 		const passabili = daChiacchiera([chi, ...(daChi ? [daChi] : [])]).filter(k => PERSONAGGI[k]?.voce);
 		const passa = !ultima && passabili.length > 0 && this.caso() < 0.4 ? passabili[Math.min(passabili.length - 1, Math.floor(this.caso() * passabili.length))]! : null;
-		const chiede = daAndrea ? "Andrea si e' appena rivolto a te" : daChi ? `${nomeDi(daChi)} ti ha appena chiesto qualcosa` : `Melissa ti ha appena tirato in mezzo, e tocca a te per ${RUOLI[chi] ?? 'dire la tua'}`;
-		const rispondi = daAndrea ? 'Rispondi ad Andrea' : daChi ? `Rispondi a ${nomeDi(daChi)}, davanti ad Andrea` : 'Rispondi alla domanda di Melissa e ad Andrea';
+		const chiede = daChi ? `${nomeDi(daChi)} ti ha appena chiesto qualcosa` : `Melissa ti ha appena tirato in mezzo, e tocca a te per ${RUOLI[chi] ?? 'dire la tua'}`;
+		const rispondi = daChi ? `Rispondi a ${nomeDi(daChi)}, davanti ad Andrea` : 'Rispondi alla domanda di Melissa e ad Andrea';
 		try {
-			const grezza = await this.breve(
+			const { testo: battuta, a: chiamato, conStrumento } = await this.breveConPassa(
 				`${p.carattere} Sei nella Bottega, l'IDE di Andrea, in una chiacchierata a voce con lui, Melissa e gli altri di Mr. Robot. ${chiede}. Sai solo quello che c'e' nella chiacchierata e nella memoria qui sotto: non inventare stati di progetti, lavori o sessioni. ${ora} ${REGOLE}${await detti(chi)}`,
-				`La chiacchierata:\n${finora()}${this.memoriaTurno}\n\n${rispondi} in una o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero; puoi punzecchiare Melissa, ma da amici.${passa ? ` Poi chiudi chiedendo a ${nomeDi(passa)}, per nome, cosa ne pensa.` : ''} Solo le parole che diresti.`,
+				`La chiacchierata:\n${finora()}${this.memoriaTurno}\n\n${rispondi} in una o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero; puoi punzecchiare Melissa, ma da amici.${passa ? ` Poi chiedi a ${nomeDi(passa)} cosa ne pensa. ${chiamaCon(passa)}` : ''} Solo le parole che diresti.`,
 				signal,
 				brain,
-				true,
+				ultima ? [] : altri,
 			);
-			// se la sua battuta chiama davvero qualcuno (quello suggerito, nominato ovunque, o un altro per nome), risponde
-			const { testo: battuta, ospite: passato } = grezza ? chiamata(grezza, altri, passa) : { testo: '', ospite: null };
+			// da' la parola chi chiama passa_parola; senza la chiamata, quello a cui il codice gli ha detto di darla (deciso)
+			const passato = chiamato ?? (passa && conStrumento ? passa : null);
 			if (!battuta) return true;
 			await this.finoAlSilenzio(signal);
 			this.direCon(battuta, p.voce, chi);
 			fatte.push({ chi, testo: battuta });
 			if (ultima) return true;
-			if (passato) await this.aTre(passato, '', signal, fatte, brain, delGiro(), true, false, chi);
-			const grezzaChiusa = await this.breve(
+			if (passato) await this.aTre(passato, '', signal, fatte, brain, delGiro(), true, chi);
+			const { testo: chiusa, a: ospite } = await this.breveConPassa(
 				`${MELISSA_CORE}\n\n${TRUTH_RULE}\n\n${ora}${await detti('melissa')}`,
 				`La chiacchierata:\n${finora()}${this.memoriaTurno}\n\nHanno appena detto la loro. Chiudi tu in una o due frasi, rivolta ad Andrea, riprendendo il filo o rispondendo a modo tuo, senza fare domande a ${p.nome} ne' agli altri. Solo le parole che diresti.`,
 				signal,
 				brain,
-				true,
+				this.conVoce(),
 			);
-			// se chiede comunque qualcosa a qualcuno, chi e' interrogato risponde, una volta
-			const { testo: chiusa, ospite } = grezzaChiusa ? chiamata(grezzaChiusa, ORDINE) : { testo: '', ospite: null };
+			// se da' comunque la parola a qualcuno, quello risponde, una volta
 			if (chiusa) {
 				await this.finoAlSilenzio(signal);
 				this.direCon(chiusa);
@@ -1785,31 +1782,52 @@ export class Assistant {
 
 	/** Una battuta breve, senza strumenti, con il cervello che ha risposto al turno (con Agnes a terra, la riserva).
 	 *  Null se non arriva niente. */
-	private async breve(system: string, user: string, signal: AbortSignal, brain: BrainName = 'agnes', conSegnale = false): Promise<string | null> {
+	private async breve(system: string, user: string, signal: AbortSignal, brain: BrainName = 'agnes'): Promise<string | null> {
+		return (await this.breveConPassa(system, user, signal, brain, [])).testo;
+	}
+
+	/** Una battuta breve che puo' dare la parola a uno di `passaA` con lo strumento passa_parola (CONTRATTI 9.11): il
+	 *  testo e a chi, o null. `conStrumento`: il cervello aveva lo strumento (Apple no, e nessuno viene chiamato). */
+	private async breveConPassa(system: string, user: string, signal: AbortSignal, brain: BrainName, passaA: readonly string[]): Promise<{ testo: string | null; a: string | null; conStrumento: boolean }> {
 		let text = '';
+		const calls = new Map<number, { name: string; args: string }>();
 		const ac = new AbortController();
 		const stop = () => ac.abort();
 		signal.addEventListener('abort', stop);
 		const t = setTimeout(stop, 20_000);
+		const tools: ToolSpec[] = brain !== 'apple' && passaA.length ? [strumentoPassaParola(passaA)] : [];
+		const onDelta = (d: LlmDelta) => {
+			text += d.content ?? '';
+			if (d.tool_call) {
+				const i = d.tool_call.index ?? 0;
+				const cur = calls.get(i) ?? { name: '', args: '' };
+				if (d.tool_call.name) cur.name = d.tool_call.name;
+				if (d.tool_call.arguments) cur.args += d.tool_call.arguments;
+				calls.set(i, cur);
+			}
+		};
 		try {
 			const messages: LlmMessage[] = [{ role: 'system', content: system }, { role: 'user', content: user }];
 			const riserva = brain === 'deepseek' ? this.deps.cervelli?.riservaDeepseek?.() : undefined;
 			const stream = brain === 'apple'
 				? (this.deps.appleStream ?? (this.appleAvailable() ? this.appleStreamFn() : undefined))
 				: (riserva && this.deps.cervelli?.streamFor(riserva)) || this.deps.stream;
-			if (stream) await stream(messages, [], d => (text += d.content ?? ''), ac.signal);
+			if (stream) await stream(messages, tools, onDelta, ac.signal);
 			else if (brain === 'apple') {
 				// il ripiego di Apple senza stream: lo stesso ai.generate del Nucleo
 				const r = await this.deps.nucleo.request<{ text: string }>('ai.generate', { prompt: user, instructions: system, maxTokens: 300 }, 20_000);
 				text = r?.text ?? '';
-			} else await this.callAgnesPlain(messages, d => (text += d.content ?? ''), ac.signal);
+			} else if (tools.length) await this.callAgnesStream(messages, tools, onDelta, ac.signal);
+			else await this.callAgnesPlain(messages, onDelta, ac.signal);
 		} finally {
 			clearTimeout(t);
 			signal.removeEventListener('abort', stop);
 		}
 		if (signal.aborted) throw new Error('interrotta');
-		// `conSegnale`: il segnale resta, per sapere chi chiama (lo toglie chiamata)
-		return (conSegnale ? cleanForVoice(text).trim() : senzaSegnale(cleanForVoice(text))) || null;
+		const passa = [...calls.values()].find(c => c.name === PASSA_PAROLA);
+		const a = passa ? passaParolaA(passa.args, passaA) : null;
+		if (passa) this.out.info(`passa la parola: ${a ?? 'niente, argomenti non validi'}`);
+		return { testo: cleanForVoice(text).trim() || null, a, conStrumento: tools.length > 0 };
 	}
 
 	/** Aspetta che la voce di adesso sia partita e finita (voice.state dal Nucleo), al massimo due minuti. */
@@ -1857,7 +1875,7 @@ export class Assistant {
 
 	/** Una battuta generata nella memoria di chi l'ha detta, nella Memoria della Bottega (CONTRATTI 9.11). Mai un errore. */
 	private ricorda(chi: string, testo: string): void {
-		this.memoria.scrivi(chi, chi, senzaSegnale(testo));
+		this.memoria.scrivi(chi, chi, testo);
 	}
 
 	/** Messaggi per il cervello: le righe di chi ha la chiamata sono sue, quelle degli altri "(Nome ha detto: ...)". */
@@ -1868,7 +1886,7 @@ export class Assistant {
 	}
 
 	private recordAnswer(answer: string): void {
-		const clean = senzaSegnale(cleanForVoice(answer));
+		const clean = cleanForVoice(answer).trim();
 		clearTimeout(this.partialStateTimer);
 		this.partialStateTimer = undefined;
 		this.turnText = '';
@@ -1880,7 +1898,7 @@ export class Assistant {
 	/** Un tocco ha fermato la risposta. Durante le battute a tre la risposta era gia' detta per intero: resta, con le
 	 *  battute gia' partite, e l'interrotta e' l'ultima di queste. */
 	private markInterrupted(partial: string, altre: { chi: string; testo: string }[] = []): void {
-		const clean = senzaSegnale(cleanForVoice(partial));
+		const clean = cleanForVoice(partial).trim();
 		clearTimeout(this.partialStateTimer);
 		this.partialStateTimer = undefined;
 		this.turnText = '';
@@ -1970,8 +1988,7 @@ export class Assistant {
 	/** Una frase al turno di voce aperto (o all'iPhone). `riempitivo`: la frase d'attesa di uno strumento lento, che non
 	 *  conta come risposta partita. */
 	private emitClause(frase: string, riempitivo = false): void {
-		// il segnale per tirare dentro un personaggio non si legge mai
-		let clause = senzaSegnale(frase);
+		let clause = frase.trim();
 		if (!clause) return;
 		if (!riempitivo) {
 			// la risposta comincia a parlare: i riempitivi ancora in attesa non servono piu'
@@ -2165,7 +2182,9 @@ export class Assistant {
 	// ----- il giro dei tool con Agnes in streaming (max 8 passi) -----
 
 	async runAgent(userText: string, speak: boolean, signal: AbortSignal, brain: BrainName = 'agnes'): Promise<string> {
-		const system = this.systemPrompt();
+		// a chi puo' dare la parola: con Apple nessuno, e nemmeno l'invito nel prompt (non avrebbe lo strumento)
+		const offerti = brain === 'apple' ? [] : this.passaOfferti;
+		const system = this.systemPrompt(offerti.length > 0);
 		const messages: LlmMessage[] = [
 			{ role: 'system', content: brain === 'apple' ? appleInstructions(this.persona(), system.slice((this.cachedCore ?? '').length).trim()) : system },
 			...this.storia(),
@@ -2186,7 +2205,7 @@ export class Assistant {
 		let stream: LlmStreamFn = brain === 'apple'
 			? (this.deps.appleStream ?? this.appleStreamFn())
 			: (forzato && this.deps.cervelli!.streamFor(forzato)) || (riserva && this.deps.cervelli!.streamFor(riserva)) || (choice && choice.provider !== 'agnes' && choice.provider !== 'apple' && this.deps.cervelli!.streamFor(choice)) || agnes;
-		const tools = brain === 'apple' ? (appleToolSpecs(this.specs) as ToolSpec[]) : this.specs;
+		const tools = brain === 'apple' ? (appleToolSpecs(this.specs) as ToolSpec[]) : offerti.length ? [...this.specs, strumentoPassaParola(offerti)] : this.specs;
 		const chosen = stream !== agnes && brain !== 'apple';
 		const chosenName = forzato ? brainName(forzato.model) : riserva ? brainName(riserva.model) : choice ? brainName(choice.model) : '';
 		this.passo(`${chosen ? chosenName : brain === 'apple' ? 'Apple Intelligence' : 'Agnes'} ${this.racconto ? 'analizza' : 'pensa'}`, 'corre');
@@ -2234,9 +2253,23 @@ export class Assistant {
 				const toolCalls: LlmToolCall[] = [...calls.entries()]
 					.sort((a, b) => a[0] - b[0])
 					.map(([, c]) => ({ id: c.id || `call_${c.name}`, type: 'function', function: { name: c.name, arguments: c.args } }));
+				// passa_parola non e' un'azione: dice chi risponde dopo la battuta. Da solo chiude il giro, senza un altro
+				// passo del modello (la battuta e' gia' detta); con altri strumenti il giro continua
+				for (const tc of toolCalls.filter(t => t.function.name === PASSA_PAROLA)) {
+					const a = passaParolaA(tc.function.arguments, offerti);
+					if (a) this.passataA = a;
+					this.out.info(`passa la parola: ${a ?? `niente, argomenti non validi (${tc.function.arguments || 'vuoti'})`}`);
+				}
+				if (toolCalls.every(t => t.function.name === PASSA_PAROLA)) {
+					return content.trim() || this.turnText.trim() || (this.passataA ? '' : 'Non ho niente da dirti.');
+				}
 				messages.push({ role: 'assistant', content: content || '', tool_calls: toolCalls });
 				for (const tc of toolCalls) {
 					if (signal.aborted) throw abortError(); // tool non ancora partito: niente effetti
+					if (tc.function.name === PASSA_PAROLA) {
+						messages.push({ role: 'tool', tool_call_id: tc.id, name: tc.function.name, content: this.passataA ? `Fatto: ${nomeDi(this.passataA)} risponde dopo la tua battuta.` : 'Chiave non valida: nessuno risponde.' });
+						continue;
+					}
 					const key = tc.function.name + ' ' + normClause(tc.function.arguments || '');
 					let result: string;
 					if (done.has(key)) {
@@ -2325,7 +2358,8 @@ export class Assistant {
 
 	// ----- prompt di sistema con contesto in diretta (valori gia' noti, niente blocchi) -----
 
-	systemPrompt(): string {
+	/** `conInvito`: il cervello ha lo strumento passa_parola, e l'invito a tirare dentro un personaggio ha senso. */
+	systemPrompt(conInvito = false): string {
 		this.cachedCore = this.persona() + '\n\n' + TRUTH_RULE;
 		const live = this.deps.liveSessions();
 		const jobs = this.deps.jobs();
@@ -2347,7 +2381,7 @@ export class Assistant {
 			`Adesso e\' ${nowLine()} (fuso ${TZ}).`,
 			`Andrea ha ${this.deps.projectCount()} progetti. ${this.deps.actions.activityList ? this.deps.actions.activityList(undefined, undefined, 'attive') : `Sessioni di Claude vive: ${liveLine}. Lavori: ${jobLine}.`} Sistema: ${pressure}.`,
 			'Per le azioni a rischio (git push, fermare un lavoro) chiedi sempre "confermi?" e aspetta un si esplicito: il tool stesso te lo ricorda.',
-			...(this.invitoTurno ? [this.invitoTurno] : []),
+			...(conInvito && this.invitoTurno ? [this.invitoTurno] : []),
 			// le sue ultime battute e cosa ricorda di Andrea, dalla Memoria (CONTRATTI 9.11)
 			this.ricordiTurno,
 		].filter(Boolean).join('\n\n') + this.memoriaTurno;
