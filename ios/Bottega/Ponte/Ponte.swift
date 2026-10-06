@@ -515,7 +515,7 @@ final class Ponte {
 
     func importaStoria(_ turns: [TurnoTelefono]) async throws {
         struct R: Decodable { let ok: Bool }
-        let body: [[String: String]] = turns.map { ["id": $0.id.uuidString.lowercased(), "chi": $0.chi, "testo": $0.testo] }
+        let body: [[String: String]] = turns.map { ["id": $0.id.uuidString.lowercased(), "chi": $0.riga.chi, "testo": $0.riga.testo] }
         let _: R = try await manda("/v1/assistente/storia", ["turns": body])
     }
 

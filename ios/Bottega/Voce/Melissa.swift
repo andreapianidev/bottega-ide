@@ -5,7 +5,8 @@
 //  Il giro della conversazione sull'iPhone: se le chiavi sono importate, Agnes o DeepSeek ed ElevenLabs
 //  rispondono direttamente sul telefono anche con il Mac acceso. Il ponte sincronizza la storia. In conversazione si
 //  rimette in ascolto da sola; "basta" o un tocco mentre ascolta senza parole la chiudono. Toccarla mentre
-//  parla la interrompe, come sul Mac.
+//  parla la interrompe, come sul Mac. Come nella mod di Claude Code, Melissa passa la chiamata a Darlene, Elliot
+//  o Krista («passami Darlene», «ridammi Melissa») e ogni tanto ne tira dentro uno (Personaggi.swift).
 //
 
 import AVFoundation
@@ -18,6 +19,12 @@ final class Melissa {
     private(set) var sfera: StatoSfera = .riposo
     private(set) var parziale = ""
     private(set) var conversazione = false
+    /// Chi ha la chiamata: "melissa" o la chiave di un personaggio. Torna a Melissa quando la conversazione si chiude.
+    private(set) var chiParla = "melissa"
+    /// Chi sta parlando adesso, da mostrare sotto la sfera: "Melissa", "Darlene", "Melissa e Darlene".
+    private(set) var parlante = "Melissa"
+    /// Le risposte di Melissa da quando un personaggio e' intervenuto: non ne tira dentro uno ogni volta.
+    private var dallUltimoOspite = 99
     var avviso: String?
     var voceAccesa: Bool = UserDefaults.standard.object(forKey: "voce") as? Bool ?? true {
         didSet { UserDefaults.standard.set(voceAccesa, forKey: "voce") }
@@ -29,7 +36,7 @@ final class Melissa {
     private var turno: Task<Void, Never>?
     /// La risposta a voce in arrivo dal Mac: cancellarla chiude la connessione e il Mac smette di rispondere.
     private var rete: Task<Void, Error>?
-    private var lavoroTelefono: Task<String, Error>?
+    private var lavoroTelefono: Task<Void, Error>?
     /// Il giro di adesso: ogni tocco, domanda scritta o chiusura ne apre uno nuovo. Un giro vecchio che si
     /// risveglia dopo (i permessi, il riascolto automatico, un ascolto fermato) non tocca piu' niente.
     private var giro = 0
@@ -72,6 +79,7 @@ final class Melissa {
     func chiudiConversazione() {
         giro += 1
         conversazione = false
+        tornaAMelissa()
         ascolto.ferma()
         rete?.cancel()
         lavoroTelefono?.cancel()
@@ -129,6 +137,7 @@ final class Melissa {
             }
             if Self.paroleFine.firstMatch(in: testo, range: NSRange(testo.startIndex..., in: testo)) != nil {
                 conversazione = false
+                tornaAMelissa()
                 sfera = .riposo
                 parziale = ""
                 if g == giro { liberaAudio() }
@@ -188,23 +197,78 @@ final class Melissa {
             }
         }
         if voceAccesa { try flusso.prepara() }
+        let telefono = AssistenteTelefono.shared
+        let voce = voceAccesa
+        let suona: (Data) -> Void = { pcm in
+            if self.sfera != .parla { self.sfera = .parla; self.parziale = "" }
+            self.flusso.accoda(pcm)
+        }
         let task = Task { @MainActor in
-            let contesto = ponte.contestoMelissa(per: testo)
-            return try await AssistenteTelefono.shared.rispondi(testo, voce: voceAccesa, contestoMac: contesto) { pcm in
-                if self.sfera != .parla { self.sfera = .parla; self.parziale = "" }
-                self.flusso.accoda(pcm)
+            if let chiesto = Personaggi.chiChiede(testo), chiesto != self.chiParla {
+                try await self.passaA(chiesto, dopo: testo, voce: voce, audio: suona)
+                return
             }
+            let p = Personaggi.tutti[self.chiParla]
+            // chi puo' entrare: quello che Andrea chiede, o uno a scelta di Melissa ogni tanto, solo a voce
+            let invito = p == nil
+                ? Personaggi.invito(voluto: Personaggi.ospiteChiesto(testo), spontaneo: self.conversazione && voce && self.dallUltimoOspite >= 2)
+                : ""
+            let contesto = p == nil ? self.ponte.contestoMelissa(per: testo) : nil
+            let battuta = try await telefono.rispondi(testo, chi: self.chiParla, invito: invito, voce: voce,
+                                                      contestoMac: contesto, audio: suona)
+            self.dallUltimoOspite += 1
+            if let ospite = battuta.ospite { try await self.aTre(ospite, voce: voce, audio: suona) }
         }
         lavoroTelefono = task
-        defer { lavoroTelefono = nil }
-        let risposta = try await task.value
+        defer { lavoroTelefono = nil; if chiParla == "melissa" { parlante = "Melissa" } }
+        try await task.value
         if voceAccesa {
-            guard flusso.haSuonato else { throw ErrorePonte(messaggio: "ElevenLabs non ha mandato l'audio della voce di Melissa.") }
+            guard flusso.haSuonato else { throw ErrorePonte(messaggio: "ElevenLabs non ha mandato l'audio della voce di \(parlante).") }
             sfera = .parla
             await flusso.aspettaFine()
         } else {
-            parziale = risposta
+            parziale = telefono.turni.last?.riga.testo ?? ""
         }
+    }
+
+    /// Passa la chiamata: il personaggio saluta con la sua voce, oppure Melissa riprende.
+    private func passaA(_ chi: String, dopo testo: String, voce: Bool, audio: @escaping (Data) -> Void) async throws {
+        let telefono = AssistenteTelefono.shared
+        if chi == "melissa" {
+            let prima = Personaggi.tutti[chiParla]?.nome
+            tornaAMelissa()
+            try await telefono.dici(prima.map { "Eccomi, \($0) mi ha ripassato la chiamata." } ?? "Sono qui.",
+                                    chi: "melissa", domanda: testo, voce: voce, audio: audio)
+            return
+        }
+        guard let p = Personaggi.tutti[chi] else { return }
+        chiParla = chi
+        parlante = p.nome
+        try await telefono.dici(p.saluti.randomElement() ?? p.nome, chi: chi, domanda: testo, voce: voce, audio: audio)
+    }
+
+    /// Melissa ha tirato dentro un personaggio: risponde lui con la sua voce, poi lei chiude e torna ad Andrea.
+    /// La battuta dopo si pensa mentre quella prima sta ancora suonando.
+    private func aTre(_ chi: String, voce: Bool, audio: @escaping (Data) -> Void) async throws {
+        guard let p = Personaggi.tutti[chi] else { return }
+        let telefono = AssistenteTelefono.shared
+        dallUltimoOspite = 0
+        parlante = "Melissa e \(p.nome)"
+        _ = try await telefono.interviene(
+            chi,
+            istruzione: "Sei in una chiacchierata a voce a tre con Melissa e Andrea; Melissa ti ha appena tirato in mezzo. " +
+                "Rispondi a Melissa e ad Andrea in una o due frasi, a modo tuo: puoi anche punzecchiarla. Solo le parole che diresti.",
+            voce: voce, audio: audio)
+        _ = try await telefono.interviene(
+            "melissa",
+            istruzione: "\(p.nome) ha appena detto la sua. Chiudi tu in una o due frasi, rivolta ad Andrea, riprendendo il filo " +
+                "o rispondendo a \(p.nome) a modo tuo. Solo le parole che diresti.",
+            voce: voce, audio: audio)
+    }
+
+    private func tornaAMelissa() {
+        chiParla = "melissa"
+        parlante = "Melissa"
     }
 
     /// La risposta arriva a frasi e la voce suona mentre Melissa sta ancora rispondendo (ponte /v1/parla).

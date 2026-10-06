@@ -81,7 +81,7 @@ struct ConversazioneView: View {
         // cosi' non appaiono due volte dopo che sono entrati nel registro del Mac.
         let mac = statoVisibile?.melissa.registro ?? []
         let locali = telefono.turni.filter { turno in
-            !turno.sincronizzato || (!online && !mac.contains { $0.chi == turno.chi && $0.testo == turno.testo })
+            !turno.sincronizzato || (!online && !mac.contains { $0.chi == turno.riga.chi && $0.testo == turno.riga.testo })
         }
         return (mac + locali.map(\.riga))
             .sorted { $0.alle < $1.alle }

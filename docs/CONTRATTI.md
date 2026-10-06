@@ -2098,6 +2098,17 @@ rete di casa dicono al Mac dov'e' l'iPhone, non portano dati.
   li sincronizza subito in blocchi di sei a `/v1/assistente/storia`; se manca la rete li invia al ritorno della
   connessione. Una scelta locale di cervello o impegno viene applicata al Mac come scelta «sempre». Siri usa lo
   stesso percorso diretto per il testo; la voce letta da Siri segue il sistema, mentre nell'app e' ElevenLabs.
+- Personaggi (dalla build 121, `ios/Bottega/Voce/Personaggi.swift`): Darlene, Elliot e Krista di Mr. Robot, con
+  carattere, saluti e voce ElevenLabs identici a quelli della mod melissa (`PERSONAGGI` in
+  `claude-code-mods/melissa/hooks/register.tsx`). Chi ne cambia uno lo cambia in tutti e due i posti.
+  «Passami Darlene», «fammi parlare con Krista» passano la chiamata: saluta il personaggio con la sua voce e
+  risponde lui finche' Andrea non dice «ridammi Melissa» o la conversazione si chiude. Con Melissa al telefono,
+  «chiedi a Elliot», «sentiamo Darlene» la fanno chiudere con `@elliot`; a voce e in conversazione lo puo' fare anche
+  da sola, non piu' di una volta ogni tre risposte. Il segnale non si mostra e non si legge: il personaggio risponde
+  con la sua voce, poi Melissa chiude. Ogni battuta apre il suo socket ElevenLabs con la voce di chi parla. Il
+  personaggio usa lo stesso cervello (Agnes o DeepSeek), senza lo snapshot del Mac. Nella storia locale `chi` e' la
+  chiave del personaggio; verso il Mac e nella vista diventa `melissa` con il nome davanti («Darlene: ...»), cosi'
+  `/v1/assistente/storia` resta `tu|melissa`. Test senza simulatore: `scripts/test-ios-personaggi.sh`.
 
 ## 10. Gli aggiornamenti: VS Code solo quando serve, Claude Code sempre
 

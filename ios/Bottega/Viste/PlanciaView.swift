@@ -229,14 +229,15 @@ struct PlanciaView: View {
         switch melissa.sfera {
         case .ascolta: melissa.parziale.isEmpty ? "Ti ascolto" : melissa.parziale
         case .pensa: "Ci penso…"
-        case .parla: "Tocca la sfera per interrompermi"
+        case .parla: melissa.parlante == "Melissa" ? "Tocca la sfera per interrompermi" : "Parla \(melissa.parlante). Tocca la sfera per interrompere"
         case .errore: "Qualcosa non è andato. Tocca la sfera per riprovare."
         case .riposo:
             switch ponte.stato?.melissa.stato {
             case "thinking"?: "Sul Mac sto già rispondendo"
             case "speaking"?: "Sto parlando sul Mac"
             case "listening"?: "Sul Mac ti sto ascoltando"
-            default: "Tocca la sfera per parlarmi"
+            default: melissa.chiParla == "melissa" ? "Tocca la sfera per parlarmi"
+                : "Sei con \(Personaggi.nome(melissa.chiParla)). «Ridammi Melissa» per tornare da me"
             }
         }
     }
