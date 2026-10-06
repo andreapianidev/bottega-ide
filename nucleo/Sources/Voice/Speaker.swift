@@ -97,6 +97,17 @@ final class Speaker: NSObject {
             || inflight.values.contains { !$0.isEmpty }
     }
 
+    /// Something is still to be heard: audio playing or on its way, text not yet voiced.
+    /// Unlike `isSpeaking`, an open streamed turn with nothing left in it is silence (the
+    /// island's /ping says `parla` from this, so a cronaca line does not read as "still
+    /// speaking" for the 20 s a turn without `final` stays open).
+    var isSounding: Bool {
+        awaitingHeard > 0 || appleCurrent != nil || !appleQueue.isEmpty
+            || inflight.values.contains { !$0.isEmpty }
+            || unflushed.values.contains { !$0.isEmpty }
+            || !(turn?.buffer.isEmpty ?? true)
+    }
+
     var currentEngine: Engine {
         if ElevenLabsConfig.isConfigured, !inCooldown { return .elevenlabs }
         return .apple
@@ -184,6 +195,9 @@ final class Speaker: NSObject {
         var engine = currentEngine
         var appleVoice: String?
         var elVoice: String?
+        if engine == .apple, ElevenLabsConfig.isConfigured {
+            Log.info("voce: ElevenLabs in pausa dopo un errore, questo turno va con la voce di Apple")
+        }
         if let v = voice?.trimmingCharacters(in: .whitespaces), !v.isEmpty {
             if v == "apple" { engine = .apple }
             else if v.hasPrefix("com.apple.") { engine = .apple; appleVoice = v }
@@ -233,6 +247,7 @@ final class Speaker: NSObject {
             }
             guard let s = stream(model: t.model, voiceID: t.voiceID), s.connect(), let key = key(t) else {
                 // No socket: this turn continues on Apple.
+                Log.info("voce: il socket ElevenLabs non si apre, questo turno va con la voce di Apple")
                 t.engine = .apple
                 enqueueApple(clean, voice: t.appleVoice)
                 return
@@ -366,7 +381,13 @@ final class Speaker: NSObject {
         let rest = unflushed[key] ?? ""
         unflushed[key] = ""
         streams[key]?.close()
-        cooldownUntil = Date().addingTimeInterval(60)
+        Log.info("voce: ElevenLabs caduto (\(reason)), passo alla voce di Apple per 20 s")
+        // short: a dropped line is usually a moment, and her own voice should come back soon
+        cooldownUntil = Date().addingTimeInterval(20)
+        // A segment already sounding is dropped, but its start counted it as "to be heard":
+        // its end marker, after what of it is already queued, keeps that count honest
+        // (without it isSpeaking stays true until the next stopSpeaking).
+        for seg in list where seg.started { scheduleEndMarker(seg) }
         // Text that never made a sound goes to Apple; a half-spoken segment is dropped
         // (repeating it from the start would sound like a stutter).
         var reroute: [String] = list.filter { !$0.started }.map(\.text)
@@ -416,7 +437,13 @@ final class Speaker: NSObject {
             }
             if first {
                 first = false
-                DispatchQueue.main.async { self?.scheduleStartMarker(seg) }
+                // a stop in between must not count this segment again (awaitingHeard was reset)
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let self, gen == self.generation else { return }
+                        self.scheduleStartMarker(seg)
+                    }
+                }
                 // Make sure the start marker is queued before the audio.
                 DispatchQueue.main.async { AudioOut.shared.enqueue(pcm, generation: audioGen) }
             } else {

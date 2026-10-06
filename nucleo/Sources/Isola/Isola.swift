@@ -10,8 +10,9 @@
 //  It serves HTTP/1.1 on a Unix socket, ~/.bottega/nucleo/isola.sock, which the mod reaches
 //  with $.http.fetch(url, { socketPath }). Every answer is JSON:
 //
-//    GET  /ping                              -> {ok, versione, parla, ascolta}  parla: Melissa's voice is
-//                                             still going; ascolta: the microphone is open
+//    GET  /ping                              -> {ok, versione, parla, ascolta}  parla: something of
+//                                             Melissa's voice is still to be heard (Speaker.isSounding,
+//                                             not an open turn); ascolta: the microphone is open
 //    POST /detta     {sessione, progetto}     -> {ok}  opens the microphone (Apple recognizer)
 //    POST /detta/fine                         -> {ok}  closes it; the text arrives as an event
 //    POST /stato     {stato, testo?}          -> {ok}  the island: pensa | pronto | riposo
@@ -21,8 +22,10 @@
 //    GET  /eventi?sessione=X                  -> held up to 15 s: {eventi:[...]}
 //
 //  Events for a session: {tipo:"parziale", testo}, {tipo:"testo", testo} (the dictation is
-//  over), {tipo:"errore", messaggio}, {tipo:"ferma"} (the island was clicked while Melissa
-//  narrated that session: the mod stops the Claude turn).
+//  over), {tipo:"errore", messaggio}, {tipo:"ferma"} (the island was clicked while Melissa's
+//  voice for that session could be heard: the mod stops the Claude turn). A "ferma" nobody
+//  collects within 3 s is dropped, so it never stops a later turn; /detta drops what a
+//  session left in its queue.
 //
 //  The dictation closes by itself 3.5 s after the last new word, or with nothing said in 10 s.
 //  The process quits after 15 minutes without requests, dictation or speech.
@@ -56,6 +59,10 @@ final class Isola {
     private var code: [String: [[String: Any]]] = [:]
     private var attese: [String: [IsolaResponder]] = [:]
     private var ultimoUso = Date()
+    /// A microphone closed for an old /detta still sends its voice.final: until this moment,
+    /// a final that comes with no word heard in the new dictation is that one, not this.
+    private var ignoraFinaleFinoA = Date.distantPast
+    private static let fermaValido: TimeInterval = 3
 
     // MARK: - Start
 
@@ -107,7 +114,7 @@ final class Isola {
         let sessione = (corpo["sessione"] as? String) ?? req.query["sessione"] ?? ""
         switch (req.method, req.path) {
         case ("GET", "/ping"):
-            res.ok(["versione": Nucleo.version, "parla": Speaker.shared.isSpeaking, "ascolta": dettaPer != nil])
+            res.ok(["versione": Nucleo.version, "parla": Speaker.shared.isSounding, "ascolta": dettaPer != nil])
 
         case ("POST", "/detta"):
             guard !sessione.isEmpty else { return res.errore(400, "Manca la sessione.") }
@@ -118,6 +125,8 @@ final class Isola {
             dettaPer = sessione
             dettaParziale = ""
             narraPer = nil
+            // what this session left unread (an old ferma, an old text) belongs to before
+            code[sessione] = nil
             dettaGiro &+= 1
             let giro = dettaGiro
             IsolaPanel.shared.mostra(.ascolto, testo: "Ti ascolto")
@@ -131,7 +140,8 @@ final class Isola {
                         self.armaSilenzio(vuoto: true)
                     } else {
                         // Closed (a click, an error) while the microphone was still opening:
-                        // it must not stay open with nobody listening.
+                        // it must not stay open with nobody listening. Its final is not ours.
+                        self.ignoraFinaleFinoA = Date().addingTimeInterval(2.5)
                         await Listener.shared.stop()
                     }
                 } catch {
@@ -171,14 +181,20 @@ final class Isola {
         case ("POST", "/zitta"):
             Log.info("isola: zitta da \(sessione.isEmpty ? "?" : String(sessione.prefix(8)))")
             Speaker.shared.stopSpeaking()
-            IsolaPanel.shared.riposa(dopo: 0.3)
+            // the voice stops; the island stays while the microphone is open
+            if dettaPer == nil { IsolaPanel.shared.riposa(dopo: 0.3) }
             res.ok()
 
         case ("GET", "/eventi"):
             guard !sessione.isEmpty else { return res.errore(400, "Manca la sessione.") }
             if let pronti = code[sessione], !pronti.isEmpty {
                 code[sessione] = nil
-                return res.ok(["eventi": pronti])
+                let ora = Date().timeIntervalSince1970
+                let validi = pronti.filter { ev in
+                    guard ev["tipo"] as? String == "ferma", let at = ev["at"] as? Double else { return true }
+                    return ora - at <= Self.fermaValido
+                }
+                if !validi.isEmpty { return res.ok(["eventi": validi]) }
             }
             attese[sessione, default: []].append(res)
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.attesaEventi) { [weak res] in
@@ -266,11 +282,15 @@ final class Isola {
             manda(["tipo": "parziale", "testo": testo], a: sessione)
             armaSilenzio(vuoto: false)
         case "voice.final":
+            if Date() < ignoraFinaleFinoA, dettaParziale.isEmpty, testo.isEmpty {
+                ignoraFinaleFinoA = .distantPast
+                return
+            }
             fineDettatura(testo: testo.isEmpty ? dettaParziale : testo)
         case "voice.state":
             if stato == "error", dettaPer != nil {
                 fineDettatura(errore: testo.isEmpty ? "Il riconoscimento vocale si e' fermato." : testo)
-            } else if stato == "idle", dettaPer == nil, IsolaPanel.shared.fase == .parla {
+            } else if stato == "idle", dettaPer == nil, IsolaPanel.shared.fase == .parla, !Speaker.shared.isSounding {
                 IsolaPanel.shared.riposa(dopo: 1.2)
             }
         case "voice.spoken":
@@ -290,9 +310,11 @@ final class Isola {
             chiudiDettatura()
             return
         }
-        if let sessione = narraPer, IsolaPanel.shared.fase == .parla || Speaker.shared.isSpeaking {
+        // only while her voice can really be heard: a click on an island that is just
+        // fading out puts it away, it does not stop Claude
+        if let sessione = narraPer, Speaker.shared.isSounding {
             Speaker.shared.stopSpeaking()
-            manda(["tipo": "ferma"], a: sessione)
+            manda(["tipo": "ferma", "at": Date().timeIntervalSince1970], a: sessione)
             IsolaPanel.shared.mostra(.pronto, testo: "Fermo Claude")
             IsolaPanel.shared.riposa(dopo: 1.5)
             return

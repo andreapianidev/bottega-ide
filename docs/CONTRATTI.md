@@ -153,7 +153,7 @@ gli errori hanno `ok: false` ed `errore`.
 
 | Richiesta | Corpo | Risposta |
 |---|---|---|
-| `GET /ping` | | `{ok, versione, parla, ascolta}`: `parla` e' vero finche' la voce di Melissa non ha finito (il mod aspetta questo prima di riaprire il microfono nella conversazione), `ascolta` finche' il microfono e' aperto |
+| `GET /ping` | | `{ok, versione, parla, ascolta}`: `parla` e' vero finche' qualcosa della voce di Melissa deve ancora sentirsi (audio in riproduzione o in arrivo, testo non ancora detto; un turno aperto e vuoto non conta). La mod lo aspetta prima di riaprire il microfono nella conversazione e prima di ogni frase della cronaca. `ascolta` e' vero finche' il microfono e' aperto |
 | `POST /detta` | `{sessione, progetto}` | `{ok}`: apre il microfono (riconoscimento di Apple, `it-IT`, modo push). 409 se ascolta gia' un'altra sessione |
 | `POST /detta/fine` | | `{ok}`: chiude la frase; il testo arriva come evento |
 | `POST /stato` | `{stato: pensa\|pronto\|riposo, testo?}` | `{ok}`: l'isola mostra lo stato (`pronto` si ritira da sola dopo 1,8 s) |
@@ -162,8 +162,9 @@ gli errori hanno `ok: false` ed `errore`.
 | `GET /eventi?sessione=X` | | trattenuta fino a 15 s: `{ok, eventi: [...]}`, vuota se non succede niente |
 
 Eventi di una sessione: `{tipo: "parziale", testo}` mentre parli, `{tipo: "testo", testo}` a dettato finito,
-`{tipo: "errore", messaggio}`, `{tipo: "ferma"}` (clic sull'isola mentre Melissa raccontava quella sessione:
-la mod ferma il turno di Claude).
+`{tipo: "errore", messaggio}`, `{tipo: "ferma", at}` (clic sull'isola mentre la voce di Melissa per quella sessione
+si sente ancora: la mod ferma il turno di Claude). Un `ferma` non raccolto entro 3 s si scarta, cosi' non ferma mai un
+turno successivo, e `/detta` svuota la coda della sessione.
 
 Il dettato si chiude da solo 3,5 s dopo l'ultima parola nuova, o dopo 10 s senza parole. Un clic sull'isola chiude
 il dettato; mentre Melissa racconta, ferma Claude. L'isola sta nella tacca del MacBook (sugli schermi senza tacca

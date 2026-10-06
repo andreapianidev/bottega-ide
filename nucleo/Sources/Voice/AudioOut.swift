@@ -13,6 +13,12 @@
 //  All AVAudioEngine work happens on one private serial queue, never on main: starting
 //  the engine opens the audio HAL, which can stall for seconds after a device switch.
 //
+//  Streamed voice starts the moment its first piece arrives. If the pieces then come slower
+//  than they play and the player runs dry in the middle of a sentence (the last thing heard
+//  was audio, not an end marker), it pauses instead of stuttering piece by piece: it waits
+//  for 150 ms of audio, or 250 ms, or the end of the segment, and goes on. Each such hole
+//  is logged ("voce: buco di N ms"), so the stutter can be measured, not guessed.
+//
 
 import Foundation
 import AVFoundation
@@ -35,6 +41,16 @@ final class AudioOut: @unchecked Sendable {
     /// so the caller never waits forever for a buffer that will not render.
     private var markers: [Int: @Sendable () -> Void] = [:]
     private var markerSeq = 0
+
+    /// The player ran dry mid-sentence and is paused, gathering audio before it goes on.
+    private var rebuffering = false
+    private var heldFrames: AVAudioFrameCount = 0
+    private var dryAt: DispatchTime?
+    private var rebufferTimer: DispatchWorkItem?
+    /// The buffer that finished last was audio (not a 1 ms marker).
+    private var lastDoneWasAudio = false
+    private static let rebufferFrames: AVAudioFrameCount = 3600   // 150 ms at 24 kHz
+    private static let rebufferMaxWait: TimeInterval = 0.25
 
     /// Bumped by `stop()`. Work stamped with an older generation is ignored.
     private let generationLock = OSAllocatedUnfairLock(initialState: 0)
@@ -84,6 +100,8 @@ final class AudioOut: @unchecked Sendable {
         q.async {
             self.markers.removeAll()
             self.pending = 0
+            self.endRebuffer(log: false)
+            self.lastDoneWasAudio = false
             self.node?.stop()
             AudioLevels.shared.reset(.tts)
             self.scheduleIdleStop()
@@ -110,23 +128,73 @@ final class AudioOut: @unchecked Sendable {
             markerID = markerSeq
             markers[markerSeq] = done
         }
+        let isMarker = done != nil
         node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             guard let self else { return }
             self.q.async {
                 guard gen == self.generation else { return }
                 self.pending = max(0, self.pending - 1)
+                self.lastDoneWasAudio = !isMarker
                 if let markerID, let cb = self.markers.removeValue(forKey: markerID) { cb() }
                 if self.pending == 0 {
                     AudioLevels.shared.reset(.tts)
+                    // dry after audio, not after an end marker: a hole mid-sentence
+                    if self.lastDoneWasAudio, !self.rebuffering { self.beginRebuffer() }
                     self.scheduleIdleStop()
                 }
             }
+        }
+        if rebuffering {
+            if isMarker {
+                // the segment ends (or the next one starts): nothing more to wait for
+                endRebuffer(log: true)
+            } else {
+                heldFrames += buffer.frameLength
+                if heldFrames >= Self.rebufferFrames { endRebuffer(log: true) } else { armRebufferTimer() }
+            }
+            return
         }
         if !node.isPlaying {
             do { try node.playAudio() } catch {
                 Log.warn("La voce non parte: \(error.localizedDescription)")
             }
         }
+    }
+
+    private func beginRebuffer() {
+        rebuffering = true
+        heldFrames = 0
+        dryAt = .now()
+        node?.pause()
+    }
+
+    /// Plays again what was gathered; `log` writes how long the hole lasted.
+    private func endRebuffer(log: Bool) {
+        rebufferTimer?.cancel(); rebufferTimer = nil
+        guard rebuffering else { return }
+        rebuffering = false
+        if log, let dryAt, heldFrames > 0 {
+            let ms = (DispatchTime.now().uptimeNanoseconds - dryAt.uptimeNanoseconds) / 1_000_000
+            Log.info("voce: buco di \(ms) ms a meta' frase, ripresa con \(heldFrames * 1000 / 24_000) ms pronti")
+        }
+        heldFrames = 0
+        dryAt = nil
+        if let node, !node.isPlaying, pending > 0 {
+            do { try node.playAudio() } catch {
+                Log.warn("La voce non riparte: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// A slow trickle does not keep her silent: after 250 ms she goes on with what there is.
+    private func armRebufferTimer() {
+        guard rebufferTimer == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.rebuffering, self.heldFrames > 0 else { return }
+            self.endRebuffer(log: true)
+        }
+        rebufferTimer = work
+        q.asyncAfter(deadline: .now() + Self.rebufferMaxWait, execute: work)
     }
 
     private func ensureEngine() -> Bool {
@@ -179,6 +247,9 @@ final class AudioOut: @unchecked Sendable {
         if duplex { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.pending == 0, let engine = self.engine else { return }
+            // six seconds of nothing: whatever was waiting is not coming, start clean
+            self.endRebuffer(log: false)
+            self.lastDoneWasAudio = false
             self.node?.removeTap(onBus: 0)
             self.node?.stop()
             if engine.isRunning { engine.stop() }
@@ -196,6 +267,8 @@ final class AudioOut: @unchecked Sendable {
         let waiting = markers.values
         markers.removeAll()
         pending = 0
+        endRebuffer(log: false)
+        lastDoneWasAudio = false
         node?.removeTap(onBus: 0)
         node?.stop()
         if let engine, engine.isRunning { engine.stop() }
