@@ -1090,7 +1090,7 @@ interface Account {
 ### Barra -> estensione
 
 `ready`, `converse` (apre o chiude la conversazione a voce), `ask {text}`, `voice.toggle`,
-`brain.set {provider, model}`, `effort.set {effort}`,
+`brain.set {provider, model}`, `effort.set {effort}`, `personaggio.set {chi}`,
 `job.focus {id}`, `job.write {id, text}` (istruzioni a un lavoro della Bottega), `open {path}`, `claude {path, id}`
 (riprendi qui una sessione aperta altrove), `bacheca.sessione {sessionId}`, `home {view}` (porta la Home su una stanza),
 `comando {id}` (comandi rapidi: `briefing`, `regole`, `lavori`, `cruscotto`, `continua`, `cerca`; `racconta` e
@@ -1102,6 +1102,19 @@ predefinito). Nella testata, accanto a «racconta», l'interruttore «sempre»: 
 predefinito, spento quando vale solo per questa conversazione (e la nota sotto il nome dice «per questa conversazione»).
 Accenderlo rende predefinito il cervello di adesso; spegnerlo riporta il predefinito ad Agnes. Con Agnes predefinita e in
 uso e' acceso e fermo.
+
+`personaggio.set {chi}` (dalla build 124, `chi` in `melissa|darlene|elliot|krista`): con chi parla Andrea. Nella testata,
+sotto il cervello, «Melissa · Darlene · Elliot · Krista» (lo stato arriva in `assistant.personaggio`). Chi prende la
+chiamata saluta con la sua voce e risponde con gli stessi strumenti di Melissa: prompt `cuore()` di `src/personaggi.ts`
+(carattere del personaggio, regola su come si parla, regole di verita'), voce ElevenLabs del personaggio sul primo pezzo
+di ogni risposta (`voice.speak {voice}`, Nucleo build 120). «Passami Darlene», «ridammi Melissa» fanno lo stesso a voce.
+Dall'iPhone risponde sempre Melissa, perche' la voce la fa il ponte con la sua. Con Melissa al telefono e la voce accesa,
+«chiedi a Elliot» le fa chiudere con una domanda a lui; in conversazione lo fa anche da sola, col personaggio scelto da
+`ospiteDellaFrase` (dopo due risposte senza ospiti puo', dopo quattro lo fa). Risponde chi lei chiama: col segnale `@nome`
+o con una domanda per nome che chiude la battuta (`chiamatoPerNome`). Il personaggio risponde senza strumenti, poi
+Melissa chiude; ogni battuta si pensa mentre quella prima suona e parte quando il Nucleo dice che e' finita
+(`voice.state`), perche' due voci sono due socket e il loro audio si mescolerebbe. Nel registro le battute dei personaggi
+hanno il nome davanti. Personaggi, ruoli e scelta sono gli stessi della mod melissa e dell'iPhone (9.10).
 
 ### Cervelli
 
@@ -2113,7 +2126,9 @@ rete di casa dicono al Mac dov'e' l'iPhone, non portano dati.
   con la sua voce, poi Melissa chiude. Ogni battuta apre il suo socket ElevenLabs con la voce di chi parla. Il
   personaggio usa lo stesso cervello (Agnes o DeepSeek), senza lo snapshot del Mac. Nella storia locale `chi` e' la
   chiave del personaggio; verso il Mac e nella vista diventa `melissa` con il nome davanti («Darlene: ...»), cosi'
-  `/v1/assistente/storia` resta `tu|melissa`. Test senza simulatore: `scripts/test-ios-personaggi.sh`.
+  `/v1/assistente/storia` resta `tu|melissa`. Test senza simulatore: `scripts/test-ios-personaggi.sh`. Dalla build 124
+risponde chi Melissa chiama, proposto o no: col segnale o con una domanda per nome che chiude la battuta
+(`Personaggi.chiamatoPerNome`), come nella mod 0.13.
 
 ## 10. Gli aggiornamenti: VS Code solo quando serve, Claude Code sempre
 

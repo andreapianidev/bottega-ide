@@ -1149,6 +1149,7 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 			converse: () => assistant?.toggleConversation(),
 			ask: text => void assistant?.ask(text),
 			toggleVoice: () => void assistant?.toggle(),
+			setPersonaggio: chi => void assistant?.setPersonaggio(chi),
 			setBrain: async (p, m, sempre) => void (await cervelli!.set(p, m, sempre)),
 			setEffort: async e => void (await cervelli!.setEffort(e)),
 			focusJob: id => jobManager?.focus(id),

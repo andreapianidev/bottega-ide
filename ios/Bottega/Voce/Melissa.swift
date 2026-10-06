@@ -221,8 +221,8 @@ final class Melissa {
             let battuta = try await telefono.rispondi(testo, chi: self.chiParla, invito: invito, voce: voce,
                                                       contestoMac: contesto, audio: suona)
             self.dallUltimoOspite += 1
-            // entra solo chi era stato offerto: un altro nome scritto dal modello si ignora
-            if let ospite = battuta.ospite, ospite == voluto || ospite == scelto {
+            // risponde chi Melissa chiama, proposto o no: una domanda senza risposta e' peggio
+            if let ospite = battuta.ospite {
                 try await self.aTre(ospite, voce: voce, audio: suona)
             }
         }

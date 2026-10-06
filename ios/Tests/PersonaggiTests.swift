@@ -32,6 +32,9 @@ final class PersonaggiTests: XCTestCase {
         XCTAssertEqual(n.testo, "Niente ospiti stavolta.")
         XCTAssertNil(n.ospite)
         XCTAssertEqual(Personaggi.senzaSegnale("@krista."), "")
+        XCTAssertEqual(Personaggi.chiamata("Ha toccato le chiavi. Elliot, tu che dici?").ospite, "elliot")
+        XCTAssertNil(Personaggi.chiamata("Darlene ti ha mai detto di no? Comunque ha finito.").ospite)
+        XCTAssertNil(Personaggi.chiamata("Non so. Tu che dici?").ospite)
     }
 
     func testInvito() {

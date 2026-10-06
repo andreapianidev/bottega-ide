@@ -28,6 +28,8 @@ export interface BarraActions {
 	converse(): void;
 	ask(text: string): void;
 	toggleVoice(): void;
+	/** Con chi parla Andrea: 'melissa', 'darlene', 'elliot' o 'krista' (src/personaggi.ts). */
+	setPersonaggio(chi: string): void;
 	/** `sempre`: diventa il predefinito (CONTRATTI 9.8), altrimenti vale per questa conversazione */
 	setBrain(provider: Provider, model: string, sempre?: boolean): Promise<void>;
 	setEffort(effort: Effort): Promise<void>;
@@ -115,6 +117,8 @@ export class BarraView implements vscode.WebviewViewProvider {
 				return s(m.text).trim() ? this.act.ask(s(m.text).trim()) : undefined;
 			case 'voice.toggle':
 				return this.act.toggleVoice();
+			case 'personaggio.set':
+				return ['melissa', 'darlene', 'elliot', 'krista'].includes(m.chi) ? this.act.setPersonaggio(m.chi) : undefined;
 			case 'brain.set':
 				try {
 					await this.act.setBrain(m.provider, s(m.model), m.sempre === true);

@@ -104,6 +104,13 @@
 				</button>
 				<ul class="cervelli" id="cervelli" role="listbox" aria-label="Scegli il cervello di Melissa" tabindex="-1" hidden></ul>
 			</div>
+			<fieldset class="impegno personaggi" id="personaggi" title="Con chi parli: Melissa, o un personaggio di Mr. Robot con la sua voce e gli stessi strumenti">
+				<legend class="sr">Con chi parli</legend>
+				<label><input type="radio" name="personaggio" value="melissa" checked><span>Melissa</span></label>
+				<label title="Per provocare e rompere le regole"><input type="radio" name="personaggio" value="darlene"><span>Darlene</span></label>
+				<label title="Sicurezza, chiavi e codice"><input type="radio" name="personaggio" value="elliot"><span>Elliot</span></label>
+				<label title="Quando fai il vago, rimandi o cerchi scuse"><input type="radio" name="personaggio" value="krista"><span>Krista</span></label>
+			</fieldset>
 			<div class="testa-riga">
 				<fieldset class="impegno" id="impegno">
 					<legend class="sr">Impegno</legend>
@@ -603,6 +610,11 @@
 		const on = /** @type {HTMLInputElement} */ (ev.target).checked;
 		post(on ? { type: 'brain.set', provider: cur.provider, model: cur.model, sempre: true } : { type: 'brain.set', provider: 'agnes', model: '', sempre: true });
 	});
+	// con chi parli: chi prende la chiamata saluta con la sua voce (src/personaggi.ts)
+	$('personaggi').addEventListener('change', ev => {
+		const r = /** @type {HTMLInputElement} */ (ev.target);
+		if (r.checked) post({ type: 'personaggio.set', chi: r.value });
+	});
 	$('impegno').addEventListener('change', ev => {
 		const r = /** @type {HTMLInputElement} */ (ev.target);
 		if (r.checked) post({ type: 'effort.set', effort: r.value });
@@ -610,6 +622,7 @@
 
 	// ---------- la sfera e la conversazione ----------
 
+	const NOMI = { melissa: 'Melissa', darlene: 'Darlene', elliot: 'Elliot', krista: 'Krista' };
 	const WORD = { idle: 'Tocca la sfera per parlare', listening: 'Ti ascolto', thinking: 'Ci penso', speaking: 'Parlo', error: 'Qualcosa non va' };
 	const registro = $('registro');
 	/** @type {Map<string, HTMLLIElement>} */ const righe = new Map();
@@ -664,7 +677,14 @@
 		const tasto = $('sfera-tasto');
 		setAttr(tasto, 'aria-pressed', String(!!(a && a.conversing)));
 		$('notte').classList.toggle('viva', !!(on && a && (a.conversing || a.state !== 'idle')));
-		setText($('sfera-etichetta'), a && a.conversing ? 'Chiudi la conversazione con Melissa' : 'Parla con Melissa');
+		const chi = (a && a.personaggio) || 'melissa';
+		const nome = NOMI[chi] || 'Melissa';
+		setText($('sfera-etichetta'), a && a.conversing ? `Chiudi la conversazione con ${nome}` : `Parla con ${nome}`);
+		root.querySelectorAll('#personaggi input').forEach(i => {
+			const r = /** @type {HTMLInputElement} */ (i);
+			const sel = r.value === chi;
+			if (r.checked !== sel) r.checked = sel;
+		});
 		setText($('stato'), !a ? WORD.idle : !on ? 'Melissa è spenta' : a.conversing && st === 'listening' ? 'In conversazione, ti ascolto' : WORD[st] || '');
 		setText($('parziale'), (a && a.partial) || '');
 		const voce = $('voce');

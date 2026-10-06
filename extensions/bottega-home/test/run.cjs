@@ -14,7 +14,7 @@ const SRC = path.join(__dirname, '..', 'src');
 const OUT = path.join(__dirname, 'test-out');
 
 esbuild.buildSync({
-	entryPoints: ['jobs', 'assistant', 'cervello', 'nucleo', 'memoria', 'claude', 'scan', 'racconto'].map(n => path.join(SRC, n + '.ts')),
+	entryPoints: ['jobs', 'assistant', 'cervello', 'nucleo', 'memoria', 'claude', 'scan', 'racconto', 'personaggi'].map(n => path.join(SRC, n + '.ts')),
 	outdir: OUT,
 	format: 'cjs',
 	platform: 'node',
@@ -932,6 +932,91 @@ function makeAssistant(over = {}) {
 		assert.strictEqual(asst.brainName('deepseek-flash'), 'DeepSeek V4.1 Flash');
 		assert.strictEqual(asst.brainName('deepseek-v4-pro'), 'DeepSeek V4 Pro');
 		assert.strictEqual(asst.brainName('apple-on-device'), 'Apple Intelligence');
+	});
+
+	// ---------- personaggi (src/personaggi.ts): voce, passaggio di chiamata, chiamata a tre ----------
+
+	/** Un Nucleo finto che, come quello vero, dice quando una battuta comincia e finisce di suonare. */
+	function nucleoCheParla() {
+		const n = makeNucleo(true);
+		const req = n.request.bind(n);
+		n.request = (cmd, args) => {
+			const r = req(cmd, args);
+			if (cmd === 'voice.speak' && args && args.final) setImmediate(() => { n.fire('voice.state', { state: 'speaking' }); setImmediate(() => n.fire('voice.state', { state: 'idle' })); });
+			return r;
+		};
+		return n;
+	}
+	const DARLENE = 'vfJO9rw4YuKJJKxYo3oQ', ELLIOT = 'yUrn8DPhKREqXUFumEa0';
+
+	await test('personaggi: «passami Darlene» le passa la chiamata, saluta e risponde con la sua voce', async () => {
+		const nucleo = nucleoCheParla();
+		const { a } = makeAssistant({ nucleo, stream: scriptedStream([[{ content: 'Ci penso io, fratellino.' }]]) });
+		a.wire({ subscriptions: [], globalState: { get: () => undefined, update: async () => {} } });
+		await a.turn('passami Darlene', true);
+		assert.strictEqual(a.getState().personaggio, 'darlene');
+		assert.ok(nucleo.speaks.some(x => x.voice === DARLENE), 'il saluto ha la voce di Darlene');
+		nucleo.speaks.length = 0;
+		await a.turn('come va il progetto?', true);
+		assert.strictEqual(nucleo.speaks[0].voice, DARLENE, 'anche la risposta');
+		assert.ok(a.systemPrompt().startsWith('Sei Darlene Alderson'), 'e il prompt e\' il suo');
+		assert.ok(a.getState().log.some(r => r.text === 'Darlene: Ci penso io, fratellino.'));
+		await a.turn('ridammi Melissa', true);
+		assert.strictEqual(a.getState().personaggio, 'melissa');
+		assert.ok(a.systemPrompt().startsWith('Sei Melissa Alderson'));
+	});
+
+	await test('personaggi: il segnale @elliot non si legge, Elliot risponde con la sua voce e Melissa chiude', async () => {
+		const nucleo = nucleoCheParla();
+		const { a } = makeAssistant({ nucleo, stream: scriptedStream([
+			[{ content: 'Io dico che regge. Elliot, tu che dici? @elliot' }],
+			[{ content: 'Regge finche\' nessuno guarda le chiavi.' }],
+			[{ content: 'Visto? Paranoico come sempre.' }],
+		]) });
+		a.wire({ subscriptions: [], globalState: { get: () => undefined, update: async () => {} } });
+		const detta = await a.turn('chiedi a Elliot se regge', true);
+		assert.ok(!/@elliot/i.test(detta), 'il segnale non resta nella risposta');
+		const testi = nucleo.speaks.map(x => x.text || '').join(' ');
+		assert.ok(!/@/.test(testi), 'e non arriva alla voce');
+		const suaVoce = nucleo.speaks.find(x => x.voice === ELLIOT);
+		assert.ok(suaVoce && /chiavi/.test(suaVoce.text), 'Elliot parla con la sua voce');
+		const ultima = nucleo.speaks.filter(x => x.text).pop();
+		assert.ok(!ultima.voice && /Paranoico/.test(ultima.text), 'Melissa chiude con la sua');
+		const righe = a.getState().log.map(r => r.text);
+		assert.deepStrictEqual(righe.slice(-3), ['Io dico che regge. Elliot, tu che dici?', 'Elliot: Regge finche\' nessuno guarda le chiavi.', 'Visto? Paranoico come sempre.']);
+		assert.strictEqual(a.getState().personaggio, 'melissa', 'la chiamata resta a Melissa');
+	});
+
+	await test('personaggi: una domanda a Krista per nome, senza segnale, ha la sua risposta; un nome di passaggio no', async () => {
+		const nucleo = nucleoCheParla();
+		const { a } = makeAssistant({ nucleo, stream: scriptedStream([
+			[{ content: 'La build e\' rotta di nuovo. Krista, che ne dici?' }],
+			[{ content: 'Dico che la rimanda da tre giorni.' }],
+			[{ content: 'Ecco, appunto.' }],
+			[{ content: 'Darlene ti ha mai detto di no? Comunque e\' finita.' }],
+		]) });
+		a.wire({ subscriptions: [], globalState: { get: () => undefined, update: async () => {} } });
+		await a.turn('com\'e\' andata la build?', true);
+		assert.ok(nucleo.speaks.some(x => x.voice === 'CxyJefqDMJqI9Y7prMgt'), 'Krista risponde con la sua voce');
+		nucleo.speaks.length = 0;
+		await a.turn('e adesso?', true);
+		assert.ok(!nucleo.speaks.some(x => x.voice), 'nessun\'altra voce per un nome di passaggio');
+	});
+
+	await test('personaggi: funzioni pure, stesse regole della mod e dell\'iPhone', async () => {
+		const p = require(path.join(OUT, 'personaggi.js'));
+		assert.strictEqual(p.chiChiede('Passami Darlene'), 'darlene');
+		assert.strictEqual(p.chiChiede('voglio parlare con mr robot'), 'elliot');
+		assert.strictEqual(p.chiChiede('passami il sale'), null);
+		assert.strictEqual(p.ospiteChiesto('sentiamo anche Krista'), 'krista');
+		assert.deepStrictEqual(p.chiamata('Va bene. @Elliot', ['elliot']), { testo: 'Va bene.', ospite: 'elliot' });
+		assert.deepStrictEqual(p.chiamata('Va bene. @darlene', ['elliot']), { testo: 'Va bene.', ospite: null });
+		assert.strictEqual(p.ospiteDellaFrase('ho messo la password nel README', '', 0), 'elliot');
+		assert.strictEqual(p.ospiteDellaFrase('lo faccio domani', '', 0), 'krista');
+		assert.strictEqual(p.ospiteDellaFrase('un film?', 'darlene', 0), 'elliot');
+		assert.ok(p.invito(null, 'krista', true).startsWith('Stavolta tira dentro Krista'));
+		assert.strictEqual(p.invito(null, null, true), '');
+		for (const k of p.ORDINE) assert.ok(!p.cuore(p.PERSONAGGI[k], '').includes('\u2014'));
 	});
 
 	// BOTTEGA_TEST_REALE=1 npm test

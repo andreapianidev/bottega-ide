@@ -103,8 +103,20 @@ enum Personaggi {
     /// Una risposta di Melissa puo' finire con "@darlene": lei tira dentro Darlene. Il testo senza segnale e chi e'
     /// stato chiamato, se puo' venire.
     static func chiamata(_ risposta: String) -> (testo: String, ospite: String?) {
-        let chi = primo("@(darlene|elliot|krista)\\b", in: risposta)
-        return (senzaSegnale(risposta), chi.flatMap { tutti[$0] == nil ? nil : $0 })
+        let testo = senzaSegnale(risposta)
+        // senza segnale ma con una domanda per nome ("Elliot, tu che dici?"): risponde lui, o la domanda resta nel vuoto
+        let chi = primo("@(darlene|elliot|krista)\\b", in: risposta) ?? chiamatoPerNome(testo)
+        return (testo, chi.flatMap { tutti[$0] == nil ? nil : $0 })
+    }
+
+    /// Il personaggio nominato nell'ultima domanda, se la battuta finisce chiedendo qualcosa a uno di loro.
+    /// Una domanda a meta' battuta parla di loro, non a loro. Come `chiamatoPerNome` della mod.
+    static func chiamatoPerNome(_ testo: String) -> String? {
+        guard let re = try? NSRegularExpression(pattern: "[^.!?]*\\?"),
+              let ultima = re.matches(in: testo, range: NSRange(testo.startIndex..., in: testo)).last,
+              let r = Range(ultima.range, in: testo),
+              testo[r.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines).count <= 2 else { return nil }
+        return primo("\\b(darlene|elliot|krista)\\b", in: String(testo[r]))
     }
 
     /// "Darlene, Elliot e Krista".
