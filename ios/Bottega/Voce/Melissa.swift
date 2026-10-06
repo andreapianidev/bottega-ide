@@ -438,7 +438,7 @@ final class Melissa {
             a = "Rispondi a \(Personaggi.nome(daChi)), davanti ad Andrea"
         } else {
             chiede = "Melissa ti ha appena tirato in mezzo, e tocca a te per \(Personaggi.ruoli[chi] ?? "dire la tua")"
-            a = "Rispondi alla domanda di Melissa e ad Andrea"
+            a = "Rispondi alla domanda di Melissa, rivolto a lei (se dici un nome e' Melissa), mentre Andrea ascolta,"
         }
         let istruzione = "Sei in una chiacchierata a voce con Melissa, Andrea e gli altri di Mr. Robot. \(chiede). \(a) in una " +
             "o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero; puoi punzecchiare Melissa, ma da amici." +
@@ -455,10 +455,8 @@ final class Melissa {
             "melissa",
             istruzione: "Hanno appena detto la loro. Chiudi tu in una o due frasi, rivolta ad Andrea, riprendendo il filo " +
                 "o rispondendo a modo tuo, senza fare domande a \(p.nome) ne' agli altri. Solo le parole che diresti.",
-            passaA: Personaggi.ordine.filter { Personaggi.tutti[$0]?.voce.isEmpty == false },
             memoria: memoria, voce: voce, audio: self.audio(di: "melissa", voce: voce, audio))
-        // ha dato comunque la parola a qualcuno: risponde, una volta ancora
-        if let altro = chiusa.ospite { try await aTre(altro, voce: voce, ultima: true, audio: audio) }
+        // la chiusa non ha lo strumento: la parola torna ad Andrea (docs/CONTRATTI.md, 9.11)
     }
 
     // MARK: - riempitivi

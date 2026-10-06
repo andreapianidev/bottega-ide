@@ -2226,10 +2226,42 @@ cercava il nome nel testo.
 
 ### 9.11 Chi risponde quando Melissa chiama, e cosa si dice mentre si pensa (build 126, mod 0.15)
 
-Regole comuni alla barra (`src/personaggi.ts`, `src/riempitivi.ts`, `src/assistant.ts`) e all'iPhone
-(`Voce/Personaggi.swift`, `Voce/Riempitivi.swift`, `Voce/AssistenteTelefono.swift`, `Voce/Melissa.swift`). La mod melissa
-(`register.tsx`) tiene ancora le sue regole sui nomi finche' non chiede la regia alla barra (punto 4 del brief del 6
-ottobre).
+Regole scritte due volte: sul Mac nella barra (`src/personaggi.ts`, `src/riempitivi.ts`, `src/assistant.ts`,
+`src/regia-personaggi.ts`) e sull'iPhone (`Voce/Personaggi.swift`, `Voce/Riempitivi.swift`, `Voce/AssistenteTelefono.swift`,
+`Voce/Melissa.swift`), che deve funzionare a Mac spento. La mod melissa non ha piu' regole sue: le chiede alla barra.
+
+**Sul Mac la regia sta in un posto solo (build 136, mod 0.19).** La mod melissa di Claude Code non decide piu' chi parla,
+quando, con che voce e con che prompt: lo chiede alla barra con `POST /v1/regia` sul socket Unix
+`~/.bottega/regia.sock` (`src/regia-personaggi-host.ts`; cartella 700, socket 600, nessun gettone: lo stesso modo con cui
+la mod parla al Nucleo su `isola.sock`, e funziona anche a Tailscale spento, quando il ponte verso l'iPhone e' chiuso).
+Ogni richiesta porta `{azione, sessione}` (`sessione`: l'id della sessione Claude Code; la barra tiene per sessione
+contatore, ultimo ospite, ospiti recenti, pausa della cronaca e ultimo `umore`, e dimentica una sessione ferma da sei
+ore). Le risposte con un ospite lo danno pronto (`OspiteRegia`): `{chiave, nome, voce, sistema, istruzione, offerte,
+strumento, deciso}`; la mod aggiunge al `sistema` ora, cartella, memoria e ricordi, e mette `istruzione` in fondo al
+messaggio dell'utente, dopo la chiacchierata.
+
+| `azione` | Cosa manda la mod | Cosa risponde la barra |
+|---|---|---|
+| `frase` | `frase`, `chi` (chi ha la chiamata), `prima` (prima frase della conversazione) | `{passa}` se c'e' il nome esatto dopo "passami" (`chiChiede`); altrimenti `{invito, offerte, strumento, deciso}` per la risposta di Melissa (lo strumento sempre, l'invito quando c'e' uno scelto). Subito, senza modello |
+| `chivuole` | `frase`, `chi` | `chiVuole` della barra (DeepSeek Flash, al piu' 2,5 s): `{riga, passa, chiede, regia, voci: OspiteRegia[], chiude, somme, ospite}`; `regia` e' l'istruzione della battuta di Melissa al posto della risposta, `voci` i prompt del giro a piu' voci, `somme` quella delle somme, `ospite` chi risponde al parere chiesto |
+| `parola` | `da` (chi ha appena parlato), `argomenti` della sua chiamata a `passa_parola`, `offerte`, `deciso`, `conStrumento`, `ultima`, `cronaca`, `poi` | `{chi, ospite}`: chi risponde (quello della chiamata, o senza la chiamata il `deciso`, mai se il cervello non aveva lo strumento) e il suo prompt; dopo un personaggio chi risponde non passa piu' la parola. Nella chiacchierata il 40% dei passaggi fra ospiti lo decide qui |
+| `chiusa` | `dopo` (l'ospite) | `{istruzione}` della chiusa di Melissa, senza domande e senza strumento |
+| `cronaca` | `appunti`, `silenzioMs`, `erroriDiFila`, `finale` (riassunto di fine turno), `richiesta`, `battute` (dette nel turno) | `{occasione: {tipo, chi, fatto, poi}, freno, riga, invito, offerte, strumento, deciso}`: `occasione()` e `frenoOspite()` della barra, piu' le prime due battute del turno come freno; lo strumento solo quando un fatto passa i freni (nella cronaca Melissa parla ogni 7-10 s) |
+
+Tempi: 800 ms per le azioni senza modello, 3,2 s per `chivuole`. Bottega chiusa, socket assente o risposta in ritardo:
+la mod fa parlare solo Melissa, niente ospiti e niente passaggi di chiamata, e lo scrive una volta nel registro (`regia:
+la Bottega non risponde (...), parla solo Melissa`; al ritorno `regia: la Bottega risponde`). Nessuna copia di riserva
+delle regole nella mod: via `chiamata`, `chiamatoPerNome`, `ospiteChiesto`, `chiChiede`, `ospiteDellaFrase`,
+`invitoConversa`, `campoDi`, `occasione`, `frenata`, `invitoCronaca`, `chiVuole`, `giroDiVoci`, `istruzioneGiro`, `regia`.
+La mod resta padrona di ascolto, voce, riempitivi, memoria e narrazione. Nel registro della barra (canale Melissa):
+`regia per la mod, chi vuole: ...` e `regia per la mod: <Nome> da' la parola a <chiave>`.
+
+**Chi e' chi (build 136).** Ogni prompt di un ospite, nella barra, nella mod (tramite la regia) e sull'iPhone, porta
+`CHI_E_CHI` (`Personaggi.chiEChi`): Andrea e' la persona che ascolta; Claude (Claude Code) e' l'assistente che lavora nel
+terminale, e file, comandi, errori e risposte del terminale sono suoi, non di Andrea; Melissa e' l'assistente a voce che
+passa la parola, e chi le risponde la chiama Melissa, non Andrea. L'istruzione di chi risponde a Melissa dice
+"Rispondi alla domanda di Melissa, rivolto a lei (se dici un nome e' Melissa), mentre Andrea ascolta". Prima (6
+ottobre) Elliot chiamava Claude «Andrea» e, rispondendo a Melissa, diceva «Andrea».
 
 **Chi parla lo decide il modello, con uno strumento (build 135; sostituisce segnale `@chiave`, `chiamatoPerNome` e la
 tabella dei vocativi delle build 124-134).** Nessun nome si cerca piu' nel testo detto. Chi risponde dopo una battuta
@@ -2248,8 +2280,8 @@ mai nella voce:
 - **Chi ce l'ha.** La risposta di Melissa quando parla a voce (chiacchierata, tasto) o legge in «racconta»: `enum` =
   i personaggi con una voce (`strumentoPassaParola`, sull'iPhone `Personaggi.strumentoPassaParola`), insieme agli altri
   strumenti. L'ospite del giro a tre quando puo' passare la parola (non il secondo di un giro): `enum` = gli altri con
-  voce, mai se stesso ne' chi l'ha chiamato. La chiusa di Melissa dopo un ospite: tutti con voce (le si chiede di non
-  fare domande; se chiama lo strumento comunque, quello risponde una volta). Un personaggio con la chiamata no.
+  voce, mai se stesso ne' chi l'ha chiamato. La chiusa di Melissa dopo un ospite no (dalla build 136: la parola torna
+  ad Andrea). Un personaggio con la chiamata no.
 - **Lettura.** `passaParolaA(argomenti, offerte)`: la chiave di `a` (con la maiuscola vale lo stesso) se e' fra quelle
   offerte, altrimenti nessuno; JSON rotto, nessuno. Registro: `passa la parola: <chiave>` (o `niente, argomenti non
   validi`).
@@ -2273,8 +2305,7 @@ mai nella voce:
   immediato, solo il comando col nome esatto dopo "passami", "fammi parlare con", "ridammi" (`chiChiede`). Via
   `ospiteChiesto` e il ramo "anche Andrea puo' chiamare" per vocativo.
 
-Risponde solo un personaggio con una voce. Se Melissa, chiudendo dopo un personaggio, da' ancora la parola a qualcuno,
-quello risponde una volta e la parola torna ad Andrea.
+Risponde solo un personaggio con una voce. Dopo la chiusa di Melissa la parola torna ad Andrea.
 
 **Chi entra da solo nella chiacchierata.** Un ospite puo' entrare dopo ogni risposta di Melissa senza ospite, anche
 nella prima di una conversazione (il contatore parte da 1); mai nella risposta subito dopo un ospite, e in quella dopo

@@ -1413,7 +1413,7 @@ function makeAssistant(over = {}) {
 		assert.strictEqual(vecchio.reqs.filter(r => r.cmd === 'voice.scalda').length, 2);
 	});
 
-	await test('personaggi: se Melissa chiudendo da\' ancora la parola a qualcuno, quello risponde una volta', async () => {
+	await test('personaggi: la chiusa di Melissa non ha lo strumento: la parola torna ad Andrea', async () => {
 		const nucleo = nucleoCheParla();
 		const sistemi = [];
 		const giro = scriptedStream([
@@ -1427,11 +1427,11 @@ function makeAssistant(over = {}) {
 		a.caso = () => 0.9; // nessun passaggio di parola fra loro: col 40% l'altro risponderebbe davvero
 		a.wire(ctxProva());
 		await a.turn('regge la build?', true);
-		assert.strictEqual(sistemi.length, 4, 'Melissa, Elliot, la chiusa, Krista: poi la parola torna ad Andrea');
+		assert.strictEqual(sistemi.length, 3, 'Melissa, Elliot, la chiusa: la chiamata della chiusa non conta');
 		assert.ok(/senza fare domande a Elliot/.test(sistemi[2]), 'il prompt della chiusa lo chiede');
 		assert.ok(/Adesso e' /.test(sistemi[1]), 'con data e ora');
-		assert.ok(nucleo.speaks.some(x => x.voice === 'CxyJefqDMJqI9Y7prMgt' && /rimanda/.test(x.text)), 'Krista con la sua voce');
-		assert.deepStrictEqual(a.getState().log.map(r => r.text).slice(-3), ['Elliot: Regge, ma le chiavi no.', 'Paranoico. Krista, tu che dici?', 'Krista: Dico che la rimanda.']);
+		assert.ok(!nucleo.speaks.some(x => x.voice === 'CxyJefqDMJqI9Y7prMgt'), 'Krista non risponde');
+		assert.deepStrictEqual(a.getState().log.map(r => r.text).slice(-2), ['Elliot: Regge, ma le chiavi no.', 'Paranoico. Krista, tu che dici?']);
 	});
 
 	await test('personaggi: Andrea si rivolge a Elliot per nome: niente espressioni regolari, lo capisce chiVuole', async () => {

@@ -1508,6 +1508,11 @@ export class Assistant {
 		}
 	}
 
+	/** Una riga nel canale Melissa del registro, per chi lavora accanto alla barra (la regia della mod). */
+	scriviRegistro(riga: string): void {
+		this.out.info(riga);
+	}
+
 	/** Chi vuole sentire Andrea, capito dal modello (CONTRATTI 9.11): `passa` (una chiave o "melissa") se vuole parlare con
 	 *  lui da ora in poi, `chiede` se vuole il suo parere adesso. Sempre DeepSeek Flash (`deepseek-flash`, senza
 	 *  ragionare), qualunque sia il cervello scelto, mai Agnes (regola di Andrea del 6/10/2026): solo JSON, 40 token,
@@ -1742,7 +1747,7 @@ export class Assistant {
 		const passabili = daChiacchiera([chi, ...(daChi ? [daChi] : [])]).filter(k => PERSONAGGI[k]?.voce);
 		const passa = !ultima && passabili.length > 0 && this.caso() < 0.4 ? passabili[Math.min(passabili.length - 1, Math.floor(this.caso() * passabili.length))]! : null;
 		const chiede = daChi ? `${nomeDi(daChi)} ti ha appena chiesto qualcosa` : `Melissa ti ha appena tirato in mezzo, e tocca a te per ${RUOLI[chi] ?? 'dire la tua'}`;
-		const rispondi = daChi ? `Rispondi a ${nomeDi(daChi)}, davanti ad Andrea` : 'Rispondi alla domanda di Melissa e ad Andrea';
+		const rispondi = daChi ? `Rispondi a ${nomeDi(daChi)}, davanti ad Andrea` : 'Rispondi alla domanda di Melissa, rivolto a lei (se dici un nome e\' Melissa), mentre Andrea ascolta,';
 		try {
 			const { testo: battuta, a: chiamato, conStrumento } = await this.breveConPassa(
 				`${p.carattere} Sei nella Bottega, l'IDE di Andrea, in una chiacchierata a voce con lui, Melissa e gli altri di Mr. Robot. ${chiede}. Sai solo quello che c'e' nella chiacchierata e nella memoria qui sotto: non inventare stati di progetti, lavori o sessioni. ${ora} ${REGOLE}${await detti(chi)}`,
@@ -1759,19 +1764,18 @@ export class Assistant {
 			fatte.push({ chi, testo: battuta });
 			if (ultima) return true;
 			if (passato) await this.aTre(passato, '', signal, fatte, brain, delGiro(), true, chi);
-			const { testo: chiusa, a: ospite } = await this.breveConPassa(
+			const { testo: chiusa } = await this.breveConPassa(
 				`${MELISSA_CORE}\n\n${TRUTH_RULE}\n\n${ora}${await detti('melissa')}`,
 				`La chiacchierata:\n${finora()}${this.memoriaTurno}\n\nHanno appena detto la loro. Chiudi tu in una o due frasi, rivolta ad Andrea, riprendendo il filo o rispondendo a modo tuo, senza fare domande a ${p.nome} ne' agli altri. Solo le parole che diresti.`,
 				signal,
 				brain,
-				this.conVoce(),
+				[],
 			);
-			// se da' comunque la parola a qualcuno, quello risponde, una volta
+			// la chiusa non da' la parola a nessuno: niente strumento (CONTRATTI 9.11)
 			if (chiusa) {
 				await this.finoAlSilenzio(signal);
 				this.direCon(chiusa);
 				fatte.push({ chi: 'melissa', testo: chiusa });
-				if (ospite) await this.aTre(ospite, '', signal, fatte, brain, delGiro(), true);
 			}
 		} catch (e) {
 			if (signal.aborted) throw e;

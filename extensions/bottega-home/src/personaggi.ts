@@ -536,9 +536,14 @@ export const NON_RIPETERE =
 export const REGOLA_REGIA =
 	"Quando Andrea vuole parlare con uno dei personaggi o sentire il loro parere, anche di tutti, lo fai sempre: puoi punzecchiarlo, ma non ti rifiuti mai e non dici mai che non ti va di fare da tramite o da centralino. Quando parlano tutti tieni le fila, e alla fine tiri le somme in una o due frasi.";
 
+/** Chi e' chi, per gli ospiti (Andrea, 6 ottobre: Elliot chiamava Claude «Andrea», e rispondendo a Melissa diceva
+ *  «Andrea»). Uguale sull'iPhone (`Personaggi.chiEChi`). */
+export const CHI_E_CHI =
+	"Chi e' chi: Andrea e' la persona che ascolta, il padrone della Bottega. Claude (Claude Code) e' l'assistente che lavora nel terminale: i file, i comandi, gli errori e le risposte del terminale sono di Claude, non di Andrea, e quando ne parli dici Claude. Melissa e' l'assistente a voce che ti ha passato la parola: se rispondi a lei e la chiami per nome, la chiami Melissa, non Andrea.";
+
 /** Le regole che ogni personaggio rispetta, qualunque carattere abbia: voce, lingua, niente ripetizioni. */
 export const REGOLE =
-	`Parli sempre e solo in italiano. Tutto viene letto ad alta voce: frasi parlate, niente markdown, elenchi, emoji, asterischi, niente lineette lunghe. ${NON_RIPETERE}`;
+	`Parli sempre e solo in italiano. Tutto viene letto ad alta voce: frasi parlate, niente markdown, elenchi, emoji, asterischi, niente lineette lunghe. ${NON_RIPETERE} ${CHI_E_CHI}`;
 
 /**
  * Il cuore del prompt quando un personaggio ha la chiamata nella Bottega: il suo carattere, gli strumenti di Melissa.

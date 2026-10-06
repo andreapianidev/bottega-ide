@@ -44,6 +44,8 @@ import { registerTerminalActivity, TerminalActivityMonitor } from './attivita-te
 import { makeRegiaDigest, regiaChart, REGIA_INTERVAL, type RegiaDigest } from './regia';
 import { pulisciAttivita, pulisciTesto } from './attivita-sicurezza';
 import { carica as caricaPersonaggi, pubblica as pubblicaPersonaggi } from './personaggi';
+import { RegiaPersonaggi } from './regia-personaggi';
+import { avviaRegiaPersonaggi } from './regia-personaggi-host';
 
 // Melissa usa i connettori di Claude Code in sola lettura (docs/CONTRATTI.md, 5 e 6): prima che nasca l'assistente.
 Object.assign(TOOLS, STRUMENTI_CONNETTORI satisfies typeof TOOLS);
@@ -942,6 +944,10 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 
 	panelHost = new PlanciaPanel(ctx.extensionUri, () => snapshot, changed.event, m => void onPlanciaMessage(m));
 	assistant.wire(ctx);
+	// la regia dei personaggi per la mod melissa: decide qui chi parla, sul socket locale (CONTRATTI 9.11)
+	const melissa = assistant;
+	const regiaMod = avviaRegiaPersonaggi(new RegiaPersonaggi({ chiVuole: f => melissa.chiVuole(f), log: r => melissa.scriviRegistro(r) }), r => melissa.scriviRegistro(r));
+	ctx.subscriptions.push({ dispose: () => regiaMod.chiudi() });
 	const savedRegia = ctx.globalState.get<RegiaDigest>('regia.digest');
 	if (savedRegia?.text && Number.isFinite(savedRegia.at)) regiaDigest = savedRegia;
 	saveRegiaDigest = digest => { void ctx.globalState.update('regia.digest', digest); };
