@@ -157,7 +157,7 @@ gli errori hanno `ok: false` ed `errore`.
 | `POST /detta` | `{sessione, progetto}` | `{ok}`: apre il microfono (riconoscimento di Apple, `it-IT`, modo push). 409 se ascolta gia' un'altra sessione |
 | `POST /detta/fine` | | `{ok}`: chiude la frase; il testo arriva come evento |
 | `POST /stato` | `{stato: pensa\|pronto\|riposo, testo?}` | `{ok}`: l'isola mostra lo stato (`pronto` si ritira da sola dopo 1,8 s) |
-| `POST /parla` | `{sessione, testo, append?, final?}` | `{ok, voce}`: Melissa lo dice (ElevenLabs `eleven_v4_turbo` sul socket caldo, voce di sistema se non risponde). Con `append: true` i pezzi di uno stesso testo (la risposta di Claude letta mentre arriva) si accodano nello stesso turno di voce; `final: true` lo chiude, anche con testo vuoto. 409 mentre ascolta |
+| `POST /parla` | `{sessione, testo, append?, final?, voce?}` | `{ok, voce}`: Melissa lo dice (ElevenLabs `eleven_v4_turbo` sul socket caldo, voce di sistema se non risponde). Con `append: true` i pezzi di uno stesso testo (la risposta di Claude letta mentre arriva) si accodano nello stesso turno di voce; `final: true` lo chiude, anche con testo vuoto. `voce` e' l'id di un'altra voce ElevenLabs dell'account (un personaggio a cui Melissa passa la chiamata, dalla build 120): si manda la frase intera (`append: false`), che chiude il turno aperto e ne apre uno con quella voce; un valore che non e' un id si ignora. 409 mentre ascolta |
 | `POST /zitta` | | `{ok}`: silenzio subito |
 | `GET /eventi?sessione=X` | | trattenuta fino a 15 s: `{ok, eventi: [...]}`, vuota se non succede niente |
 

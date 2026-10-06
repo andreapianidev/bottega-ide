@@ -16,7 +16,7 @@
 //    POST /detta     {sessione, progetto}     -> {ok}  opens the microphone (Apple recognizer)
 //    POST /detta/fine                         -> {ok}  closes it; the text arrives as an event
 //    POST /stato     {stato, testo?}          -> {ok}  the island: pensa | pronto | riposo
-//    POST /parla     {sessione, testo, append?, final?} -> {ok}  Melissa says it (ElevenLabs, Apple as
+//    POST /parla     {sessione, testo, append?, final?, voce?} -> {ok}  Melissa says it (ElevenLabs, Apple as
 //                                             fallback); append streams pieces of one text in order
 //    POST /zitta                              -> {ok}  silence now
 //    GET  /eventi?sessione=X                  -> held up to 15 s: {eventi:[...]}
@@ -201,12 +201,18 @@ final class Isola {
             let testo = (corpo["testo"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let append = corpo["append"] as? Bool ?? false
             let final = corpo["final"] as? Bool ?? !append
+            // voce: another ElevenLabs voice of the account (a character Melissa passes the call
+            // to). Only an id is taken: "apple" and com.apple.* would switch the engine.
+            let voce = (corpo["voce"] as? String).flatMap { v in
+                v.range(of: "^[A-Za-z0-9]{10,40}$", options: .regularExpression) != nil ? v : nil
+            }
             guard !testo.isEmpty || final else { return res.errore(400, "Niente da dire.") }
             guard dettaPer == nil else { return res.errore(409, "Melissa sta ascoltando.") }
             if !sessione.isEmpty { narraPer = sessione }
-            Log.info("isola: parla da \(sessione.prefix(8)), \(testo.count) caratteri\(append ? ", in coda" : "")\(final ? ", fine" : "")")
+            Log.info("isola: parla da \(sessione.prefix(8)), \(testo.count) caratteri\(append ? ", in coda" : "")\(final ? ", fine" : "")\(voce.map { ", voce \($0.prefix(6))" } ?? "")")
             if !testo.isEmpty { IsolaPanel.shared.mostra(.parla, testo: testo) }
-            Speaker.shared.speak(text: testo.isEmpty ? "" : testo + " ", append: append, final: final, model: nil, voice: nil)
+            // a voice of its own opens its own turn: sent whole (append false), it closes the one open
+            Speaker.shared.speak(text: testo.isEmpty ? "" : testo + " ", append: append, final: final, model: nil, voice: voce)
             res.ok(["voce": Speaker.shared.currentEngine.rawValue])
 
         case ("POST", "/zitta"):
