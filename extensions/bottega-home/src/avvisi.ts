@@ -389,12 +389,12 @@ export class Avvisi {
 	private contenuto(ist: Istantanea, now: number) {
 		const elenco = osservate(ist);
 		const righe = elenco !== undefined ? elenco
+			// gia' in ordine di tempo, dalla piu' recente (osservate): come la barra e la Home
 			.filter(a => a.status === 'ti aspetta' || a.status === 'in corso')
-			.sort((a, b) => a.status === b.status ? 0 : a.status === 'ti aspetta' ? -1 : 1)
 			.slice(0, 3)
 			.map(a => ({ progetto: pulisci(a.project, 40), stato: a.status, da: a.startedAt ?? a.updatedAt, fonte: fonti[a.source] })) : ist.lavori
 			.filter(w => w.status === 'ti aspetta' || w.status === 'in corso')
-			.sort((a, b) => (a.status === b.status ? 0 : a.status === 'ti aspetta' ? -1 : 1))
+			.sort((a, b) => (b.since || 0) - (a.since || 0))
 			.slice(0, 3)
 			.map(w => ({ progetto: pulisci(w.project, 40), stato: w.status, da: w.since }));
 		// `segui` e' facoltativo: le Live Activity di prima lo ignorano

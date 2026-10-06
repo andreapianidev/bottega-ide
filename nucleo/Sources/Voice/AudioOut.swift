@@ -22,6 +22,15 @@
 //  pause instead of many short ones; the first sentence never waits. Each hole is logged
 //  ("voce: buco di N ms ... scorta M ms"), so the stutter can be measured, not guessed.
 //
+//  A slow line (a hole in the last minute: ElevenLabs sending audio slower than it plays,
+//  measured 6 Oct 2026 at about 0.77x for whole turns) would still stutter two or three
+//  times in every sentence, because no small reserve outlasts a line that is always behind.
+//  There, from the second sentence of a turn on, a sentence is held aside until it has all
+//  arrived (its end marker), then played whole: the pause falls between sentences, where a
+//  voice pauses anyway. The previous sentence keeps playing meanwhile. Released early after
+//  2.5 s of silence or 6 s of audio held, so she never stays quiet for long. Each hold is
+//  logged ("voce: linea lenta, frase tenuta ...").
+//
 
 import Foundation
 import AVFoundation
@@ -61,6 +70,23 @@ final class AudioOut: @unchecked Sendable {
     /// The reserve the next hole gathers before playing on.
     private var rebufferTarget: AVAudioFrameCount = AudioOut.rebufferMin
     private var lastHoleAt: DispatchTime?
+
+    /// Slow line: a sentence held aside until it is whole (see the header).
+    private var holding = false
+    private var held: [(buffer: AVAudioPCMBuffer, done: (@Sendable () -> Void)?)] = []
+    private var heldAudioFrames: AVAudioFrameCount = 0
+    private var holdStart: DispatchTime?
+    /// The last buffer handed to the player was an end marker: the next audio starts a sentence.
+    private var lastScheduledWasMarker = false
+    /// When the player last finished a buffer; with `pending == 0`, when the silence began.
+    private var lastDoneAt: DispatchTime?
+    /// A hole this recent means the line is slow.
+    private static let slowMemory: TimeInterval = 60
+    /// Silence shorter than this after a sentence: the same turn goes on (not a new one).
+    private static let sameTurnGap: TimeInterval = 2.5
+    /// A held sentence plays anyway after this much silence, or with this much audio held.
+    private static let holdMaxSilence: TimeInterval = 2.5
+    private static let holdMaxFrames: AVAudioFrameCount = 144_000   // 6 s
 
     /// Bumped by `stop()`. Work stamped with an older generation is ignored.
     private let generationLock = OSAllocatedUnfairLock(initialState: 0)
@@ -123,6 +149,10 @@ final class AudioOut: @unchecked Sendable {
             self.markers.removeAll()
             self.pending = 0
             self.endRebuffer(log: false)
+            self.holding = false
+            self.held.removeAll()
+            self.heldAudioFrames = 0
+            self.lastScheduledWasMarker = false
             self.lastDoneWasAudio = false
             self.node?.stop()
             AudioLevels.shared.reset(.tts)
@@ -131,11 +161,76 @@ final class AudioOut: @unchecked Sendable {
         return gen
     }
 
-    var isBusy: Bool { q.sync { pending > 0 } }
+    var isBusy: Bool { q.sync { pending > 0 || holding } }
 
     // MARK: - Internals (audio queue only)
 
+    /// The gate before the player: on a slow line a sentence after the first waits whole.
     private func schedule(_ buffer: AVAudioPCMBuffer, gen: Int, done: (@Sendable () -> Void)?) {
+        guard gen == generation else { return }
+        let isMarker = done != nil
+        if holding {
+            held.append((buffer, done))
+            if isMarker { releaseHeld(whole: true) }
+            else {
+                heldAudioFrames += buffer.frameLength
+                if heldAudioFrames >= Self.holdMaxFrames { releaseHeld(whole: false) }
+            }
+            return
+        }
+        if !isMarker, lastScheduledWasMarker, lineIsSlow(), sameTurn() {
+            holding = true
+            held = [(buffer, nil)]
+            heldAudioFrames = buffer.frameLength
+            holdStart = .now()
+            armHoldCheck()
+            return
+        }
+        play(buffer, gen: gen, done: done)
+    }
+
+    private func lineIsSlow() -> Bool {
+        guard let lastHoleAt else { return false }
+        return Double(DispatchTime.now().uptimeNanoseconds - lastHoleAt.uptimeNanoseconds) / 1e9 < Self.slowMemory
+    }
+
+    /// Something is still playing, or the silence is short: the sentence continues a turn.
+    private func sameTurn() -> Bool {
+        if pending > 0 { return true }
+        guard let lastDoneAt else { return false }
+        return Double(DispatchTime.now().uptimeNanoseconds - lastDoneAt.uptimeNanoseconds) / 1e9 < Self.sameTurnGap
+    }
+
+    private func armHoldCheck() {
+        q.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self, self.holding else { return }
+            if self.pending == 0, let since = self.lastDoneAt,
+               Double(DispatchTime.now().uptimeNanoseconds - since.uptimeNanoseconds) / 1e9 >= Self.holdMaxSilence {
+                self.releaseHeld(whole: false)
+            } else {
+                self.armHoldCheck()
+            }
+        }
+    }
+
+    /// Hands the held sentence to the player; `whole` when its end marker came with it.
+    private func releaseHeld(whole: Bool) {
+        guard holding else { return }
+        holding = false
+        let items = held
+        held.removeAll()
+        if let holdStart {
+            let ms = (DispatchTime.now().uptimeNanoseconds - holdStart.uptimeNanoseconds) / 1_000_000
+            let silent = pending == 0
+            Log.info("voce: linea lenta, frase tenuta \(ms) ms, \(heldAudioFrames * 1000 / 24_000) ms di audio, \(whole ? "intera" : "parte prima che finisse")\(silent ? ", a voce ferma" : "")")
+        }
+        heldAudioFrames = 0
+        holdStart = nil
+        let gen = generation
+        for item in items { play(item.buffer, gen: gen, done: item.done) }
+    }
+
+    private func play(_ buffer: AVAudioPCMBuffer, gen: Int, done: (@Sendable () -> Void)?) {
         guard gen == generation else { return }
         guard ensureEngine(), let node else {
             done?()
@@ -151,11 +246,13 @@ final class AudioOut: @unchecked Sendable {
             markers[markerSeq] = done
         }
         let isMarker = done != nil
+        lastScheduledWasMarker = isMarker
         node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             guard let self else { return }
             self.q.async {
                 guard gen == self.generation else { return }
                 self.pending = max(0, self.pending - 1)
+                self.lastDoneAt = .now()
                 self.lastDoneWasAudio = !isMarker
                 if let markerID, let cb = self.markers.removeValue(forKey: markerID) { cb() }
                 if self.pending == 0 {

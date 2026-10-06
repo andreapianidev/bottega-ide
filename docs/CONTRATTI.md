@@ -301,6 +301,16 @@ principale, lo stesso delle animazioni dell'isola. L'isola a riposo non anima pi
 resta a 0% di CPU. La mod chiude il turno di voce a ogni frase della cronaca (0.14): prima lo chiudeva il Nucleo dopo
 20 s di silenzio ("manca final").
 
+Linea lenta (build 130). Il 6 ottobre dalle 18:10 i buchi sono tornati con il Mac scarico: la coda del socket era
+ferma (nessuna riga "dopo il socket" oltre il primo audio dopo l'avvio), il Nucleo campionato passava il tempo ad
+aspettare, e un turno da 336 caratteri ha dato 20 s di audio in 26 s, circa 0,77x: ElevenLabs genera piu' lento di
+quanto la voce parli, a ondate (zero buchi dalle 13:30 alle 14:20 e dalle 17:20 alle 18:10). Nessuna scorta piccola
+regge una linea sempre indietro, e la voce scattava due o tre volte per frase. Ora, con un buco nell'ultimo minuto,
+dalla seconda frase di un turno in poi AudioOut tiene da parte la frase finche' non e' arrivata intera (il suo
+marcatore di fine), mentre la precedente continua a suonare, e poi la suona tutta: la pausa cade fra due frasi. La
+lascia partire comunque dopo 2,5 s di silenzio o con 6 s di audio in mano. La prima frase di un turno non aspetta mai.
+Registro: "voce: linea lenta, frase tenuta N ms, M ms di audio, intera|parte prima che finisse[, a voce ferma]".
+
 Voce ElevenLabs e voce di Apple non si mescolano mai (dalla build 126). AudioOut e' una coda sola: prima l'audio di un
 turno passato ad Apple e quello ElevenLabs dei turni dopo finivano alternati, e si sentivano tutte e due insieme. Ora la
 voce di Apple comincia un segmento solo quando non c'e' piu' audio ElevenLabs in arrivo, e le frasi ElevenLabs (anche
@@ -757,7 +767,7 @@ interface WorkItem {
   jobId?: string; sessionId?: string; pid?: number; night?: boolean;
 }
 interface WorkCounts { inCorso: number; tiAspetta: number; nelTerminale: number; inCoda: number; stanotte: number; vive: number }
-// Snapshot: work: WorkItem[] (prima chi ti aspetta), workCounts: WorkCounts
+// Snapshot: work: WorkItem[] (le vive in ordine di since, dalla piu' recente; poi in coda e stanotte nell'ordine in cui partiranno), workCounts: WorkCounts
 ```
 
 Da `registro ~/.claude/sessions`: `busy` = in corso, `idle` = ti aspetta, `shell` = nel terminale. Una sessione senza
@@ -1085,7 +1095,7 @@ All'avvio l'estensione apre il contenitore una volta (`workbench.view.extension.
 
 - `assistant: AssistantState` (sezione 3)
 - `work: WorkItem[]`, `workCounts: WorkCounts` (sezione 4.9)
-- `activity`: «Sessioni osservate» nella barra e nella Home in ordine di `updatedAt`, dalla piu' recente; lo stato resta nel bordo e nell'etichetta (6 ottobre 2026)
+- `activity`: «Sessioni osservate» nella barra e nella Home in ordine di `updatedAt`, dalla piu' recente; lo stato resta nel bordo e nell'etichetta (6 ottobre 2026). Lo stesso ordine vale per la Regia (righe e progetti, dal piu' recente) e per le righe della Live Activity
 - `board: Record<sessionId, {at, kind, summary, file?}[]>`: le ultime voci della bacheca della Memoria per ogni sessione
   viva (al massimo 4 per sessione, ultime 3 ore)
 - `brain: BrainState`
@@ -1733,7 +1743,7 @@ Activity e widget restano.
 
 **Live Activity** (`apns-push-type: liveactivity`, attributi `BottegaAttivita` in `ios/Condiviso/BottegaAttivita.swift`).
 `content-state` = `{inCorso, tiAspetta, vive, righe: [{progetto, stato, da, fonte?}], segui?: {progetto, passo, stato}, aggiornato}` (al massimo tre righe,
-prima chi ti aspetta; `da` e `aggiornato` in ms dal 1970). Dalla build 92 contatori e righe
+in ordine di tempo, dalla piu' recente, dal 6 ottobre 2026; prima era prima chi ti aspetta; `da` e `aggiornato` in ms dal 1970). Dalla build 92 contatori e righe
 provengono dal registro `attivita` di tutte le fonti (Claude Code, Cline, Codex e Terminale), deduplicato
 per chiave; `vive` conta quelle in corso o in attesa, non lo storico. `fonte` e' il nome visibile del programma,
 facoltativo per leggere anche i payload precedenti. Il registro vuoto e' autorevole; soltanto se manca

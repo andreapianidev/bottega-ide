@@ -301,7 +301,7 @@ test('Regia usa il registro di Lavori per progetto e apre il lavoro Claude colle
 	const t = boot();
 	const s = snapshot({ activity: [
 		{ key: 'claude:sess-j1', id: 'sess-j1', source: 'claude', project: 'Gabbiano', path: P('Gabbiano'), title: 'Aggiorna le dipendenze', status: 'in corso', updatedAt: NOW },
-		{ key: 'codex:c1', id: 'c1', source: 'codex', project: 'Faro', path: P('Faro'), title: 'Controlla <config>', status: 'ti aspetta', summary: 'Serve una risposta', updatedAt: NOW },
+		{ key: 'codex:c1', id: 'c1', source: 'codex', project: 'Faro', path: P('Faro'), title: 'Controlla <config>', status: 'ti aspetta', summary: 'Serve una risposta', updatedAt: NOW - 5 * 60_000 },
 		{ key: 'cline:c2', id: 'c2', source: 'cline', project: 'Vela', path: P('Vela'), title: 'Vecchia analisi', status: 'finito', updatedAt: NOW - DAY },
 	] });
 	t.send({ type: 'snapshot', snapshot: s });
@@ -313,13 +313,13 @@ test('Regia usa il registro di Lavori per progetto e apre il lavoro Claude colle
 	assert.deepStrictEqual(t.last('regia.metal'), { type: 'regia.metal' });
 	t.click(t.$('[data-regia="refresh"]'));
 	assert.deepStrictEqual(t.last('regia.refresh'), { type: 'regia.refresh' });
-	assert.deepStrictEqual(t.$$('#regia-lista .regia-nome').map(x => x.textContent), ['Faro', 'Gabbiano', 'Vela']);
+	assert.deepStrictEqual(t.$$('#regia-lista .regia-nome').map(x => x.textContent), ['Gabbiano', 'Faro', 'Vela'], 'progetti in ordine di tempo, dal piu\' recente: chi aspetta da cinque minuti non scavalca chi lavora adesso');
 	assert.ok(t.$('#regia-lista').textContent.includes('<config>'));
 	assert.strictEqual(t.$('#regia-lista config'), null, 'il testo dello strumento va sfuggito');
 	assert.strictEqual(t.$('#regia-lista').querySelectorAll('.regia-agente').length, 3, 'anche la coda notturna appare dal registro Lavori');
 	t.click(t.$('[data-regia="focus"]'));
 	assert.deepStrictEqual(t.last('job.focus'), { type: 'job.focus', id: 'j1' });
-	t.click(t.$('[data-regia="new"][data-path]'));
+	t.click(t.$$('[data-regia="new"][data-path]').find(b => b.getAttribute('data-path') === P('Faro')));
 	assert.strictEqual(t.$('#tab-lavori').getAttribute('aria-selected'), 'true');
 	assert.strictEqual(t.$('#scegli-progetto').value, 'Faro');
 	t.click(t.$('#tab-regia'));

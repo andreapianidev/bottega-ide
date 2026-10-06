@@ -483,8 +483,10 @@ export function workItems(
 			pid: s.pid,
 		});
 	}
-	const order: Record<WorkItem['status'], number> = { 'ti aspetta': 0, 'in corso': 1, 'nel terminale': 2, 'in coda': 3, stanotte: 4 };
-	return out.sort((a, b) => order[a.status] - order[b.status] || b.since - a.since);
+	// le sessioni vive in ordine di tempo, dalla piu' recente (lo stato lo dice l'etichetta, non la posizione);
+	// la coda dopo, nell'ordine in cui partira'
+	const coda: Partial<Record<WorkItem['status'], number>> = { 'in coda': 1, stanotte: 2 };
+	return out.sort((a, b) => (coda[a.status] ?? 0) - (coda[b.status] ?? 0) || (coda[a.status] ? a.since - b.since : b.since - a.since));
 }
 
 export function workCounts(items: WorkItem[]): WorkCounts {

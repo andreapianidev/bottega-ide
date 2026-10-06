@@ -377,7 +377,9 @@
 				title: l.title || '', since: l.statusSince, sessionId: l.sessionId, pid: l.pid,
 			});
 		}
-		list.sort((a, b) => WORK_ORDER.indexOf(a.status) - WORK_ORDER.indexOf(b.status) || (a.since || 0) - (b.since || 0));
+		// come src/jobs.ts: le vive dalla piu' recente, la coda dopo nell'ordine in cui partira'
+		const coda = { 'in coda': 1, stanotte: 2 };
+		list.sort((a, b) => (coda[a.status] || 0) - (coda[b.status] || 0) || (coda[a.status] ? (a.since || 0) - (b.since || 0) : (b.since || 0) - (a.since || 0)));
 		workMemo = { snap: s, list };
 		return list;
 	}

@@ -416,7 +416,7 @@ const buona = t => {
 		assert.strictEqual(await S.mostraStanza({ stanza: 'App Store' }, f), 'Ho aperto la stanza App Store.');
 		assert.deepStrictEqual(mostrati.pop(), ['appstore', undefined]);
 		await S.mostraStanza({ stanza: 'siti' }, f);
-		assert.deepStrictEqual(mostrati.pop(), ['vedetta', undefined]);
+		assert.deepStrictEqual(mostrati.pop(), ['vercel', undefined]);
 		await S.mostraStanza({ stanza: 'posta' }, f);
 		assert.deepStrictEqual(mostrati.pop(), ['connettori', undefined]);
 		await S.mostraStanza({ stanza: 'dafare', progetto: 'Bottega' }, f);

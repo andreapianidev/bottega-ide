@@ -307,14 +307,26 @@ const DASH = /[—–]/;
 		];
 		const w = workItems(jobs, live, s => (s.cwd === '/p/altro' ? { name: 'Altro', path: '/p/altro' } : undefined), '/Users/x');
 		assert.deepStrictEqual(w.map(x => [x.key, x.status, x.source]), [
-			['sess:s2', 'ti aspetta', 'altrove'],
 			['job:job-4', 'in corso', 'bottega'],
 			['job:job-1', 'in corso', 'bottega'],
 			['sess:s3', 'nel terminale', 'altrove'],
+			['sess:s2', 'ti aspetta', 'altrove'],
 			['job:job-3', 'stanotte', 'bottega'],
-		]);
+		], 'le vive in ordine di tempo, dalla piu\' recente; la coda in fondo');
 		assert.strictEqual(w.find(x => x.key === 'sess:s3').project, 'home');
 		assert.deepStrictEqual(workCounts(w), { inCorso: 2, tiAspetta: 1, nelTerminale: 1, inCoda: 0, stanotte: 1, vive: 4 });
+	});
+
+	await test('la coda resta in fondo, nell\'ordine in cui partira\': prima in coda, poi stanotte, dalla piu\' vecchia', () => {
+		const jobs = [
+			{ id: 'n2', project: 'a', path: '/p/a', task: 'notte nuova', status: 'stanotte', createdAt: 300 },
+			{ id: 'q2', project: 'a', path: '/p/a', task: 'coda nuova', status: 'in coda', createdAt: 200 },
+			{ id: 'n1', project: 'a', path: '/p/a', task: 'notte vecchia', status: 'stanotte', createdAt: 100 },
+			{ id: 'q1', project: 'a', path: '/p/a', task: 'coda vecchia', status: 'in coda', createdAt: 50 },
+			{ id: 'v', project: 'a', path: '/p/a', task: 'viva', status: 'in corso', createdAt: 1, startedAt: 2 },
+		];
+		const w = workItems(jobs, [], () => undefined, '/Users/x');
+		assert.deepStrictEqual(w.map(x => x.key), ['job:v', 'job:q1', 'job:q2', 'job:n1', 'job:n2']);
 	});
 
 	await test('un pannello di Claude Code aperto e mai usato non ti aspetta', () => {

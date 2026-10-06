@@ -326,7 +326,7 @@ function banco(opz = {}) {
 		assert.strictEqual(b.presi('liveactivity').length, 0, 'niente sessioni, niente attivita\'');
 
 		b.inattivo = 0; // vale anche con Andrea al Mac
-		b.lavori = [lavoro('sess:s1', 'in corso', { project: 'Uno' }), lavoro('sess:s2', 'ti aspetta', { project: 'Due' }), lavoro('sess:s3', 'in corso'), lavoro('sess:s4', 'in corso'), lavoro('sess:s5', 'nel terminale')];
+		b.lavori = [lavoro('sess:s1', 'in corso', { project: 'Uno', since: 3000 }), lavoro('sess:s2', 'ti aspetta', { project: 'Due' }), lavoro('sess:s3', 'in corso', { since: 2000 }), lavoro('sess:s4', 'in corso'), lavoro('sess:s5', 'nel terminale')];
 		await b.giro(1000);
 		let la = b.presi('liveactivity');
 		assert.strictEqual(la.length, 1);
@@ -339,7 +339,7 @@ function banco(opz = {}) {
 		assert.deepStrictEqual(aps.attributes, { mac: 'mac-di-prova' });
 		assert.deepStrictEqual(aps.alert, { title: 'Bottega', body: '3 sessioni al lavoro' });
 		const cs = aps['content-state'];
-		assert.deepStrictEqual({ ...cs, aggiornato: 0 }, { inCorso: 3, tiAspetta: 1, vive: 5, righe: [{ progetto: 'Due', stato: 'ti aspetta', da: 1000 }, { progetto: 'Uno', stato: 'in corso', da: 1000 }, { progetto: 'Bottega', stato: 'in corso', da: 1000 }], aggiornato: 0 });
+		assert.deepStrictEqual({ ...cs, aggiornato: 0 }, { inCorso: 3, tiAspetta: 1, vive: 5, righe: [{ progetto: 'Uno', stato: 'in corso', da: 3000 }, { progetto: 'Bottega', stato: 'in corso', da: 2000 }, { progetto: 'Due', stato: 'ti aspetta', da: 1000 }], aggiornato: 0 }, 'righe in ordine di tempo, dalla piu\' recente, non per stato');
 		assert.strictEqual(cs.aggiornato, b.ora);
 		await b.giro(30_000);
 		assert.strictEqual(b.presi('liveactivity').length, 0, 'gia\' avviata: non riparte');

@@ -113,6 +113,9 @@ push, chiedono sempre conferma.
   testo arriva nel suo prompt esattamente come l'hai detto. Mentre ascolta, Melissa esce dalla tacca del MacBook come
   una Dynamic Island, con la sfera e la forma d'onda della tua voce. Con **🔊 cronaca** racconta a voce cosa sta facendo Claude, e un
   clic sull'isola lo ferma. Ascolto, voce e isola sono del Nucleo, in modalita' `--isola`.
+  Nel pannello di Claude Code dentro VS Code (e nella Bottega) la fascia sopra il prompt non c'e': li' gli stessi
+  pulsanti stanno nel pannello **Melissa**, che si apre da solo o con `/melissa-pannello`. Se il prompt non prende il
+  dettato, la frase resta sotto i pulsanti con invia, copia e scarta, e non parte mai da sola.
 
 ### Il Nucleo
 

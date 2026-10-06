@@ -2,7 +2,6 @@
 (function () {
 	'use strict';
 	const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-	const rank = { 'ti aspetta': 0, errore: 1, 'in corso': 2, 'in coda': 3, stanotte: 4, sconosciuto: 5, finito: 6 };
 	const active = new Set(['ti aspetta', 'errore', 'in corso', 'in coda', 'stanotte']);
 	const sourceName = { claude: 'Claude Code', codex: 'Codex', cline: 'Cline', terminale: 'Terminale' };
 	const keyOf = a => a.path ? `path:${a.path}` : `name:${a.project}`;
@@ -79,9 +78,10 @@
 			const q = query.trim().toLocaleLowerCase('it');
 			return [...groups.values()].map(g => {
 				g.rows = g.rows.filter(a => (scope === 'tutte' || active.has(a.status)) && (!q || [g.name, a.title, a.summary, sourceName[a.source]].some(v => String(v || '').toLocaleLowerCase('it').includes(q))));
-				g.rows.sort((a, b) => (rank[a.status] ?? 8) - (rank[b.status] ?? 8) || b.updatedAt - a.updatedAt || a.key.localeCompare(b.key));
+				// in ordine di tempo, dalla piu' recente: lo stato si legge dal bordo e dall'etichetta, non dalla posizione
+				g.rows.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0) || a.key.localeCompare(b.key));
 				return g;
-			}).filter(g => g.rows.length).sort((a, b) => (rank[a.rows[0].status] ?? 8) - (rank[b.rows[0].status] ?? 8) || b.rows[0].updatedAt - a.rows[0].updatedAt || a.name.localeCompare(b.name, 'it'));
+			}).filter(g => g.rows.length).sort((a, b) => (b.rows[0].updatedAt || 0) - (a.rows[0].updatedAt || 0) || a.name.localeCompare(b.name, 'it'));
 		}
 
 		function row(a) {
