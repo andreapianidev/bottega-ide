@@ -393,6 +393,14 @@ final class Isola {
 
     // MARK: - Click
 
+    /// ElevenLabs did not answer even after its retries (Speaker): the island says so, and the
+    /// session it was narrating for gets an "errore", which the mod shows in its band.
+    func erroreVoce(_ messaggio: String) {
+        IsolaPanel.shared.mostra(.errore, testo: "Voce: \(messaggio)")
+        IsolaPanel.shared.riposa(dopo: 6)
+        if let sessione = narraPer { manda(["tipo": "errore", "messaggio": "Voce ElevenLabs: \(messaggio)"], a: sessione) }
+    }
+
     /// While dictating a click closes the sentence; while Melissa narrates it stops Claude
     /// (the mod aborts the turn) and silences her; otherwise it puts the island away.
     private func clic() {

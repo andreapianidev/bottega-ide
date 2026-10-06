@@ -2,11 +2,16 @@
 //  Speaker.swift
 //  Bottega Nucleo
 //
-//  Text to speech. Two engines behind one queue:
-//   - ElevenLabs realtime (text-to-dialogue socket, default model eleven_v4_turbo), kept
-//     WARM while voice is in use, so a reply starts ~200 ms after its first clause;
-//   - Apple AVSpeechSynthesizer (premium Emma it-IT), the default without a key and the
-//     fallback on any ElevenLabs error.
+//  Text to speech, ElevenLabs only (Andrea, 6 Oct 2026: never a voice that is not
+//  ElevenLabs; retry, and if it really does not answer, show an error). Two paths:
+//   - the realtime socket (text-to-dialogue, default model eleven_v4_turbo), kept WARM
+//     while voice is in use, so a reply starts ~200 ms after its first clause;
+//   - the retry queue: what the socket could not say (it would not open, it dropped, it
+//     stalled) is rendered sentence by sentence through ElevenLabs REST, same voice, up to
+//     four tries spaced 1, 2 and 4 s. All four failed: the sentence is dropped and the
+//     error shows on the island, in the mod's band (event "errore") and as voice.error.
+//     No key: the error at once. Apple's synthesizer is never heard. The queue keeps its
+//     old names (appleQueue, pumpApple, engine .apple): it was Apple's until build 131.
 //  Both render into AudioOut, which plays everything gapless and meters the real output
 //  for the orb. ElevenLabs PCM never passes through here: the stream hands it to AudioOut
 //  off main (ElevenLabsStream, playback mode) and this side only keeps the books.
@@ -108,7 +113,6 @@ final class Speaker: NSObject {
     private var lastUse = Date.distantPast
 
     // Apple
-    private let synth = AVSpeechSynthesizer()
     private var appleQueue: [(Segment, String?)] = []
     private var appleCurrent: Segment?
 
@@ -143,7 +147,6 @@ final class Speaker: NSObject {
 
     private override init() {
         super.init()
-        synth.delegate = self
     }
 
     // MARK: - State
@@ -225,7 +228,6 @@ final class Speaker: NSObject {
     /// Barge-in: silence now, drop everything queued, keep the socket warm.
     func stopSpeaking() {
         generation += 1
-        if synth.isSpeaking { synth.stopSpeaking(at: .immediate) }
         appleQueue.removeAll()
         appleCurrent = nil
         awaitingHeard = 0
@@ -260,14 +262,14 @@ final class Speaker: NSObject {
         var appleVoice: String?
         var elVoice: String?
         if engine == .apple, ElevenLabsConfig.isConfigured {
-            Log.info("voce: ElevenLabs in pausa dopo un errore, questo turno va con la voce di Apple")
+            Log.info("voce: il socket ElevenLabs e' caduto da poco, questo turno va con ElevenLabs REST")
         }
         if let v = voice?.trimmingCharacters(in: .whitespaces), !v.isEmpty {
-            if v == "apple" { engine = .apple }
-            else if v.hasPrefix("com.apple.") { engine = .apple; appleVoice = v }
-            else if v == "elevenlabs" { /* default voice */ }
+            // an Apple voice asked by name is Melissa's ElevenLabs voice: Apple is never heard
+            if v == "apple" || v.hasPrefix("com.apple.") || v == "elevenlabs" { /* default voice */ }
             else { elVoice = v }
         }
+        appleVoice = nil
         return Turn(engine: engine, model: (model?.isEmpty == false) ? model! : Self.defaultModel,
                     voiceID: elVoice, appleVoice: appleVoice)
     }
@@ -332,10 +334,10 @@ final class Speaker: NSObject {
                 return
             }
             guard let s = stream(model: t.model, voiceID: t.voiceID), s.connect(), let key = key(t) else {
-                // No socket: this turn continues on Apple.
+                // No socket: this turn continues through ElevenLabs REST, with retries.
                 Self.logApple("il socket ElevenLabs non si apre", turno: true)
                 t.engine = .apple
-                enqueueApple(clean, voice: t.appleVoice, richiesta: prendiRichiesta(t), chi: ChiParla.nome(voce: t.voiceID))
+                enqueueApple(clean, voiceID: t.voiceID, richiesta: prendiRichiesta(t), chi: ChiParla.nome(voce: t.voiceID))
                 return
             }
             let newTurn = !t.firstSent && s.hasSpokenBefore && (inflight[key]?.isEmpty ?? true)
@@ -350,14 +352,14 @@ final class Speaker: NSObject {
             let spoken = SpokenText.strippingAudioTags(clean)
             if !spoken.isEmpty {
                 t.piecesSent += 1
-                enqueueApple(spoken, voice: t.appleVoice, richiesta: prendiRichiesta(t), chi: ChiParla.nome(voce: t.voiceID))
+                enqueueApple(spoken, voiceID: t.voiceID, richiesta: prendiRichiesta(t), chi: ChiParla.nome(voce: t.voiceID))
             }
         }
     }
 
-    /// One line, always the same shape, for every switch to Apple.
+    /// One line, always the same shape, for every switch to the retry queue.
     private static func logApple(_ motivo: String, turno: Bool) {
-        Log.info("voce: passo alla voce di Apple, \(motivo)\(turno ? " (per questo turno)" : "")")
+        Log.info("voce: riprovo con ElevenLabs REST, \(motivo)\(turno ? " (per questo turno)" : "")")
     }
 
     /// A closed turn whose text reached its socket owes it close_socket (ElevenLabs then
@@ -470,7 +472,7 @@ final class Speaker: NSObject {
             let spoken = SpokenText.strippingAudioTags(p.text)
             if !spoken.isEmpty {
                 p.turn.piecesSent += 1
-                enqueueApple(spoken, voice: p.turn.appleVoice, richiesta: prendiRichiesta(p.turn),
+                enqueueApple(spoken, voiceID: p.turn.voiceID, richiesta: prendiRichiesta(p.turn),
                              chi: ChiParla.nome(voce: p.turn.voiceID))
             }
         }
@@ -530,7 +532,7 @@ final class Speaker: NSObject {
                 guard let self, gen == self.generation, !(self.inflight[key]?.isEmpty ?? true) else { return }
                 // the stream had audio meanwhile, its news is still on the way to main
                 if let ago = self.streams[key]?.secondsSinceAudio, ago < 8 { self.armWatchdog(key); return }
-                Log.warn("ElevenLabs non risponde da 8 secondi, passo alla voce di Apple.")
+                Log.warn("ElevenLabs non risponde da 8 secondi, riprovo con ElevenLabs REST.")
                 self.failStream(key, reason: "nessun audio da 8 s")
             }
         }
@@ -565,7 +567,7 @@ final class Speaker: NSObject {
         case .failed(let error):
             let pending = !(inflight[key]?.isEmpty ?? true)
             if pending {
-                Log.warn("\(error.localizedDescription). Continuo con la voce di Apple.")
+                Log.warn("\(error.localizedDescription). Riprovo con ElevenLabs REST.")
                 failStream(key, reason: error.localizedDescription)
             } else if attesa?.key == key {
                 // the socket the pieces wait for dropped while closing its turn: whatever of
@@ -677,9 +679,11 @@ final class Speaker: NSObject {
             list.filter { !$0.started }.map { ($0.text, $0.richiesta, $0.chi) }
         if !rest.isEmpty { reroute.append((rest, nil, ChiParla.nome(chiave: key))) }
         if let t = turn, t.engine == .elevenlabs { t.engine = .apple }
+        // the key is "model|voice": the retry keeps the voice
+        let voce = key.split(separator: "|", maxSplits: 1).last.map(String.init)
         for r in reroute {
             let spoken = SpokenText.strippingAudioTags(r.text)
-            if !spoken.isEmpty { enqueueApple(spoken, voice: nil, richiesta: r.richiesta, chi: r.chi) }
+            if !spoken.isEmpty { enqueueApple(spoken, voiceID: voce, richiesta: r.richiesta, chi: r.chi) }
         }
         pumpApple()
         Out.event("voice.engine", ["engine": "apple", "reason": reason])
@@ -689,14 +693,26 @@ final class Speaker: NSObject {
 
     // MARK: - Apple
 
-    private func enqueueApple(_ text: String, voice: String?, richiesta: DispatchTime? = nil, chi: String) {
+    /// A sentence for the retry queue, in the ElevenLabs voice `voiceID` (nil: Melissa's).
+    private func enqueueApple(_ text: String, voiceID: String?, richiesta: DispatchTime? = nil, chi: String) {
         segmentSeq += 1
         let seg = Segment(id: segmentSeq, text: text, engine: .apple, chi: chi)
         seg.richiesta = richiesta
-        appleQueue.append((seg, voice))
+        appleQueue.append((seg, voiceID))
         pumpApple()
     }
 
+    /// Waits before each REST try: at once, then 1, 2 and 4 s.
+    private static let riprovaAttese: [Double] = [0, 1, 2, 4]
+
+    /// ElevenLabs did not answer at all: nothing is said, and Andrea sees why.
+    private func voceFallita(_ messaggio: String) {
+        Log.warn("voce: \(messaggio)")
+        Out.event("voice.error", ["messaggio": messaggio])
+        if Isola.attiva { Isola.shared.erroreVoce(messaggio) }
+    }
+
+    /// Only for `--cli tts --engine apple` and the service's report: never spoken by Melissa.
     nonisolated static func appleVoice(_ identifier: String? = nil) -> AVSpeechSynthesisVoice? {
         if let identifier, let v = AVSpeechSynthesisVoice(identifier: identifier) { return v }
         if let v = AVSpeechSynthesisVoice(identifier: "com.apple.voice.premium.it-IT.Emma") { return v }
@@ -719,36 +735,38 @@ final class Speaker: NSObject {
             return
         }
         appleAspettaLoggato = false
-        let (seg, voice) = appleQueue.removeFirst()
+        let (seg, voiceID) = appleQueue.removeFirst()
         appleCurrent = seg
-        let utterance = AVSpeechUtterance(string: seg.text)
-        utterance.voice = Self.appleVoice(voice)
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         let gen = generation
         let audioGen = AudioOut.shared.generation
-        var first = true
-        // write() renders faster than real time: the next segment is synthesized while
-        // this one is still playing, which is what makes the queue gapless.
-        synth.write(utterance) { [weak self] buffer in
-            guard let pcm = buffer as? AVAudioPCMBuffer else { return }
-            if pcm.frameLength == 0 {
-                DispatchQueue.main.async { self?.appleSegmentRendered(seg, gen: gen) }
-                return
-            }
-            if first {
-                first = false
-                // a stop in between must not count this segment again (awaitingHeard was reset)
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard let self, gen == self.generation else { return }
-                        self.scheduleStartMarker(seg)
-                    }
+        let testo = seg.text
+        let voce = voiceID ?? ElevenLabsConfig.voiceID
+        // REST renders the whole sentence; the next one renders while this one plays
+        Task { @MainActor [weak self] in
+            var ultimo = ""
+            var tentativi = 0
+            tentativi: for attesa in Self.riprovaAttese {
+                if attesa > 0 { try? await Task.sleep(nanoseconds: UInt64(attesa * 1_000_000_000)) }
+                guard let self, gen == self.generation, self.appleCurrent === seg else { return }
+                tentativi += 1
+                do {
+                    let pcm = try await ElevenLabsREST.synthesize(testo, voiceID: voce)
+                    guard gen == self.generation, self.appleCurrent === seg else { return }
+                    if tentativi > 1 { Log.info("voce: ElevenLabs REST riuscito al tentativo \(tentativi)") }
+                    seg.pcmBytes = pcm.count
+                    self.scheduleStartMarker(seg)
+                    AudioOut.shared.enqueuePCM16(pcm, generation: audioGen)
+                    self.appleSegmentRendered(seg, gen: gen)
+                    return
+                } catch {
+                    ultimo = error.localizedDescription
+                    Log.warn("voce: ElevenLabs REST, tentativo \(tentativi) fallito: \(ultimo)")
+                    if case ElevenLabsError.notConfigured = error { break tentativi }
                 }
-                // Make sure the start marker is queued before the audio.
-                DispatchQueue.main.async { AudioOut.shared.enqueue(pcm, generation: audioGen) }
-            } else {
-                DispatchQueue.main.async { AudioOut.shared.enqueue(pcm, generation: audioGen) }
             }
+            guard let self, gen == self.generation, self.appleCurrent === seg else { return }
+            self.voceFallita("ElevenLabs non risponde (\(tentativi) tentativi): \(ultimo)")
+            self.appleSegmentRendered(seg, gen: gen)
         }
     }
 
@@ -838,21 +856,5 @@ final class Speaker: NSObject {
     /// them as delivery; Apple strips them later).
     nonisolated static func cleanForSpeech(_ text: String) -> String {
         PezziDiVoce.pulisci(text)
-    }
-}
-
-extension Speaker: AVSpeechSynthesizerDelegate {
-    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        // write() also reports through the delegate; the zero-length buffer usually comes
-        // first, this is the safety net when it does not.
-        let spoken = utterance.speechString
-        DispatchQueue.main.async {
-            MainActor.assumeIsolated {
-                let sp = Speaker.shared
-                if let cur = sp.appleCurrent, cur.text == spoken {
-                    sp.appleSegmentRendered(cur, gen: sp.generation)
-                }
-            }
-        }
     }
 }

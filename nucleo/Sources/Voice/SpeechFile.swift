@@ -3,8 +3,9 @@
 //  Bottega Nucleo
 //
 //  `--cli tts`: renders a sentence to a WAV file instead of the speakers. It proves the
-//  whole voice path (key, socket protocol, PCM decoding, Apple fallback) without making
-//  a sound.
+//  whole voice path (key, socket protocol, PCM decoding, REST retries) without making a
+//  sound. Also the iPhone's voice through the ponte. ElevenLabs only: Apple renders only
+//  when asked by name (`--engine apple`), never as a fallback.
 //
 
 import Foundation
@@ -13,7 +14,8 @@ import AVFoundation
 enum SpeechFile {
     static func render(text: String, to url: URL, engine: String?, via: String?, model: String? = nil) async throws -> [String: Any?] {
         guard !text.isEmpty else { throw NucleoError("Il testo da pronunciare e' vuoto.") }
-        let wantApple = engine == "apple" || (engine == nil && !ElevenLabsConfig.isConfigured)
+        // Apple only when asked by name (`--cli tts --engine apple`): without a key it is an error
+        let wantApple = engine == "apple"
         let started = Date()
         if wantApple {
             let pcm = try await apple(text)
@@ -27,8 +29,11 @@ enum SpeechFile {
         var firstAudioMs: Int?
         if via == "rest" {
             pcm = try await ElevenLabsREST.synthesize(text, model: m)
-        } else {
+        } else if via == "ws" {
             (pcm, firstAudioMs) = try await socket(text, model: m)
+        } else {
+            // the iPhone's voice (ponte): the socket, then ElevenLabs REST up to three more times
+            pcm = try await conRiprova(text, model: m, primo: &firstAudioMs)
         }
         try writeWAV(pcm16: pcm, sampleRate: 24_000, to: url)
         return ["engine": "elevenlabs", "via": via == "rest" ? "rest" : "ws", "model": m,
@@ -36,6 +41,29 @@ enum SpeechFile {
                 "seconds": Double(pcm.count / 2) / 24_000,
                 "firstAudioMs": firstAudioMs, "totalMs": Int(Date().timeIntervalSince(started) * 1000),
                 "path": url.path, "charsThisMonth": ElevenLabsUsage.charsThisMonth]
+    }
+
+    /// ElevenLabs always: a failed socket is retried through REST after 1, 2 and 4 s.
+    private static func conRiprova(_ text: String, model: String, primo: inout Int?) async throws -> Data {
+        do {
+            let (pcm, ms) = try await socket(text, model: model)
+            primo = ms
+            return pcm
+        } catch {
+            Log.warn("voce (file): socket ElevenLabs fallito (\(error.localizedDescription)), riprovo con REST")
+        }
+        var ultimo: Error = ElevenLabsError.empty
+        for attesa in [1.0, 2.0, 4.0] {
+            try? await Task.sleep(nanoseconds: UInt64(attesa * 1_000_000_000))
+            do {
+                return try await ElevenLabsREST.synthesize(text, model: model)
+            } catch {
+                ultimo = error
+                Log.warn("voce (file): ElevenLabs REST fallito: \(error.localizedDescription)")
+                if case ElevenLabsError.notConfigured = error { break }
+            }
+        }
+        throw ultimo
     }
 
     @MainActor

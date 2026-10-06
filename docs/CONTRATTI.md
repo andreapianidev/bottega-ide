@@ -311,6 +311,17 @@ marcatore di fine), mentre la precedente continua a suonare, e poi la suona tutt
 lascia partire comunque dopo 2,5 s di silenzio o con 6 s di audio in mano. La prima frase di un turno non aspetta mai.
 Registro: "voce: linea lenta, frase tenuta N ms, M ms di audio, intera|parte prima che finisse[, a voce ferma]".
 
+Solo ElevenLabs (build 133, regola di Andrea del 6 ottobre 2026: mai una voce che non sia ElevenLabs; si riprova, e
+se proprio non va si mostra l'errore). La voce di Apple non si sente piu' in nessun caso: ne' senza chiave, ne' dopo un
+errore, ne' chiesta per nome da /parla o voice.speak (`apple`, `com.apple.*` diventano la voce di Melissa). Quello che il
+socket non riesce a dire (non si apre, cade, resta muto 8 s) va nella coda di prima, che ora genera ogni frase con
+ElevenLabs REST nella stessa voce: fino a quattro tentativi, subito e poi dopo 1, 2 e 4 s, in ordine e senza mescolarsi
+al socket. Se falliscono tutti la frase non si dice e l'errore si vede: sull'isola ("Voce: ..."), nella fascia della
+mod (evento `{tipo:"errore", messaggio}` alla sessione che stava raccontando) e come evento `voice.error {messaggio}`.
+Senza chiave l'errore arriva subito. Anche la voce per l'iPhone (ponte, SpeechFile) prova il socket e poi REST tre
+volte; Apple solo con `--cli tts --engine apple`. Registro: "voce: riprovo con ElevenLabs REST, ...", "ElevenLabs REST,
+tentativo N fallito", "ElevenLabs non risponde (N tentativi)". Il paragrafo qui sotto descrive com'era fino alla 132.
+
 Voce ElevenLabs e voce di Apple non si mescolano mai (dalla build 126). AudioOut e' una coda sola: prima l'audio di un
 turno passato ad Apple e quello ElevenLabs dei turni dopo finivano alternati, e si sentivano tutte e due insieme. Ora la
 voce di Apple comincia un segmento solo quando non c'e' piu' audio ElevenLabs in arrivo, e le frasi ElevenLabs (anche
