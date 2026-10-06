@@ -994,14 +994,14 @@
 
 	const SOURCE = { claude: 'Claude Code', cline: 'Cline', codex: 'Codex', terminale: 'Terminale' };
 	const STATUS = { 'ti aspetta': 'Ti aspetta', 'in corso': 'In corso', errore: 'Errore', sconosciuto: 'Da verificare', finito: 'Finita' };
-	const ORDER = { 'ti aspetta': 0, errore: 1, 'in corso': 2, sconosciuto: 3, finito: 4 };
 	/** @type {Map<string, HTMLLIElement>} */ const agentiNodi = new Map();
 	let hadActivity = false;
 
 	function renderActivity() {
 		const available = Array.isArray(S.activity);
+		// in ordine di tempo, dalla piu' recente: lo stato si legge dal bordo e dall'etichetta, non dalla posizione
 		const list = available ? S.activity.filter(a => a && Object.hasOwn(SOURCE, a.source)).slice().sort((a, b) =>
-			(ORDER[a.status] ?? 5) - (ORDER[b.status] ?? 5) || (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0)) : [];
+			(Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0)) : [];
 		const signature = JSON.stringify([available, list, activityExpanded]);
 		if (sig.activity === signature) return;
 		sig.activity = signature;
@@ -1030,7 +1030,8 @@
 		setText($('sessioni-riepilogo'), [statusParts.join(', '), sources.join(', ')].filter(Boolean).join('. ') || 'Nessuna attività al momento.');
 		const finished = list.filter(a => a.status === 'finito');
 		const expandable = finished.length > 12;
-		const shown = activityExpanded || !expandable ? list : list.filter(a => a.status !== 'finito').concat(finished.slice(0, 12));
+		const recenti = new Set(finished.slice(0, 12));
+		const shown = activityExpanded || !expandable ? list : list.filter(a => a.status !== 'finito' || recenti.has(a));
 		const want = new Set(shown.map(a => String(a.key || `${a.source}:${a.id}`)));
 		for (const [key, li] of agentiNodi) if (!want.has(key)) { li.remove(); agentiNodi.delete(key); }
 		const ul = $('agenti-lista');

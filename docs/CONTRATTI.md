@@ -1085,6 +1085,7 @@ All'avvio l'estensione apre il contenitore una volta (`workbench.view.extension.
 
 - `assistant: AssistantState` (sezione 3)
 - `work: WorkItem[]`, `workCounts: WorkCounts` (sezione 4.9)
+- `activity`: «Sessioni osservate» nella barra e nella Home in ordine di `updatedAt`, dalla piu' recente; lo stato resta nel bordo e nell'etichetta (6 ottobre 2026)
 - `board: Record<sessionId, {at, kind, summary, file?}[]>`: le ultime voci della bacheca della Memoria per ogni sessione
   viva (al massimo 4 per sessione, ultime 3 ore)
 - `brain: BrainState`

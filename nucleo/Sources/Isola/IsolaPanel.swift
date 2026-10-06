@@ -525,19 +525,26 @@ struct Onda: View {
     let fonte: Int32
     let fase: IsolaPanel.Fase
 
+    /// Each bar its own height and pace, so they never move as one block.
+    private static let alte: [CGFloat] = [9, 13, 16, 12, 8]
+    private static let durate: [Double] = [0.42, 0.55, 0.36, 0.5, 0.46]
+
+    @State private var su = false
+
+    // SwiftUI's own repeating animation, no audio metering: the bars move whenever she speaks
+    // or listens. In build 127-128 they were drawn from a shared level object and stood still
+    // on screen while the level moved underneath (Andrea, 6 October 2026).
     var body: some View {
-        TimelineView(.animation) { ctx in
-            let voce = VoceViva.shared
-            let _ = voce.aggiorna(ctx.date.timeIntervalSinceReferenceDate, fonte: fonte)
-            HStack(spacing: 2.2) {
-                ForEach(0..<VoceViva.barre, id: \.self) { i in
-                    Capsule(style: .continuous)
-                        .fill(Palette.gradiente(fase))
-                        .frame(width: 2.2, height: 3 + 13 * voce.altezze[i])
-                }
+        HStack(spacing: 2.2) {
+            ForEach(0..<5, id: \.self) { i in
+                Capsule(style: .continuous)
+                    .fill(Palette.gradiente(fase))
+                    .frame(width: 2.2, height: su ? Self.alte[i] : 3)
+                    .animation(.easeInOut(duration: Self.durate[i]).repeatForever(autoreverses: true).delay(Double(i) * 0.07), value: su)
             }
-            .frame(height: 16)
         }
+        .frame(height: 16)
+        .onAppear { su = true }
     }
 }
 

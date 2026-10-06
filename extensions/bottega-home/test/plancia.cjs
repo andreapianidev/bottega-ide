@@ -1097,7 +1097,7 @@ test('Home e Lavori mostrano tutte le fonti osservate, gli stati e la provenienz
 		{ key: 'claude:c1', source: 'claude', id: 'c1', project: 'Faro', path: P('Faro'), title: 'Rivede il menu', status: 'finito', updatedAt: NOW - H, summary: 'Menu rivisto', steps: ['Ha aperto il file'], evidence: 'trascrizione locale' },
 		{ key: 'cline:l1', source: 'cline', id: 'l1', project: 'Vela', title: 'Sistema il login', status: 'ti aspetta', updatedAt: NOW - 2 * 60_000, evidence: 'task locale' },
 		{ key: 'codex:x1', source: 'codex', id: 'x1', project: 'Gabbiano', title: '<img src=x onerror=alert(1)>', status: 'in corso', updatedAt: NOW - 60_000, summary: 'Esegue i test', steps: ['test <script>alert(1)</script>'], evidence: 'hook Codex' },
-		{ key: 'terminale:t1', source: 'terminale', id: 't1', project: 'Scoglio', title: 'npm run build', status: 'errore', updatedAt: NOW - 3 * 60_000, evidence: 'shell integration' },
+		{ key: 'terminale:t1', source: 'terminale', id: 't1', project: 'Scoglio', title: 'npm run build', status: 'errore', updatedAt: NOW - 2 * DAY, evidence: 'shell integration' },
 	];
 	t.send({ type: 'snapshot', snapshot: snapshot({ activity }) });
 	assert.strictEqual(t.$$('#attivita-home-lista > li').length, 4);
@@ -1109,7 +1109,8 @@ test('Home e Lavori mostrano tutte le fonti osservate, gli stati e la provenienz
 	t.send({ type: 'stats', stats: STATS });
 	assert.deepStrictEqual(t.errors, []);
 	assert.match(t.$('#quadro-cifre').textContent, /Lavori1 in corso1 ti aspetta/);
-	assert.deepStrictEqual(t.$$('#attivita-home-lista .attivita-fonte').map(el => el.textContent), ['Cline', 'Terminale', 'Codex', 'Claude Code']);
+	assert.deepStrictEqual(t.$$('#attivita-home-lista .attivita-fonte').map(el => el.textContent), ['Codex', 'Cline', 'Claude Code', 'Terminale'], 'in ordine di tempo, dalla piu\' recente: l\'errore di due giorni fa in fondo');
+	assert.match(t.$$('#attivita-home-lista > li').at(-1).className, /stato-errore/, 'lo stato resta nel bordo');
 	assert.ok(!t.$('#attivita-home-lista img'));
 	t.click(t.$('#tab-lavori'));
 	assert.strictEqual(t.$$('#attivita-lavori-lista > li').length, 4);

@@ -284,14 +284,13 @@
 	const snap = k => (state.snapshot ? state.snapshot[k] : undefined);
 	const ACTIVITY_SOURCE = { claude: 'Claude Code', cline: 'Cline', codex: 'Codex', terminale: 'Terminale' };
 	const ACTIVITY_STATUS = { 'ti aspetta': 'Ti aspetta', 'in corso': 'In corso', finito: 'Finito', errore: 'Errore', sconosciuto: 'Stato da verificare' };
-	const ACTIVITY_ORDER = { 'ti aspetta': 0, errore: 1, 'in corso': 2, sconosciuto: 3, finito: 4 };
 
 	/** L'osservatorio usa un campo facoltativo: i vecchi snapshot mantengono la plancia di prima. */
 	function activityList() {
 		const list = snap('activity');
 		if (!Array.isArray(list)) return null;
 		return list.filter(a => a && Object.hasOwn(ACTIVITY_SOURCE, a.source))
-			.slice().sort((a, b) => (ACTIVITY_ORDER[a.status] ?? 5) - (ACTIVITY_ORDER[b.status] ?? 5) || (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0));
+			.slice().sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0)); // dalla piu' recente, come nella barra
 	}
 
 	function activitySummary(list) {
@@ -334,7 +333,8 @@
 		// le dodici piu' recenti, finche' Andrea non sceglie di vedere l'intero registro.
 		const recent = list.filter(a => a.status === 'finito');
 		const expandable = recent.length > 12;
-		const shown = state.activityExpanded[place] || !expandable ? list : list.filter(a => a.status !== 'finito').concat(recent.slice(0, 12));
+		const keep = new Set(recent.slice(0, 12));
+		const shown = state.activityExpanded[place] || !expandable ? list : list.filter(a => a.status !== 'finito' || keep.has(a));
 		sync($('attivita-' + place + '-lista'), shown, a => a.key || a.source + ':' + a.id, a => activityHTML(a, detailed));
 		const toggle = $('attivita-' + place + '-toggle');
 		toggle.hidden = !expandable;
