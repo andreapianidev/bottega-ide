@@ -396,15 +396,16 @@ export class Cervelli {
 		};
 	}
 
-	/** Lo stream per il cervello scelto (Apple escluso: passa dal Nucleo). Errori 401/402 mettono da parte il cervello. */
-	streamFor(c: Choice = this.choice()): LlmStreamFn | undefined {
+	/** Lo stream per il cervello scelto (Apple escluso: passa dal Nucleo). Errori 401/402 mettono da parte il cervello.
+	 *  `extra`: campi in piu' della richiesta (max_tokens, temperature). */
+	streamFor(c: Choice = this.choice(), extra: Record<string, unknown> = {}): LlmStreamFn | undefined {
 		if (c.provider === 'apple') return undefined;
 		const url = c.provider === 'agnes' ? AGNES.url : DEEPSEEK.url;
 		return async (messages, tools, onDelta, signal) => {
 			const key = this.key(c.provider);
 			if (!key) throw new BrainError(c.provider, 0, 'Manca la chiave.');
 			const headers: Record<string, string> = { 'content-type': 'application/json', authorization: `Bearer ${key}` };
-			const body = JSON.stringify(requestBody(c, messages, tools));
+			const body = JSON.stringify({ ...requestBody(c, messages, tools), ...extra });
 			let wait = 2000;
 			for (let attempt = 0; attempt < 4; attempt++) {
 				const res = await this.fetchFn(url, { method: 'POST', headers, body, signal }).catch(e => {

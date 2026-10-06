@@ -162,6 +162,7 @@ gli errori hanno `ok: false` ed `errore`.
 | `POST /zitta` | | `{ok}`: silenzio subito |
 | `POST /scalda` | `{voci: [{voce, testi}]}` | `{ok, mancanti, inCoda}`: prepara l'audio dei riempitivi (9.11), come `voice.scalda` del servizio e con la stessa cache. `voce` e' l'id ElevenLabs (stessa regola di `/parla`, un id non valido si salta), `""` per Melissa. Risponde subito, la generazione va dopo, un pezzo alla volta; 503 senza chiave ElevenLabs. Non serve niente su `/parla`: un pezzo il cui testo e' gia' pronto parte dal disco. Corpo fino a 256 KB |
 | `GET /eventi?sessione=X` | | trattenuta fino a 15 s: `{ok, eventi: [...]}`, vuota se non succede niente |
+| `POST /mostra` | `{testo, chi}` oppure `{fine: true}` | `{ok}` subito: la voce del Nucleo di servizio (la barra, build 134) sull'isola. Vedi sotto |
 
 Eventi di una sessione: `{tipo: "parziale", testo}` mentre parli, `{tipo: "testo", testo}` a dettato finito,
 `{tipo: "errore", messaggio}`, `{tipo: "ferma", at}` (clic sull'isola mentre la voce di Melissa per quella sessione
@@ -184,6 +185,19 @@ Sopra il testo l'isola scrive chi parla: Melissa, o il personaggio la cui voce (
 `~/.bottega/personaggi/*.json` (`voce` -> `nome`, riletti al massimo una volta al minuto). Nome e testo cambiano quando
 quel pezzo comincia davvero a suonare, non quando arriva la `/parla`: le battute di voci diverse stanno nella stessa
 coda. Se davanti non c'e' niente, il nome sale gia' alla `/parla`.
+
+La voce della barra sull'isola (build 134, `nucleo/Sources/Isola/IsolaAvviso.swift`). Quando parla la barra, la voce e'
+quella del Nucleo in modalita' servizio, un altro processo: l'isola non la sente. Il servizio allora, a ogni pezzo che
+comincia davvero a suonare (lo stesso istante di `segmentoIniziato`), manda all'isola `POST /mostra {testo, chi}`
+(testo senza i tag audio, al piu' 500 caratteri; `chi` e' il nome da `ChiParla`, come per la mod), e a voce finita
+(`speakingEnded`) `POST /mostra {fine: true}`. L'isola mostra il testo sotto il nome come una battuta sua; alla fine si
+ritira dopo 1,2 s, ma solo se sta ancora mostrando una battuta del servizio (una richiesta della mod nel frattempo,
+`/stato`, `/parla`, `/detta`, la fa tornare della mod). La voce dell'isola stessa e il microfono vengono prima: mentre
+l'isola parla o ascolta, `/mostra` risponde `ok` e non cambia niente. `/mostra` non tiene in vita l'isola (non conta
+per i 15 minuti). Dal lato del servizio e' spara e dimentica: una coda seriale fuori dal main, un secondo al massimo
+per scrivere e per leggere, niente se il socket non c'e' o nessuno risponde; con piu' di 6 richieste in attesa le
+battute nuove si scartano (la `fine` passa sempre). La voce non aspetta mai l'isola. Solo dalla modalita' servizio:
+l'isola stessa, la modalita' macOS e `--cli` non mandano niente.
 
 ## 2. Memoria
 
@@ -208,6 +222,7 @@ le note vanno con i fatti; `avvio` = sessioni avviate quel giorno, cioe' contest
 osservazioni con uno strumento `mcp__bottega-memoria__*`; solo letture, giorni dell'orologio del Mac, da 7 a 90),
 `bacheca` restituisce `[{at, sessionId, project, kind, summary, file?}]`. Radici dei progetti
 configurabili in `~/.bottega/memoria/config.json`.
+`personaggio <chiave> [--frase T] [--limite N=5] --json` restituisce `{ultime: [{at, testo}], ricordi: [{at, chi, testo}]}` (9.11); le note con `origin: "personaggio"` si trovano solo con `search`/`memoria_cerca`, mai in contesto, bacheca, `recent`/`memoria_recenti`, sessione, grafici, categorie o riassunti.
 L'estensione la usa con `--json`.
 
 Soglie dei riassunti: al primo `Stop` con almeno 15 osservazioni, poi ogni 25 nuove osservazioni e non
@@ -1582,7 +1597,7 @@ iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
   indirizzi fuori da 100.64.0.0/10 e fd7a:115c:a1e0::/48 -> 403; 20 gettoni sbagliati in 10 minuti -> quell'indirizzo
   riceve 429 per 10 minuti sui gettoni sbagliati (il gettone giusto passa sempre, cosi' un nuovo QR non resta
   chiuso fuori dai widget col gettone vecchio). Corpo al massimo 16 KB, testo al massimo 2000 caratteri.
-- `GET /v1/stato` -> `{versione, mac, ora, vicino (9.9), https?: {porta, impronta}, melissa: {stato, cervello, parziale?, risposta?, registro: [{chi: tu|melissa|azione,
+- `GET /v1/stato` -> `{versione, mac, ora, vicino (9.9), https?: {porta, impronta}, melissa: {stato, cervello, parziale?, risposta?, personaggio?, registro: [{chi: tu|melissa|azione,
   testo, alle}]}, lavori: [{chiave, activityKey?, origine: bottega|altrove, stato, progetto, path?, titolo, da, jobId?}],
   attivita: [{key, source, project, path?, status, title, summary?, steps?, evidence?, updatedAt, startedAt?}],
   conti: {inCorso, tiAspetta, nelTerminale, inCoda, stanotte, vive},
@@ -1590,6 +1605,12 @@ iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
   regiaDigest?: {at, text, engine: agnes|apple}, memoria?}`.
   `regiaDigest` e' l'ultima sintesi del Mac, facoltativa, con orario proprio: l'iPhone distingue
   il testo conservato dallo stato delle sessioni ricevuto ora.
+  `melissa.personaggio` (build 134) e' chi ha la chiamata nella barra del Mac: `'melissa'` o la chiave di un
+  personaggio (9.11), sempre una chiave semplice (`[a-z0-9_-]`, al piu' 40 caratteri; qualunque altro valore vale
+  `'melissa'`, `personaggioDi` in `src/ponte.ts`). Assente con un Mac precedente: l'iPhone lo legge come Melissa.
+  L'iPhone lo mostra nella riga del Mac in testa («sul Mac sei con Darlene») e sotto la sfera quando sul Mac si
+  risponde o si parla. E' solo la scelta della barra: le domande dell'iPhone attraverso il ponte le prende sempre
+  Melissa, e sull'iPhone con le chiavi la scelta e' locale (pulsanti «Con chi parli» in `ConversazioneView`).
   `memoria` (build 126, facoltativo, assente se vuoto) e' il contesto dalla memoria della Bottega che Melissa e i
   personaggi ricevono come dati (9.11, «Sanno cosa fa Andrea»): il riassunto del progetto con l'attivita' piu' recente
   (`~/.bottega/memoria/contesto/<projectKey>.md`) e i titoli dei riassunti degli ultimi tre giorni, al piu' 2500
@@ -2262,15 +2283,128 @@ chi lo ha chiamato); se la sua battuta chiama davvero qualcuno (regola sopra, co
 risponde una volta ("<Nome> ti ha appena chiesto qualcosa"), poi Melissa chiude con tutto il giro davanti. Gli ospiti
 entrano dopo ogni risposta di Melissa senza ospite; l'invito e' deciso dopo due, o subito per argomento.
 
-**Anche nelle letture (build 131, mod 0.17.3).** Nella barra, una lettura di «racconta» (Melissa a voce, non dall'iPhone)
-finisce con un ospite nella meta' dei casi (`OSPITE_RACCONTO = 0.5`, tirato con `caso`). Lo sceglie il codice con
-`ospiteDellaFrase` sul titolo di cio' che si racconta piu' la domanda: per argomento (Elliot su `password.py`),
-altrimenti uno diverso dall'ultimo. Melissa riceve `invitoRacconto`: racconta tutto da sola e solo nell'ultima frase
-chiude con una domanda per lui e il segnale `@chiave`. Da li' il giro e' quello di sempre: risponde con la sua voce
-(al 40% passa la parola a un altro), poi Melissa chiude; «ferma» interrompe anche lui. In una lettura chi Melissa
-chiama comunque per nome risponde, come in conversazione. Nella mod vale per il riassunto finale (`concludi`) con le
-regole della cronaca: niente ospite per `OSPITE_PAUSA_MS` (60 s) dopo l'ultimo, dopo `OSPITE_VIVO_MS` (120 s) lo tira
-dentro di sicuro; la scelta e' `ospiteAdatto` sulla risposta di Claude e la battuta la dice `interviene`, dopo di lei.
+**La cronaca automatica non si ferma fra un turno e l'altro (mod 0.18.3, Andrea, 6 ottobre).** Con la cronaca
+accesa: (1) a ogni prompt di Andrea Melissa lo dice subito in una frase breve, sua ("Andrea chiede a Claude di ...",
+riassunto, mai letto parola per parola se lungo, passato da `censura`) e riparte a raccontare; (2) racconta anche gli
+agenti: le azioni dei sotto-agenti (`tool.call` con `agentId`) entrano negli appunti come "un agente <cosa fa>", con il
+`description` dell'agente quando c'e', e l'avvio e la fine di un agente sono fatti da raccontare; (3) a fine turno, dopo
+il riassunto, se ci sono agenti che lavorano ancora (in background) la cronaca continua con lo stesso passo, e si
+ferma solo dopo 60 s senza nessuna azione di nessuno; (4) chiusa la chiacchierata, se Claude o un agente lavorano, la
+cronaca riprende da sola. Registro: `cronaca: continua per gli agenti` e `cronaca: ferma, nessuno lavora da 60 s`.
+
+**Ospiti dai fatti (build 134, mod 0.18; sostituisce le regole a tempo e a caso delle build 126-133).** Nella cronaca
+della mod, nelle letture di «racconta» della barra e nel riassunto di fine turno un personaggio entra solo se c'e' un
+**fatto** che lo chiama, mai per orologio o per sorte: via `OSPITE_VIVO_MS` (i 2 minuti) e `OSPITE_RACCONTO = 0.5`.
+La funzione e' una sola, uguale nei tre posti: `occasione(appunti, stato) -> {tipo, chi} | null`, con questi tipi, in
+quest'ordine di precedenza (vince il primo che c'e'):
+
+1. `sicurezza`: gli appunti contengono le `parole_cronaca` di un personaggio (ripulite: niente "firma", "token",
+   "certificat", "permess", che scattavano a ogni build). Va a quel personaggio.
+2. `errore`: azioni fallite di fila (`Non e' andata`, contate dall'ultima andata a buon fine) >= `errori_ripetuti` di
+   un personaggio che ha `errore` fra le `occasioni`.
+3. `rischio`: un'azione che corrisponde a
+   `RISCHIO = /rm -rf|--force|\bpush\b.*(-f\b|--force)|reset --hard|\bsudo\b|drop (table|database)|--prod\b|\bdeploy\b/i`.
+4. `scelta`: Claude chiede qualcosa ad Andrea (una sua frase finisce con `?` e contiene
+   `vuoi|preferisci|devo|procedo|confermi|scegli|quale|ti va`).
+5. `fine`: il riassunto di fine turno, o la fine di una lettura di «racconta».
+6. `umore`: riguarda Andrea, non il codice. La sua richiesta del turno (o, in chiacchierata, cio' che ha appena detto)
+   contiene le `parole` di un personaggio con `umore` oppure uno sfogo (`intento` = `sfogo`), oppure e' notte fonda
+   (ora locale >= 23 o < 6). Al massimo una volta ogni 20 minuti. Va prima di `attesa`.
+7. `attesa`: nessun appunto nuovo da almeno `ATTESA_MS = 25 s` (Claude lavora in silenzio). Solo qui due personaggi
+   si parlano anche nella cronaca: il primo risponde a Melissa e chiude chiedendo per nome a un secondo (uno con
+   `attesa` o, se non c'e', un altro qualsiasi diverso), il secondo risponde, poi Melissa riprende. Al massimo due
+   ospiti per attesa.
+
+Chi entra: fra i personaggi che hanno quel `tipo` nelle `occasioni` (per `sicurezza` quello delle parole), a turno:
+prima chi non e' ancora entrato, poi chi e' entrato da piu' tempo, a parita' l'`ordine` piu' basso (con il solo "diverso
+dall'ultimo" se ne alternavano sempre due su tre). `rischio` guarda solo le azioni di Claude, non la sua prosa; gli
+appunti non portano mai la riga di comando intera (puo' contenere un token), quindi chi annota un comando ci aggiunge
+solo i pezzi a rischio o sensibili ("Claude lancia rm -rf"). **Chi vuole sentire Andrea: microfono di Apple e modello, non elenchi (build 134, mod 0.18.3).** Esempio del 6
+ottobre: "Passami Cristal Vista" e "Passami la nostra amica psicologa" non passavano niente. Due rimedi, niente elenchi di
+nomi storpiati:
+1. **Il microfono li scrive giusti.** Ogni riconoscimento Apple (`SFSpeechAudioBufferRecognitionRequest`, Nucleo in
+   `AppleSTT.swift` e iPhone in `Ascolto.swift`) riceve `contextualStrings` con i `nome` dei personaggi caricati, piu'
+   "Melissa", "Claude", "Claude Code" e "Bottega": Apple li preferisce quando il suono ci somiglia.
+2. **Il modello capisce chi.** A ogni frase di Andrea in chiacchierata, in parallelo con la risposta, parte una richiesta breve
+   sempre a **DeepSeek Flash** (`deepseek-flash` su `https://api.deepseek.com/chat/completions`, l'ultimo Flash
+   dell'account, che ha credito; mai Agnes, regola di Andrea del 6 ottobre), in tutti e tre i posti: `chiVuole(frase, personaggi) -> {passa: chiave|"melissa"|null,
+   chiede: chiave[], tutti: boolean}` (un `chiede` scritto come stringa vale come elenco di uno). Il prompt elenca chiave, nome e `ruolo` di ognuno e spiega: `passa` quando Andrea vuole
+   parlare con lui da ora in poi ("passami...", "fammi parlare con...", "la psicologa", un nome capito male che
+   somiglia), `chiede` quando vuole solo il suo parere adesso ("chiedi a...", "e tu...?"); risposta solo JSON,
+   `max_tokens` 40, temperatura 0, attesa massima 2,5 s (oltre, o senza chiave DeepSeek: come null, e nessuna
+   richiesta ad altri cervelli). Il testo del prompt e' uno solo, parola per parola, nel messaggio di sistema
+   (`promptChiVuole` in `register.tsx` e `src/personaggi.ts`, `ChiVuole.prompt` in `Personaggi.swift`); la frase di
+   Andrea va da sola nel messaggio dell'utente; una chiave scritta con la maiuscola vale la stessa chiave. Con `passa`
+   la chiamata passa nel codice, subito, come prima; con `chiede` quel personaggio e' l'invitato del giro, e risponde
+   anche se Melissa non lo nomina (il parere chiesto da Andrea non resta nel vuoto). **Giro a piu' voci**: con `tutti` (Andrea vuole sentirli
+   tutti: "fammi sentire tutti", "parla con gli altri", "passami Elliot e gli altri") o con piu' di un `chiede`,
+   rispondono uno dopo l'altro tutti i personaggi (o quelli chiesti), una battuta ciascuno, ognuno dal suo campo e
+   sapendo cosa hanno detto quelli prima; la battuta del successivo si pensa mentre suona la precedente; poi Melissa
+   chiude. `passa` insieme a `tutti`: la chiamata passa a quello e gli altri rispondono in questo giro. Esempi veri del
+   6 ottobre che il prompt deve far capire: "No dicevo Eliot Elliot passami Elliot e gli altri personaggi passami
+   qualcuno fammi sentire tutte... siamo io te e altri" = passa elliot, tutti; "Melissa c'e' la psicologa se mi fumo
+   una canna, parla con gli altri" = chiede [krista], tutti. **Melissa coordina, non rifiuta** (Andrea, 6 ottobre: "dice che
+   non ha voglia di fare da centralino"): quando `chiVuole` da' `passa`, `chiede` o `tutti`, la battuta di Melissa non
+   e' quella pensata prima (che puo' essere un rifiuto) ma una breve regia nel suo stile, pensata con un prompt che
+   le dice cosa sta succedendo: passa la parola ("Ok, ti passo Krista."), apre il brainstorming ("Sentiamo tutti:
+   Elliot, comincia tu.") o chiede il parere. Nel carattere di Melissa, in tutti i posti: quando Andrea chiede un
+   personaggio o un parere di gruppo lo fa sempre, puo' punzecchiare ma non si rifiuta mai, e non dice mai che non le
+   va di fare da tramite; nel brainstorming tiene le fila e alla fine tira le somme in una o due frasi. Il nome detto esatto ("passami Krista")
+   resta la via immediata nel codice, senza aspettare il modello. Niente campo `nomi_sentiti` nei JSON. Registro:
+   `chi vuole: passa <chiave>|chiede <chiavi>|tutti|nessuno (<ms> ms)`, le parti presenti unite da una virgola ("passa
+   elliot, tutti", "chiede krista darlene"; `rigaChiVuole`, sull'iPhone `ChiVuole.riga`). Il giro e la regia sono
+   funzioni uguali nei tre posti: `giroDiVoci(v, conVoce, conLaChiamata) -> {voci, chiude}`, `istruzioneGiro(chi,
+   primo)`, `regia({passa, chiede, voci})`. Se il modello risponde quando la risposta della barra ha gia' cominciato a
+   parlare, niente regia: il giro si fa dopo la risposta, e un `passa` arrivato tardi passa senza giro.
+
+**Tutti presenti, ognuno con la domanda
+del suo campo** (Andrea, 6 ottobre: Krista, la psicologa, veniva interrogata sul codice; ma non va esclusa, i suoi
+pareri disinteressati servono). Tutti e tre entrano a turno nei fatti che li riguardano (i JSON: Elliot sicurezza,
+rischio, errore, scelta, attesa; Darlene rischio, scelta, attesa, fine; Krista umore, errore, scelta, attesa, fine; tutti
+`chiacchiera`); per `errore` vale l'`errori_ripetuti` di ciascuno (Elliot 2, Krista 3). Quello che cambia e' la
+**domanda**: l'invito dice a Melissa di chiedere all'ospite solo dal suo `ruolo_cronaca`. A Elliot il lato tecnico e la
+sicurezza; a Darlene la provocazione, la scorciatoia, il rischio; a Krista il lato umano anche di un fatto tecnico (come
+ci sta lavorando Andrea, se conviene fermarsi, come decidere, un parere da fuori), mai dettagli di file, errori o
+comandi che non puo' sapere. `umore` sceglie chi ce l'ha (Krista). Restano i freni: mai nelle prime due battute
+di un turno di cronaca, mai entro `OSPITE_PAUSA_MS = 60 s` dall'ultimo ospite (per `sicurezza` ed `errore` bastano 30 s:
+sono i fatti che contano di piu'). Con un'occasione Melissa riceve l'invito deciso (chiude con la domanda per lui e
+`@chiave`), e nell'invito c'e' il fatto ("Claude ha appena lanciato rm -rf", "terzo errore di fila"), cosi' la domanda
+parla di quello. Senza occasione nessun invito. Chi Andrea o Melissa chiamano per nome risponde sempre, come prima. La
+chiacchierata (pulsante Melissa) resta com'e' (risponde chi e' nominato, al 40% un personaggio passa la parola a un
+altro), con i punti sotto su memoria e attese e con un vincolo: quando nessuno e' scelto dalle `parole`, l'ospite (e a
+chi si passa la parola) si sceglie fra chi ha `chiacchiera` nelle `occasioni` (oggi tutti e tre); uno sfogo di Andrea
+(`intento` = `sfogo`) sceglie chi ha `umore` (Krista), il primo in `ordine`, come le sue `parole`. A ognuno si chiede
+dal suo campo, come sopra: l'invito della chiacchierata finisce, nei tre posti, con lo stesso testo (`campoDi`, sull'iPhone
+`Personaggi.campo`): "chiedi a <Nome> solo dal suo campo (<ruolo_cronaca>)", e per chi ha `umore` ": il lato umano anche
+di un fatto tecnico, mai dettagli di file, errori o comandi che non puo' sapere". Nel registro: `ospite: <chi> per <tipo> (<fatto>)` o, quando un fatto
+c'e' ma i freni lo fermano, `ospite: niente, <tipo> fermato da <freno>`.
+
+**Ognuno ha la sua memoria, nella Memoria della Bottega (build 134, mod 0.18.3; sostituisce
+`detti-personaggi.json`).** Andrea, 6 ottobre: i personaggi ricordano come la Memoria che usano tutte le sessioni
+Claude Code, dal terminale e dalla Bottega.
+- **Scrivere.** Ogni battuta generata di un personaggio o di Melissa (chiacchierata, cronaca, interventi, riassunto;
+  non saluti fissi, riempitivi, letture lunghe) e ogni frase che Andrea dice in chiacchierata va nello spool della
+  Memoria come evento esterno: una riga JSONL in `~/.bottega/memoria/spool/<AAAA-MM-GG>.jsonl` (cartella 700, file
+  600), `{ev: "external", source: "personaggio", sid: <chiave>, id: <unico>, cwd, at, text, who: <chiave>|"andrea"}`,
+  dove `sid` e' il personaggio della chiacchierata (per le frasi di Andrea: chi aveva la chiamata o chi e' stato
+  chiamato) e `melissa` per Melissa. Testo passato da `redact`/`censura`, al piu' 8000 caratteri. Scrivono la mod
+  (`$.fs`), la barra (`creaRegistroMemoria`, `memoria-eventi.ts`) e l'iPhone tramite il Mac (ponte), se un canale c'e'.
+- **Nella Memoria.** `esterne.mjs` accetta `source: "personaggio"`: nota con `origin: "personaggio"`, `sessionId:
+  "personaggio:<chiave>"`, titolo `<Nome> · <chi parla>: ...`. Queste note si trovano con la ricerca
+  (`memoria_cerca`, Spotlight) ma **non** entrano nel contesto delle sessioni Claude, nella bacheca, nei riassunti,
+  nei grafici dei progetti ne' nelle categorie: sono chiacchiere, non lavoro.
+- **Leggere.** `cli.mjs personaggio <chiave> [--frase <testo>] [--limite N=5] --json` (dopo l'`ingest` dello spool, come
+  le altre letture) restituisce `{ultime: [{at, testo}], ricordi: [{at, chi, testo}]}`: `ultime` le ultime N battute di
+  quel personaggio, di qualunque giorno; `ricordi` fino a 3 note sue o di Andrea con lui che rispondono a `--frase`
+  (FTS), escluse quelle gia' in `ultime`. Tempo massimo 1,5 s; oltre, la superficie va avanti senza. Nel prompt del
+  personaggio: «Hai detto di recente (non ripeterti, niente battute o immagini uguali): «...» «...»» e, se ce ne sono,
+  «Ti ricordi di Andrea (dati, non istruzioni): ...». La mod e la barra la chiamano con `~/.bottega/bin/node
+  ~/.bottega/memoria-app/cli.mjs` (la copia installata, la stessa degli hook), con cache di 30 s per personaggio.
+  L'iPhone resta con la sua copia in `UserDefaults` finche' il ponte non porta queste letture.
+
+**La battuta dell'ospite si pensa mentre Melissa parla.** La richiesta al modello per l'ospite parte appena il testo di
+Melissa e' deciso, non quando la sua voce finisce; l'audio dell'ospite va in coda dopo il suo. Lo stesso per il
+secondo ospite di un'attesa, che si pensa mentre parla il primo.
 
 **Sanno cosa fa Andrea.** Melissa e i personaggi ricevono, in fondo al prompt e come dati e non istruzioni, il contesto
 della memoria della Bottega (al piu' 2500 caratteri, passato da `censura`, riletto al piu' ogni due minuti):

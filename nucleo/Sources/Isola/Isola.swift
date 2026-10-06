@@ -23,6 +23,10 @@
 //                                             VoceCache (VoceScalda.swift): a /parla piece whose text is
 //                                             there plays at once, without waiting for ElevenLabs
 //    GET  /eventi?sessione=X                  -> held up to 15 s: {eventi:[...]}
+//    POST /mostra    {testo, chi} | {fine}    -> {ok}  a line of the service's voice (the bar, IsolaAvviso)
+//                                             has started to sound: shown under `chi`; fine: it is over.
+//                                             Below the island's own voice and the microphone; it does
+//                                             not keep the island alive
 //
 //  Events for a session: {tipo:"parziale", testo}, {tipo:"testo", testo} (the dictation is
 //  over), {tipo:"errore", messaggio}, {tipo:"ferma"} (the island was clicked while Melissa's
@@ -74,6 +78,8 @@ final class Isola {
     private var code: [String: [[String: Any]]] = [:]
     private var attese: [String: [IsolaResponder]] = [:]
     private var ultimoUso = Date()
+    /// The island is showing a line of the service's voice (/mostra): its end may put it away.
+    private var mostraServizio = false
     /// A microphone closed for an old /detta still sends its voice.final: until this moment,
     /// a final that comes with no word heard in the new dictation is that one, not this.
     private var ignoraFinaleFinoA = Date.distantPast
@@ -170,7 +176,10 @@ final class Isola {
     // MARK: - Requests
 
     private func gestisci(_ req: IsolaRequest, _ res: IsolaResponder) {
-        ultimoUso = Date()
+        // the island lives for the mod: the bar's lines (/mostra) do not keep it alive
+        if req.path != "/mostra" { ultimoUso = Date() }
+        // a request of the mod that changes the island makes what it shows the mod's again
+        if req.method == "POST", req.path != "/mostra", req.path != "/scalda" { mostraServizio = false }
         let corpo = req.json
         let sessione = (corpo["sessione"] as? String) ?? req.query["sessione"] ?? ""
         switch (req.method, req.path) {
@@ -247,6 +256,23 @@ final class Isola {
             // a voice of its own opens its own turn: sent whole (append false), it closes the one open
             Speaker.shared.speak(text: testo.isEmpty ? "" : testo + " ", append: append, final: final, model: nil, voice: voce)
             res.ok(["voce": Speaker.shared.currentEngine.rawValue])
+
+        case ("POST", "/mostra"):
+            // the service's voice (the bar, IsolaAvviso): shown like a line of ours, never over
+            // our own voice or an open microphone
+            res.ok()
+            guard dettaPer == nil, !Speaker.shared.isSounding else { return }
+            if corpo["fine"] as? Bool == true {
+                if mostraServizio, IsolaPanel.shared.fase == .parla { IsolaPanel.shared.riposa(dopo: 1.2) }
+                mostraServizio = false
+                return
+            }
+            let testo = (corpo["testo"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !testo.isEmpty else { return }
+            let chi = (corpo["chi"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
+            mostraServizio = true
+            IsolaPanel.shared.mostra(.parla, testo: String(testo.prefix(500)),
+                                     chi: chi.isEmpty ? ChiParla.melissa : String(chi.prefix(40)))
 
         case ("POST", "/scalda"):
             // the fillers of each voice ("" is Melissa's): what is not on disk yet is rendered

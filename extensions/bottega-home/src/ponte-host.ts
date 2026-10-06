@@ -11,7 +11,7 @@ import type { WorkCounts, WorkItem } from './jobs';
 import type { Nucleo } from './nucleo';
 import * as crypto from 'crypto';
 import type { Cervelli } from './cervelli';
-import { Ponte, PonteStato, RigaParla, rotteCervelli, sceltaDi } from './ponte';
+import { personaggioDi, Ponte, PonteStato, RigaParla, rotteCervelli, sceltaDi } from './ponte';
 import { creaSessioni } from './ponte-sessioni-host';
 import { StanzePonte } from './ponte-stanze';
 import { fontiStanze } from './strumenti-stanze';
@@ -345,6 +345,7 @@ function stato(deps: PonteHostDeps): Omit<PonteStato, 'versione' | 'mac' | 'ora'
 			...(cv ? { scelta: sceltaDi(cv) } : {}),
 			parziale: a?.partial,
 			risposta: a?.answerPartial,
+			personaggio: personaggioDi(a?.personaggio),
 			registro: (a?.log ?? []).slice(-30).map(l => ({ chi: l.role, testo: l.text, alle: l.at })),
 		},
 		lavori: work.slice(0, 40).map(w => ({

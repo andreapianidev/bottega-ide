@@ -12,6 +12,8 @@
 import { openStore } from './store.mjs';
 
 const GIORNO = 86_400_000;
+// le chiacchiere dei personaggi di Melissa non sono ricordi di lavoro: fuori dai grafici (docs/CONTRATTI.md 9.11)
+const NO_PERSONAGGI = " AND origin != 'personaggio'";
 const GRUPPI = { fatto: 'fatti', nota: 'fatti', decisione: 'decisioni', riassunto: 'riassunti', immagine: 'schermate', prompt: 'richieste' };
 
 function chiave(ms) {
@@ -42,7 +44,7 @@ export function grafici({ giorni: n = 30, ora = Date.now(), store = openStore() 
 	const scritti = vuoto();
 	for (const k of Object.keys(scritti)) scritti[k] = { fatti: 0, decisioni: 0, riassunti: 0, schermate: 0, richieste: 0 };
 	const ore = Array.from({ length: 7 }, () => Array(24).fill(0));
-	for (const r of store.all('SELECT kind, createdAt FROM memories WHERE createdAt >= ?', da)) {
+	for (const r of store.all(`SELECT kind, createdAt FROM memories WHERE createdAt >= ?${NO_PERSONAGGI}`, da)) {
 		const g = scritti[chiave(r.createdAt)];
 		if (g && GRUPPI[r.kind]) g[GRUPPI[r.kind]]++;
 		// le richieste no: dicono quando scrivi, non quando la memoria impara
@@ -72,21 +74,21 @@ export function grafici({ giorni: n = 30, ora = Date.now(), store = openStore() 
 	const progetti = store
 		.all(
 			`SELECT COALESCE(NULLIF(project, ''), 'Fuori dai progetti') AS progetto, COUNT(*) AS ricordi
-			 FROM memories WHERE createdAt >= ? GROUP BY progetto ORDER BY ricordi DESC LIMIT 8`,
+			 FROM memories WHERE createdAt >= ?${NO_PERSONAGGI} GROUP BY progetto ORDER BY ricordi DESC LIMIT 8`,
 			da,
 		)
 		.map(r => ({ progetto: r.progetto, ricordi: r.ricordi }));
 
 	const settimana = ora - 7 * GIORNO;
 	const totali = {
-		ricordi: store.get('SELECT COUNT(*) AS n FROM memories').n,
+		ricordi: store.get(`SELECT COUNT(*) AS n FROM memories WHERE 1 = 1${NO_PERSONAGGI}`).n,
 		sessioni: store.get('SELECT COUNT(*) AS n FROM sessions').n,
 		riassunte: store.get('SELECT COUNT(*) AS n FROM sessions WHERE summarizedAt IS NOT NULL').n,
 		coda: store.get('SELECT COUNT(*) AS n FROM queue').n,
 		lettiSettimana:
 			store.get('SELECT COUNT(*) AS n FROM sessions WHERE startedAt >= ?', settimana).n +
 			store.get("SELECT COUNT(*) AS n FROM observations WHERE at >= ? AND tool LIKE 'mcp__bottega-memoria__%'", settimana).n,
-		ultimo: store.get('SELECT MAX(createdAt) AS t FROM memories').t ?? null,
+		ultimo: store.get(`SELECT MAX(createdAt) AS t FROM memories WHERE 1 = 1${NO_PERSONAGGI}`).t ?? null,
 	};
 
 	return {

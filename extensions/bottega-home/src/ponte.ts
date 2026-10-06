@@ -27,7 +27,7 @@ import { certificatoPonte } from './ponte-tls';
      GET  /v1/cervelli            -> PonteCervelli          il cervello di Melissa, l'impegno e le alternative (9.8)
      POST /v1/cervello {provider?, impegno?, sempre?} -> PonteCervelli   lo cambia, come la barra del Mac
 
-   In /v1/stato c'e' anche `vicino` (9.9): usb se l'iPhone e' attaccato al Mac col cavo, casa se Tailscale lo raggiunge
+   In /v1/stato `melissa.personaggio` dice chi ha la chiamata nella barra del Mac (9.1). C'e' anche `vicino` (9.9): usb se l'iPhone e' attaccato al Mac col cavo, casa se Tailscale lo raggiunge
    dalla rete di casa, lontano altrimenti. E c'e' `https` (build 71): le stesse rotte anche cifrate sulla porta
    accanto, con l'impronta del certificato fatto dal Mac (src/ponte-tls.ts), cosi' iOS non passa dal relay di iCloud. */
 
@@ -39,6 +39,9 @@ export interface PonteMelissa {
 	parziale?: string;
 	/** Testo di Melissa in generazione, prima della riga finale nel registro. */
 	risposta?: string;
+	/** Chi ha la chiamata nella barra del Mac: 'melissa' o la chiave di un personaggio (9.11). Assente nei Mac
+	 *  precedenti: vale 'melissa'. */
+	personaggio?: string;
 	registro: { chi: 'tu' | 'melissa' | 'azione'; testo: string; alle: number }[];
 }
 
@@ -658,6 +661,12 @@ export function leggiSceltaCervello(corpo: any): SceltaCervello | string {
 }
 
 type CervelliPonte = Pick<Cervelli, 'state' | 'set' | 'setEffort' | 'choice' | 'defaultProvider' | 'temporary'>;
+
+/** Chi ha la chiamata nella barra, per /v1/stato: una chiave semplice ('melissa' o un personaggio), mai vuota. */
+export function personaggioDi(chiave: string | undefined): string {
+	const k = (chiave ?? '').trim().toLowerCase();
+	return /^[a-z0-9_-]{1,40}$/.test(k) ? k : 'melissa';
+}
 
 /** Il cervello di adesso, senza rete: per /v1/stato e gli eventi. */
 export function sceltaDi(c: CervelliPonte): PonteScelta {

@@ -181,6 +181,9 @@ final class AppleSTT: Trascrittore, @unchecked Sendable {
         let g = generation
         let r = SFSpeechAudioBufferRecognitionRequest()
         r.shouldReportPartialResults = true
+        // the names Andrea says to Melissa: Apple prefers them when the sound is close
+        // ("Cristal Vista" was Krista, 6 Oct 2026; contract 9.11)
+        r.contextualStrings = Self.nomiDaRiconoscere()
         lock.withLock { request = r }
         task = recognizer.recognitionTask(with: r) { [weak self] result, error in
             let text = result?.bestTranscription.formattedString
@@ -194,6 +197,19 @@ final class AppleSTT: Trascrittore, @unchecked Sendable {
         }
         rolloverWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.recognitionWindow, execute: work)
+    }
+
+    /// Melissa's characters (their `nome` in ~/.bottega/personaggi/*.json) and the words around her.
+    static func nomiDaRiconoscere() -> [String] {
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".bottega/personaggi")
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        let nomi = files.filter { $0.pathExtension == "json" }.compactMap { url -> String? in
+            guard let data = try? Data(contentsOf: url),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  json["chiave"] as? String != "melissa" else { return nil }
+            return json["nome"] as? String
+        }
+        return nomi.sorted() + ["Melissa", "Claude", "Claude Code", "Bottega"]
     }
 
     private func endRequest() {

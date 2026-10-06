@@ -302,7 +302,8 @@ const giorno = ts => {
 export function buildContext(project, store = openStore()) {
 	const key = project.key;
 	const sums = store.all("SELECT * FROM memories WHERE projectKey = ? AND kind = 'riassunto' ORDER BY createdAt DESC LIMIT 5", key);
-	const notes = store.all("SELECT * FROM memories WHERE projectKey = ? AND kind = 'nota' ORDER BY createdAt DESC LIMIT 4", key);
+	// le note dei personaggi di Melissa no: sono chiacchiere, non lavoro (docs/CONTRATTI.md 9.11)
+	const notes = store.all("SELECT * FROM memories WHERE projectKey = ? AND kind = 'nota' AND origin != 'personaggio' ORDER BY createdAt DESC LIMIT 4", key);
 	const facts = store.all("SELECT * FROM memories WHERE projectKey = ? AND kind IN ('decisione', 'fatto') ORDER BY createdAt DESC, kind ASC LIMIT 8", key);
 	if (!sums.length && !notes.length && !facts.length) return '';
 	const LIMIT = 1500;

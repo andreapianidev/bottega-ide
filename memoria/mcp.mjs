@@ -72,7 +72,7 @@ const TOOLS = [
 ];
 
 const fmt = ts => new Date(ts).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-const sessionLabel = id => /^(?:codex|cline|terminale|melissa):/.test(id) ? id : id.slice(0, 8);
+const sessionLabel = id => /^(?:codex|cline|terminale|melissa|personaggio):/.test(id) ? id : id.slice(0, 8);
 const itemText = m =>
 	`#${m.id} [${m.kind}] ${m.project}, ${fmt(m.createdAt)}${m.sessionId ? `, sessione ${sessionLabel(m.sessionId)}` : ''}${m.score !== undefined ? `, punteggio ${m.score}` : ''}\n${m.text.startsWith(m.title.replace(/\u2026$/, '')) ? '' : m.title + '\n'}${m.text}`;
 

@@ -11,14 +11,16 @@ mod melissa di Claude Code, la barra di Melissa nella Bottega e la Bottega per i
 Campi: `chiave` (minuscola, e' anche il segnale `@chiave`), `nome`, `ordine`, `voce` (ID ElevenLabs dell'account di
 Andrea: senza la sua chiave non serve a niente), `voce_nota`, `carattere`, `saluti`, `ruolo` (nella chiacchierata),
 `ruolo_cronaca`, `parole` (espressione regolare: se Andrea dice una di queste, Melissa tira dentro lui),
-`parole_cronaca` (lo stesso sulle azioni di Claude), `errori_ripetuti` (quanti errori di Claude di fila lo fanno entrare
-nella cronaca, 0 mai), `riempitivi` (le frasi che dice mentre pensa, divise per gruppo: `domanda`, `ordine`, `sfogo`,
+`parole_cronaca` (lo stesso sulle azioni di Claude: solo parole che indicano un problema vero, non quelle di ogni
+build, come "firma" o "token"), `errori_ripetuti` (quanti errori di Claude di fila lo fanno entrare nella cronaca, 0
+mai), `occasioni` (in quali fatti entra: `sicurezza`, `rischio`, `errore`, `scelta`, `umore`, `attesa`, `fine`, e `chiacchiera` per la chiacchierata; tutti presenti, a ognuno si chiede dal suo `ruolo_cronaca`; le regole sono
+in `docs/CONTRATTI.md`, 9.11, "Ospiti dai fatti"), `riempitivi` (le frasi che dice mentre pensa, divise per gruppo: `domanda`, `ordine`, `sfogo`,
 `battuta`, `chiacchiera`, `lunga`, `eco`; le regole sono in `docs/CONTRATTI.md`, 9.11). A parita' vince chi ha
 `ordine` piu' basso.
 
 Essenziali: `chiave` (non `melissa`, e una sola per file), `nome`, `voce`, `carattere`, `saluti`. Senza uno di questi il
 file si salta e la Bottega lo scrive nel registro. Gli altri sono facoltativi: `ordine` 99, `ruolo` il nome,
-`ruolo_cronaca` il ruolo, `parole` e `parole_cronaca` vuote (mai), `errori_ripetuti` 0. Un'espressione regolare che non
+`ruolo_cronaca` il ruolo, `parole` e `parole_cronaca` vuote (mai), `errori_ripetuti` 0, `occasioni` vuote (non entra mai da solo). Un'espressione regolare che non
 si compila vale come vuota, con un avviso. Senza `riempitivi`, o con un gruppo vuoto, il personaggio usa i suoi
 `chiacchiera` e poi quelli di Melissa.
 

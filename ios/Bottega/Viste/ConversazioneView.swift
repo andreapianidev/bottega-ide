@@ -3,7 +3,7 @@
 //  Bottega per iPhone
 //
 //  La conversazione con Melissa: i turni fatti sull'iPhone appaiono subito e arrivano anche al Mac
-//  con la sincronizzazione. Sotto, le domande pronte.
+//  con la sincronizzazione. In alto la scelta di con chi parlare (Melissa o un personaggio), sotto le domande pronte.
 //
 
 import SwiftUI
@@ -24,6 +24,47 @@ struct ConversazioneView: View {
     ]
 
     var body: some View {
+        VStack(spacing: 0) {
+            if telefono.configurato && !Personaggi.ordine.isEmpty { conChi }
+            conversazione
+        }
+    }
+
+    /// Con chi parli, come i pulsanti della barra sul Mac: passa la chiamata sul telefono, come «passami Darlene» a
+    /// voce (Melissa.swift). Solo con le chiavi sul telefono: dal ponte risponde sempre Melissa.
+    private var conChi: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                Text("Con chi parli")
+                    .font(.caption)
+                    .foregroundStyle(Tinte.tinta)
+                ForEach(["melissa"] + Personaggi.ordine, id: \.self) { k in
+                    let scelto = melissa.chiParla == k
+                    Button(Personaggi.nome(k)) { passa(a: k) }
+                        .font(.footnote.weight(scelto ? .semibold : .medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Capsule().fill(scelto ? Tinte.ambra : Tinte.notteFonda))
+                        .overlay(Capsule().stroke(scelto ? Tinte.ambra : Tinte.bordo))
+                        .foregroundStyle(scelto ? Tinte.notteFonda : Tinte.testo)
+                        .disabled(melissa.occupata && !scelto)
+                        .accessibilityLabel("Parla con \(Personaggi.nome(k))")
+                        .accessibilityAddTraits(scelto ? .isSelected : [])
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+        .padding(.bottom, 8)
+    }
+
+    /// Passa la chiamata come «passami...» a voce: chi la prende saluta con la sua voce (Melissa.passaChiamata).
+    private func passa(a chi: String) {
+        guard chi != melissa.chiParla, !melissa.occupata else { return }
+        // la chiamata passa nel codice: niente frase di Andrea nella storia, e la conversazione resta aperta
+        melissa.passaChiamata(a: chi)
+    }
+
+    private var conversazione: some View {
         ScrollViewReader { scorri in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {

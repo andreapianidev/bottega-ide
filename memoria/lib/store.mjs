@@ -184,7 +184,8 @@ export class Store {
 		const f = this.projectFilter(progetto);
 		const ks = kinds.map(() => '?').join(',');
 		return this.all(
-			`SELECT m.* FROM memories m WHERE m.kind IN (${ks})${f.sql} ORDER BY m.createdAt DESC, m.id DESC LIMIT ?`,
+			// mai le note dei personaggi di Melissa: si trovano solo con la ricerca (docs/CONTRATTI.md 9.11)
+			`SELECT m.* FROM memories m WHERE m.kind IN (${ks}) AND m.origin != 'personaggio'${f.sql} ORDER BY m.createdAt DESC, m.id DESC LIMIT ?`,
 			...kinds,
 			...f.args,
 			Math.max(1, Math.min(200, limite)),

@@ -55,8 +55,16 @@
     ]
   },
   "ruolo": "sicurezza, chiavi e codice",
-  "ruolo_cronaca": "sicurezza, chiavi e codice",
+  "ruolo_cronaca": "sicurezza, codice, cosa si e' rotto e le scelte tecniche",
   "parole": "chiav|segret|token|password|credenzial|hacker|attacc|sicurezz|virus|privacy|server|firewall|wifi|vpn",
-  "parole_cronaca": "chiav|segret|token|password|credenzial|\\.env\\b|certificat|permess|sudo|chmod|--force|forza|rm -rf|firma|keychain|ssh",
-  "errori_ripetuti": 0
+  "parole_cronaca": "segret|password|credenzial|\\.env\\b|api[ _-]?key|chiave (privata|segreta|api)|private key|sudo|chmod|rm -rf|--force|reset --hard|keychain|ssh-keygen|\\.pem\\b|\\.p12\\b",
+  "errori_ripetuti": 2,
+  "occasioni": [
+    "sicurezza",
+    "rischio",
+    "errore",
+    "scelta",
+    "attesa",
+    "chiacchiera"
+  ]
 }

@@ -115,6 +115,51 @@ final class Melissa {
         turno = Task { await chiedi(t, giro: g) }
     }
 
+    /// I pulsanti «Con chi parli»: la chiamata passa a `chi` (o torna a Melissa) senza una frase di Andrea nella storia, e
+    /// la conversazione resta com'e' (aperta, si torna ad ascoltare). Chi la prende saluta con la sua voce; senza le
+    /// chiavi sul telefono cambia solo chi risponde.
+    func passaChiamata(a chi: String) {
+        guard chi != chiParla, !occupata, chi == "melissa" || Personaggi.tutti[chi]?.voce.isEmpty == false else { return }
+        guard AssistenteTelefono.shared.configurato else {
+            chiParla = chi
+            parlante = Personaggi.nome(chi)
+            return
+        }
+        giro += 1
+        let g = giro
+        let continua = conversazione
+        ascolto.ferma()
+        turno = Task {
+            sfera = .pensa
+            let voce = voceAccesa
+            do {
+                if voce { try flusso.prepara() }
+                let suona: (Data) -> Void = { [weak self] pcm in
+                    guard let self else { return }
+                    if self.sfera != .parla { self.sfera = .parla }
+                    self.flusso.accoda(pcm)
+                }
+                try await passaA(chi, dopo: nil, voce: voce, audio: suona)
+                if voce, flusso.haSuonato {
+                    sfera = .parla
+                    await flusso.aspettaFine()
+                }
+            } catch is CancellationError {
+                // interrotta con un tocco
+            } catch {
+                guard g == giro else { return }
+                avviso = error.localizedDescription
+                sfera = .errore
+                liberaAudio()
+                return
+            }
+            parlante = Personaggi.nome(chiParla)
+            guard g == giro else { return }
+            sfera = .riposo
+            if continua, conversazione { await ascoltaFrase(g) } else { liberaAudio() }
+        }
+    }
+
     /// L'app va dietro: niente microfono acceso di nascosto, e la sessione audio torna alle altre app.
     func sospendi() {
         chiudiConversazione()
@@ -251,11 +296,38 @@ final class Melissa {
             // mentre il modello pensa parla chi ha la chiamata (non in passaA: il saluto e' gia' pronto)
             if voce { self.avviaRiempitivi(per: testo, chi: self.chiParla, giro: g) }
             let rispostaDi = self.chiParla
-            let battuta = try await telefono.rispondi(testo, chi: rispostaDi, invito: invito,
-                                                      invitato: p == nil ? (voluto ?? scelto) : nil, voce: voce,
-                                                      contestoMac: contesto, memoria: self.ponte.memoriaMelissa(),
-                                                      riempito: { self.riempito && g == self.giro },
-                                                      audio: self.audio(di: rispostaDi, voce: voce, suona))
+            // chi vuole sentire Andrea, capito dal modello in parallelo con la risposta: il nome esatto e' gia' passato
+            // sopra, qui "passami la nostra amica psicologa" o un nome capito male (docs/CONTRATTI.md, 9.11)
+            let capito = Task { @MainActor in await telefono.chiVuole(testo) }
+            let risposta = Task { @MainActor in
+                try await telefono.rispondi(testo, chi: rispostaDi, invito: invito,
+                                            invitato: p == nil ? (voluto ?? scelto) : nil, voce: voce,
+                                            contestoMac: contesto, memoria: self.ponte.memoriaMelissa(),
+                                            riempito: { self.riempito && g == self.giro },
+                                            audio: self.audio(di: rispostaDi, voce: voce, suona))
+            }
+            let chi = await withTaskCancellationHandler { await capito.value } onCancel: { capito.cancel(); risposta.cancel() }
+            let conVoce = Personaggi.ordine.filter { Personaggi.tutti[$0]?.voce.isEmpty == false }
+            let giro = Personaggi.giroDiVoci(chi, conVoce: conVoce, conLaChiamata: rispostaDi)
+            let passa = chi?.passa.flatMap { $0 != rispostaDi && ($0 == "melissa" || conVoce.contains($0)) ? $0 : nil }
+            let chiedeUno = giro.voci.isEmpty && passa == nil && p == nil && voluto == nil
+                ? chi?.chiede.first { conVoce.contains($0) } : nil
+            // Andrea vuole un altro, il parere di qualcuno o tutti: la risposta pensata prima (che puo' essere un rifiuto)
+            // si taglia, e Melissa dirige (docs/CONTRATTI.md, 9.11, «Melissa coordina, non rifiuta»). Con un personaggio
+            // al telefono e un giro senza passaggio, risponde lui e poi parlano gli altri
+            if passa != nil || chiedeUno != nil || (!giro.voci.isEmpty && p == nil) {
+                risposta.cancel()
+                _ = try? await risposta.value
+                self.annullaRiempitivi()
+                if voce { try self.flusso.prepara() }
+                try await self.dirige(passa: passa, chiede: chiedeUno, giro: giro, voce: voce, audio: suona)
+                return
+            }
+            let battuta = try await withTaskCancellationHandler { try await risposta.value } onCancel: { risposta.cancel() }
+            if !giro.voci.isEmpty {
+                try await self.coro(giro.voci, chiude: giro.chiude, voce: voce, audio: suona)
+                return
+            }
             // contano solo le risposte di Melissa: un personaggio con la chiamata non tira dentro nessuno
             if p == nil { self.dallUltimoOspite += 1 }
             // risponde chi Melissa chiama, proposto o no: una domanda senza risposta e' peggio
@@ -276,8 +348,68 @@ final class Melissa {
         }
     }
 
+    /// Melissa dirige (docs/CONTRATTI.md, 9.11): una regia breve, pensata con un prompt che dice cosa succede, al posto
+    /// della risposta tagliata; poi chi prende la chiamata saluta, oppure risponde chi e' chiesto, oppure il giro a piu'
+    /// voci con le somme di Melissa alla fine.
+    private func dirige(passa: String?, chiede: String?, giro: (voci: [String], chiude: Bool), voce: Bool,
+                        audio suona: @escaping (Data) -> Void) async throws {
+        let prima = chiParla
+        let cosa = prima == "melissa" && passa != "melissa" ? Personaggi.regia(passa: passa, chiede: chiede, voci: giro.voci) : ""
+        if !cosa.isEmpty {
+            do {
+                _ = try await AssistenteTelefono.shared.interviene("melissa", istruzione: cosa, memoria: ponte.memoriaMelissa(),
+                                                                   voce: voce, audio: self.audio(di: "melissa", voce: voce, suona))
+            } catch {
+                if Task.isCancelled { throw error }
+                Log.info("regia di Melissa non riuscita: \(error.localizedDescription)")
+            }
+        }
+        if let passa {
+            // senza giro chi prende la chiamata saluta; nel giro la sua prima battuta e' il saluto
+            if giro.voci.isEmpty { return try await passaA(passa, dopo: nil, voce: voce, audio: suona) }
+            chiParla = passa
+        }
+        if !giro.voci.isEmpty {
+            try await coro(giro.voci, chiude: giro.chiude, nuovo: passa == "melissa" ? nil : passa, voce: voce, audio: suona)
+        } else if let chiede {
+            try await aTre(chiede, voce: voce, audio: suona)
+        }
+    }
+
+    /// Il giro a piu' voci: ognuno, a turno, una battuta dal suo campo, sapendo cosa hanno detto quelli prima (la storia);
+    /// la battuta del successivo si pensa mentre suona quella prima. `nuovo`: quello a cui e' appena passata la chiamata.
+    /// `chiude`: alla fine Melissa tira le somme.
+    private func coro(_ voci: [String], chiude: Bool, nuovo: String? = nil, voce: Bool,
+                      audio suona: @escaping (Data) -> Void) async throws {
+        let telefono = AssistenteTelefono.shared
+        let memoria = ponte.memoriaMelissa()
+        var dette: [String] = []
+        for (i, chi) in voci.enumerated() {
+            guard let p = Personaggi.tutti[chi], !p.voce.isEmpty else { continue }
+            dallUltimoOspite = 0
+            ultimoOspite = chi
+            let perche = chi == nuovo ? "Melissa ti ha appena passato la chiamata, e Andrea vuole sentire anche gli altri"
+                : "Andrea vuole sentire tutti, uno alla volta, e tocca a te"
+            do {
+                _ = try await telefono.interviene(chi, istruzione: "Sei in una chiacchierata a voce con Melissa, Andrea e gli " +
+                                                    "altri di Mr. Robot. \(perche). " + Personaggi.istruzioneGiro(chi, primo: i == 0),
+                                                  memoria: memoria, voce: voce, audio: self.audio(di: chi, voce: voce, suona))
+                dette.append(p.nome)
+            } catch {
+                if Task.isCancelled { throw error }
+                Log.info("giro: \(p.nome) non ha risposto: \(error.localizedDescription)")
+            }
+        }
+        guard chiude, !dette.isEmpty else { return }
+        _ = try await telefono.interviene(
+            "melissa",
+            istruzione: "Hanno detto la loro \(Personaggi.elenco(dette)). Tira le somme tu in una o due frasi, rivolta ad " +
+                "Andrea: cosa ne esce, senza ripetere le loro parole e senza fare domande agli altri. Solo le parole che diresti.",
+            memoria: memoria, voce: voce, audio: self.audio(di: "melissa", voce: voce, suona))
+    }
+
     /// Passa la chiamata: il personaggio saluta con la sua voce, oppure Melissa riprende.
-    private func passaA(_ chi: String, dopo testo: String, voce: Bool, audio: @escaping (Data) -> Void) async throws {
+    private func passaA(_ chi: String, dopo testo: String?, voce: Bool, audio: @escaping (Data) -> Void) async throws {
         let telefono = AssistenteTelefono.shared
         if chi == "melissa" {
             let prima = Personaggi.tutti[chiParla]?.nome

@@ -210,8 +210,10 @@ struct PlanciaView: View {
             }
             guard let stato = ponte.stato else { return dove }
             let c = stato.conteggiAttivita
-            if c.totale == 0 { return "\(dove), nessuna attività osservata" }
-            return "\(dove), \(c.totale) attività, \(c.inCorso) in corso, \(c.tiAspetta) in attesa"
+            // nella barra del Mac la chiamata ce l'ha un personaggio: lo si dice in testa
+            let con = personaggioMac.map { ", sul Mac sei con \($0)" } ?? ""
+            if c.totale == 0 { return "\(dove), nessuna attività osservata\(con)" }
+            return "\(dove), \(c.totale) attività, \(c.inCorso) in corso, \(c.tiAspetta) in attesa\(con)"
         case .provo, .scollegato, .fuori:
             let stato = switch ponte.linea {
             case .provo: "Cerco il Mac…"
@@ -225,6 +227,12 @@ struct PlanciaView: View {
         }
     }
 
+    /// Il nome di chi ha la chiamata nella barra del Mac, se non e' Melissa (`melissa.personaggio` di /v1/stato).
+    private var personaggioMac: String? {
+        guard let k = ponte.stato?.melissa.personaggio, k != "melissa", !k.isEmpty else { return nil }
+        return Personaggi.tutti[k]?.nome ?? (k.prefix(1).uppercased() + String(k.dropFirst()))
+    }
+
     private var fraseSfera: String {
         switch melissa.sfera {
         case .ascolta: melissa.parziale.isEmpty ? "Ti ascolto" : melissa.parziale
@@ -233,8 +241,8 @@ struct PlanciaView: View {
         case .errore: "Qualcosa non è andato. Tocca la sfera per riprovare."
         case .riposo:
             switch ponte.stato?.melissa.stato {
-            case "thinking"?: "Sul Mac sto già rispondendo"
-            case "speaking"?: "Sto parlando sul Mac"
+            case "thinking"?: personaggioMac.map { "Sul Mac \($0) sta già rispondendo" } ?? "Sul Mac sto già rispondendo"
+            case "speaking"?: personaggioMac.map { "Sul Mac sta parlando \($0)" } ?? "Sto parlando sul Mac"
             case "listening"?: "Sul Mac ti sto ascoltando"
             default: melissa.chiParla == "melissa" ? "Tocca la sfera per parlarmi"
                 : "Sei con \(Personaggi.nome(melissa.chiParla)). «Ridammi Melissa» per tornare da me"

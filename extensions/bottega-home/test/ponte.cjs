@@ -13,7 +13,7 @@ const SRC = path.join(__dirname, '..', 'src');
 const OUT = path.join(__dirname, 'test-out', 'ponte');
 esbuild.buildSync({ entryPoints: ['ponte.ts', 'ponte-tls.ts', 'dispositivo.ts', 'cervelli.ts'].map(f => path.join(SRC, f)), outdir: OUT, format: 'cjs', platform: 'node', bundle: false, target: 'node20', logLevel: 'silent' });
 esbuild.buildSync({ entryPoints: [path.join(SRC, 'lavori-quadro.ts')], outfile: path.join(OUT, 'lavori-quadro.js'), format: 'cjs', platform: 'node', bundle: true, external: ['vscode'], target: 'node20', logLevel: 'silent' });
-const { Ponte, inTailnet, leggiGettone, rotteCervelli, sceltaDi, leggiSceltaCervello, nomeCervello, direttiInCasa, vicinoDi } = require(path.join(OUT, 'ponte.js'));
+const { Ponte, inTailnet, leggiGettone, rotteCervelli, sceltaDi, personaggioDi, leggiSceltaCervello, nomeCervello, direttiInCasa, vicinoDi } = require(path.join(OUT, 'ponte.js'));
 const { Cervelli } = require(path.join(OUT, 'cervelli.js'));
 const { fondiDispositivo, leggiDispositivo } = require(path.join(OUT, 'dispositivo.js'));
 const { quadroLavori } = require(path.join(OUT, 'lavori-quadro.js'));
@@ -78,6 +78,7 @@ function call(port, method, url, { token, body, raw } = {}) {
 	ok('gettone stabile in un file 600');
 
 	let busy = false;
+	let personaggio;
 	let interrotte = 0;
 	let confermaAperta;
 	const asked = [];
@@ -109,7 +110,7 @@ function call(port, method, url, { token, body, raw } = {}) {
 		cervelli: rotteCervelli(() => cv),
 		configTelefono: async () => ({ agnes: 'test-agnes', deepseek: 'test-deepseek', elevenlabs: 'test-voice', voiceID: 'voice-test', prompt: 'Sei Melissa.' }),
 		importaTurniTelefono: turns => imported.push(...turns),
-		stato: () => ({ melissa: { stato: busy ? 'thinking' : 'idle', cervello: 'agnes', scelta: sceltaDi(cv), risposta: rispostaParziale, registro: asked.map(t => ({ chi: 'tu', testo: t, alle: 1 })) }, lavori: [], conti: { inCorso: 0, tiAspetta: 1, inCoda: 0, vive: 1 } }),
+		stato: () => ({ melissa: { stato: busy ? 'thinking' : 'idle', cervello: 'agnes', scelta: sceltaDi(cv), risposta: rispostaParziale, personaggio: personaggioDi(personaggio), registro: asked.map(t => ({ chi: 'tu', testo: t, alle: 1 })) }, lavori: [], conti: { inCorso: 0, tiAspetta: 1, inCoda: 0, vive: 1 } }),
 		occupata: () => busy,
 		chiedi: async t => (asked.push(t), `Risposta a: ${t}`),
 		confermaAttuale: () => confermaAperta,
@@ -151,7 +152,17 @@ function call(port, method, url, { token, body, raw } = {}) {
 	assert.strictEqual(s.status, 200);
 	assert.strictEqual(s.body.versione, '9.9.9');
 	assert.strictEqual(s.body.conti.tiAspetta, 1);
+	assert.strictEqual(s.body.melissa.personaggio, 'melissa');
 	ok('stato');
+
+	personaggio = 'darlene';
+	assert.strictEqual((await call(port, 'GET', '/v1/stato', { token: t1 })).body.melissa.personaggio, 'darlene');
+	personaggio = undefined;
+	assert.strictEqual(personaggioDi(undefined), 'melissa');
+	assert.strictEqual(personaggioDi(''), 'melissa');
+	assert.strictEqual(personaggioDi(' Elliot '), 'elliot');
+	assert.strictEqual(personaggioDi('../x'), 'melissa');
+	ok('stato: chi ha la chiamata nella barra (personaggio)');
 
 	erroreRete = true;
 	await ponte.allinea();

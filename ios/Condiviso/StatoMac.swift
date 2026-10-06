@@ -61,6 +61,9 @@ struct StatoMac: Codable, Equatable {
         let registro: [Riga]
         /// assente con una Bottega sul Mac che non lo manda ancora
         var scelta: Scelta? = nil
+        /// Chi ha la chiamata nella barra del Mac: "melissa" o la chiave di un personaggio (docs/CONTRATTI.md, 9.1).
+        /// Assente con una Bottega sul Mac che non lo manda ancora: vale Melissa.
+        var personaggio: String? = nil
     }
     struct Lavoro: Codable, Equatable, Identifiable {
         let chiave: String

@@ -59,5 +59,12 @@
   "ruolo_cronaca": "quando Claude forza o rompe le cose, o serve una provocazione",
   "parole": "",
   "parole_cronaca": "",
-  "errori_ripetuti": 0
+  "errori_ripetuti": 0,
+  "occasioni": [
+    "rischio",
+    "scelta",
+    "attesa",
+    "fine",
+    "chiacchiera"
+  ]
 }

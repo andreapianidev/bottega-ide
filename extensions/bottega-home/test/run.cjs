@@ -13,10 +13,12 @@ const esbuild = require('esbuild');
 const SRC = path.join(__dirname, '..', 'src');
 // i personaggi si leggono dai file del repository, mai da ~/.bottega
 process.env.BOTTEGA_PERSONAGGI = path.join(__dirname, '..', 'personaggi');
+// la Bottega di prova, mai ~/.bottega: la memoria dei personaggi si legge da un finto cli.mjs qui dentro
+process.env.BOTTEGA_HOME = require('fs').mkdtempSync(path.join(require('os').tmpdir(), 'bottega-home-'));
 const OUT = path.join(__dirname, 'test-out');
 
 esbuild.buildSync({
-	entryPoints: ['jobs', 'assistant', 'cervello', 'nucleo', 'memoria', 'claude', 'scan', 'racconto', 'personaggi', 'riempitivi', 'memoria-contesto'].map(n => path.join(SRC, n + '.ts')),
+	entryPoints: ['jobs', 'assistant', 'cervello', 'nucleo', 'memoria', 'claude', 'scan', 'racconto', 'personaggi', 'riempitivi', 'memoria-contesto', 'memoria-personaggi'].map(n => path.join(SRC, n + '.ts')),
 	outdir: OUT,
 	format: 'cjs',
 	platform: 'node',
@@ -108,6 +110,35 @@ Module._load = function (request) {
 
 const jobs = require(path.join(OUT, 'jobs.js'));
 const asst = require(path.join(OUT, 'assistant.js'));
+
+/** Un finto cli della Memoria nella Bottega di prova (BOTTEGA_HOME): bin/node e' il Node dei test, memoria-app/cli.mjs
+ *  risponde `risposte[chiave]` a `personaggio <chiave>` e annota gli argomenti. `modo`: 'lento' (oltre 1,5 s) o
+ *  'sconosciuto' (una Memoria installata che non conosce ancora il comando). Mai ~/.bottega. */
+function fintoCli(risposte = {}, modo = '') {
+	const fs = require('fs');
+	const h = process.env.BOTTEGA_HOME;
+	fs.mkdirSync(path.join(h, 'bin'), { recursive: true });
+	fs.mkdirSync(path.join(h, 'memoria-app'), { recursive: true });
+	const node = path.join(h, 'bin', 'node');
+	fs.rmSync(node, { force: true });
+	fs.symlinkSync(process.execPath, node);
+	const log = path.join(h, 'cli-chiamate.jsonl');
+	fs.rmSync(log, { force: true });
+	fs.writeFileSync(path.join(h, 'memoria-app', 'cli.mjs'), [
+		"import fs from 'node:fs';",
+		'const a = process.argv.slice(2);',
+		`fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(a) + '\\n');`,
+		modo === 'sconosciuto' || a0Diverso() ? "if (a[0] !== 'personaggio' || " + JSON.stringify(modo === 'sconosciuto') + ") { console.error('comando sconosciuto'); process.exit(1); }" : '',
+		modo === 'lento' ? 'await new Promise(r => setTimeout(r, 4000));' : '',
+		`const r = ${JSON.stringify(risposte)};`,
+		'process.stdout.write(JSON.stringify(r[a[1]] ?? { ultime: [], ricordi: [] }));',
+	].join('\n'));
+	return {
+		chiamate: () => { try { return fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(x => JSON.parse(x)); } catch { return []; } },
+		togli: () => { fs.rmSync(path.join(h, 'memoria-app'), { recursive: true, force: true }); fs.rmSync(node, { force: true }); fs.rmSync(log, { force: true }); },
+	};
+	function a0Diverso() { return true; }
+}
 
 // ---------- mini runner ----------
 
@@ -210,6 +241,7 @@ function makeAssistant(over = {}) {
 		stream: over.stream,
 		appleStream: over.appleStream,
 		...(over.cervelli ? { cervelli: over.cervelli } : {}),
+		...(over.registraMemoria ? { registraMemoria: over.registraMemoria } : {}),
 	};
 	const a = new asst.Assistant(deps);
 	return { a, nucleo, rec, deps };
@@ -975,6 +1007,139 @@ function makeAssistant(over = {}) {
 	const ctxProva = () => ({ subscriptions: [], globalState: { get: () => undefined, update: async () => {} } });
 	const DARLENE = 'vfJO9rw4YuKJJKxYo3oQ', ELLIOT = 'yUrn8DPhKREqXUFumEa0';
 
+	/** Cervelli finti: Agnes per la risposta (deps.stream), e `chiVuole` sempre da DeepSeek Flash, che qui risponde `json`.
+	 *  `chiave`: se c'e' la chiave DeepSeek (senza, chiVuole non parte e mai su Agnes). */
+	function cervelliChiVuole(json, viste = [], chiave = true) {
+		return {
+			choice: () => ({ provider: 'agnes', model: 'agnes-3.0-flash', effort: 'normale' }),
+			riservaDeepseek: () => undefined,
+			streamFor: (c, extra) => async (messages, tools, onDelta) => {
+				viste.push({ c, extra, messages });
+				if (json === null) return new Promise(() => {}); // non risponde mai
+				onDelta({ content: json });
+			},
+			key: p => (chiave && p === 'deepseek' ? 'chiave-finta' : undefined), noteAgnes: () => {}, touch: () => {}, endConversation: () => {},
+		};
+	}
+
+	/** Un cervello finto che risponde secondo chi parla: la risposta di Melissa aspetta (e si ferma quando lei dirige),
+	 *  la regia e i personaggi rispondono subito. `visti`: i messaggi di ogni richiesta. */
+	function cervelloDiProva(visti, righe) {
+		return (messages, tools, onDelta, signal) => {
+			visti.push(messages);
+			const sys = messages[0].content;
+			const user = messages[messages.length - 1].content;
+			for (const [chi, testo] of Object.entries(righe)) {
+				const vale = chi === 'regia' ? /Una frase breve, al massimo due, nel tuo stile/.test(user)
+					: chi === 'somme' ? /Tira le somme tu/.test(user)
+					: chi === 'chiusa' ? /Chiudi tu in una o due frasi/.test(user)
+					: sys.startsWith(`Sei ${chi}`);
+				if (vale) {
+					onDelta({ content: testo });
+					return Promise.resolve();
+				}
+			}
+			// la risposta di Melissa: quella che poteva essere un rifiuto, e che non si dice
+			return new Promise((_, no) => signal.addEventListener('abort', () => no(new Error('interrotta')), { once: true }));
+		};
+	}
+
+	await test('chi vuole: «passami la nostra amica psicologa» capita dal modello: regia di Melissa, poi la chiamata passa a Krista', async () => {
+		const nucleo = nucleoCheParla();
+		const viste = [];
+		const visti = [];
+		const registro = [];
+		const { a } = makeAssistant({ nucleo, cervelli: cervelliChiVuole('{"passa": "krista", "chiede": null}', viste), stream: cervelloDiProva(visti, { regia: 'Ok, ti passo Krista.' }) });
+		a.out = { info: x => registro.push(x), warn() {}, error() {} };
+		a.wire(ctxProva());
+		a.state.conversing = true;
+		await a.turn('Passami la nostra amica psicologa', true);
+		assert.strictEqual(a.getState().personaggio, 'krista');
+		assert.ok(nucleo.speaks.some(x => !x.voice && /ti passo Krista/.test(x.text)), 'la regia con la voce di Melissa');
+		assert.ok(nucleo.speaks.some(x => x.voice === 'CxyJefqDMJqI9Y7prMgt'), 'saluta con la sua voce');
+		const regia = visti.find(m => /Una frase breve/.test(m[m.length - 1].content));
+		assert.ok(/Andrea vuole parlare con Krista: passagli la chiamata/.test(regia[1].content), regia[1].content);
+		assert.ok(regia[0].content.includes(require(path.join(OUT, "personaggi.js")).REGOLA_REGIA), 'nel carattere di Melissa: non si rifiuta mai');
+		assert.ok(!a.getState().log.some(r => /interrotta/.test(r.text)), 'la risposta fermata non resta come interrotta');
+		assert.ok(registro.some(x => /^chi vuole: passa krista \(\d+ ms\)$/.test(x)), registro.join(' | '));
+		assert.deepStrictEqual(viste[0].extra, { max_tokens: 40, temperature: 0 });
+		// sempre DeepSeek Flash, anche con Agnes come cervello scelto (CONTRATTI 9.11)
+		assert.deepStrictEqual(viste[0].c, { provider: 'deepseek', model: 'deepseek-flash', effort: 'rapido' });
+		assert.ok(/solo con il JSON/.test(viste[0].messages[0].content) && /- krista: Krista, la psicologa/.test(viste[0].messages[0].content), 'il prompt elenca chi c\'e\'');
+		assert.ok(/siamo io te e altri» = \{"passa": "elliot", "chiede": \[\], "tutti": true\}/.test(viste[0].messages[0].content), 'il primo esempio vero');
+		assert.ok(/parla con gli altri» = \{"passa": null, "chiede": \["krista"\], "tutti": true\}/.test(viste[0].messages[0].content), 'il secondo');
+		assert.strictEqual(viste[0].messages[1].content, 'Passami la nostra amica psicologa');
+		a.stopConversation?.('fine prova');
+	});
+
+	await test('chi vuole: «tutti» porta la regia di Melissa, poi una battuta di ognuno dal suo campo, poi le somme', async () => {
+		const nucleo = nucleoCheParla();
+		const visti = [];
+		const registro = [];
+		const { a } = makeAssistant({
+			nucleo,
+			cervelli: cervelliChiVuole('{"passa": null, "chiede": ["krista"], "tutti": true}'),
+			stream: cervelloDiProva(visti, { regia: 'Sentiamo tutti: Krista, comincia tu.', 'Krista Gordon': 'Chiediti perche\' la vuoi.', 'Darlene Alderson': 'Fatti la birra.', 'Elliot Alderson': 'Niente telefono acceso.', somme: 'Insomma: birra si\', canna dopo.' }),
+		});
+		a.out = { info: x => registro.push(x), warn() {}, error() {} };
+		a.wire(ctxProva());
+		a.state.conversing = true;
+		await a.turn("Melissa c'e' la psicologa se mi fumo una canna, parla con gli altri", true);
+		assert.ok(registro.some(x => /^chi vuole: chiede krista, tutti \(\d+ ms\)$/.test(x)), registro.join(' | '));
+		const voci = nucleo.speaks.filter(x => x.text && x.final);
+		const ordine = voci.map(x => x.voice || 'melissa');
+		const K = 'CxyJefqDMJqI9Y7prMgt';
+		// la regia, Krista (chiesta) per prima, poi gli altri in ordine, poi Melissa che tira le somme
+		const da = ordine.indexOf('melissa');
+		assert.deepStrictEqual(ordine.slice(da, da + 5), ['melissa', K, DARLENE, ELLIOT, 'melissa'], JSON.stringify(voci.map(x => [x.voice, x.text])));
+		assert.ok(/Sentiamo tutti/.test(voci[da].text) && /canna dopo/.test(voci[da + 4].text));
+		// ognuno dal suo campo; chi viene dopo sa cosa hanno detto quelli prima
+		const di = n => visti.find(m => m[0].content.startsWith(`Sei ${n}`));
+		assert.ok(/solo dal tuo campo \(il lato umano[\s\S]*il lato umano anche di un fatto tecnico/.test(di('Krista Gordon')[1].content));
+		assert.ok(/Krista: Chiediti perche' la vuoi\.[\s\S]*non ripeterlo, aggiungi la tua/.test(di('Elliot Alderson')[1].content));
+		assert.ok(di('Darlene Alderson')[0].content.includes(require(path.join(OUT, "personaggi.js")).NON_RIPETERE), 'nessuno ripete quello che ha detto un altro');
+		// nel registro tutte le battute, col nome davanti
+		const log = a.getState().log.map(r => r.text);
+		for (const t of ['Krista: Chiediti', 'Darlene: Fatti la birra.', 'Elliot: Niente telefono acceso.', 'Insomma: birra']) assert.ok(log.some(x => x.startsWith(t)), t);
+		assert.strictEqual(a.getState().personaggio, 'melissa');
+		a.stopConversation?.('fine prova');
+	});
+
+	await test('chi vuole: con «chiede» Melissa glielo chiede e lui risponde; JSON rotto o tempo scaduto valgono null', async () => {
+		const nucleo = nucleoCheParla();
+		const visti = [];
+		const { a } = makeAssistant({ nucleo, cervelli: cervelliChiVuole('{"passa": null, "chiede": "elliot"}'), stream: cervelloDiProva(visti, { regia: 'Elliot, dì la tua.', 'Elliot Alderson': 'Le chiavi stanno in un posto solo.', chiusa: 'Visto?' }) });
+		a.caso = () => 0.9;
+		a.wire(ctxProva());
+		a.state.conversing = true;
+		await a.turn('e il nostro hacker cosa ne dice?', true);
+		assert.ok(nucleo.speaks.some(x => x.voice === ELLIOT && /chiavi/.test(x.text)), 'Elliot risponde');
+		assert.ok(nucleo.speaks.some(x => !x.voice && /dì la tua/.test(x.text || '')), 'Melissa glielo chiede');
+		assert.strictEqual(a.getState().personaggio, 'melissa');
+		a.stopConversation?.('fine prova');
+		const giro = scriptedStream([[{ content: 'Ci penso io.' }]]);
+		// le risposte che non valgono
+		const registro = [];
+		for (const [json, atteso] of [['niente JSON qui', null], ['{"passa": "krista"', null], ['{"passa": "tyrell", "chiede": "melissa"}', { passa: null, chiede: [], tutti: false }], ['Ecco: {"passa": "melissa", "chiede": null}', { passa: 'melissa', chiede: [], tutti: false }], ['{"chiede": "elliot"}', { passa: null, chiede: ['elliot'], tutti: false }], ['{"chiede": ["Elliot", "krista", "trenton"], "tutti": "si"}', { passa: null, chiede: ['elliot', 'krista'], tutti: false }]]) {
+			const b = makeAssistant({ cervelli: cervelliChiVuole(json) });
+			assert.deepStrictEqual(await b.a.chiVuole('passami qualcuno'), atteso, json);
+		}
+		const lento = makeAssistant({ cervelli: cervelliChiVuole(null) });
+		lento.a.out = { info: x => registro.push(x), warn() {}, error() {} };
+		const t0 = Date.now();
+		assert.strictEqual(await lento.a.chiVuole('passami Cristal Vista'), null, 'tempo scaduto');
+		assert.ok(Date.now() - t0 >= 2400 && Date.now() - t0 < 3500, `${Date.now() - t0} ms`);
+		assert.ok(/^chi vuole: nessuno \(\d+ ms\)$/.test(registro[0]), registro[0]);
+		// senza cervelli e con il cervello finto dei test non parte niente (mai la rete)
+		assert.strictEqual(await makeAssistant({ stream: giro }).a.chiVuole('passami Krista'), null);
+		// senza chiave DeepSeek nessuna richiesta: mai Agnes al suo posto
+		const senza = [];
+		assert.strictEqual(await makeAssistant({ cervelli: cervelliChiVuole('{"passa": "krista"}', senza, false) }).a.chiVuole('passami Krista'), null);
+		assert.strictEqual(senza.length, 0);
+		// una chiave scritta con la maiuscola vale lo stesso
+		assert.deepStrictEqual(await makeAssistant({ cervelli: cervelliChiVuole('{"passa": "Krista", "chiede": null}') }).a.chiVuole('passami Cristal'), { passa: 'krista', chiede: [], tutti: false });
+	});
+
 	await test('personaggi: «passami Darlene» le passa la chiamata, saluta e risponde con la sua voce', async () => {
 		const nucleo = nucleoCheParla();
 		const { a } = makeAssistant({ nucleo, stream: scriptedStream([[{ content: 'Ci penso io, fratellino.' }]]) });
@@ -1279,7 +1444,7 @@ function makeAssistant(over = {}) {
 	});
 
 	await test('personaggi: in conversazione un ospite e\' offerto da subito; deciso solo per argomento o dopo due risposte', async () => {
-		for (const [frase, atteso] of [['un film stasera?', "Con te c'e' anche"], ['ho messo la password nel README', 'Stavolta tira dentro Elliot']]) {
+		for (const [frase, atteso] of [['un film stasera?', "Con te c'e' anche"], ['ho messo la password nel README', 'Stavolta tira dentro Elliot'], ['che palle, la build non va', 'Stavolta tira dentro Krista']]) {
 			const nucleo = nucleoCheParla();
 			const visti = [];
 			const giro = scriptedStream([[{ content: 'Va bene.' }]]);
@@ -1321,30 +1486,220 @@ function makeAssistant(over = {}) {
 		assert.ok(/memoria della Bottega[\s\S]*barra di Melissa/.test(visti[1][1].content), 'e i personaggi');
 	});
 
-	await test('racconta: meta\' delle letture finisce passando la parola a un personaggio, scelto per argomento, con la sua voce', async () => {
+	await test('racconta: un ospite entra solo per un fatto in quello che si legge, con i freni; chi e\' chiamato per nome risponde sempre', async () => {
 		const nucleo = nucleoCheParla();
 		const visti = [];
 		const giro = scriptedStream([
 			[{ content: 'Il file salva le password in chiaro. Elliot, tu che dici? @elliot' }],
 			[{ content: 'Che vanno cifrate, subito.' }],
 			[{ content: 'Hai sentito.' }],
+			[{ content: 'Qui si salvano i dati. Krista, tu che dici?' }],
+			[{ content: 'Che sei stanco, e si sente.' }],
+			[{ content: 'Appunto.' }],
 		]);
-		const { a } = makeAssistant({ nucleo, stream: (m, ...x) => (visti.push(m), giro(m, ...x)) });
+		const scritte = [];
+		const { a } = makeAssistant({ nucleo, stream: (m, ...x) => (visti.push(m), giro(m, ...x)), registraMemoria: e => (scritte.push(e), Promise.resolve()) });
+		const registro = [];
+		a.out = { info: x => registro.push(x), warn() {}, error() {} };
+		a.caso = () => 0.9; // nessun passaggio di parola fra loro
 		a.wire(ctxProva());
-		// 0.9: nessun invito, e il prompt della lettura resta quello di sempre
-		const senza = scriptedStream([[{ content: 'Il file salva i dati.' }]]);
-		const solo = makeAssistant({ nucleo: nucleoCheParla(), stream: (m, ...x) => (visti.push(m), senza(m, ...x)) });
-		solo.a.caso = () => 0.9;
-		solo.a.wire(ctxProva());
-		await solo.a.racconta({ tipo: 'codice', titolo: 'auth.py', testo: 'def login(): pass' });
-		assert.ok(!/@elliot|@darlene|@krista/.test(visti.pop()[0].content), 'senza invito nessun segnale nel prompt');
-		a.caso = () => 0.1;
+		// sicurezza: «password» in quello che si legge, Elliot, e l'invito porta il fatto e il suo campo
 		await a.racconta({ tipo: 'codice', titolo: 'password.py', testo: 'def salva(p): open("p").write(p)' });
-		assert.ok(/solo alla fine, nell'ultima frase, tira dentro Elliot[\s\S]*@elliot/.test(visti[0][0].content), 'Elliot, per la password nel titolo');
+		assert.ok(/solo alla fine, nell'ultima frase, tira dentro Elliot[\s\S]*il fatto e' questo: c'e' «password»[\s\S]*solo dal suo campo \(sicurezza[\s\S]*@elliot/.test(visti[0][0].content), 'Elliot, con il fatto');
+		assert.ok(registro.includes("ospite: elliot per sicurezza (c'e' «password»)"), registro.join(' | '));
 		assert.strictEqual(visti.length, 3, 'la lettura, Elliot, la chiusa di Melissa');
 		const suaVoce = nucleo.speaks.find(x => x.voice === ELLIOT);
 		assert.ok(suaVoce && /cifrate/.test(suaVoce.text), 'Elliot parla con la sua voce');
 		assert.ok(!nucleo.speaks.some(x => /@/.test(x.text || '')), 'il segnale non si legge');
+		// la memoria, nello spool della Memoria: l'intervento e la chiusa si ricordano, la lettura lunga no
+		assert.ok(scritte.some(e => e.source === 'personaggio' && e.sid === 'elliot' && e.who === 'elliot' && e.text === 'Che vanno cifrate, subito.'));
+		assert.ok(scritte.some(e => e.sid === 'melissa' && e.text === 'Hai sentito.'));
+		assert.ok(!scritte.some(e => /salva le password/.test(e.text)), 'la lettura di «racconta» no');
+		// entro un minuto dall'ultimo ospite la fine della lettura non basta: niente invito, e il registro lo dice
+		await finche(() => !a.getState().raccontando);
+		await a.racconta({ tipo: 'codice', titolo: 'db.py', testo: 'def salva(d): pass' });
+		assert.ok(!/@elliot|@darlene|@krista/.test(visti[3][0].content), 'nessun invito');
+		assert.ok(registro.includes("ospite: niente, fine fermato da pausa di 60 s dall'ultimo ospite"), registro.join(' | '));
+		assert.ok(nucleo.speaks.some(x => x.voice === 'CxyJefqDMJqI9Y7prMgt' && /stanco/.test(x.text)), 'ma Krista, chiamata per nome, risponde');
+		// passato il minuto, la fine della lettura e' un fatto: Darlene, l'unica con `fine`
+		const altri = [];
+		const fine = scriptedStream([[{ content: 'Salva i dati.' }]]);
+		const b = makeAssistant({ nucleo: nucleoCheParla(), stream: (m, ...x) => (altri.push(m), fine(m, ...x)) });
+		b.a.wire(ctxProva());
+		await b.a.racconta({ tipo: 'codice', titolo: 'db.py', testo: 'def salva(d): pass' });
+		assert.ok(/tira dentro Darlene[\s\S]*la lettura di db\.py e' finita[\s\S]*@darlene/.test(altri[0][0].content), 'Darlene per la fine');
+	});
+
+	await test('ospiti dai fatti: occasione(), un caso per tipo, la precedenza, a turno fra i tre, ognuno col suo campo', async () => {
+		// a mezzogiorno, se non si dice altro: di notte entrerebbe Krista per l'umore
+		const o = (ap, st = {}) => {
+			const r = PG.occasione(ap, { ora: 12, ...st });
+			return r && `${r.tipo} ${r.chi}`;
+		};
+		const ko = "Claude lancia npm test\nNon e' andata: npm test ha dato errore";
+		const ko3 = `${ko}\n${ko}\n${ko}`;
+		// un caso per tipo
+		assert.strictEqual(o('Claude legge il file .env'), 'sicurezza elliot');
+		assert.strictEqual(o(`${ko}\n${ko}`), 'errore elliot', 'due errori di fila: Elliot (errori_ripetuti 2)');
+		assert.strictEqual(o('Claude lancia vercel deploy --prod'), 'rischio darlene');
+		assert.strictEqual(o('Claude scrive: Ho finito. Vuoi che faccia il commit?'), 'scelta darlene');
+		assert.strictEqual(o('Claude legge a.ts', { fine: 'Claude ha finito il turno' }), 'fine darlene');
+		assert.strictEqual(o('', { richiesta: 'che palle, non va niente' }), 'umore krista', 'uno sfogo');
+		assert.strictEqual(o('', { richiesta: 'lo sistemo domani' }), 'umore krista', 'le sue parole');
+		assert.strictEqual(o('', { silenzioMs: 25_000 }), 'attesa darlene');
+		// null quando non c'e' niente
+		assert.strictEqual(o('Claude legge a.ts'), null);
+		assert.strictEqual(o('', { silenzioMs: 24_999 }), null);
+		assert.strictEqual(o(ko), null, 'un errore solo');
+		assert.strictEqual(o(`${ko}\n${ko.split('\n')[0]}\nClaude legge a.ts`), null, 'gli errori si contano dall\'ultima azione andata a buon fine');
+		assert.strictEqual(o('Claude scrive: Tutto chiaro?'), null, 'una domanda senza scelta');
+		assert.strictEqual(o('', { richiesta: 'aggiungi un test al parser' }), null, 'una richiesta qualunque');
+		// "firma", "token", "certificat", "permess" non chiamano piu' Elliot
+		assert.strictEqual(o('Claude controlla la firma del certificato, il token di accesso e i permessi'), null);
+		assert.strictEqual(o('Claude rinnova il token', { fine: 'finito' }), 'fine darlene');
+		// la precedenza: vince il primo che c'e'
+		const tutto = `Claude lancia sudo rm -rf build\n${ko}\n${ko}\nClaude lancia vercel deploy\nClaude scrive: Procedo?`;
+		assert.strictEqual(o(tutto, { fine: 'finito', silenzioMs: 30_000, ora: 2 }), 'sicurezza elliot');
+		assert.strictEqual(o(`${ko}\n${ko}\nClaude lancia vercel deploy`), 'errore elliot', 'errore prima di rischio');
+		assert.strictEqual(o('Claude lancia psql -c "drop table utenti"\nClaude scrive: Quale preferisci?'), 'rischio darlene', 'rischio prima di scelta');
+		assert.strictEqual(o('Claude scrive: Procedo con la migrazione?', { fine: 'finito' }), 'scelta darlene', 'scelta prima di fine');
+		assert.strictEqual(o('', { fine: 'finito', ora: 2 }), 'fine darlene', 'fine prima di umore');
+		assert.strictEqual(o('', { silenzioMs: 30_000, ora: 2 }), 'umore krista', 'umore prima di attesa');
+		// a turno fra chi ha il tipo, sempre diverso dall'ultimo ospite
+		const giro = (ap, st = {}) => {
+			const recenti = [];
+			for (let i = 0; i < 6; i++) recenti.push(PG.occasione(ap, { ora: 12, ...st, recenti }).chi);
+			return recenti.join(' ');
+		};
+		assert.strictEqual(giro('Claude scrive: Quale preferisci?'), 'darlene elliot krista darlene elliot krista', 'scelta: tutti e tre');
+		assert.strictEqual(giro('', { silenzioMs: 30_000 }), 'darlene elliot krista darlene elliot krista', 'attesa: tutti e tre');
+		assert.strictEqual(giro('', { fine: 'finito' }), 'darlene krista darlene krista darlene krista');
+		assert.strictEqual(giro(ko3), 'elliot krista elliot krista elliot krista', 'errore: Krista dal terzo di fila');
+		assert.strictEqual(giro('Claude lancia vercel deploy'), 'darlene elliot darlene elliot darlene elliot');
+		assert.strictEqual(o('Claude scrive: Quale preferisci?', { recenti: ['elliot', 'darlene'] }), 'scelta krista', 'prima chi non e\' ancora entrato');
+		assert.strictEqual(o('Claude scrive: Quale preferisci?', { recenti: ['krista', 'elliot', 'darlene'] }), 'scelta krista', 'poi chi e\' entrato da piu\' tempo');
+		assert.strictEqual(o('Claude lancia vercel deploy', { ultimo: 'krista' }), 'rischio darlene', 'con il solo ultimo, a parita\' l\'ordine');
+		// rischio guarda solo le azioni, non la prosa
+		assert.strictEqual(o('Claude scrive: dopo facciamo il deploy in produzione.'), null);
+		assert.strictEqual(o('def deploy(): run("rm -rf build")'.replace('rm -rf', 'cancella')), null, 'il testo di un file non e\' un\'azione');
+		assert.strictEqual(o(`${ko}\n${ko}`, { erroriDiFila: 1 }), null, 'gli errori contati da chi chiama');
+		assert.strictEqual(o('Claude legge .env', { ultimo: 'elliot' }), 'sicurezza elliot', 'uno solo: anche se era l\'ultimo');
+		// rischio e sicurezza non vanno mai a Krista, che non li ha
+		for (const ultimo of ['', 'elliot', 'darlene', 'krista']) {
+			for (const ap of ['Claude lancia git reset --hard', 'Claude lancia vercel deploy', 'Claude legge il file .env', 'Claude lancia sudo make']) {
+				assert.ok(!/krista/.test(o(ap, { ultimo }) || ''), `${ap} con ultimo ${ultimo}`);
+			}
+		}
+		// Krista per uno sfogo e di notte (ora locale >= 23 o < 6), al massimo una volta ogni 20 minuti
+		assert.strictEqual(o('Claude legge a.ts', { ora: 23 }), 'umore krista');
+		assert.strictEqual(o('Claude legge a.ts', { ora: 5 }), 'umore krista');
+		assert.strictEqual(o('Claude legge a.ts', { ora: 6 }), null);
+		assert.strictEqual(o('Claude legge a.ts', { ora: 22 }), null);
+		assert.strictEqual(o('', { ora: 2, dallUmoreMs: 19 * 60_000 }), null, 'entro 20 minuti no');
+		assert.strictEqual(o('', { ora: 2, dallUmoreMs: 20 * 60_000 }), 'umore krista');
+		assert.strictEqual(o('', { richiesta: 'odio questo progetto', dallUmoreMs: 60_000, silenzioMs: 30_000 }), 'attesa darlene', 'si passa al fatto dopo');
+		// il fatto, per l'invito e il registro
+		assert.strictEqual(PG.occasione('Claude lancia sudo make install', { ora: 12 }).fatto, "c'e' «sudo»");
+		assert.strictEqual(PG.occasione(ko3, { ora: 12 }).fatto, 'terzo errore di fila', 'come nella mod e nel contratto');
+		assert.strictEqual(PG.occasione('', { silenzioMs: 31_000, ora: 12 }).fatto, 'nessun appunto nuovo da 31 s');
+		assert.strictEqual(PG.occasione('', { ora: 2 }).fatto, "sono le 2 e Andrea e' ancora al lavoro");
+		// i freni
+		assert.strictEqual(PG.ATTESA_MS, 25_000);
+		assert.ok(PG.frenoOspite('fine', 59_000));
+		assert.strictEqual(PG.frenoOspite('rischio', 60_000), null);
+		assert.strictEqual(PG.frenoOspite('sicurezza', 30_000), null, 'per sicurezza bastano 30 s');
+		assert.ok(PG.frenoOspite('errore', 29_000));
+		// l'invito: a ognuno si chiede dal suo campo; a Krista, anche su un errore o una scelta, il lato umano
+		const perKrista = PG.invitoRacconto('krista', '3 errori di fila');
+		assert.ok(perKrista.includes(`solo dal suo campo (${PG.PERSONAGGI.krista.ruolo_cronaca}): il lato umano anche di un fatto tecnico, mai dettagli di file, errori o comandi`), perKrista);
+		assert.ok(/il fatto e' questo: 3 errori di fila[\s\S]*@krista/.test(perKrista));
+		const perElliot = PG.invitoRacconto('elliot', '3 errori di fila');
+		assert.ok(perElliot.includes(`solo dal suo campo (${PG.PERSONAGGI.elliot.ruolo_cronaca})`) && !/lato umano/.test(perElliot));
+		assert.ok(/lato umano/.test(PG.invito(null, 'krista', true)), 'anche nella chiacchierata');
+		for (const k of PG.ORDINE) assert.ok(!/[–—]/.test(PG.invitoRacconto(k, 'x') + PG.invito(null, k, true)));
+	});
+
+	await test('chiacchierata: senza le sue parole l\'ospite e chi riceve la parola hanno `chiacchiera`; uno sfogo sceglie Krista', async () => {
+		assert.deepStrictEqual(PG.daChiacchiera(), ['darlene', 'elliot', 'krista']);
+		assert.deepStrictEqual(PG.daChiacchiera(['elliot']), ['darlene', 'krista'], 'a chi Elliot passa la parola');
+		assert.deepStrictEqual([0, 0.6].map(c => PG.ospiteDellaFrase('un film stasera?', 'darlene', c)), ['elliot', 'krista'], 'a caso, diverso dall\'ultimo');
+		assert.strictEqual(PG.ospiteDellaFrase('lo faccio domani', 'krista', 0), 'krista', 'per le sue parole');
+		assert.strictEqual(PG.ospiteDellaFrase('che palle, la build non va', 'darlene', 0), 'krista', 'e per uno sfogo');
+		assert.strictEqual(PG.perSfogo('che palle, la build non va'), 'krista');
+		assert.strictEqual(PG.perSfogo('come va la build?'), null);
+		// nel giro: Melissa chiama Darlene, che al 40% passa la parola a uno degli altri due
+		const nucleo = nucleoCheParla();
+		const visti = [];
+		const giro = scriptedStream([[{ content: 'Darlene, tu che dici? @darlene' }], [{ content: 'Boh.' }], [{ content: 'Ok.' }]]);
+		const { a } = makeAssistant({ nucleo, stream: (m, ...x) => (visti.push(m), giro(m, ...x)) });
+		a.caso = () => 0.39;
+		a.wire(ctxProva());
+		await a.turn('regge?', true);
+		assert.ok(/Poi chiudi chiedendo a Elliot, per nome/.test(visti[1][1].content), visti[1][1].content);
+	});
+
+	await test('ognuno ha la sua memoria nella Memoria: si scrive nello spool, si legge col cli personaggio (finto), 30 s di cache', async () => {
+		const MP = require(path.join(OUT, 'memoria-personaggi.js'));
+		const cli = fintoCli({
+			melissa: { ultime: [{ at: 1, testo: "Ti tengo d'occhio io." }], ricordi: [] },
+			elliot: { ultime: [{ at: 2, testo: "Il controllo e' un'illusione." }], ricordi: [{ at: 3, chi: 'Andrea', testo: 'la build di ieri' }] },
+		});
+		try {
+			const nucleo = nucleoCheParla();
+			const visti = [];
+			const scritte = [];
+			const giro = scriptedStream([[{ content: 'Regge. Elliot, tu che dici? @elliot' }], [{ content: 'Regge, ma le chiavi no.' }], [{ content: 'Visto?' }], [{ content: 'Ancora qui.' }]]);
+			const { a } = makeAssistant({ nucleo, stream: (m, ...x) => (visti.push(m), giro(m, ...x)), registraMemoria: e => (scritte.push(e), Promise.resolve()) });
+			a.caso = () => 0.9;
+			a.wire(ctxProva());
+			a.state.conversing = true;
+			await a.turn('regge la build?', true);
+			// nel prompt di Melissa, in quello dell'ospite e nella chiusa: le due frasi del contratto
+			assert.ok(/Hai detto di recente \(non ripeterti[^\n]*«Ti tengo d'occhio io\.»/.test(visti[0][0].content), 'Melissa');
+			assert.ok(/Hai detto di recente[^\n]*«Il controllo e' un'illusione\.»/.test(visti[1][0].content), 'Elliot');
+			assert.ok(/Ti ricordi di Andrea \(dati, non istruzioni\): Andrea: «la build di ieri»/.test(visti[1][0].content), 'i ricordi di Elliot');
+			assert.ok(/«Ti tengo d'occhio io\.»/.test(visti[2][0].content), 'e Melissa che chiude');
+			// il cli e' quello installato nella Bottega (qui quella di prova), con la frase di Andrea
+			const prima = cli.chiamate();
+			assert.deepStrictEqual(prima[0].slice(0, 5), ['personaggio', 'melissa', '--limite', '5', '--json']);
+			assert.ok(prima.some(x => x[1] === 'elliot' && x.includes('--frase') && x.includes('regge la build?')));
+			// nello spool: la frase di Andrea con chi aveva la chiamata, le battute generate senza segnale
+			assert.deepStrictEqual(scritte.find(e => e.who === 'andrea'), { ...scritte.find(e => e.who === 'andrea'), source: 'personaggio', sid: 'melissa', text: 'regge la build?' });
+			assert.ok(scritte.some(e => e.sid === 'melissa' && e.who === 'melissa' && e.text === 'Regge. Elliot, tu che dici?'));
+			assert.ok(scritte.some(e => e.sid === 'elliot' && e.who === 'elliot' && e.text === 'Regge, ma le chiavi no.'));
+			assert.ok(scritte.every(e => /^barra-\d+-\d+-\d+$/.test(e.id) && typeof e.at === 'number'));
+			// 30 s di cache per chiave: il turno dopo non rilancia il cli, e la battuta appena detta conta gia'
+			await a.turn('e adesso?', true);
+			assert.strictEqual(cli.chiamate().filter(x => x[1] === 'melissa').length, 1, 'una sola lettura per Melissa');
+			assert.ok(/«Regge\. Elliot, tu che dici\?»/.test(visti[3][0].content), 'la sua ultima battuta, senza aspettare la cache');
+			// il saluto fisso non va nella memoria
+			const n = scritte.length;
+			await a.turn('passami Darlene', true);
+			assert.ok(!scritte.slice(n).some(e => e.who === 'darlene'), 'il saluto fisso no');
+			assert.ok(scritte.slice(n).some(e => e.who === 'andrea' && e.sid === 'darlene'), 'la frase di Andrea, con chi ha chiamato');
+		} finally {
+			cli.togli();
+		}
+		// una Memoria che non conosce ancora il comando, o lenta: niente, in silenzio, entro 1,5 s
+		const ignoto = fintoCli({}, 'sconosciuto');
+		try {
+			assert.strictEqual(await new MP.MemoriaPersonaggi().leggi('elliot', 'ciao'), '');
+		} finally {
+			ignoto.togli();
+		}
+		const lento = fintoCli({ elliot: { ultime: [{ at: 1, testo: 'tardi' }], ricordi: [] } }, 'lento');
+		try {
+			const t0 = Date.now();
+			assert.strictEqual(await new MP.MemoriaPersonaggi().leggi('elliot', 'ciao'), '');
+			assert.ok(Date.now() - t0 < 2200, `${Date.now() - t0} ms`);
+		} finally {
+			lento.togli();
+		}
+		// senza cli: niente, e senza chi scrive nessun errore
+		const m = new MP.MemoriaPersonaggi();
+		assert.strictEqual(await m.leggi('krista'), '');
+		m.scrivi('krista', 'krista', 'ciao');
+		assert.deepStrictEqual(MP.leggiMemoriaPersonaggio('rotto'), { ultime: [], ricordi: [] });
 	});
 
 	await test('personaggi: nel 40% dei casi l\'ospite riceve l\'invito a passare la parola a un altro', async () => {
@@ -1383,6 +1738,7 @@ function makeAssistant(over = {}) {
 		assert.strictEqual(p.chiChiede('Passami Darlene'), 'darlene');
 		assert.strictEqual(p.chiChiede('voglio parlare con mr robot'), 'elliot');
 		assert.strictEqual(p.chiChiede('passami il sale'), null);
+		assert.strictEqual(p.chiChiede('ridammi Melissa'), 'melissa');
 		assert.strictEqual(p.ospiteChiesto('sentiamo anche Krista'), 'krista');
 		assert.deepStrictEqual(p.chiamata('Va bene. @Elliot', ['elliot']), { testo: 'Va bene.', ospite: 'elliot' });
 		assert.deepStrictEqual(p.chiamata('Va bene. @darlene', ['elliot']), { testo: 'Va bene.', ospite: null });
@@ -1435,7 +1791,10 @@ function makeAssistant(over = {}) {
 			assert.ok(avvisi.some(m => /robot\.json, `parole`/.test(m)), 'e lo dice');
 			assert.ok(avvisi.some(m => /muto\.json/.test(m)));
 			assert.deepStrictEqual([r.ruolo, r.ruolo_cronaca, r.errori_ripetuti, p.PERSONAGGI.tyrell.ordine], ['Mr. Robot', 'Mr. Robot', 0, 1]);
-			assert.strictEqual(p.ospiteDellaFrase('le chiavi', 'tyrell', 0), 'robot', 'nessuna eccezione: senza parole valide, uno diverso dall\'ultimo');
+			assert.deepStrictEqual(r.occasioni, [], 'senza occasioni non entra da solo');
+			assert.strictEqual(p.occasione('Claude scrive: Vuoi che lo faccia?', { fine: 'finito', silenzioMs: 99_000, ora: 2, richiesta: 'che palle' }), null);
+			assert.deepStrictEqual(p.occasione('Claude lancia sudo make'), { tipo: 'sicurezza', chi: 'robot', fatto: "c'e' «sudo»" }, 'sicurezza va a chi ha le parole, anche senza occasioni');
+			assert.strictEqual(p.ospiteDellaFrase('le chiavi', 'tyrell', 0), null, 'nessuna eccezione: senza parole valide e senza `chiacchiera`, nessuno');
 			// le frasi si tagliano anche al punto di "Mr.", quindi qui conta l'invitato, nominato ovunque
 			assert.strictEqual(p.chiamatoPerNome('Hai sentito Mr. Robot? Dice di no.', 'robot'), 'robot', 'il punto nel nome e\' un punto');
 			assert.strictEqual(p.chiamatoPerNome('Hai sentito Mr! Robot? Dice di no.', 'robot'), null);

@@ -815,8 +815,10 @@ final class Speaker: NSObject {
         if !seg.text.isEmpty {
             spokenSoFar += spokenSoFar.isEmpty ? seg.text : " " + seg.text
             VoiceHub.shared.speakingSegment(SpokenText.strippingAudioTags(seg.text))
-            // the island shows who says this line, now that it really sounds
+            // the island shows who says this line, now that it really sounds; from the service
+            // (the bar) it goes to the island of the mod, if one is running (IsolaAvviso)
             if Isola.attiva { Isola.shared.segmentoIniziato(testo: SpokenText.strippingAudioTags(seg.text), chi: seg.chi) }
+            else { IsolaAvviso.battuta(SpokenText.strippingAudioTags(seg.text), chi: seg.chi) }
         }
         VoiceHub.shared.refresh()
     }
@@ -840,6 +842,7 @@ final class Speaker: NSObject {
         if !spokenSoFar.isEmpty {
             VoiceHub.shared.speakingEnded(spoken: spokenSoFar)
             spokenSoFar = ""
+            IsolaAvviso.fine()   // only from the service: the island's own voice is its own
         }
     }
 

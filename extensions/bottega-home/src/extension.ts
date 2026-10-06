@@ -884,6 +884,8 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 	};
 	assistant = new Assistant({
 		contesto: () => contestoMemoria.testo(cartellaAttiva()),
+		// la memoria dei personaggi nella Memoria della Bottega (CONTRATTI 9.11)
+		registraMemoria: e => registraMemoria({ ...e, cwd: e.cwd ?? cartellaAttiva() }),
 		onMemory: row => {
 			const file = vscode.window.activeTextEditor?.document.uri;
 			const cwd = row.restored ? undefined : (file ? vscode.workspace.getWorkspaceFolder(file) : undefined)?.uri.fsPath || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;

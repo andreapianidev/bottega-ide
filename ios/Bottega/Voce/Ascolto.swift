@@ -57,6 +57,8 @@ final class Ascolto {
             r.shouldReportPartialResults = true
             r.addsPunctuation = true
             r.taskHint = .dictation
+            // i nomi che Apple preferisce quando il suono ci somiglia: "Krista", non "Cristal" (docs/CONTRATTI.md, 9.11)
+            r.contextualStrings = Personaggi.ordine.compactMap { Personaggi.tutti[$0]?.nome } + ["Melissa", "Claude", "Claude Code", "Bottega"]
             richiesta = r
             ultimo = ""
 

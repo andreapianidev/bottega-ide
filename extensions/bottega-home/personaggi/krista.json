@@ -54,9 +54,17 @@
       "Parliamo di {x}, allora. Aspetta."
     ]
   },
-  "ruolo": "quando Andrea fa il vago, rimanda o cerca scuse",
-  "ruolo_cronaca": "quando Claude gira in tondo, ripete gli stessi errori o rimanda",
+  "ruolo": "la psicologa: un parere da fuori e disinteressato, il lato umano delle cose, e quando Andrea fa il vago, rimanda o cerca scuse",
+  "ruolo_cronaca": "il lato umano: come sta Andrea e come ci sta lavorando, se conviene fermarsi, come decidere, un parere da fuori. Mai i dettagli tecnici",
   "parole": "domani|pi[uù] tardi|non ho voglia|non so se|forse|rimand|stanc|scus|procrastin|dovrei|non ce la faccio",
   "parole_cronaca": "",
-  "errori_ripetuti": 2
+  "errori_ripetuti": 3,
+  "occasioni": [
+    "umore",
+    "errore",
+    "scelta",
+    "attesa",
+    "fine",
+    "chiacchiera"
+  ]
 }

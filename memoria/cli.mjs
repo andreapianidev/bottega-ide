@@ -35,6 +35,8 @@ const HELP = `Memoria della Bottega
   bacheca [--progetto P] [--minuti N] [--json]
                                       cosa stanno facendo adesso le sessioni Claude
   sessione <id> [--json]              dettaglio di una sessione
+  personaggio <chiave> [--frase <testo>] [--limite N] [--json]
+                                      la memoria di un personaggio di Melissa: ultime battute e ricordi
   classifica [--tutte] [--limite N] [--json]
                                       categoria delle sessioni riassunte (Apple Intelligence, in fondo)
   categorie [--giorni N] [--json]     sessione -> categoria
@@ -145,6 +147,24 @@ async function main() {
 			const items = board({ progetto, minuti: num(flags.minuti, 60) });
 			return print(items, () =>
 				items.length ? items.map(e => `${fmtDate(e.at)} ${e.project} ${String(e.sessionId).slice(0, 8)} ${e.summary}`).join('\n') : 'Nessuna attivita\' recente.',
+			);
+		}
+		case 'personaggio': {
+			// Solo lo spool, niente Codex e Cline: le battute dei personaggi arrivano da li', e la lettura
+			// deve stare sotto 1,5 s (docs/CONTRATTI.md 9.11).
+			const { openStore } = await import('./lib/store.mjs');
+			const { ingest } = await import('./lib/core.mjs');
+			const { memoriaPersonaggio } = await import('./lib/esterne.mjs');
+			if (!pos[0]) throw new Error('indica il personaggio');
+			const store = openStore();
+			ingest(store);
+			const frase = typeof flags.frase === 'string' ? flags.frase : '';
+			const r = memoriaPersonaggio(store, pos[0], { frase, limite: num(flags.limite, 5) });
+			return print(r, () =>
+				[
+					r.ultime.length ? `Ultime battute:\n${r.ultime.map(u => `  ${fmtDate(u.at)}  ${u.testo}`).join('\n')}` : 'Nessuna battuta in memoria.',
+					r.ricordi.length ? `Ricordi:\n${r.ricordi.map(u => `  ${fmtDate(u.at)}  ${u.chi}: ${u.testo}`).join('\n')}` : '',
+				].filter(Boolean).join('\n\n'),
 			);
 		}
 		case 'sessione':
