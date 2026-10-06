@@ -153,7 +153,7 @@ gli errori hanno `ok: false` ed `errore`.
 
 | Richiesta | Corpo | Risposta |
 |---|---|---|
-| `GET /ping` | | `{ok, versione}` |
+| `GET /ping` | | `{ok, versione, parla, ascolta}`: `parla` e' vero finche' la voce di Melissa non ha finito (il mod aspetta questo prima di riaprire il microfono nella conversazione), `ascolta` finche' il microfono e' aperto |
 | `POST /detta` | `{sessione, progetto}` | `{ok}`: apre il microfono (riconoscimento di Apple, `it-IT`, modo push). 409 se ascolta gia' un'altra sessione |
 | `POST /detta/fine` | | `{ok}`: chiude la frase; il testo arriva come evento |
 | `POST /stato` | `{stato: pensa\|pronto\|riposo, testo?}` | `{ok}`: l'isola mostra lo stato (`pronto` si ritira da sola dopo 1,8 s) |

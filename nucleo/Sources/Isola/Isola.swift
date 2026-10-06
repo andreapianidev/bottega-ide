@@ -10,7 +10,8 @@
 //  It serves HTTP/1.1 on a Unix socket, ~/.bottega/nucleo/isola.sock, which the mod reaches
 //  with $.http.fetch(url, { socketPath }). Every answer is JSON:
 //
-//    GET  /ping                              -> {ok, versione}
+//    GET  /ping                              -> {ok, versione, parla, ascolta}  parla: Melissa's voice is
+//                                             still going; ascolta: the microphone is open
 //    POST /detta     {sessione, progetto}     -> {ok}  opens the microphone (Apple recognizer)
 //    POST /detta/fine                         -> {ok}  closes it; the text arrives as an event
 //    POST /stato     {stato, testo?}          -> {ok}  the island: pensa | pronto | riposo
@@ -106,7 +107,7 @@ final class Isola {
         let sessione = (corpo["sessione"] as? String) ?? req.query["sessione"] ?? ""
         switch (req.method, req.path) {
         case ("GET", "/ping"):
-            res.ok(["versione": Nucleo.version])
+            res.ok(["versione": Nucleo.version, "parla": Speaker.shared.isSpeaking, "ascolta": dettaPer != nil])
 
         case ("POST", "/detta"):
             guard !sessione.isEmpty else { return res.errore(400, "Manca la sessione.") }
@@ -162,11 +163,13 @@ final class Isola {
             guard !testo.isEmpty || final else { return res.errore(400, "Niente da dire.") }
             guard dettaPer == nil else { return res.errore(409, "Melissa sta ascoltando.") }
             if !sessione.isEmpty { narraPer = sessione }
+            Log.info("isola: parla da \(sessione.prefix(8)), \(testo.count) caratteri\(append ? ", in coda" : "")\(final ? ", fine" : "")")
             if !testo.isEmpty { IsolaPanel.shared.mostra(.parla, testo: testo) }
             Speaker.shared.speak(text: testo.isEmpty ? "" : testo + " ", append: append, final: final, model: nil, voice: nil)
             res.ok(["voce": Speaker.shared.currentEngine.rawValue])
 
         case ("POST", "/zitta"):
+            Log.info("isola: zitta da \(sessione.isEmpty ? "?" : String(sessione.prefix(8)))")
             Speaker.shared.stopSpeaking()
             IsolaPanel.shared.riposa(dopo: 0.3)
             res.ok()
