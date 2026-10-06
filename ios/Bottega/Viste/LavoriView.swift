@@ -57,21 +57,6 @@ struct LavoriView: View {
 
     var body: some View {
         List {
-            if statoVisibile != nil {
-                Section {
-                    Picker("Vista", selection: $vistaPerProgetto) {
-                        Text("Progetti").tag(true)
-                        Text("Stati").tag(false)
-                    }
-                    .pickerStyle(.segmented)
-                    Picker("Sessioni", selection: $mostraTutte) {
-                        Text("Da seguire").tag(false)
-                        Text("Tutte").tag(true)
-                    }
-                    .pickerStyle(.segmented)
-                }
-                .listRowBackground(Tinte.notteFonda.opacity(0.7))
-            }
             if datoSalvato, let stato = statoVisibile {
                 Text("Ultimo registro ricevuto dal Mac alle \(Date(timeIntervalSince1970: stato.ora / 1000).formatted(date: .abbreviated, time: .shortened)). Le sessioni potrebbero essere cambiate.")
                     .font(.caption)
@@ -129,6 +114,13 @@ struct LavoriView: View {
             }
             .listRowBackground(Tinte.notteFonda.opacity(0.7))
 
+            // il titolo dell'elenco, con il menu che decide come guardarlo: subito sopra le sessioni che cambia
+            if statoVisibile != nil {
+                testataSessioni
+                    .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 2, trailing: 8))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
             if righeVisibili.isEmpty {
                 Text(messaggioVuoto)
                     .foregroundStyle(Tinte.tinta)
@@ -195,6 +187,68 @@ struct LavoriView: View {
         .onChange(of: fase) { _, nuova in if nuova == .background { riassunto.ferma() } }
         .onDisappear { riassunto.ferma() }
         .onChange(of: scelta?.id) { _, nuova in if nuova != nil { riassunto.ferma() } }
+    }
+
+    // MARK: - come si guardano le sessioni
+
+    /// Una sola barra resta in cima (Melissa, Lavori, Stanze): raggruppare e filtrare stanno in un menu accanto al
+    /// titolo, con sotto una riga che dice la scelta di adesso. Toccare la riga apre lo stesso menu.
+    private var testataSessioni: some View {
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Sessioni")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Tinte.testo)
+                Menu { scelteVista } label: {
+                    Text(fraseVista)
+                        .font(.footnote)
+                        .foregroundStyle(Tinte.tinta)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Vista delle sessioni: \(fraseVista)")
+                .accessibilityHint("Apre le scelte per raggruppare e filtrare")
+            }
+            Spacer(minLength: 8)
+            Menu { scelteVista } label: {
+                // pieno e ambra quando non e' la vista di sempre (per progetto, da seguire)
+                Image(systemName: vistaDiSempre ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(vistaDiSempre ? Tinte.tinta : Tinte.ambra)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Raggruppa e filtra le sessioni")
+            .accessibilityValue(fraseVista)
+        }
+    }
+
+    /// Le due scelte di sempre, a scelta singola: come raggruppare e cosa mostrare.
+    @ViewBuilder private var scelteVista: some View {
+        Section("Raggruppa") {
+            Picker("Raggruppa", selection: $vistaPerProgetto) {
+                Text("Per progetto").tag(true)
+                Text("Per stato").tag(false)
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        }
+        Section("Mostra") {
+            Picker("Mostra", selection: $mostraTutte) {
+                Text("Da seguire").tag(false)
+                Text("Tutte").tag(true)
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        }
+    }
+
+    private var vistaDiSempre: Bool { vistaPerProgetto && !mostraTutte }
+
+    /// «Per progetto · da seguire», «Per stato · tutte».
+    private var fraseVista: String {
+        "\(vistaPerProgetto ? "Per progetto" : "Per stato") · \(mostraTutte ? "tutte" : "da seguire")"
     }
 
     /// La lettura usa lo snapshot gia' sul telefono, con priorita' a cio' che richiede Andrea.

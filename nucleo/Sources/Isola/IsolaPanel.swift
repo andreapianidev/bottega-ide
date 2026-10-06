@@ -452,6 +452,12 @@ final class VoceViva {
     private(set) var altezze = [CGFloat](repeating: 0, count: VoceViva.barre)
     private var velAltezze = [CGFloat](repeating: 0, count: VoceViva.barre)
     private var ultimo: Double = 0
+    /// The loudest of the last seconds: it is full height, whatever the voice's volume. The raw
+    /// level of ordinary speech sits around 0.1-0.25, which drew bars a point or two tall that
+    /// looked still (Andrea, 6 October 2026).
+    private var picco: CGFloat = 0.12
+    private var ultimoLog: Double = 0
+    private var massimoLog: Float = 0
 
     /// Speech bands per bar (the middle of the 16) and how much each bar takes of them.
     private static let gruppi = [[1, 2], [3, 4], [5, 6, 7], [8, 9], [10, 11, 12]]
@@ -466,16 +472,32 @@ final class VoceViva {
         ultimo = t
         if dt > 0.1 { dt = 1.0 / 60 }   // after a pause: one frame, not a jump
         let s = AudioLevels.shared.snapshot(forOrbState: fonte)
-        let voce = CGFloat(min(1, s.level * 1.4))
+        let grezzo = CGFloat(s.level)
+        // automatic gain: the peak follows the voice up at once and comes down slowly (about 10%
+        // a second), never below a floor that keeps room noise from filling the bars
+        picco = max(grezzo, 0.05, picco * CGFloat(1 - 0.1 * dt))
+        let voce = min(1, grezzo / picco)
+        // the shape across the bars from the speech bands, relative to the loudest of them
+        let medie: [CGFloat] = (0..<Self.barre).map { i in
+            let idx = Self.gruppi[i].filter { $0 < s.bands.count }
+            return idx.isEmpty ? 0 : CGFloat(idx.map { s.bands[$0] }.reduce(0, +) / Float(idx.count))
+        }
+        let forte = max(medie.max() ?? 0, 0.0001)
         var obiettivi = [CGFloat](repeating: 0, count: Self.barre)
         for i in 0..<Self.barre {
-            let idx = Self.gruppi[i].filter { $0 < s.bands.count }
-            let banda = idx.isEmpty ? 0 : CGFloat(idx.map { s.bands[$0] }.reduce(0, +) / Float(idx.count))
             // a little texture of its own on top of the voice, and a slow breath in silence
-            let grana = 0.86 + 0.14 * CGFloat(sin(t * (7.3 + 1.1 * Double(i)) + Self.fase[i]))
-            let v = min(1, max(banda * 1.8, voce) * Self.peso[i] * grana)
+            let grana = 0.82 + 0.18 * CGFloat(sin(t * (7.3 + 1.1 * Double(i)) + Self.fase[i]))
+            let forma = 0.45 + 0.55 * medie[i] / forte
+            let v = min(1, voce * forma * Self.peso[i] * grana * 1.15)
             let respiro = 0.1 + 0.05 * CGFloat(sin(t * Self.passo[i] + Self.fase[i]))
             obiettivi[i] = max(respiro, v)
+        }
+        // the level actually read, in the log every few seconds while speaking: measurable, not guessed
+        massimoLog = max(massimoLog, s.level)
+        if fonte == 3, t - ultimoLog > 4 {
+            if ultimoLog > 0 { Log.info("isola: barre, livello della voce massimo \(String(format: "%.3f", massimoLog)) negli ultimi 4 s") }
+            ultimoLog = t
+            massimoLog = 0
         }
         // small fixed steps keep the stiff spring stable at any frame rate
         var resto = dt
