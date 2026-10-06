@@ -42,7 +42,9 @@ enum Quiet {
     static func start() { touch() }
 
     static func touch() {
-        guard LaunchMode.fromMacOS else { return }
+        // the island has its own life (15 minutes idle): an intent or a Spotlight click that
+        // reaches it must not arm the 30 s quit under a dictation
+        guard LaunchMode.fromMacOS, !Isola.attiva else { return }
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { _ in
             MainActor.assumeIsolated {

@@ -169,7 +169,7 @@ turno successivo, e `/detta` svuota la coda della sessione.
 Il dettato si chiude da solo 3,5 s dopo l'ultima parola nuova, o dopo 10 s senza parole. Un clic sull'isola chiude
 il dettato; mentre Melissa racconta, ferma Claude. L'isola sta nella tacca del MacBook (sugli schermi senza tacca
 pende sotto la barra dei menu) e si ritira quando non ha niente da dire. Il processo esce dopo 15 minuti senza
-richieste, dettato o voce; un secondo `--isola` trova il socket vivo ed esce subito.
+richieste, dettato o voce; un secondo `--isola` trova il socket vivo ed esce subito (e se due partono nello stesso istante decide il lock su `~/.bottega/nucleo/isola.lock`, tenuto per tutta la vita del processo). Un'isola rimasta su "pensa" o "parla" per due minuti senza voce e senza microfono torna a riposo da sola.
 
 Il microfono apre solo quando macOS lo concede (la prima volta chiede il permesso): l'orologio dei 10 s parte da li', e
 un dettato chiuso mentre il microfono si apriva lo richiude subito. Il log va dove lo manda `open --stderr` (la mod usa

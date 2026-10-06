@@ -15,9 +15,12 @@
 //
 //  Streamed voice starts the moment its first piece arrives. If the pieces then come slower
 //  than they play and the player runs dry in the middle of a sentence (the last thing heard
-//  was audio, not an end marker), it pauses instead of stuttering piece by piece: it waits
-//  for 150 ms of audio, or 250 ms, or the end of the segment, and goes on. Each such hole
-//  is logged ("voce: buco di N ms"), so the stutter can be measured, not guessed.
+//  was audio, not an end marker), it pauses instead of stuttering piece by piece: it gathers
+//  a reserve of audio, or waits a little longer than that reserve, or the end of the segment,
+//  and goes on. The reserve adapts: 150 ms, doubled at each hole that comes within 3 s of the
+//  last (a slow line), up to 1 s, and back to 150 ms after 10 s without holes. One longer
+//  pause instead of many short ones; the first sentence never waits. Each hole is logged
+//  ("voce: buco di N ms ... scorta M ms"), so the stutter can be measured, not guessed.
 //
 
 import Foundation
@@ -49,8 +52,15 @@ final class AudioOut: @unchecked Sendable {
     private var rebufferTimer: DispatchWorkItem?
     /// The buffer that finished last was audio (not a 1 ms marker).
     private var lastDoneWasAudio = false
-    private static let rebufferFrames: AVAudioFrameCount = 3600   // 150 ms at 24 kHz
-    private static let rebufferMaxWait: TimeInterval = 0.25
+    private static let rebufferMin: AVAudioFrameCount = 3600     // 150 ms at 24 kHz
+    private static let rebufferMax: AVAudioFrameCount = 24_000   // 1 s
+    /// A hole this soon after the last one means the line is slow: the reserve doubles.
+    private static let holeStreak: TimeInterval = 3
+    /// This long without holes and the reserve is back to its minimum.
+    private static let holeCalm: TimeInterval = 10
+    /// The reserve the next hole gathers before playing on.
+    private var rebufferTarget: AVAudioFrameCount = AudioOut.rebufferMin
+    private var lastHoleAt: DispatchTime?
 
     /// Bumped by `stop()`. Work stamped with an older generation is ignored.
     private let generationLock = OSAllocatedUnfairLock(initialState: 0)
@@ -150,7 +160,7 @@ final class AudioOut: @unchecked Sendable {
                 endRebuffer(log: true)
             } else {
                 heldFrames += buffer.frameLength
-                if heldFrames >= Self.rebufferFrames { endRebuffer(log: true) } else { armRebufferTimer() }
+                if heldFrames >= rebufferTarget { endRebuffer(log: true) } else { armRebufferTimer() }
             }
             return
         }
@@ -162,9 +172,19 @@ final class AudioOut: @unchecked Sendable {
     }
 
     private func beginRebuffer() {
+        let now = DispatchTime.now()
+        if let last = lastHoleAt {
+            let gap = Double(now.uptimeNanoseconds - last.uptimeNanoseconds) / 1e9
+            if gap < Self.holeStreak {
+                rebufferTarget = min(Self.rebufferMax, rebufferTarget * 2)
+            } else if gap > Self.holeCalm {
+                rebufferTarget = Self.rebufferMin
+            }
+        }
+        lastHoleAt = now
         rebuffering = true
         heldFrames = 0
-        dryAt = .now()
+        dryAt = now
         node?.pause()
     }
 
@@ -175,7 +195,7 @@ final class AudioOut: @unchecked Sendable {
         rebuffering = false
         if log, let dryAt, heldFrames > 0 {
             let ms = (DispatchTime.now().uptimeNanoseconds - dryAt.uptimeNanoseconds) / 1_000_000
-            Log.info("voce: buco di \(ms) ms a meta' frase, ripresa con \(heldFrames * 1000 / 24_000) ms pronti")
+            Log.info("voce: buco di \(ms) ms a meta' frase, ripresa con \(heldFrames * 1000 / 24_000) ms pronti (scorta \(rebufferTarget * 1000 / 24_000) ms)")
         }
         heldFrames = 0
         dryAt = nil
@@ -186,15 +206,17 @@ final class AudioOut: @unchecked Sendable {
         }
     }
 
-    /// A slow trickle does not keep her silent: after 250 ms she goes on with what there is.
+    /// A slow trickle does not keep her silent: a little longer than the reserve (250 ms for
+    /// the 150 ms one, 1.6 s at most) and she goes on with what there is.
     private func armRebufferTimer() {
         guard rebufferTimer == nil else { return }
+        let wait = min(1.6, Double(rebufferTarget) / 24_000 * 1.5 + 0.03)
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.rebuffering, self.heldFrames > 0 else { return }
             self.endRebuffer(log: true)
         }
         rebufferTimer = work
-        q.asyncAfter(deadline: .now() + Self.rebufferMaxWait, execute: work)
+        q.asyncAfter(deadline: .now() + wait, execute: work)
     }
 
     private func ensureEngine() -> Bool {

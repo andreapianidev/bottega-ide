@@ -171,6 +171,9 @@ final class ElevenLabsStream {
     private var residue = Data()
     private(set) var hasSpokenBefore = false
     var isOpen: Bool { task != nil }
+    /// The socket has sent close_socket and is still bringing in the last turn's audio: it
+    /// takes no new text until the server ends the session and it is opened again.
+    var isFinishing: Bool { task != nil && finishing }
 
     /// Close after this long without text instead of pinging forever.
     private static let idleCutoff: TimeInterval = 90

@@ -28,7 +28,11 @@
 //  session left in its queue.
 //
 //  The dictation closes by itself 3.5 s after the last new word, or with nothing said in 10 s.
-//  The process quits after 15 minutes without requests, dictation or speech.
+//  The process quits after 15 minutes without requests, dictation or speech. One island per
+//  Mac: a lock on ~/.bottega/nucleo/isola.lock, held for the process's life, keeps a second
+//  one (two launches in the same instant) from taking the socket away from the first. An
+//  island left showing "thinking" or "speaking" with nothing behind it for two minutes
+//  goes back to rest by itself.
 //
 
 import AppKit
@@ -48,6 +52,11 @@ final class Isola {
     private static let attesaEventi: TimeInterval = 15
 
     private var server: IsolaServer?
+    /// The lock that makes this the only island; open for the process's life.
+    private var lock: Int32 = -1
+    /// The panel's phase at the last minute tick, and how many ticks it has stood still.
+    private var faseVista: IsolaPanel.Fase = .riposo
+    private var faseFerma = 0
     /// The session the microphone is open for.
     private var dettaPer: String?
     private var dettaParziale = ""
@@ -68,6 +77,13 @@ final class Isola {
 
     func start() {
         Out.enabled = false
+        // two islands launched together both find no socket answering: the lock decides
+        let lockPath = Nucleo.supportDir.appendingPathComponent("isola.lock").path
+        lock = Darwin.open(lockPath, O_CREAT | O_RDWR, 0o600)
+        if lock < 0 || flock(lock, LOCK_EX | LOCK_NB) != 0 {
+            Log.info("isola: un'altra isola sta gia' partendo o gira, esco")
+            exit(0)
+        }
         if IsolaServer.risponde(path: Self.socketPath) {
             Log.info("isola: un'altra isola risponde gia' su \(Self.socketPath), esco")
             exit(0)
@@ -99,11 +115,26 @@ final class Isola {
     }
 
     private func forseEsci() {
+        riposaSeFerma()
         let occupata = dettaPer != nil || Speaker.shared.isSpeaking || Listener.shared.isCapturing
         guard !occupata, Date().timeIntervalSince(ultimoUso) > Self.idleQuit else { return }
         Log.info("isola: \(Int(Self.idleQuit / 60)) minuti senza richieste, esco")
         server?.stop()
         Service.shutdown(reason: "isola inattiva")
+    }
+
+    /// "Thinking" or "speaking" for two minute ticks in a row with no voice and no microphone:
+    /// whoever should have moved it on (a session closed mid-turn) is gone.
+    private func riposaSeFerma() {
+        let fase = IsolaPanel.shared.fase
+        let sospesa = (fase == .pensa || fase == .parla) && dettaPer == nil && !Speaker.shared.isSounding
+        faseFerma = sospesa && fase == faseVista ? faseFerma + 1 : 0
+        faseVista = fase
+        if faseFerma >= 2 {
+            Log.info("isola: ferma su \(fase) da due minuti senza voce, torna a riposo")
+            IsolaPanel.shared.riposa(dopo: 0)
+            faseFerma = 0
+        }
     }
 
     // MARK: - Requests
