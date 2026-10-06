@@ -36,6 +36,8 @@ interface Sessione {
 export interface RegiaDeps {
 	/** chi vuole sentire Andrea: chiVuole della barra (DeepSeek Flash, al piu' 2,5 s) */
 	chiVuole(frase: string): Promise<Voluto | null>;
+	/** una frase di Andrea nella chiacchierata della mod, per gli impegni di Krista (src/impegni.ts) */
+	ascolta?(frase: string): void;
 	caso?: () => number;
 	ora?: () => number;
 	log?: (riga: string) => void;
@@ -100,6 +102,7 @@ export class RegiaPersonaggi {
 	private frase(s: Sessione, x: any): Record<string, unknown> {
 		const frase = String(x?.frase ?? '');
 		const chi = P.esiste(x?.chi) ? x.chi : 'melissa';
+		this.d.ascolta?.(frase);
 		const passa = P.chiChiede(frase);
 		if (passa && passa !== chi && (passa === 'melissa' || this.conVoce().includes(passa))) return { passa };
 		if (chi !== 'melissa') return { passa: null, invito: '', offerte: [], strumento: null, deciso: null };

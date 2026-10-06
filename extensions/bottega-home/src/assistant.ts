@@ -10,6 +10,7 @@ import { SystemStats } from './nucleo';
 import { ATTESA_MS, eFallito, fraseAttesa, fraseFine, fraseInizio } from './racconto';
 import { CHI_VUOLE_MS, NON_RIPETERE, ORDINE, PASSA_PAROLA, PERSONAGGI, REGOLE, RIEMPITIVI_MELISSA, RUOLI, chiChiede, chiamaCon, cuore, daChiacchiera, dallaRiga, elenco, esiste, frenoOspite, invito, invitoRacconto, leggiChiVuole, nomeDi, occasione, giroDiVoci, insieme, istruzioneGiro, ospiteDellaFrase, passaParolaA, perArgomento, perSfogo, promptChiVuole, REGOLA_REGIA, regia, rigaChiVuole, strumentoPassaParola } from './personaggi';
 import { MemoriaPersonaggi, type RegistraMemoria } from './memoria-personaggi';
+import { Impegni } from './impegni';
 import type { Voluto } from './personaggi';
 import { sezioneMemoria } from './memoria-contesto';
 import { Intento, RIEMPI_MEMORIA, RIEMPI_STRUMENTO_MS, RIEMPI_TEMPI, daScaldare, intento, scegliRiempitivo, senzaAttacco, soloAttacco } from './riempitivi';
@@ -636,6 +637,8 @@ export class Assistant {
 	private cachedCore?: string; // persona e regole di verita' dell'ultimo prompt
 	/** La memoria di ogni personaggio e di Melissa nella Memoria della Bottega (CONTRATTI 9.11, src/memoria-personaggi.ts). */
 	private memoria: MemoriaPersonaggi;
+	/** Gli impegni di Andrea per Krista, estratti in silenzio dalle sue frasi (CONTRATTI 9.11, src/impegni.ts). */
+	readonly impegni: Impegni;
 	/** Le ultime battute di chi risponde e i suoi ricordi di Andrea, letti a inizio turno; '' se non ce ne sono. */
 	private ricordiTurno = '';
 	/** Quello che Andrea ha detto in questo turno: la frase con cui la Memoria cerca i ricordi. */
@@ -724,6 +727,13 @@ export class Assistant {
 	constructor(deps: AssistantDeps) {
 		this.deps = deps;
 		this.memoria = new MemoriaPersonaggi({ registra: deps.registraMemoria });
+		// sempre DeepSeek Flash, mai Agnes; senza chiave DeepSeek niente impegni
+		this.impegni = new Impegni({
+			registra: deps.registraMemoria,
+			deepseek: () => (deps.cervelli?.key?.('deepseek') ? deps.cervelli.streamFor({ provider: 'deepseek', model: 'deepseek-flash', effort: 'rapido' }, { max_tokens: 150, temperature: 0 }) : undefined),
+			memoria: chi => this.memoria.dati(chi),
+			log: r => this.out.info(r),
+		});
 		this.state.enabled = vscode.workspace.getConfiguration('bottega').get('voice.enabled', true);
 	}
 
@@ -1348,6 +1358,8 @@ export class Assistant {
 		const deciso = ospiteRacconto ?? (scelto && vivo ? scelto : null);
 		// ogni frase di Andrea in chiacchierata va nella Memoria, con chi aveva la chiamata (CONTRATTI 9.11)
 		if (this.state.conversing && !this.remote && !this.racconto) this.memoria.scrivi(this.chi(), 'andrea', userText);
+		// un impegno detto a voce va a Krista, dopo e in silenzio: mai sul percorso della risposta
+		if (!this.remote && !this.racconto) this.impegni.ascolta(userText);
 		// a chi Melissa puo' dare la parola: lo decide il modello con passa_parola, mai un nome cercato nel testo
 		const offerti = conMelissa || inRacconto ? this.conVoce() : [];
 		this.passaOfferti = offerti;

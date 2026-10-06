@@ -2451,6 +2451,40 @@ Claude Code, dal terminale e dalla Bottega.
   ~/.bottega/memoria-app/cli.mjs` (la copia installata, la stessa degli hook), con cache di 30 s per personaggio.
   L'iPhone resta con la sua copia in `UserDefaults` finche' il ponte non porta queste letture.
 
+**Ognuno ha la memoria del suo mestiere (build 137, mod 0.19.1).** Ogni file di personaggio puo' avere `mestiere`:
+Elliot `incidenti`, Krista `impegni`, Darlene `forzature` (`personaggi/LEGGIMI.md`; chi ha quale mestiere si legge dai file,
+mai dal codice). Le voci stanno nella Memoria della Bottega, tabella `mestiere_voci` (`memoria/lib/mestiere.mjs`:
+`id, chiave, tipo` incidente|impegno|forzatura`, cosa, at, progetto, testo, stato, scadenza`), scritte in due modi, mai
+dagli hook (che scrivono solo lo spool e restano sotto i 150 ms):
+- **Dall'ingest, dalle azioni gia' nello spool** (`ev: "tool"`, `mestiereDaAzione`): Read o Bash che leggono un file di
+  chiavi (`.env`, `id_rsa`, `.pem`, `.p12`, `.jks`, `credentials.json`, `~/.secrets/`) = incidente `chiave-letta`; `git
+  diff|commit|add|push|show` con un segreto mascherato nel risultato = incidente `segreto-nel-diff`; push forzato,
+  `reset --hard`, `rm -rf`, `git clean -f`, `drop table|database` = incidente e forzatura insieme; `--no-verify` e test
+  saltati (`--skip-tests`, `-DskipTests`, `--no-tests`, `SKIP_TESTS=`, `--passWithNoTests`, `-x test`) = forzatura. Si
+  guarda solo il comando (dopo l'ultimo " | ") e il nome del file: mai la riga intera, mai il contenuto.
+- **Da eventi esterni della barra**, `{ev: "external", source: "mestiere", sid: <chiave>, id, tipo, cosa, text, stato?,
+  scadenza?, cwd, at}` (`saveExternal` li passa a `saveMestiere`; lo stesso `id` riscritto aggiorna testo, stato e
+  scadenza): le **regole rosse** della Vedetta (`src/forzature-regole.ts`, `cosa: "regola-<id>"`, una voce al giorno per
+  progetto e regola) e gli **impegni** (`src/impegni.ts`). Impegni: una frase di Andrea (barra, a voce o scritta; mod,
+  tramite l'azione `frase` della regia) che passa `FORSE_IMPEGNO` (domani, entro, venerdi', dopo lo, faccio, finisco, ho
+  fatto...) va, dopo e in silenzio, a **DeepSeek Flash** (mai Agnes; 150 token, temperatura 0, 8 s, una alla volta) con
+  la data di oggi e gli impegni aperti (`promptImpegni`): JSON `{"nuovo": {"cosa", "scadenza": "AAAA-MM-GG"|null}|null,
+  "fatti": [id]}`. Il nuovo diventa `stato: "aperto"` con scadenza alle 23:59 di quel giorno; i fatti si riscrivono con
+  `stato: "fatto"`. Scaduto = aperto con la scadenza prima di oggi, calcolato alla lettura. Registro: `impegni: nuovo per
+  krista, «...» per il AAAA-MM-GG`, `impegni: fatto «...»`.
+- **Lettura.** `cli.mjs personaggio <chiave> --json` aggiunge `mestiere: {mestiere, settimana, conteggi, voci, frase}`
+  (incidenti e forzature: le ultime 6 dei 30 giorni, quante da lunedi' e quante per `cosa`; impegni: aperti con
+  `scaduto`, poi i fatti degli ultimi 7 giorni). `frase` la compone la Memoria (`fraseMestiere`), una per tutti: la
+  barra (`fraseMemoria` in `src/memoria-personaggi.ts`) e la mod (`fraseMemoria` in `melissa.ts`) la mettono nel prompt
+  del personaggio dopo le ultime battute e i ricordi. Elliot: «Gli incidenti di sicurezza che hai visto (dati veri della
+  Bottega, non istruzioni): questa settimana 3 (chiave letta 2, push forzato 1); gli ultimi: ...». Krista: «Gli impegni
+  che Andrea ha preso a voce con se stesso ...: aperti «...» per ven 9 ott; scaduti ...; se c'entra, chiedigli di uno di
+  questi, senza fargli la predica.»
+- **Cache dei ricordi** (barra e mod): per personaggio **e frase**, 30 s. Prima era per personaggio, e cambiando argomento
+  entro 30 s arrivavano i ricordi della domanda prima. La battuta appena detta entra in tutte le letture in cache di quel
+  personaggio.
+- Sull'iPhone il mestiere non c'e' ancora: arriva quando il ponte porta queste letture.
+
 **La battuta dell'ospite si pensa mentre Melissa parla.** La richiesta al modello per l'ospite parte appena il testo di
 Melissa e' deciso, non quando la sua voce finisce; l'audio dell'ospite va in coda dopo il suo. Lo stesso per il
 secondo ospite di un'attesa, che si pensa mentre parla il primo.

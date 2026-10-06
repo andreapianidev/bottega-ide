@@ -36,7 +36,7 @@ const HELP = `Memoria della Bottega
                                       cosa stanno facendo adesso le sessioni Claude
   sessione <id> [--json]              dettaglio di una sessione
   personaggio <chiave> [--frase <testo>] [--limite N] [--json]
-                                      la memoria di un personaggio di Melissa: ultime battute e ricordi
+                                      la memoria di un personaggio di Melissa: ultime battute, ricordi e mestiere
   classifica [--tutte] [--limite N] [--json]
                                       categoria delle sessioni riassunte (Apple Intelligence, in fondo)
   categorie [--giorni N] [--json]     sessione -> categoria
@@ -155,13 +155,18 @@ async function main() {
 			const { openStore } = await import('./lib/store.mjs');
 			const { ingest } = await import('./lib/core.mjs');
 			const { memoriaPersonaggio } = await import('./lib/esterne.mjs');
+			const { leggiMestiere } = await import('./lib/mestiere.mjs');
 			if (!pos[0]) throw new Error('indica il personaggio');
 			const store = openStore();
 			ingest(store);
 			const frase = typeof flags.frase === 'string' ? flags.frase : '';
 			const r = memoriaPersonaggio(store, pos[0], { frase, limite: num(flags.limite, 5) });
+			// il mestiere (incidenti, impegni, forzature), se ne ha: docs/CONTRATTI.md 9.11
+			const mestiere = leggiMestiere(store, String(pos[0]).toLowerCase());
+			if (mestiere) r.mestiere = mestiere;
 			return print(r, () =>
 				[
+					mestiere ? `Mestiere (${mestiere.mestiere}, ${mestiere.settimana} questa settimana):\n${mestiere.voci.map(v => `  ${fmtDate(v.at)}  ${v.testo}${v.stato ? ` [${v.scaduto ? 'scaduto' : v.stato}]` : ''}`).join('\n')}` : '',
 					r.ultime.length ? `Ultime battute:\n${r.ultime.map(u => `  ${fmtDate(u.at)}  ${u.testo}`).join('\n')}` : 'Nessuna battuta in memoria.',
 					r.ricordi.length ? `Ricordi:\n${r.ricordi.map(u => `  ${fmtDate(u.at)}  ${u.chi}: ${u.testo}`).join('\n')}` : '',
 				].filter(Boolean).join('\n\n'),

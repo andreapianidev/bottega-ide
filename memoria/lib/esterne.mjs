@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { projectOf, HOME_PROJECT, BOTTEGA_HOME } from './paths.mjs';
 import { redact, clip } from './redact.mjs';
+import { MESTIERE, saveMestiere } from './mestiere.mjs';
 
 // I personaggi di Melissa (docs/CONTRATTI.md 9.11): le loro note si trovano con la ricerca ma restano fuori da
 // contesto, bacheca, riassunti, grafici, categorie, recent e sessione. Sono chiacchiere, non lavoro.
@@ -46,6 +47,8 @@ function ensurePersonaggi(store) {
 }
 
 export function saveExternal(store, e) {
+	// il mestiere dei personaggi ha la sua tabella, non e' una nota (lib/mestiere.mjs)
+	if (e.source === MESTIERE) return saveMestiere(store, e);
 	const names = { cline: 'Cline', terminale: 'Terminale', melissa: 'Melissa', [PERSONAGGIO]: true };
 	if (!names[e.source] || typeof e.text !== 'string' || !Number.isFinite(e.at) || e.at <= 0 || e.at > Date.now() + 60_000) return 0;
 	const personaggio = e.source === PERSONAGGIO;

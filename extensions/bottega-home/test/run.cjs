@@ -1676,10 +1676,13 @@ function makeAssistant(over = {}) {
 			assert.ok(scritte.some(e => e.sid === 'melissa' && e.who === 'melissa' && e.text === 'Regge. Elliot, tu che dici?'));
 			assert.ok(scritte.some(e => e.sid === 'elliot' && e.who === 'elliot' && e.text === 'Regge, ma le chiavi no.'));
 			assert.ok(scritte.every(e => /^barra-\d+-\d+-\d+$/.test(e.id) && typeof e.at === 'number'));
-			// 30 s di cache per chiave: il turno dopo non rilancia il cli, e la battuta appena detta conta gia'
-			await a.turn('e adesso?', true);
+			// 30 s di cache per personaggio e frase: la stessa domanda non rilancia il cli, e la battuta appena detta conta gia'
+			await a.turn('regge la build?', true);
 			assert.strictEqual(cli.chiamate().filter(x => x[1] === 'melissa').length, 1, 'una sola lettura per Melissa');
 			assert.ok(/«Regge\. Elliot, tu che dici\?»/.test(visti[3][0].content), 'la sua ultima battuta, senza aspettare la cache');
+			// cambiando argomento si rilegge: prima arrivavano i ricordi della domanda prima
+			await a.turn('e il backup?', true);
+			assert.ok(cli.chiamate().some(x => x[1] === 'melissa' && x.includes('e il backup?')), 'frase nuova, lettura nuova');
 			// il saluto fisso non va nella memoria
 			const n = scritte.length;
 			await a.turn('passami Darlene', true);

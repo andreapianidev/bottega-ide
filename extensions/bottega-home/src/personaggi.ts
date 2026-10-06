@@ -33,6 +33,17 @@ export interface Personaggio {
 	occasioni: (Occasione | 'chiacchiera')[];
 	/** cosa dice mentre pensa, per gruppo (src/riempitivi.ts, CONTRATTI 9.11); senza, quelli di Melissa */
 	riempitivi?: Riempitivi;
+	/** la memoria del suo mestiere (CONTRATTI 9.11): incidenti, impegni o forzature; senza, nessuna */
+	mestiere?: Mestiere;
+}
+
+/** I mestieri che la Memoria della Bottega conta per un personaggio (memoria/lib/mestiere.mjs). */
+export const MESTIERI = ['incidenti', 'impegni', 'forzature'] as const;
+export type Mestiere = (typeof MESTIERI)[number];
+
+/** Chi ha quel mestiere, il primo in ordine; null se nessuno. */
+export function chiDelMestiere(m: Mestiere): string | null {
+	return ORDINE.find(k => PERSONAGGI[k]?.mestiere === m) ?? null;
 }
 
 /** Riempiti da `carica`: si leggono sempre questi due, mai una copia. */
@@ -91,6 +102,7 @@ function leggi(x: any, n: string, avvisa: (msg: string) => void): Personaggio {
 		parole_cronaca: espressione(x.parole_cronaca, 'parole_cronaca', n, avvisa),
 		errori_ripetuti: typeof x.errori_ripetuti === 'number' && x.errori_ripetuti > 0 ? Math.floor(x.errori_ripetuti) : 0,
 		occasioni: Array.isArray(x.occasioni) ? [...OCCASIONI, 'chiacchiera' as const].filter(o => x.occasioni.includes(o)) : [],
+		...(MESTIERI.includes(x.mestiere) ? { mestiere: x.mestiere as Mestiere } : {}),
 		...(riempitivi ? { riempitivi } : {}),
 	};
 }

@@ -1,4 +1,5 @@
 import { saveExternal } from './esterne.mjs';
+import { mestiereDaAzione } from './mestiere.mjs';
 // Il lavoro vero della Memoria: assorbire lo spool, riassumere le sessioni, preparare i contesti,
 // cercare. Gira nel processo staccato, nella CLI e nel server MCP.
 import fs from 'node:fs';
@@ -116,6 +117,8 @@ function applySpoolEntry(store, e) {
 			e.result || '',
 		);
 		store.run('UPDATE sessions SET tools = tools + 1, obsCount = obsCount + 1 WHERE id = ?', e.sid);
+		// incidenti e forzature per i personaggi, dalle azioni: qui e non nell'hook, che resta sotto i 150 ms
+		mestiereDaAzione(store, e);
 	} else if (e.ev === 'end') {
 		store.run('UPDATE sessions SET endedAt = ? WHERE id = ?', e.at, e.sid);
 	}

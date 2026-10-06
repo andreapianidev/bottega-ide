@@ -46,6 +46,7 @@ import { pulisciAttivita, pulisciTesto } from './attivita-sicurezza';
 import { carica as caricaPersonaggi, pubblica as pubblicaPersonaggi } from './personaggi';
 import { RegiaPersonaggi } from './regia-personaggi';
 import { avviaRegiaPersonaggi } from './regia-personaggi-host';
+import { forzatureDalleRegole } from './forzature-regole';
 
 // Melissa usa i connettori di Claude Code in sola lettura (docs/CONTRATTI.md, 5 e 6): prima che nasca l'assistente.
 Object.assign(TOOLS, STRUMENTI_CONNETTORI satisfies typeof TOOLS);
@@ -946,7 +947,7 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 	assistant.wire(ctx);
 	// la regia dei personaggi per la mod melissa: decide qui chi parla, sul socket locale (CONTRATTI 9.11)
 	const melissa = assistant;
-	const regiaMod = avviaRegiaPersonaggi(new RegiaPersonaggi({ chiVuole: f => melissa.chiVuole(f), log: r => melissa.scriviRegistro(r) }), r => melissa.scriviRegistro(r));
+	const regiaMod = avviaRegiaPersonaggi(new RegiaPersonaggi({ chiVuole: f => melissa.chiVuole(f), ascolta: f => melissa.impegni.ascolta(f), log: r => melissa.scriviRegistro(r) }), r => melissa.scriviRegistro(r));
 	ctx.subscriptions.push({ dispose: () => regiaMod.chiudi() });
 	const savedRegia = ctx.globalState.get<RegiaDigest>('regia.digest');
 	if (savedRegia?.text && Number.isFinite(savedRegia.at)) regiaDigest = savedRegia;
@@ -1013,6 +1014,8 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 		log: s => console.warn(s),
 		appstore: briefingAppStore,
 	});
+	// le regole rosse della Vedetta come forzature, per chi ha quel mestiere (Darlene, CONTRATTI 9.11)
+	idee.rules.onChange(s => forzatureDalleRegole(s, registraMemoria));
 	idee.start(ctx);
 	ctx.subscriptions.push(changed.event(() => idee?.activityChanged()));
 	appStore = registerAppStore(ctx, {
