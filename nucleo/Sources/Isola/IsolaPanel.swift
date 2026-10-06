@@ -248,7 +248,7 @@ struct IsolaVista: View {
     static let molla = Animation.spring(response: 0.46, dampingFraction: 0.74, blendDuration: 0.1)
     static let sfera: CGFloat = 24
     private static let orecchio: CGFloat = 74
-    private static let larghezzaAperta: CGFloat = 470
+    private static let larghezzaAperta: CGFloat = 400
     private static let spalla: CGFloat = 9
 
     @State private var sopra = false
