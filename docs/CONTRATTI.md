@@ -2246,6 +2246,7 @@ messaggio dell'utente, dopo la chiacchierata.
 | `chivuole` | `frase`, `chi` | `chiVuole` della barra (DeepSeek Flash, al piu' 2,5 s): `{riga, passa, chiede, regia, voci: OspiteRegia[], chiude, somme, ospite}`; `regia` e' l'istruzione della battuta di Melissa al posto della risposta, `voci` i prompt del giro a piu' voci, `somme` quella delle somme, `ospite` chi risponde al parere chiesto |
 | `parola` | `da` (chi ha appena parlato), `argomenti` della sua chiamata a `passa_parola`, `offerte`, `deciso`, `conStrumento`, `ultima`, `cronaca`, `poi` | `{chi, ospite}`: chi risponde (quello della chiamata, o senza la chiamata il `deciso`, mai se il cervello non aveva lo strumento) e il suo prompt; dopo un personaggio chi risponde non passa piu' la parola. Nella chiacchierata il 40% dei passaggi fra ospiti lo decide qui |
 | `chiusa` | `dopo` (l'ospite) | `{istruzione}` della chiusa di Melissa, senza domande e senza strumento |
+| `strumento` | `chi`, `nome` | `{testo}`: una lettura di quel personaggio, eseguita dalla barra (src/strumenti-personaggi.ts), solo se e' sua; al piu' 1,5 s |
 | `cronaca` | `appunti`, `silenzioMs`, `erroriDiFila`, `finale` (riassunto di fine turno), `richiesta`, `battute` (dette nel turno) | `{occasione: {tipo, chi, fatto, poi}, freno, riga, invito, offerte, strumento, deciso}`: `occasione()` e `frenoOspite()` della barra, piu' le prime due battute del turno come freno; lo strumento solo quando un fatto passa i freni (nella cronaca Melissa parla ogni 7-10 s) |
 
 Tempi: 800 ms per le azioni senza modello, 3,2 s per `chivuole`. Bottega chiusa, socket assente o risposta in ritardo:
@@ -2484,6 +2485,19 @@ dagli hook (che scrivono solo lo spool e restano sotto i 150 ms):
   entro 30 s arrivavano i ricordi della domanda prima. La battuta appena detta entra in tutte le letture in cache di quel
   personaggio.
 - Sull'iPhone il mestiere non c'e' ancora: arriva quando il ponte porta queste letture.
+
+**Strumenti dei personaggi (build 138, mod 0.19.2).** Quando un ospite parla (giro a tre, giro a piu' voci, cronaca della
+mod) puo' leggere, mai scrivere ne' lanciare comandi. Chi ha quali letture lo dice il campo `strumenti` del suo file:
+Elliot `vedetta_leggi` e `mestiere_leggi`, Krista `bacheca_leggi` e `mestiere_leggi`, Darlene `vedetta_leggi` e
+`mestiere_leggi`. Le esegue sempre la barra (`src/strumenti-personaggi.ts`, `StrumentiPersonaggi`): `vedetta_leggi` lo
+stato delle regole (rossi, gialli, verdi e le regole rosse per progetto, al piu' 8); `mestiere_leggi` la frase del
+mestiere dalla Memoria; `bacheca_leggi` le sessioni e i lavori aperti piu' `cli.mjs orari --json`
+(`memoria/lib/orari.mjs`: da quando Andrea lavora di fila, dove una pausa di 90 minuti spezza il tratto, e le ultime tre
+notti con azioni fra le 23 e le 6). Ogni lettura al piu' 1,5 s e 1500 caratteri; al piu' due giri di letture per
+battuta, poi la battuta si pensa senza. Nella barra la battuta passa da `breveConPassa(..., chi)`; nella mod
+l'`OspiteRegia` porta `strumenti`, la mod li offre a DeepSeek e per ogni chiamata chiede alla regia `{azione:
+"strumento", chi, nome}`. Con Apple o con Haiku (riserva della mod), senza strumenti: l'ospite risponde senza letture.
+Registro: `strumento di <chiave>: <nome>`. Sull'iPhone gli ospiti restano senza letture: il ponte non le porta ancora.
 
 **La battuta dell'ospite si pensa mentre Melissa parla.** La richiesta al modello per l'ospite parte appena il testo di
 Melissa e' deciso, non quando la sua voce finisce; l'audio dell'ospite va in coda dopo il suo. Lo stesso per il

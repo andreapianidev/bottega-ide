@@ -35,6 +35,8 @@ export interface Personaggio {
 	riempitivi?: Riempitivi;
 	/** la memoria del suo mestiere (CONTRATTI 9.11): incidenti, impegni o forzature; senza, nessuna */
 	mestiere?: Mestiere;
+	/** le letture che puo' fare quando parla (src/strumenti-personaggi.ts); senza, nessuna */
+	strumenti?: ('vedetta_leggi' | 'mestiere_leggi' | 'bacheca_leggi')[];
 }
 
 /** I mestieri che la Memoria della Bottega conta per un personaggio (memoria/lib/mestiere.mjs). */
@@ -103,6 +105,7 @@ function leggi(x: any, n: string, avvisa: (msg: string) => void): Personaggio {
 		errori_ripetuti: typeof x.errori_ripetuti === 'number' && x.errori_ripetuti > 0 ? Math.floor(x.errori_ripetuti) : 0,
 		occasioni: Array.isArray(x.occasioni) ? [...OCCASIONI, 'chiacchiera' as const].filter(o => x.occasioni.includes(o)) : [],
 		...(MESTIERI.includes(x.mestiere) ? { mestiere: x.mestiere as Mestiere } : {}),
+		...(Array.isArray(x.strumenti) ? { strumenti: (['vedetta_leggi', 'mestiere_leggi', 'bacheca_leggi'] as const).filter(t => x.strumenti.includes(t)) } : {}),
 		...(riempitivi ? { riempitivi } : {}),
 	};
 }

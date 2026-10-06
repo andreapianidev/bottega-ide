@@ -5,6 +5,7 @@
 
 import * as P from './personaggi';
 import type { Occasione, Voluto } from './personaggi';
+import type { StrumentiPersonaggi } from './strumenti-personaggi';
 
 type Strumento = ReturnType<typeof P.strumentoPassaParola>;
 
@@ -21,6 +22,8 @@ export interface OspiteRegia {
 	strumento: Strumento | null;
 	/** a chi il codice gli ha detto di darla: risponde anche se il modello non chiama lo strumento */
 	deciso: string | null;
+	/** le sue letture (src/strumenti-personaggi.ts): la mod le offre al modello e le fa eseguire qui, azione `strumento` */
+	strumenti: ReturnType<StrumentiPersonaggi['specs']>;
 }
 
 /** Lo stato di una sessione della mod: chi e' entrato e quando, per i turni e i freni. */
@@ -38,6 +41,8 @@ export interface RegiaDeps {
 	chiVuole(frase: string): Promise<Voluto | null>;
 	/** una frase di Andrea nella chiacchierata della mod, per gli impegni di Krista (src/impegni.ts) */
 	ascolta?(frase: string): void;
+	/** le letture dei personaggi, eseguite qui anche per la mod */
+	strumenti?: StrumentiPersonaggi;
 	caso?: () => number;
 	ora?: () => number;
 	log?: (riga: string) => void;
@@ -90,6 +95,7 @@ export class RegiaPersonaggi {
 			case 'parola': return this.parola(s, x);
 			case 'chiusa': return this.chiusa(x);
 			case 'cronaca': return this.cronaca(s, x);
+			case 'strumento': return { testo: await this.strumento(x) };
 			default: throw new Error(`azione sconosciuta: ${String(x?.azione)}`);
 		}
 	}
@@ -171,6 +177,14 @@ export class RegiaPersonaggi {
 		const ultima = da !== 'melissa' || x?.ultima === true;
 		const poi = P.esiste(x?.poi) && x.poi !== chi ? x.poi : null;
 		return { chi, ospite: this.ospite(s, chi, { daChi: da !== 'melissa' ? da : null, ultima, cronaca, poi }) };
+	}
+
+	/** Una lettura di un personaggio per la mod: `chi` e il `nome` dello strumento, solo se e' suo. */
+	private strumento(x: any): Promise<string> {
+		const chi = P.esiste(x?.chi) ? x.chi : '';
+		if (!chi || !this.d.strumenti) return Promise.resolve('Nessuna lettura disponibile: rispondi senza.');
+		this.d.log?.(`regia per la mod: strumento di ${chi}: ${String(x?.nome)}`);
+		return this.d.strumenti.esegui(chi, String(x?.nome ?? ''));
 	}
 
 	/** Melissa chiude dopo l'ospite `dopo`: senza domande e senza strumento, la parola torna ad Andrea. */
@@ -255,7 +269,7 @@ export class RegiaPersonaggi {
 	private pronto(chi: string, sistema: string, istruzione: string, passa: string | null = null): OspiteRegia {
 		const p = P.PERSONAGGI[chi]!;
 		const offerte = passa ? [passa] : [];
-		return { chiave: chi, nome: p.nome, voce: p.voce, sistema, istruzione, offerte, strumento: offerte.length ? P.strumentoPassaParola(offerte) : null, deciso: passa };
+		return { chiave: chi, nome: p.nome, voce: p.voce, sistema, istruzione, offerte, strumento: offerte.length ? P.strumentoPassaParola(offerte) : null, deciso: passa, strumenti: this.d.strumenti?.specs(chi) ?? [] };
 	}
 }
 

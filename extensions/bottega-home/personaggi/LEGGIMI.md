@@ -8,7 +8,7 @@ mod melissa di Claude Code, la barra di Melissa nella Bottega e la Bottega per i
 - Per aggiungere un personaggio basta un file nuovo: poi reinstalla la Bottega (`scripts/package.sh`), ricompila
   l'app iPhone e fai `/reload-plugins` in Claude Code.
 
-Campi: `chiave` (minuscola, e' anche il valore `a` dello strumento `passa_parola`), `nome`, `ordine`, `mestiere` (la memoria del suo mestiere nella Memoria della Bottega: `incidenti` di sicurezza, `impegni` di Andrea, `forzature` di Claude e degli agenti; uno per personaggio, docs/CONTRATTI.md 9.11), `voce` (ID ElevenLabs dell'account di
+Campi: `chiave` (minuscola, e' anche il valore `a` dello strumento `passa_parola`), `nome`, `ordine`, `mestiere` (la memoria del suo mestiere nella Memoria della Bottega: `incidenti` di sicurezza, `impegni` di Andrea, `forzature` di Claude e degli agenti; uno per personaggio, docs/CONTRATTI.md 9.11), `strumenti` (quali letture puo' fare quando parla, tutte di sola lettura: `vedetta_leggi` le regole della Vedetta, `mestiere_leggi` la memoria del suo mestiere, `bacheca_leggi` sessioni aperte, ore di lavoro di fila e notti; al piu' due giri per battuta), `voce` (ID ElevenLabs dell'account di
 Andrea: senza la sua chiave non serve a niente), `voce_nota`, `carattere`, `saluti`, `ruolo` (nella chiacchierata),
 `ruolo_cronaca`, `parole` (espressione regolare: se Andrea dice una di queste, Melissa tira dentro lui),
 `parole_cronaca` (lo stesso sulle azioni di Claude: solo parole che indicano un problema vero, non quelle di ogni

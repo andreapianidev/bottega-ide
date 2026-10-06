@@ -35,6 +35,7 @@ const HELP = `Memoria della Bottega
   bacheca [--progetto P] [--minuti N] [--json]
                                       cosa stanno facendo adesso le sessioni Claude
   sessione <id> [--json]              dettaglio di una sessione
+  orari [--json]                       da quando Andrea lavora di fila e le notti recenti
   personaggio <chiave> [--frase <testo>] [--limite N] [--json]
                                       la memoria di un personaggio di Melissa: ultime battute, ricordi e mestiere
   classifica [--tutte] [--limite N] [--json]
@@ -170,6 +171,21 @@ async function main() {
 					r.ultime.length ? `Ultime battute:\n${r.ultime.map(u => `  ${fmtDate(u.at)}  ${u.testo}`).join('\n')}` : 'Nessuna battuta in memoria.',
 					r.ricordi.length ? `Ricordi:\n${r.ricordi.map(u => `  ${fmtDate(u.at)}  ${u.chi}: ${u.testo}`).join('\n')}` : '',
 				].filter(Boolean).join('\n\n'),
+			);
+		}
+		case 'orari': {
+			// da quando Andrea lavora di fila e le notti recenti, per Krista (docs/CONTRATTI.md 9.11): solo lo spool
+			const { openStore } = await import('./lib/store.mjs');
+			const { ingest } = await import('./lib/core.mjs');
+			const { orariDiLavoro } = await import('./lib/orari.mjs');
+			const store = openStore();
+			ingest(store);
+			const o = orariDiLavoro(store);
+			return print(o, () =>
+				[
+					o.inizioTratto ? `Lavora di fila da ${fmtDate(o.inizioTratto)} (${o.minutiDiFila} minuti).` : 'Adesso non risulta al lavoro.',
+					...o.notti.map(n => `Notte del ${n.notte}: ${n.azioni} azioni, l'ultima ${fmtDate(n.ultima)}.`),
+				].join('\n'),
 			);
 		}
 		case 'sessione':

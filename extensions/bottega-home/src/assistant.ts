@@ -11,6 +11,8 @@ import { ATTESA_MS, eFallito, fraseAttesa, fraseFine, fraseInizio } from './racc
 import { CHI_VUOLE_MS, NON_RIPETERE, ORDINE, PASSA_PAROLA, PERSONAGGI, REGOLE, RIEMPITIVI_MELISSA, RUOLI, chiChiede, chiamaCon, cuore, daChiacchiera, dallaRiga, elenco, esiste, frenoOspite, invito, invitoRacconto, leggiChiVuole, nomeDi, occasione, giroDiVoci, insieme, istruzioneGiro, ospiteDellaFrase, passaParolaA, perArgomento, perSfogo, promptChiVuole, REGOLA_REGIA, regia, rigaChiVuole, strumentoPassaParola } from './personaggi';
 import { MemoriaPersonaggi, type RegistraMemoria } from './memoria-personaggi';
 import { Impegni } from './impegni';
+import { GIRI_STRUMENTI, StrumentiPersonaggi } from './strumenti-personaggi';
+import type { RulesState } from './tipi';
 import type { Voluto } from './personaggi';
 import { sezioneMemoria } from './memoria-contesto';
 import { Intento, RIEMPI_MEMORIA, RIEMPI_STRUMENTO_MS, RIEMPI_TEMPI, daScaldare, intento, scegliRiempitivo, senzaAttacco, soloAttacco } from './riempitivi';
@@ -169,6 +171,8 @@ export interface AssistantDeps {
 	systemStats(): SystemStats | undefined;
 	projectCount(): number;
 	bacheca(project?: string): Promise<{ title: string; text: string; project: string }[]>;
+	/** lo stato delle regole della Vedetta, per gli strumenti dei personaggi (src/strumenti-personaggi.ts) */
+	regole?(): RulesState | undefined;
 	memoriaSearch(text: string, project?: string): Promise<{ title: string; text: string; project: string }[]>;
 	memoriaRemember(text: string, project?: string): Promise<boolean>;
 	secrets: vscode.SecretStorage;
@@ -639,6 +643,8 @@ export class Assistant {
 	private memoria: MemoriaPersonaggi;
 	/** Gli impegni di Andrea per Krista, estratti in silenzio dalle sue frasi (CONTRATTI 9.11, src/impegni.ts). */
 	readonly impegni: Impegni;
+	/** Le letture dei personaggi quando parlano (CONTRATTI 9.11): anche per la mod, tramite la regia. */
+	readonly strumenti: StrumentiPersonaggi;
 	/** Le ultime battute di chi risponde e i suoi ricordi di Andrea, letti a inizio turno; '' se non ce ne sono. */
 	private ricordiTurno = '';
 	/** Quello che Andrea ha detto in questo turno: la frase con cui la Memoria cerca i ricordi. */
@@ -733,6 +739,11 @@ export class Assistant {
 			deepseek: () => (deps.cervelli?.key?.('deepseek') ? deps.cervelli.streamFor({ provider: 'deepseek', model: 'deepseek-flash', effort: 'rapido' }, { max_tokens: 150, temperature: 0 }) : undefined),
 			memoria: chi => this.memoria.dati(chi),
 			log: r => this.out.info(r),
+		});
+		this.strumenti = new StrumentiPersonaggi({
+			regole: () => deps.regole?.(),
+			mestiere: async chi => (await this.memoria.dati(chi)).mestiere,
+			sessioni: () => (deps.actions.activityList ? deps.actions.activityList(undefined, undefined, 'attive') : deps.liveSessions().map(s => `${s.title ?? s.name} in ${path.basename(s.cwd)}`).join('; ')),
 		});
 		this.state.enabled = vscode.workspace.getConfiguration('bottega').get('voice.enabled', true);
 	}
@@ -1669,11 +1680,13 @@ export class Assistant {
 				this.ospitiRecenti = [...this.ospitiRecenti.filter(k => k !== chi), chi];
 				const perche = chi === nuovo ? "Melissa ti ha appena passato la chiamata, e Andrea vuole sentire anche gli altri" : "Andrea vuole sentire tutti, uno alla volta, e tocca a te";
 				const mem = await this.memoria.leggi(chi, this.dettoTurno);
-				const battuta = await this.breve(
+				const { testo: battuta } = await this.breveConPassa(
 					`${p.carattere} Sei nella Bottega, l'IDE di Andrea, in una chiacchierata a voce con lui, Melissa e gli altri di Mr. Robot. ${perche}. Sai solo quello che c'e' nella chiacchierata e nella memoria qui sotto: non inventare stati di progetti, lavori o sessioni. ${ora} ${REGOLE}${mem ? `\n\n${mem}` : ''}`,
 					`La chiacchierata finora:\n${finora()}${this.memoriaTurno}\n\n${istruzioneGiro(chi, i === 0)}`,
 					signal,
 					brain,
+					[],
+					chi,
 				);
 				if (!battuta) continue;
 				await this.finoAlSilenzio(signal);
@@ -1767,6 +1780,7 @@ export class Assistant {
 				signal,
 				brain,
 				ultima ? [] : altri,
+				chi,
 			);
 			// da' la parola chi chiama passa_parola; senza la chiamata, quello a cui il codice gli ha detto di darla (deciso)
 			const passato = chiamato ?? (passa && conStrumento ? passa : null);
@@ -1803,47 +1817,65 @@ export class Assistant {
 	}
 
 	/** Una battuta breve che puo' dare la parola a uno di `passaA` con lo strumento passa_parola (CONTRATTI 9.11): il
-	 *  testo e a chi, o null. `conStrumento`: il cervello aveva lo strumento (Apple no, e nessuno viene chiamato). */
-	private async breveConPassa(system: string, user: string, signal: AbortSignal, brain: BrainName, passaA: readonly string[]): Promise<{ testo: string | null; a: string | null; conStrumento: boolean }> {
-		let text = '';
-		const calls = new Map<number, { name: string; args: string }>();
+	 *  testo e a chi, o null. `conStrumento`: il cervello aveva lo strumento (Apple no, e nessuno viene chiamato). `chi`:
+	 *  il personaggio che parla, con le sue letture (src/strumenti-personaggi.ts), al piu' GIRI_STRUMENTI giri. */
+	private async breveConPassa(system: string, user: string, signal: AbortSignal, brain: BrainName, passaA: readonly string[], chi?: string): Promise<{ testo: string | null; a: string | null; conStrumento: boolean }> {
 		const ac = new AbortController();
 		const stop = () => ac.abort();
 		signal.addEventListener('abort', stop);
 		const t = setTimeout(stop, 20_000);
-		const tools: ToolSpec[] = brain !== 'apple' && passaA.length ? [strumentoPassaParola(passaA)] : [];
-		const onDelta = (d: LlmDelta) => {
-			text += d.content ?? '';
-			if (d.tool_call) {
-				const i = d.tool_call.index ?? 0;
-				const cur = calls.get(i) ?? { name: '', args: '' };
-				if (d.tool_call.name) cur.name = d.tool_call.name;
-				if (d.tool_call.arguments) cur.args += d.tool_call.arguments;
-				calls.set(i, cur);
-			}
-		};
+		const passaTool: ToolSpec[] = brain !== 'apple' && passaA.length ? [strumentoPassaParola(passaA)] : [];
+		const personali: ToolSpec[] = brain !== 'apple' && chi ? this.strumenti.specs(chi) : [];
+		const messages: LlmMessage[] = [{ role: 'system', content: system }, { role: 'user', content: user }];
+		const riserva = brain === 'deepseek' ? this.deps.cervelli?.riservaDeepseek?.() : undefined;
+		const stream = brain === 'apple'
+			? (this.deps.appleStream ?? (this.appleAvailable() ? this.appleStreamFn() : undefined))
+			: (riserva && this.deps.cervelli?.streamFor(riserva)) || this.deps.stream;
+		let text = '';
+		let passa: { name: string; args: string } | undefined;
 		try {
-			const messages: LlmMessage[] = [{ role: 'system', content: system }, { role: 'user', content: user }];
-			const riserva = brain === 'deepseek' ? this.deps.cervelli?.riservaDeepseek?.() : undefined;
-			const stream = brain === 'apple'
-				? (this.deps.appleStream ?? (this.appleAvailable() ? this.appleStreamFn() : undefined))
-				: (riserva && this.deps.cervelli?.streamFor(riserva)) || this.deps.stream;
-			if (stream) await stream(messages, tools, onDelta, ac.signal);
-			else if (brain === 'apple') {
-				// il ripiego di Apple senza stream: lo stesso ai.generate del Nucleo
-				const r = await this.deps.nucleo.request<{ text: string }>('ai.generate', { prompt: user, instructions: system, maxTokens: 300 }, 20_000);
-				text = r?.text ?? '';
-			} else if (tools.length) await this.callAgnesStream(messages, tools, onDelta, ac.signal);
-			else await this.callAgnesPlain(messages, onDelta, ac.signal);
+			for (let giro = 0; ; giro++) {
+				const conLetture = giro < GIRI_STRUMENTI ? personali : [];
+				const tools = [...passaTool, ...conLetture];
+				const calls = new Map<number, { id: string; name: string; args: string }>();
+				text = '';
+				const onDelta = (d: LlmDelta) => {
+					text += d.content ?? '';
+					if (d.tool_call) {
+						const i = d.tool_call.index ?? 0;
+						const cur = calls.get(i) ?? { id: '', name: '', args: '' };
+						if (d.tool_call.id) cur.id = d.tool_call.id;
+						if (d.tool_call.name) cur.name = d.tool_call.name;
+						if (d.tool_call.arguments) cur.args += d.tool_call.arguments;
+						calls.set(i, cur);
+					}
+				};
+				if (stream) await stream(messages, tools, onDelta, ac.signal);
+				else if (brain === 'apple') {
+					// il ripiego di Apple senza stream: lo stesso ai.generate del Nucleo
+					const r = await this.deps.nucleo.request<{ text: string }>('ai.generate', { prompt: user, instructions: system, maxTokens: 300 }, 20_000);
+					text = r?.text ?? '';
+				} else if (tools.length) await this.callAgnesStream(messages, tools, onDelta, ac.signal);
+				else await this.callAgnesPlain(messages, onDelta, ac.signal);
+				passa = [...calls.values()].find(c => c.name === PASSA_PAROLA) ?? passa;
+				const letture = [...calls.values()].filter(c => conLetture.some(s => s.function.name === c.name));
+				if (!letture.length || signal.aborted) break;
+				// legge e ripensa la battuta con quello che ha letto: solo lettura, al piu' 1,5 s ciascuna
+				const toolCalls: LlmToolCall[] = letture.map((c, i) => ({ id: c.id || `lettura-${giro}-${i}`, type: 'function', function: { name: c.name, arguments: c.args || '{}' } }));
+				messages.push({ role: 'assistant', content: text || '', tool_calls: toolCalls });
+				for (const tc of toolCalls) {
+					this.out.info(`strumento di ${chi}: ${tc.function.name}`);
+					messages.push({ role: 'tool', tool_call_id: tc.id, name: tc.function.name, content: await this.strumenti.esegui(chi!, tc.function.name) });
+				}
+			}
 		} finally {
 			clearTimeout(t);
 			signal.removeEventListener('abort', stop);
 		}
 		if (signal.aborted) throw new Error('interrotta');
-		const passa = [...calls.values()].find(c => c.name === PASSA_PAROLA);
 		const a = passa ? passaParolaA(passa.args, passaA) : null;
 		if (passa) this.out.info(`passa la parola: ${a ?? 'niente, argomenti non validi'}`);
-		return { testo: cleanForVoice(text).trim() || null, a, conStrumento: tools.length > 0 };
+		return { testo: cleanForVoice(text).trim() || null, a, conStrumento: passaTool.length > 0 };
 	}
 
 	/** Aspetta che la voce di adesso sia partita e finita (voice.state dal Nucleo), al massimo due minuti. */

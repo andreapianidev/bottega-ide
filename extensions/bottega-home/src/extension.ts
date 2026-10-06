@@ -889,6 +889,8 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 		contesto: () => contestoMemoria.testo(cartellaAttiva()),
 		// la memoria dei personaggi nella Memoria della Bottega (CONTRATTI 9.11)
 		registraMemoria: e => registraMemoria({ ...e, cwd: e.cwd ?? cartellaAttiva() }),
+		// le regole della Vedetta per gli strumenti dei personaggi (CONTRATTI 9.11)
+		regole: () => idee?.rules.state(),
 		onMemory: row => {
 			const file = vscode.window.activeTextEditor?.document.uri;
 			const cwd = row.restored ? undefined : (file ? vscode.workspace.getWorkspaceFolder(file) : undefined)?.uri.fsPath || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -947,7 +949,7 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 	assistant.wire(ctx);
 	// la regia dei personaggi per la mod melissa: decide qui chi parla, sul socket locale (CONTRATTI 9.11)
 	const melissa = assistant;
-	const regiaMod = avviaRegiaPersonaggi(new RegiaPersonaggi({ chiVuole: f => melissa.chiVuole(f), ascolta: f => melissa.impegni.ascolta(f), log: r => melissa.scriviRegistro(r) }), r => melissa.scriviRegistro(r));
+	const regiaMod = avviaRegiaPersonaggi(new RegiaPersonaggi({ chiVuole: f => melissa.chiVuole(f), ascolta: f => melissa.impegni.ascolta(f), strumenti: melissa.strumenti, log: r => melissa.scriviRegistro(r) }), r => melissa.scriviRegistro(r));
 	ctx.subscriptions.push({ dispose: () => regiaMod.chiudi() });
 	const savedRegia = ctx.globalState.get<RegiaDigest>('regia.digest');
 	if (savedRegia?.text && Number.isFinite(savedRegia.at)) regiaDigest = savedRegia;
