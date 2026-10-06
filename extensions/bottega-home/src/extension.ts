@@ -42,6 +42,7 @@ import { readClineActivities } from './attivita-cline';
 import { registerTerminalActivity, TerminalActivityMonitor } from './attivita-terminale';
 import { makeRegiaDigest, regiaChart, REGIA_INTERVAL, type RegiaDigest } from './regia';
 import { pulisciAttivita, pulisciTesto } from './attivita-sicurezza';
+import { carica as caricaPersonaggi, pubblica as pubblicaPersonaggi } from './personaggi';
 
 // Melissa usa i connettori di Claude Code in sola lettura (docs/CONTRATTI.md, 5 e 6): prima che nasca l'assistente.
 Object.assign(TOOLS, STRUMENTI_CONNETTORI satisfies typeof TOOLS);
@@ -827,6 +828,13 @@ function showHome(view?: string, focusPath?: string, activate = false): void {
 
 export async function activate(ctx: vscode.ExtensionContext) {
 	const extPath = ctx.extensionPath;
+	// i personaggi di Melissa: un file ciascuno in personaggi/, copiati in ~/.bottega/personaggi per la mod melissa
+	try {
+		caricaPersonaggi([path.join(extPath, 'personaggi')], s => console.warn(s));
+		pubblicaPersonaggi(path.join(extPath, 'personaggi'));
+	} catch (e) {
+		console.warn(`personaggi: non copiati in ~/.bottega (${(e as Error).message})`);
+	}
 	registraSessioni(ctx);
 	const registraMemoria = creaRegistroMemoria();
 	terminalActivity = registerTerminalActivity(ctx, () => refreshDynamic(), a => {

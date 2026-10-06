@@ -474,16 +474,20 @@ struct Luccichio: View {
 }
 
 /// The glow under the island: the state's colours, breathing with the voice.
+/// It is always in the view tree, also with the panel put away: off (closed island, or at
+/// rest) its timeline is paused, so the hidden panel asks for no frames at all.
 struct Aura: View {
     let fase: IsolaPanel.Fase
     let accesa: Bool
 
+    private var viva: Bool { accesa && fase != .riposo }
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30)) { ctx in
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !viva)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
             let livello = CGFloat(AudioLevels.shared.snapshot(forOrbState: fase == .parla ? 3 : 1).level)
             let respiro = 0.5 + 0.5 * sin(t * 2.2)
-            let forza = accesa && fase != .riposo ? 0.35 + 0.15 * respiro + 0.5 * min(1, livello * 1.5) : 0
+            let forza = viva ? 0.35 + 0.15 * respiro + 0.5 * min(1, livello * 1.5) : 0
             Capsule()
                 .fill(Palette.gradienteLineare(fase))
                 .padding(.horizontal, 26)

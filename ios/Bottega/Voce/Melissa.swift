@@ -220,7 +220,8 @@ final class Melissa {
             let contesto = p == nil ? self.ponte.contestoMelissa(per: testo) : nil
             let battuta = try await telefono.rispondi(testo, chi: self.chiParla, invito: invito, voce: voce,
                                                       contestoMac: contesto, audio: suona)
-            self.dallUltimoOspite += 1
+            // contano solo le risposte di Melissa: un personaggio con la chiamata non tira dentro nessuno
+            if p == nil { self.dallUltimoOspite += 1 }
             // risponde chi Melissa chiama, proposto o no: una domanda senza risposta e' peggio
             if let ospite = battuta.ospite {
                 try await self.aTre(ospite, voce: voce, audio: suona)

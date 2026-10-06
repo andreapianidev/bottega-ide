@@ -25,6 +25,10 @@ targets:
       - path: Bottega
       - path: Condiviso
       - path: WatchCondiviso
+      # i personaggi di Melissa, un file ciascuno: la stessa fonte della mod e della Bottega
+      - path: ../extensions/bottega-home/personaggi
+        type: folder
+        buildPhase: resources
       - path: ../nucleo/Sources/Orb/OrbRenderer.swift
         group: Bottega/Sfera/Nucleo
       - path: ../nucleo/Sources/Orb/OrbShaders.metal

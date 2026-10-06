@@ -107,9 +107,6 @@
 			<fieldset class="impegno personaggi" id="personaggi" title="Con chi parli: Melissa, o un personaggio di Mr. Robot con la sua voce e gli stessi strumenti">
 				<legend class="sr">Con chi parli</legend>
 				<label><input type="radio" name="personaggio" value="melissa" checked><span>Melissa</span></label>
-				<label title="Per provocare e rompere le regole"><input type="radio" name="personaggio" value="darlene"><span>Darlene</span></label>
-				<label title="Sicurezza, chiavi e codice"><input type="radio" name="personaggio" value="elliot"><span>Elliot</span></label>
-				<label title="Quando fai il vago, rimandi o cerchi scuse"><input type="radio" name="personaggio" value="krista"><span>Krista</span></label>
 			</fieldset>
 			<div class="testa-riga">
 				<fieldset class="impegno" id="impegno">
@@ -457,7 +454,7 @@
 
 	/** @type {{assistant: any, brain: any, work: any[], counts: any, activity: any[] | null, board: Record<string, any[]>}} */
 	const S = { assistant: null, brain: null, work: [], counts: null, activity: null, board: {} };
-	const sig = { brain: '', log: '', work: '', activity: '' };
+	const sig = { brain: '', log: '', work: '', activity: '', personaggi: '' };
 	let dirty = { assistant: false, brain: false, work: false, activity: false };
 
 	// ---------- testata: il cervello e l'impegno ----------
@@ -622,7 +619,31 @@
 
 	// ---------- la sfera e la conversazione ----------
 
-	const NOMI = { melissa: 'Melissa', darlene: 'Darlene', elliot: 'Elliot', krista: 'Krista' };
+	/** @type {Record<string, string>} */ let NOMI = { melissa: 'Melissa' };
+
+	// i pulsanti di chi parla: Melissa sempre per prima, poi i personaggi caricati, in ordine (AssistantState.personaggi)
+	function renderPersonaggi(lista) {
+		const validi = (Array.isArray(lista) ? lista : []).filter(p => p && typeof p.chiave === 'string' && /^[a-z]+$/.test(p.chiave) && p.chiave !== 'melissa' && typeof p.nome === 'string' && p.nome);
+		const firma = JSON.stringify(validi.map(p => [p.chiave, p.nome, p.ruolo]));
+		if (firma === sig.personaggi) return;
+		sig.personaggi = firma;
+		NOMI = { melissa: 'Melissa' };
+		const campo = $('personaggi');
+		campo.querySelectorAll('label:not(:first-of-type)').forEach(l => l.remove());
+		for (const p of validi) {
+			NOMI[p.chiave] = p.nome;
+			const label = document.createElement('label');
+			if (typeof p.ruolo === 'string' && p.ruolo) label.title = p.ruolo.charAt(0).toUpperCase() + p.ruolo.slice(1);
+			const input = document.createElement('input');
+			input.type = 'radio';
+			input.name = 'personaggio';
+			input.value = p.chiave;
+			const span = document.createElement('span');
+			span.textContent = p.nome;
+			label.append(input, span);
+			campo.append(label);
+		}
+	}
 	const WORD = { idle: 'Tocca la sfera per parlare', listening: 'Ti ascolto', thinking: 'Ci penso', speaking: 'Parlo', error: 'Qualcosa non va' };
 	const registro = $('registro');
 	/** @type {Map<string, HTMLLIElement>} */ const righe = new Map();
@@ -677,6 +698,7 @@
 		const tasto = $('sfera-tasto');
 		setAttr(tasto, 'aria-pressed', String(!!(a && a.conversing)));
 		$('notte').classList.toggle('viva', !!(on && a && (a.conversing || a.state !== 'idle')));
+		renderPersonaggi(a && a.personaggi);
 		const chi = (a && a.personaggio) || 'melissa';
 		const nome = NOMI[chi] || 'Melissa';
 		setText($('sfera-etichetta'), a && a.conversing ? `Chiudi la conversazione con ${nome}` : `Parla con ${nome}`);

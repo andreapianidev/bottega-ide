@@ -14,4 +14,5 @@ let package = Package(name: "Personaggi", platforms: [.macOS(.v13)], targets: [
     .target(name: "Bottega"), .testTarget(name: "BottegaTests", dependencies: ["Bottega"])
 ])
 SWIFT
-swift test --package-path "$TEST_DIR" "$@"
+# i personaggi veri, dai file del repository
+BOTTEGA_PERSONAGGI="$ROOT/extensions/bottega-home/personaggi" swift test --package-path "$TEST_DIR" "$@"

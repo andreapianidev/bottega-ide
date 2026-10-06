@@ -302,6 +302,38 @@ function lineette(d) {
 		assert.strictEqual(b.$('#impegno input[value=rapido]').checked, true);
 	});
 
+	await test('personaggi: i pulsanti vengono dallo stato, Melissa sempre per prima; scegliere manda personaggio.set', () => {
+		const b = mount();
+		b.send(stato());
+		assert.deepStrictEqual(b.$$('#personaggi input').map(i => i.value), ['melissa'], 'senza elenco solo Melissa');
+		const personaggi = [
+			{ chiave: 'darlene', nome: 'Darlene', ruolo: "quando c'e' da provocare" },
+			{ chiave: 'elliot', nome: 'Elliot', ruolo: 'sicurezza, chiavi e codice' },
+			{ chiave: 'tyrell', nome: 'Tyrell', ruolo: 'ambizione' },
+		];
+		b.send({ type: 'stato', assistant: assistant({ personaggi, personaggio: 'elliot' }) });
+		assert.deepStrictEqual(b.$$('#personaggi input').map(i => i.value), ['melissa', 'darlene', 'elliot', 'tyrell'], 'in ordine, anche uno nuovo');
+		assert.deepStrictEqual(b.$$('#personaggi span').map(x => x.textContent), ['Melissa', 'Darlene', 'Elliot', 'Tyrell']);
+		assert.strictEqual(b.$('#personaggi input[value=elliot]').checked, true);
+		assert.strictEqual(b.$$('#personaggi label')[2].title, 'Sicurezza, chiavi e codice');
+		assert.strictEqual(b.$('#sfera-etichetta').textContent, 'Parla con Elliot');
+		const r = b.$('#personaggi input[value=tyrell]');
+		r.checked = true;
+		r.dispatchEvent(new b.w.Event('change', { bubbles: true }));
+		assert.deepStrictEqual(b.last('personaggio.set'), { type: 'personaggio.set', chi: 'tyrell' });
+		// stesso elenco: stessi nodi
+		const prima = b.$('#personaggi input[value=darlene]');
+		b.send({ type: 'stato', assistant: assistant({ personaggi, personaggio: 'tyrell' }) });
+		assert.strictEqual(b.$('#personaggi input[value=darlene]'), prima);
+		assert.strictEqual(b.$('#sfera-etichetta').textContent, 'Parla con Tyrell');
+		// un personaggio tolto sparisce; 'melissa' e chiavi rotte non diventano pulsanti; il nome e' testo, non HTML
+		b.send({ type: 'stato', assistant: assistant({ personaggi: [{ chiave: 'elliot', nome: '<b>Elliot</b>', ruolo: '' }, { chiave: 'melissa', nome: 'Doppia' }, { chiave: 'X y', nome: 'Rotto' }, null], personaggio: 'melissa' }) });
+		assert.deepStrictEqual(b.$$('#personaggi input').map(i => i.value), ['melissa', 'elliot']);
+		assert.strictEqual(b.$$('#personaggi span')[1].textContent, '<b>Elliot</b>');
+		assert.strictEqual(b.$('#personaggi input[value=melissa]').checked, true);
+		assert.deepStrictEqual(b.errors, []);
+	});
+
 	await test('racconta: il pulsante manda il comando, durante il racconto diventa «ferma»; il terminale mostra i passi', () => {
 		const b = mount();
 		b.send(stato());

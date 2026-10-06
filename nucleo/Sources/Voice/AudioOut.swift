@@ -78,10 +78,18 @@ final class AudioOut: @unchecked Sendable {
 
     // MARK: - Public API (any thread)
 
-    /// Signed 16-bit little-endian mono PCM at 24 kHz (ElevenLabs `pcm_24000`).
-    func enqueuePCM16(_ data: Data, generation gen: Int) {
+    /// Signed 16-bit little-endian mono PCM at 24 kHz (ElevenLabs `pcm_24000`), converted on
+    /// the caller's thread. `receivedAt` (the first piece of a segment) logs how long it took
+    /// from the socket to the audio queue, when that is over 50 ms.
+    func enqueuePCM16(_ data: Data, generation gen: Int, receivedAt: DispatchTime? = nil) {
         guard let buffer = Self.float32(fromPCM16: data, format: format) else { return }
-        q.async { self.schedule(buffer, gen: gen, done: nil) }
+        q.async {
+            if let receivedAt, gen == self.generation {
+                let ms = (DispatchTime.now().uptimeNanoseconds - receivedAt.uptimeNanoseconds) / 1_000_000
+                if ms > 50 { Log.info("voce: primo audio del segmento in coda \(ms) ms dopo il socket") }
+            }
+            self.schedule(buffer, gen: gen, done: nil)
+        }
     }
 
     /// Any PCM buffer (Apple TTS output); converted to the canonical format.
@@ -104,6 +112,10 @@ final class AudioOut: @unchecked Sendable {
     }
 
     /// Barge-in: drops everything scheduled. Returns the new generation.
+    /// INVARIANT: call it only after closing the ElevenLabs sockets (Speaker.stopSpeaking,
+    /// today the only caller). Their receivers stamp each audio turn with the generation read
+    /// at its first PCM: stopping first lets an old turn play under the new generation, or
+    /// drops the rest of a turn and its end marker, and voice.state stays on speaking.
     @discardableResult
     func stop() -> Int {
         let gen = generationLock.withLock { g -> Int in g += 1; return g }

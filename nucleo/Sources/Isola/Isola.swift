@@ -109,9 +109,11 @@ final class Isola {
         server = s
         IsolaPanel.shared.onClick = { Isola.shared.clic() }
         Log.info("isola pronta su \(Self.socketPath), versione \(Nucleo.version)")
-        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+        // once a minute, and late is fine: the system may fold it into another wake-up
+        let minuto = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
             MainActor.assumeIsolated { Isola.shared.forseEsci() }
         }
+        minuto.tolerance = 10
     }
 
     private func forseEsci() {

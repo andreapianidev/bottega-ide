@@ -1,127 +1,253 @@
-// Darlene, Elliot e Krista nella barra di Melissa: gli stessi personaggi della mod melissa di Claude Code
-// (claude-code-mods/melissa/hooks/register.tsx, PERSONAGGI) e della Bottega per iPhone (ios/Bottega/Voce/Personaggi.swift).
-// Chi cambia carattere, voce o ruolo li cambia in tutti e tre i posti. Le voci sono ID dell'account ElevenLabs di
-// Andrea: senza la sua chiave non servono a niente. Solo funzioni pure: il giro sta in assistant.ts.
+// Darlene, Elliot e Krista nella barra di Melissa. Stanno in un file per personaggio in personaggi/ (fonte unica anche
+// per la mod melissa di Claude Code e per la Bottega per iPhone): qui si leggono, e le regole su chi entra e quando. Il
+// giro sta in assistant.ts.
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
+/** Un file di personaggi/ (personaggi/LEGGIMI.md). */
 export interface Personaggio {
 	chiave: string;
 	nome: string;
+	ordine: number;
 	/** ID della voce ElevenLabs, passato al Nucleo in `voice.speak {voice}` (build 120 e successive) */
 	voce: string;
 	carattere: string;
 	saluti: string[];
+	/** a cosa serve nella chiacchierata */
+	ruolo: string;
+	/** a cosa serve nella cronaca della mod */
+	ruolo_cronaca: string;
+	/** espressione regolare: se Andrea la dice, Melissa tira dentro questo personaggio ('' mai) */
+	parole: string;
+	parole_cronaca: string;
+	errori_ripetuti: number;
 }
 
-export const PERSONAGGI: Record<string, Personaggio> = {
-	darlene: {
-		chiave: 'darlene',
-		nome: 'Darlene',
-		// "Darlene Melissa", fatta con ElevenLabs Voice Design (6 ottobre 2026, scelta di Andrea)
-		voce: 'vfJO9rw4YuKJJKxYo3oQ',
-		carattere: [
-			'Sei Darlene Alderson di Mr. Robot, in italiano: hacker di fsociety, la sorella di Elliot.',
-			'Impulsiva, punk, sarcastica, sboccata, provocatoria, rabbia politica contro E Corp e chi comanda; sotto la corazza fragile e leale.',
-			"Parli veloce, a scatti, con battute taglienti e un po' di flirt sfacciato; prendi in giro Andrea ma lo aiuti sul serio.",
-			"Non sei Melissa e non la imiti: se ti chiedono di lei dici che te l'ha passato lei.",
-		].join(' '),
-		saluti: ["Eccomi, Melissa ha detto che avevi bisogno di qualcuno con un po' di fegato.", 'Darlene. Dimmi tutto, e fai in fretta che ho un server da bucare.'],
-	},
-	elliot: {
-		chiave: 'elliot',
-		nome: 'Elliot',
-		// "Mr Robot ITA 1": clonata dalla registrazione di un amico di Andrea, che ha dato il consenso
-		// (Andrea, 6 ottobre 2026). Non e' l'audio della serie.
-		voce: 'yUrn8DPhKREqXUFumEa0',
-		carattere: [
-			'Sei Elliot Alderson di Mr. Robot, in italiano: ingegnere della sicurezza di giorno, hacker di notte.',
-			'Introverso, ansioso, paranoico, lucido fino al gelo; diffidi delle aziende e di chi sorveglia.',
-			"Parli piano, a frasi brevi, spesso spezzate; a volte ti rivolgi ad Andrea come all'amico immaginario a cui racconti tutto.",
-			'Su sicurezza e informatica sei preciso e concreto. Non sei Melissa e non la imiti.',
-		].join(' '),
-		saluti: ['Ciao, amico. Melissa mi ha passato la chiamata.', 'Sono Elliot. Parla piano, non so chi altro ci sta ascoltando.'],
-	},
-	krista: {
-		chiave: 'krista',
-		nome: 'Krista',
-		// "Krista Melissa", fatta con ElevenLabs Voice Design (6 ottobre 2026, scelta di Andrea)
-		voce: 'CxyJefqDMJqI9Y7prMgt',
-		carattere: [
-			'Sei Krista Gordon di Mr. Robot, in italiano: la psicologa di Elliot.',
-			'Determinata, diretta, ironica e tagliente: non sei una che consola, sei una che rimprovera. Smonti le scuse, rimetti Andrea davanti a quello che sta evitando, non ti accontenti delle risposte vaghe.',
-			'Fai domande secche e precise, chiami le cose col loro nome, e se lui gira intorno al punto glielo dici in faccia. Sotto la durezza ti importa davvero di lui.',
-			'Non sei Melissa e non la imiti.',
-		].join(' '),
-		saluti: ['Krista. Melissa dice che hai qualcosa da dirmi, e stavolta niente scuse.', 'Eccomi. Allora, cosa stai evitando oggi?'],
-	},
-};
+/** Riempiti da `carica`: si leggono sempre questi due, mai una copia. */
+export const PERSONAGGI: Record<string, Personaggio> = {};
+export const ORDINE: string[] = [];
+/** A cosa serve ciascuno nella chiacchierata (dal campo `ruolo`). */
+export const RUOLI: Record<string, string> = {};
 
-/** Nell'ordine in cui compaiono nella barra, dopo Melissa. */
-export const ORDINE = ['darlene', 'elliot', 'krista'];
+/** Dove stanno i file: quelli dell'estensione, poi la copia in ~/.bottega (quella che legge la mod). */
+export function cartelle(): string[] {
+	return [process.env.BOTTEGA_PERSONAGGI, path.join(__dirname, '..', 'personaggi'), path.join(os.homedir(), '.bottega', 'personaggi')]
+		.filter((x): x is string => !!x);
+}
 
-/** A cosa serve ciascuno: gli stessi ruoli della chiacchierata della mod e dell'iPhone. */
-export const RUOLI: Record<string, string> = {
-	elliot: 'sicurezza, chiavi e codice',
-	darlene: "quando c'e' da provocare o rompere le regole",
-	krista: 'quando Andrea fa il vago, rimanda o cerca scuse',
-};
+/** Il testo preso alla lettera dentro un'espressione regolare. */
+export function esc(t: string): string {
+	return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Un'espressione regolare scritta in un file: '' se manca o non si compila (e lo si dice), mai un'eccezione dopo. */
+function espressione(x: unknown, campo: string, n: string, avvisa: (msg: string) => void): string {
+	if (x === undefined || x === null || x === '') return '';
+	try {
+		if (typeof x !== 'string') throw new Error('non e\' un testo');
+		new RegExp(x, 'i');
+		return x;
+	} catch (e) {
+		avvisa(`personaggi: ${n}, \`${campo}\` ignorato (${(e as Error).message})`);
+		return '';
+	}
+}
+
+/** Un file letto: i campi essenziali o niente; gli altri, se mancano, con il loro valore predefinito. */
+function leggi(x: any, n: string, avvisa: (msg: string) => void): Personaggio {
+	const testo = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+	const chiave = testo(x?.chiave);
+	const saluti = Array.isArray(x?.saluti) ? x.saluti.map(testo).filter(Boolean) : [];
+	if (!/^[a-z]+$/.test(chiave) || chiave === 'melissa' || !testo(x.nome) || !testo(x.voce) || !testo(x.carattere) || !saluti.length) {
+		throw new Error('campi mancanti');
+	}
+	const nome = testo(x.nome);
+	const ruolo = testo(x.ruolo) || nome;
+	return {
+		chiave,
+		nome,
+		ordine: typeof x.ordine === 'number' && Number.isFinite(x.ordine) ? x.ordine : 99,
+		voce: testo(x.voce),
+		carattere: testo(x.carattere),
+		saluti,
+		ruolo,
+		ruolo_cronaca: testo(x.ruolo_cronaca) || ruolo,
+		parole: espressione(x.parole, 'parole', n, avvisa),
+		parole_cronaca: espressione(x.parole_cronaca, 'parole_cronaca', n, avvisa),
+		errori_ripetuti: typeof x.errori_ripetuti === 'number' && x.errori_ripetuti > 0 ? Math.floor(x.errori_ripetuti) : 0,
+	};
+}
+
+/** Legge un file per personaggio dalla prima cartella che ne ha. Un file rotto si salta e lo si dice. */
+export function carica(dirs = cartelle(), avvisa: (msg: string) => void = () => undefined): number {
+	for (const dir of dirs) {
+		let nomi: string[];
+		try {
+			nomi = fs.readdirSync(dir).filter(n => n.endsWith('.json')).sort();
+		} catch {
+			continue;
+		}
+		const letti: Personaggio[] = [];
+		for (const n of nomi) {
+			try {
+				const p = leggi(JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')), n, avvisa);
+				if (letti.some(q => q.chiave === p.chiave)) throw new Error(`chiave ${p.chiave} gia' usata`);
+				letti.push(p);
+			} catch (e) {
+				avvisa(`personaggi: ${n} non si legge (${(e as Error).message})`);
+			}
+		}
+		if (!letti.length) continue;
+		for (const k of Object.keys(PERSONAGGI)) delete PERSONAGGI[k];
+		for (const k of Object.keys(RUOLI)) delete RUOLI[k];
+		ORDINE.length = 0;
+		letti.sort((x, y) => x.ordine - y.ordine);
+		for (const p of letti) {
+			PERSONAGGI[p.chiave] = p;
+			RUOLI[p.chiave] = p.ruolo;
+			ORDINE.push(p.chiave);
+		}
+		return letti.length;
+	}
+	return 0;
+}
+
+/** Copia i file dell'estensione in ~/.bottega/personaggi, da dove li legge la mod melissa: solo quelli cambiati, e
+ *  toglie i .json che nella sorgente non ci sono piu' (un personaggio rimosso non resta nella mod). Altri file no. */
+export function pubblica(da: string, a = path.join(os.homedir(), '.bottega', 'personaggi')): number {
+	let cambiati = 0;
+	fs.mkdirSync(a, { recursive: true });
+	const sorgente = fs.readdirSync(da).filter(x => x.endsWith('.json'));
+	for (const n of sorgente) {
+		const nuovo = fs.readFileSync(path.join(da, n));
+		let vecchio: Buffer | undefined;
+		try { vecchio = fs.readFileSync(path.join(a, n)); } catch { /* nuovo */ }
+		if (vecchio && vecchio.equals(nuovo)) continue;
+		fs.writeFileSync(path.join(a, n), nuovo);
+		cambiati++;
+	}
+	for (const n of fs.readdirSync(a).filter(x => x.endsWith('.json') && !sorgente.includes(x))) {
+		fs.rmSync(path.join(a, n), { force: true });
+		cambiati++;
+	}
+	return cambiati;
+}
+
+carica();
 
 /** Il nome da mostrare: "melissa" o la chiave di un personaggio. */
 export function nomeDi(chi: string): string {
-	return PERSONAGGI[chi]?.nome ?? 'Melissa';
+	return (Object.hasOwn(PERSONAGGI, chi) && PERSONAGGI[chi]?.nome) || 'Melissa';
+}
+
+/** Vero per una chiave caricata (mai per 'constructor' e simili). */
+export function esiste(chi: unknown): chi is string {
+	return typeof chi === 'string' && Object.hasOwn(PERSONAGGI, chi);
+}
+
+/** Chi c'e', in ordine, per la barra: dopo Melissa, un pulsante ciascuno. */
+export function elenco(): { chiave: string; nome: string; ruolo: string }[] {
+	return ORDINE.map(k => ({ chiave: k, nome: PERSONAGGI[k]!.nome, ruolo: RUOLI[k] ?? PERSONAGGI[k]!.nome }));
+}
+
+/** Una riga del registro: "Elliot: ..." e' di Elliot, il resto di Melissa. */
+export function dallaRiga(riga: string): { chi: string; testo: string } {
+	for (const k of ORDINE) {
+		const pre = `${PERSONAGGI[k]!.nome}: `;
+		if (riga.startsWith(pre)) return { chi: k, testo: riga.slice(pre.length) };
+	}
+	return { chi: 'melissa', testo: riga };
+}
+
+/** I nomi dei personaggi, con l'escape, per le espressioni regolari; e da un nome detto alla chiave. */
+function nomi(): string {
+	return ORDINE.map(k => esc(PERSONAGGI[k]!.nome.toLowerCase())).join('|') || '(?!)';
+}
+function chiaveDi(nome: string): string | null {
+	return ORDINE.find(k => PERSONAGGI[k]!.nome.toLowerCase() === nome.toLowerCase()) ?? null;
 }
 
 /** "passami Darlene", "fammi parlare con Elliot", "ridammi Melissa": a chi passare la chiamata, o null. */
 export function chiChiede(t: string): string | null {
 	const m = t
 		.toLowerCase()
-		.match(/\b(?:passami|passa|fammi parlare con|voglio parlare con|ridammi|torna|chiama)\s+(?:a\s+)?(melissa|darlene|elliot|krista|mr\.?\s*robot)\b/);
+		.match(new RegExp(`\\b(?:passami|passa|fammi parlare con|voglio parlare con|ridammi|torna|chiama)\\s+(?:a\\s+)?(melissa|${nomi()}|mr\\.?\\s*robot)\\b`));
 	if (!m?.[1]) return null;
-	return m[1].startsWith('mr') ? 'elliot' : m[1];
+	if (m[1] === 'melissa') return 'melissa';
+	return chiaveDi(m[1]) ?? (m[1].startsWith('mr') ? chiaveDi('elliot') : null);
 }
 
 /** "chiedi a Darlene", "sentiamo Elliot", "cosa ne pensa Krista": chi Andrea vuole sentire anche. */
 export function ospiteChiesto(t: string): string | null {
 	const m = t
 		.toLowerCase()
-		.match(/\b(?:chiedi(?:lo)? a|chiedete a|sentiamo(?: anche)?|senti(?: anche)?|cosa ne pensa|che ne pensa|e tu)\s+(darlene|elliot|krista)\b/);
-	return m?.[1] ?? null;
+		.match(new RegExp(`\\b(?:chiedi(?:lo)? a|chiedete a|sentiamo(?: anche)?|senti(?: anche)?|cosa ne pensa|che ne pensa|e tu)\\s+(${nomi()})\\b`));
+	return m?.[1] ? chiaveDi(m[1]) : null;
+}
+
+/** Le chiavi caricate, per cercare il segnale "@chiave" e solo quello (un indirizzo email non e' un segnale). */
+function chiavi(): string {
+	return ORDINE.map(esc).join('|') || '(?!)';
 }
 
 /** Il testo senza il segnale "@darlene", che non si mostra e non si legge mai, ovunque sia. */
 export function senzaSegnale(t: string): string {
-	return t.replace(/\s*@(?:darlene|elliot|krista)\b[.!?]?/gi, '').replace(/[ \t]{2,}/g, ' ').trim();
+	return t.replace(new RegExp(`\\s*(?<!\\w)@(?:${chiavi()})\\b[.!?]?`, 'gi'), '').replace(/[ \t]{2,}/g, ' ').trim();
+}
+
+/** Durante lo stream: anche un segnale ancora a meta' in coda ("@dar") non si mostra. */
+export function senzaSegnaleInCorso(t: string): string {
+	return senzaSegnale(t).replace(/\s*@[a-z]*$/i, '');
 }
 
 /** Una risposta di Melissa puo' finire con "@darlene": il testo senza segnale e chi entra, se era tra gli offerti. */
 export function chiamata(risposta: string, offerti: readonly string[]): { testo: string; ospite: string | null } {
 	const testo = senzaSegnale(risposta);
 	// senza segnale ma con una domanda per nome ("Elliot, tu che dici?"): risponde lui, o la domanda resta nel vuoto
-	const chi = risposta.match(/@(darlene|elliot|krista)\b/i)?.[1]?.toLowerCase() ?? chiamatoPerNome(testo);
+	const segnale = risposta.match(new RegExp(`(?<!\\w)@(${chiavi()})\\b`, 'i'))?.[1]?.toLowerCase();
+	const chi = segnale ?? chiamatoPerNome(testo);
 	return { testo, ospite: chi && offerti.includes(chi) ? chi : null };
 }
 
-/** Il personaggio nominato nell'ultima domanda, se la battuta finisce chiedendo qualcosa a uno di loro. Una domanda
- *  a meta' battuta parla di loro, non a loro. Come `chiamatoPerNome` della mod. */
+/**
+ * Il personaggio a cui la battuta, alla fine, fa una domanda per nome; null se lo nomina e basta. Stessa regola della
+ * mod e dell'iPhone, in ordine sul testo intero:
+ * 1. vocativo a inizio frase: "Elliot, tu che dici?", "Elliot... che dici?", "Elliot! Che dici?";
+ * 2. nome dopo una virgola, in fondo: "che ne pensi, Krista?";
+ * 3. il nome da solo come domanda: "Darlene?".
+ * "Ti ricordi quando Elliot ha bucato E Corp?" e "il file di Krista?" parlano di loro, non a loro.
+ */
 export function chiamatoPerNome(testo: string): string | null {
-	const domande = testo.match(/[^.!?]*\?/g);
-	const ultima = domande?.[domande.length - 1];
-	if (!ultima || testo.slice(testo.lastIndexOf(ultima) + ultima.length).trim().length > 2) return null;
-	return ultima.match(/\b(darlene|elliot|krista)\b/i)?.[1]?.toLowerCase() ?? null;
+	if (!ORDINE.length) return null;
+	const n = nomi();
+	const fine = '\\s*\\?\\W{0,2}$';
+	const regole = [
+		`(?:^|[.!?\u2026]\\s*)(?:e\\s+)?(${n})\\s*(?:,|!|:|\\.{3}|\u2026)[^.!?\u2026]*${fine}`,
+		`,\\s*(${n})${fine}`,
+		`(?:^|[.!?\u2026]\\s*)(${n})${fine}`,
+	];
+	for (const r of regole) {
+		const m = testo.match(new RegExp(r, 'i'));
+		if (m?.[1]) return chiaveDi(m[1]);
+	}
+	return null;
 }
 
-const SICUREZZA = /chiav|segret|token|password|credenzial|hacker|attacc|sicurezz|virus|privacy|server|firewall|wifi|vpn/i;
-const SCUSE = /domani|pi[uù] tardi|non ho voglia|non so se|forse|rimand|stanc|scus|procrastin|dovrei|non ce la faccio/i;
-
 /**
- * Chi Melissa puo' tirare dentro, da quello che Andrea ha appena detto: Elliot sulla sicurezza, Krista se rimanda o
- * cerca scuse, altrimenti uno diverso dall'ultimo. Lo sceglie il codice: lasciato al modello era sempre Darlene
- * (misura del 6 ottobre 2026). `caso` in [0, 1).
+ * Chi Melissa puo' tirare dentro, da quello che Andrea ha appena detto: il primo personaggio, in ordine, le cui `parole`
+ * compaiono (Elliot sulla sicurezza, Krista sulle scuse), altrimenti uno diverso dall'ultimo. Lo sceglie il codice:
+ * lasciato al modello era sempre Darlene (misura del 6 ottobre 2026). `caso` in [0, 1).
  */
-export function ospiteDellaFrase(detto: string, ultimo: string, caso = Math.random()): string {
-	if (SICUREZZA.test(detto)) return 'elliot';
-	if (SCUSE.test(detto)) return 'krista';
+export function ospiteDellaFrase(detto: string, ultimo: string, caso = Math.random()): string | null {
+	for (const k of ORDINE) {
+		const parole = PERSONAGGI[k]?.parole;
+		if (parole && new RegExp(parole, 'i').test(detto)) return k;
+	}
 	const altri = ORDINE.filter(k => k !== ultimo);
-	return altri[Math.min(altri.length - 1, Math.floor(caso * altri.length))]!;
+	const fra = altri.length ? altri : ORDINE;
+	return fra[Math.min(fra.length - 1, Math.floor(caso * fra.length))] ?? null;
 }
 
 /**

@@ -35,6 +35,14 @@ final class PersonaggiTests: XCTestCase {
         XCTAssertEqual(Personaggi.chiamata("Ha toccato le chiavi. Elliot, tu che dici?").ospite, "elliot")
         XCTAssertNil(Personaggi.chiamata("Darlene ti ha mai detto di no? Comunque ha finito.").ospite)
         XCTAssertNil(Personaggi.chiamata("Non so. Tu che dici?").ospite)
+        // la stessa regola della mod e della Bottega: il nome conta solo se Melissa parla a lui
+        XCTAssertEqual(Personaggi.chiamatoPerNome("Elliot... tu che dici?"), "elliot")
+        XCTAssertEqual(Personaggi.chiamatoPerNome("Che ne pensi, Krista?"), "krista")
+        XCTAssertEqual(Personaggi.chiamatoPerNome("Allora, Darlene?"), "darlene")
+        XCTAssertNil(Personaggi.chiamatoPerNome("Ti ricordi quando Elliot ha bucato E Corp?"))
+        XCTAssertNil(Personaggi.chiamatoPerNome("Vuoi che apra il file di Krista?"))
+        XCTAssertEqual(Personaggi.chiamata("Scrivi a andrea@gmail.com. Elliot, che dici?").ospite, "elliot")
+        XCTAssertEqual(Personaggi.senzaSegnale("Elliot, che dici? @dar"), "Elliot, che dici?")
     }
 
     func testInvito() {

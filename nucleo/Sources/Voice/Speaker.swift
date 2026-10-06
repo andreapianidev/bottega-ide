@@ -8,7 +8,8 @@
 //   - Apple AVSpeechSynthesizer (premium Emma it-IT), the default without a key and the
 //     fallback on any ElevenLabs error.
 //  Both render into AudioOut, which plays everything gapless and meters the real output
-//  for the orb.
+//  for the orb. ElevenLabs PCM never passes through here: the stream hands it to AudioOut
+//  off main (ElevenLabsStream, playback mode) and this side only keeps the books.
 //
 //  Streaming: `voice.speak {text, append:true}` adds LLM chunks to an open turn; the first
 //  complete clause is synthesized immediately, then each sentence; `final:true` flushes
@@ -35,6 +36,9 @@ final class Speaker: NSObject {
         let text: String
         let engine: Engine
         var started = false
+        var heard = false
+        /// ElevenLabs: the stream's audio turn whose markers say when this is heard.
+        var audioTurn: Int?
         var pcmBytes = 0
         init(id: Int, text: String, engine: Engine) {
             self.id = id; self.text = text; self.engine = engine
@@ -70,6 +74,8 @@ final class Speaker: NSObject {
     /// Per stream: text sent since the last flush (becomes a segment at flush).
     private var unflushed: [String: String] = [:]
     private var watchdogs: [String: DispatchWorkItem] = [:]
+    /// Started segments by audio turn, until their end marker is heard.
+    private var sounding: [Int: Segment] = [:]
     private var cooldownUntil: Date?
     private var reconnectDelay: TimeInterval = 1
     private var lastUse = Date.distantPast
@@ -181,11 +187,11 @@ final class Speaker: NSObject {
     /// Barge-in: silence now, drop everything queued, keep the socket warm.
     func stopSpeaking() {
         generation += 1
-        AudioOut.shared.stop()
         if synth.isSpeaking { synth.stopSpeaking(at: .immediate) }
         appleQueue.removeAll()
         appleCurrent = nil
         awaitingHeard = 0
+        sounding.removeAll()
         attesa?.timer.cancel(); attesa = nil
         turn = nil
         turnIdle?.cancel(); turnIdle = nil
@@ -198,6 +204,11 @@ final class Speaker: NSObject {
             watchdogs[key]?.cancel()
             if keepWarm { s.connect() }
         }
+        // INVARIANT: AudioOut.stop() only after the sockets are closed. Each ElevenLabs audio
+        // turn takes AudioOut's generation at its first PCM: a stop before the close would let
+        // an old turn start under the new generation and play, or drop the rest of a turn
+        // whose end marker then never fires (voice.state stuck on speaking).
+        AudioOut.shared.stop()
         endEpisodeIfIdle()
         VoiceHub.shared.refresh()
     }
@@ -345,6 +356,7 @@ final class Speaker: NSObject {
             guard let self, let s else { return }
             self.handle(event, key: key, stream: s)
         }
+        s.onPlayback = { [weak self] p in self?.playback(p, key: key) }
         streams[key] = s
         inflight[key] = []
         unflushed[key] = ""
@@ -367,6 +379,8 @@ final class Speaker: NSObject {
         let work = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
                 guard let self, gen == self.generation, !(self.inflight[key]?.isEmpty ?? true) else { return }
+                // the stream had audio meanwhile, its news is still on the way to main
+                if let ago = self.streams[key]?.secondsSinceAudio, ago < 8 { self.armWatchdog(key); return }
                 Log.warn("ElevenLabs non risponde da 8 secondi, passo alla voce di Apple.")
                 self.failStream(key, reason: "nessuna risposta")
             }
@@ -377,24 +391,8 @@ final class Speaker: NSObject {
 
     private func handle(_ event: ElevenLabsStream.Event, key: String, stream s: ElevenLabsStream) {
         switch event {
-        case .audio(let pcm):
-            guard let head = inflight[key]?.first ?? pendingHeadPlaceholder(key) else { return }
-            armWatchdog(key)
-            reconnectDelay = 1
-            if !head.started {
-                head.started = true
-                scheduleStartMarker(head)
-            }
-            head.pcmBytes += pcm.count
-            AudioOut.shared.enqueuePCM16(pcm, generation: AudioOut.shared.generation)
-        case .turnFinished:
-            guard var list = inflight[key], !list.isEmpty else { return }
-            let seg = list.removeFirst()
-            inflight[key] = list
-            if list.isEmpty { watchdogs[key]?.cancel() }
-            Log.info("voce: segmento \(seg.id) concluso, \(seg.pcmBytes) byte PCM, \(list.count) in attesa")
-            if seg.started { scheduleEndMarker(seg) }
-            endEpisodeIfIdle()
+        case .audio, .turnFinished:
+            break   // playback mode: they come through playback(_:key:)
         case .sessionFinished:
             if !(inflight[key]?.isEmpty ?? true) { failStream(key, reason: "sessione ElevenLabs chiusa prima dell'audio finale") }
             else if attesa?.key == key {
@@ -432,6 +430,55 @@ final class Speaker: NSObject {
                 }
             }
         }
+    }
+
+    /// The stream's audio is already in AudioOut, markers included: this is the bookkeeping.
+    private func playback(_ p: ElevenLabsStream.Playback, key: String) {
+        switch p {
+        case .audio(let bytes, let newTurn):
+            guard let head = inflight[key]?.first ?? pendingHeadPlaceholder(key)
+                    ?? silentPlaceholder(key, turn: newTurn) else { return }
+            armWatchdog(key)
+            reconnectDelay = 1
+            if !head.started {
+                if let n = newTurn {
+                    head.started = true
+                    head.audioTurn = n
+                    awaitingHeard += 1
+                    sounding[n] = head
+                } else {
+                    // the stream's turn began before this segment existed: count it anyway,
+                    // with a start marker that lands a little after its first audio
+                    scheduleStartMarker(head)
+                }
+            }
+            head.pcmBytes += bytes
+        case .turnFinished(let n):
+            guard var list = inflight[key], !list.isEmpty else { return }
+            let seg = list.removeFirst()
+            inflight[key] = list
+            if list.isEmpty { watchdogs[key]?.cancel() }
+            Log.info("voce: segmento \(seg.id) concluso, \(seg.pcmBytes) byte PCM, \(list.count) in attesa")
+            // its end marker is already queued after its audio, unless the stream counted
+            // that audio as another turn
+            if seg.started, n == nil || seg.audioTurn != n { scheduleEndMarker(seg) }
+            endEpisodeIfIdle()
+        case .heard(let n, let end):
+            guard let seg = sounding[n] else { return }
+            if end { segmentHeard(seg) } else { segmentStarted(seg) }
+        }
+    }
+
+    /// Audio with no segment waiting for it (should not happen). It is already in AudioOut
+    /// and will be heard, so it must count as speech until its end marker: an empty segment
+    /// in flight takes it, and turn end, failStream and the watchdog treat it as any other.
+    private func silentPlaceholder(_ key: String, turn: Int?) -> Segment? {
+        guard turn != nil else { return nil }
+        segmentSeq += 1
+        let seg = Segment(id: segmentSeq, text: "", engine: .elevenlabs)
+        inflight[key, default: []].append(seg)
+        Log.info("voce: audio ElevenLabs senza un segmento in attesa, lo conto come voce fino alla sua fine")
+        return seg
     }
 
     /// Audio that arrives for text the server generated before our flush (it starts on
@@ -563,14 +610,22 @@ final class Speaker: NSObject {
     }
 
     private func segmentStarted(_ seg: Segment) {
-        spokenSoFar += spokenSoFar.isEmpty ? seg.text : " " + seg.text
-        VoiceHub.shared.speakingSegment(SpokenText.strippingAudioTags(seg.text))
+        if !seg.text.isEmpty {
+            spokenSoFar += spokenSoFar.isEmpty ? seg.text : " " + seg.text
+            VoiceHub.shared.speakingSegment(SpokenText.strippingAudioTags(seg.text))
+        }
         VoiceHub.shared.refresh()
     }
 
     private func segmentHeard(_ seg: Segment) {
+        // a failed stream may queue a second end marker for a segment the stream already ended
+        guard !seg.heard else { return }
+        seg.heard = true
+        if let n = seg.audioTurn { sounding[n] = nil }
         awaitingHeard = max(0, awaitingHeard - 1)
-        Out.event("voice.spoken", ["text": SpokenText.strippingAudioTags(seg.text), "engine": seg.engine.rawValue])
+        if !seg.text.isEmpty {
+            Out.event("voice.spoken", ["text": SpokenText.strippingAudioTags(seg.text), "engine": seg.engine.rawValue])
+        }
         endEpisodeIfIdle()
         VoiceHub.shared.refresh()
     }

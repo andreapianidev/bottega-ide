@@ -11,6 +11,8 @@ const assert = require('assert');
 const esbuild = require('esbuild');
 
 const SRC = path.join(__dirname, '..', 'src');
+// i personaggi si leggono dai file del repository, mai da ~/.bottega
+process.env.BOTTEGA_PERSONAGGI = path.join(__dirname, '..', 'personaggi');
 const OUT = path.join(__dirname, 'test-out');
 
 esbuild.buildSync({
@@ -936,17 +938,41 @@ function makeAssistant(over = {}) {
 
 	// ---------- personaggi (src/personaggi.ts): voce, passaggio di chiamata, chiamata a tre ----------
 
-	/** Un Nucleo finto che, come quello vero, dice quando una battuta comincia e finisce di suonare. */
+	/** Un Nucleo finto che, come quello vero, dice quando una battuta comincia e finisce di suonare: "speaking" alla
+	 *  prima frase, e il turno di voce resta aperto finche' non arriva `final` o passano 20 s senza (qui 1 s, contati
+	 *  in `scaduti`). */
 	function nucleoCheParla() {
 		const n = makeNucleo(true);
 		const req = n.request.bind(n);
+		let parla = false;
+		let scade;
+		n.scaduti = 0;
 		n.request = (cmd, args) => {
 			const r = req(cmd, args);
-			if (cmd === 'voice.speak' && args && args.final) setImmediate(() => { n.fire('voice.state', { state: 'speaking' }); setImmediate(() => n.fire('voice.state', { state: 'idle' })); });
+			if (cmd !== 'voice.speak' || !args) return r;
+			if (args.text && !parla) {
+				parla = true;
+				setImmediate(() => n.fire('voice.state', { state: 'speaking' }));
+			}
+			clearTimeout(scade);
+			if (args.final && parla) {
+				parla = false;
+				setImmediate(() => n.fire('voice.state', { state: 'idle' }));
+			} else if (parla) {
+				scade = setTimeout(() => { n.scaduti++; parla = false; n.fire('voice.state', { state: 'idle' }); }, 1000);
+			}
 			return r;
 		};
 		return n;
 	}
+	const finche = async (cond, ms = 3000) => {
+		const t0 = Date.now();
+		while (!cond()) {
+			if (Date.now() - t0 > ms) throw new Error('condizione mai vera');
+			await new Promise(r => setTimeout(r, 5));
+		}
+	};
+	const ctxProva = () => ({ subscriptions: [], globalState: { get: () => undefined, update: async () => {} } });
 	const DARLENE = 'vfJO9rw4YuKJJKxYo3oQ', ELLIOT = 'yUrn8DPhKREqXUFumEa0';
 
 	await test('personaggi: «passami Darlene» le passa la chiamata, saluta e risponde con la sua voce', async () => {
@@ -985,6 +1011,118 @@ function makeAssistant(over = {}) {
 		const righe = a.getState().log.map(r => r.text);
 		assert.deepStrictEqual(righe.slice(-3), ['Io dico che regge. Elliot, tu che dici?', 'Elliot: Regge finche\' nessuno guarda le chiavi.', 'Visto? Paranoico come sempre.']);
 		assert.strictEqual(a.getState().personaggio, 'melissa', 'la chiamata resta a Melissa');
+		// il turno di voce di Melissa si chiude prima della battuta di Elliot: senza, 20 s di silenzio nel Nucleo
+		const chiusa = nucleo.speaks.findIndex(x => x.final && !x.text);
+		assert.ok(chiusa >= 0 && chiusa < nucleo.speaks.indexOf(suaVoce), 'il final di Melissa arriva prima della voce di Elliot');
+		assert.strictEqual(nucleo.speaks.filter(x => x.final && !x.text).length, 1, 'e uno solo: niente turni vuoti dopo');
+		assert.strictEqual(nucleo.scaduti, 0, 'nessun turno chiuso dal tempo massimo');
+	});
+
+	await test('personaggi: una frase detta durante le battute a tre parte dopo, senza chiudere la voce del turno nuovo', async () => {
+		const nucleo = nucleoCheParla();
+		let liberaElliot;
+		let chiamate = 0;
+		const passi = [
+			[{ content: 'Regge. Elliot, tu che dici? @elliot' }],
+			onDelta => new Promise(r => (liberaElliot = () => { onDelta({ content: 'Regge, ma le chiavi no.' }); r(); })),
+			[{ content: 'Paranoico.' }],
+			[{ content: 'Il backup e\' fatto stanotte.' }],
+		];
+		const giro = scriptedStream(passi);
+		const { a } = makeAssistant({ nucleo, stream: (...x) => (chiamate++, giro(...x)) });
+		a.wire(ctxProva());
+		nucleo.fire('hotkey.down'); nucleo.fire('hotkey.up'); // tocco: conversazione accesa
+		nucleo.fire('voice.final', { text: 'regge la build?', mode: 'converse' });
+		await finche(() => !!liberaElliot);
+		nucleo.fire('voice.final', { text: 'e il backup?', mode: 'converse' });
+		await tick();
+		assert.strictEqual(chiamate, 2, 'nessun secondo turno mentre Elliot pensa');
+		liberaElliot();
+		await finche(() => a.getState().log.some(r => /backup e' fatto/.test(r.text)));
+		const righe = a.getState().log.map(r => `${r.role}: ${r.text}`);
+		assert.deepStrictEqual(righe.slice(-6), [
+			'tu: regge la build?', 'melissa: Regge. Elliot, tu che dici?', 'melissa: Elliot: Regge, ma le chiavi no.',
+			'melissa: Paranoico.', 'tu: e il backup?', 'melissa: Il backup e\' fatto stanotte.',
+		]);
+		const testi = nucleo.speaks.map(x => x.text || '');
+		assert.ok(testi.findIndex(t => /Paranoico/.test(t)) < testi.findIndex(t => /backup/.test(t)), 'il turno nuovo parla dopo la chiusa');
+		const ultima = nucleo.speaks.length - 1;
+		assert.ok(nucleo.speaks[ultima].final && !nucleo.speaks[ultima].text, 'e il suo turno di voce si chiude col suo final');
+		a.stopConversation?.('fine prova');
+	});
+
+	await test('personaggi: un tocco durante le battute a tre lascia nel registro la risposta senza segnale e le battute gia\' dette', async () => {
+		for (const quando of ['prima di Elliot', 'durante la chiusa']) {
+			const nucleo = nucleoCheParla();
+			const ferma = (onDelta, signal) => new Promise((_, no) => signal.addEventListener('abort', () => no(new Error('interrotta')), { once: true }));
+			const passi = quando === 'prima di Elliot'
+				? [[{ content: 'Regge. Elliot, tu che dici? @elliot' }], ferma]
+				: [[{ content: 'Regge. Elliot, tu che dici? @elliot' }], [{ content: 'Regge, ma le chiavi no.' }], ferma];
+			const giro = scriptedStream(passi);
+			let chiamate = 0;
+			const { a } = makeAssistant({ nucleo, stream: (...x) => (chiamate++, giro(...x)) });
+			a.wire(ctxProva());
+			const p = a.turn('regge la build?', true);
+			await finche(() => chiamate === passi.length);
+			nucleo.fire('voice.bargein');
+			await p;
+			const righe = a.getState().log.map(r => r.text);
+			assert.ok(!righe.some(t => /@/.test(t)), `${quando}: nessun segnale nel registro`);
+			if (quando === 'prima di Elliot') {
+				assert.deepStrictEqual(righe.slice(-1), ['Regge. Elliot, tu che dici? (interrotta)']);
+			} else {
+				assert.deepStrictEqual(righe.slice(-2), ['Regge. Elliot, tu che dici?', 'Elliot: Regge, ma le chiavi no. (interrotta)']);
+				assert.ok(a.history.some(m => m.content === 'Regge, ma le chiavi no. [interrotta da Andrea]' && m.chi === 'elliot'), 'e nella storia, come sua');
+			}
+		}
+	});
+
+	await test('personaggi: anche la risposta del cervello di riserva passa la parola a chi chiama', async () => {
+		const nucleo = nucleoCheParla();
+		const deepseek = scriptedStream([
+			[{ content: 'Regge. Elliot, tu che dici? @elliot' }],
+			[{ content: 'Regge, ma le chiavi no.' }],
+			[{ content: 'Paranoico.' }],
+		]);
+		const cervelli = {
+			choice: () => ({ provider: 'agnes', model: 'agnes-3.0-flash', effort: 'normale' }),
+			riservaDeepseek: () => ({ provider: 'deepseek', model: 'deepseek-flash', effort: 'normale' }),
+			streamFor: c => (c.provider === 'deepseek' ? deepseek : undefined),
+			key: () => undefined, noteAgnes: () => {}, touch: () => {}, endConversation: () => {},
+		};
+		const { a } = makeAssistant({ nucleo, cervelli, stream: async () => { throw new Error('Rete giu\' verso Agnes.'); } });
+		a.wire(ctxProva());
+		await a.turn('regge la build?', true);
+		assert.ok(nucleo.speaks.some(x => x.voice === ELLIOT && /chiavi/.test(x.text)), 'Elliot risponde, con la riserva');
+		assert.ok(a.getState().log.some(r => r.text === 'Elliot: Regge, ma le chiavi no.'));
+		// e il ripiego di Apple senza strumenti
+		const n2 = nucleoCheParla();
+		const req = n2.request;
+		n2.request = (cmd, args) => (cmd === 'ai.generate'
+			? (n2.reqs.push({ cmd, args }), Promise.resolve({ text: args.instructions.startsWith('Sei Elliot') ? 'Le chiavi, amico.' : /ha appena detto/.test(args.prompt) ? 'Visto?' : 'Regge. Elliot, tu che dici?' }))
+			: req(cmd, args));
+		const b = makeAssistant({ nucleo: n2, stream: async () => { throw new Error('Agnes ha risposto 500.'); } });
+		b.a.wire(ctxProva());
+		await b.a.turn('regge la build?', true);
+		assert.ok(n2.speaks.some(x => x.voice === ELLIOT && /chiavi/.test(x.text)), 'Elliot risponde anche dopo il ripiego');
+	});
+
+	await test('personaggi: con la chiamata a Elliot le sue righe sono sue; tornata Melissa, sono di Elliot', async () => {
+		const nucleo = nucleoCheParla();
+		const visti = [];
+		const giro = scriptedStream([[{ content: 'Le chiavi stanno in un posto solo.' }], [{ content: 'Lo ha detto Elliot, non io.' }]]);
+		const { a } = makeAssistant({ nucleo, stream: (m, ...x) => (visti.push(m), giro(m, ...x)) });
+		a.wire(ctxProva());
+		await a.turn('passami Elliot', true);
+		await a.turn('dove metto le chiavi?', true);
+		const perElliot = visti[0].filter(m => m.role !== 'system');
+		assert.ok(perElliot.some(m => m.role === 'assistant'), 'il suo saluto, per lui, e\' suo');
+		await a.turn('ridammi Melissa', true);
+		await a.turn('che ha detto?', true);
+		const perMelissa = visti[1].filter(m => m.role !== 'system');
+		assert.ok(perMelissa.some(m => m.role === 'user' && m.content === '(Elliot ha detto: Le chiavi stanno in un posto solo.)'), 'per Melissa e\' di Elliot');
+		assert.ok(!perMelissa.some(m => m.role === 'assistant' && /chiavi stanno/.test(m.content)), 'e non sua');
+		assert.ok(perMelissa.every(m => !('chi' in m)), 'al cervello non arriva il campo chi');
 	});
 
 	await test('personaggi: una domanda a Krista per nome, senza segnale, ha la sua risposta; un nome di passaggio no', async () => {
@@ -1017,6 +1155,69 @@ function makeAssistant(over = {}) {
 		assert.ok(p.invito(null, 'krista', true).startsWith('Stavolta tira dentro Krista'));
 		assert.strictEqual(p.invito(null, null, true), '');
 		for (const k of p.ORDINE) assert.ok(!p.cuore(p.PERSONAGGI[k], '').includes('\u2014'));
+		// la domanda per nome: la regola della mod e dell'iPhone
+		const casi = {
+			'Ha toccato le chiavi. Elliot, tu che dici?': 'elliot',
+			'Elliot... tu che dici?': 'elliot',
+			'Elliot! Che dici?': 'elliot',
+			'Che ne pensi, Krista?': 'krista',
+			'Allora, Darlene?': 'darlene',
+			'Darlene?': 'darlene',
+			'Ti ricordi quando Elliot ha bucato E Corp?': null,
+			'Vuoi che apra il file di Krista?': null,
+			'Darlene ti ha mai detto di no? Comunque e\' finita.': null,
+			'Non so. Tu che dici?': null,
+		};
+		for (const [t, chi] of Object.entries(casi)) assert.strictEqual(p.chiamatoPerNome(t), chi, t);
+		// il segnale: solo le chiavi caricate, mai un indirizzo email
+		assert.deepStrictEqual(p.chiamata('Scrivi a mario@esempio.it. Elliot, che dici? @elliot', ['elliot', 'krista']), { testo: 'Scrivi a mario@esempio.it. Elliot, che dici?', ospite: 'elliot' });
+		assert.deepStrictEqual(p.chiamata('Scrivi a krista@esempio.it, fatto.', ['krista']), { testo: 'Scrivi a krista@esempio.it, fatto.', ospite: null });
+		assert.strictEqual(p.senzaSegnaleInCorso('Elliot, tu che dici? @ell'), 'Elliot, tu che dici?');
+		assert.strictEqual(p.dallaRiga('Krista: Niente scuse.').chi, 'krista');
+		assert.strictEqual(p.esiste('constructor'), false);
+		assert.strictEqual(p.nomeDi('constructor'), 'Melissa');
+	});
+
+	await test('personaggi: file con campi facoltativi, espressioni rotte e nomi strani; pubblica toglie i rimossi', async () => {
+		const p = require(path.join(OUT, 'personaggi.js'));
+		const fs = require('fs');
+		const os = require('os');
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'personaggi-'));
+		const scrivi = (n, x) => fs.writeFileSync(path.join(dir, n), JSON.stringify(x));
+		const base = { voce: 'v', carattere: 'Sei qualcuno.', saluti: ['Ciao.'] };
+		scrivi('robot.json', { ...base, chiave: 'robot', nome: 'Mr. Robot', parole: '(chiav', parole_cronaca: 'sudo' });
+		scrivi('tyrell.json', { ...base, chiave: 'tyrell', nome: 'Tyrell', ordine: 1 });
+		scrivi('muto.json', { ...base, chiave: 'muto', nome: 'Muto', voce: '' });
+		const avvisi = [];
+		try {
+			assert.strictEqual(p.carica([dir], m => avvisi.push(m)), 2, 'senza voce si scarta');
+			assert.deepStrictEqual(p.ORDINE, ['tyrell', 'robot'], 'ordine 99 se manca');
+			const r = p.PERSONAGGI.robot;
+			assert.strictEqual(r.parole, '', 'espressione rotta: vuota');
+			assert.strictEqual(r.parole_cronaca, 'sudo');
+			assert.ok(avvisi.some(m => /robot\.json, `parole`/.test(m)), 'e lo dice');
+			assert.ok(avvisi.some(m => /muto\.json/.test(m)));
+			assert.deepStrictEqual([r.ruolo, r.ruolo_cronaca, r.errori_ripetuti, p.PERSONAGGI.tyrell.ordine], ['Mr. Robot', 'Mr. Robot', 0, 1]);
+			assert.strictEqual(p.ospiteDellaFrase('le chiavi', 'tyrell', 0), 'robot', 'nessuna eccezione: senza parole valide, uno diverso dall\'ultimo');
+			assert.strictEqual(p.chiamatoPerNome('Mr. Robot, tu che dici?'), 'robot', 'il punto nel nome e\' un punto');
+			assert.strictEqual(p.chiamatoPerNome('Mr! Robot, tu che dici?'), null);
+			assert.strictEqual(p.chiChiede('passami Mr. Robot'), 'robot');
+			assert.deepStrictEqual(p.elenco(), [{ chiave: 'tyrell', nome: 'Tyrell', ruolo: 'Tyrell' }, { chiave: 'robot', nome: 'Mr. Robot', ruolo: 'Mr. Robot' }]);
+			// pubblica: copia i cambiati, toglie i .json che non ci sono piu', lascia il resto
+			const a = fs.mkdtempSync(path.join(os.tmpdir(), 'personaggi-mod-'));
+			fs.writeFileSync(path.join(a, 'vecchio.json'), '{}');
+			fs.writeFileSync(path.join(a, 'appunti.txt'), 'mio');
+			p.pubblica(dir, a);
+			assert.deepStrictEqual(fs.readdirSync(a).sort(), ['appunti.txt', 'muto.json', 'robot.json', 'tyrell.json']);
+			assert.strictEqual(p.pubblica(dir, a), 0, 'uguali: niente da fare');
+			fs.rmSync(path.join(dir, 'muto.json'));
+			assert.strictEqual(p.pubblica(dir, a), 1);
+			assert.ok(!fs.existsSync(path.join(a, 'muto.json')), 'il personaggio tolto sparisce anche dalla mod');
+			fs.rmSync(a, { recursive: true, force: true });
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+			p.carica([process.env.BOTTEGA_PERSONAGGI]);
+		}
 	});
 
 	// BOTTEGA_TEST_REALE=1 npm test

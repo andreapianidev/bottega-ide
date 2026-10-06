@@ -281,6 +281,19 @@ interface AssistantState {
 }
 ```
 
+Voce ElevenLabs, percorso dell'audio (build 125). Il PCM del socket text-to-dialogue non passa piu' dal thread
+principale del Nucleo: ricezione, decodifica (JSON, base64, byte dispari), conversione in float32 e accodamento in
+AudioOut avvengono su una coda seriale del socket, che mette nello stesso ordine di arrivo anche i marcatori di inizio e
+fine di ogni segmento. Sul thread principale resta solo la contabilita' dello Speaker (segmenti, watchdog di 8 s, eventi
+voice.spoken e voice.state), che puo' arrivare in ritardo senza fermare la voce. Un barge-in chiude il socket prima di
+azzerare AudioOut, e l'audio del giro vecchio viene scartato. Nessuna interfaccia cambia. Nel registro compare una riga
+nuova, al primo audio di un segmento e solo se supera 50 ms: "voce: primo audio del segmento in coda N ms dopo il
+socket". Misura del 6 ottobre 2026 che l'ha motivato: dal terminale, stesso modello, stessa voce e stesso schema di
+invio, zero buchi in 5 prove; nel Nucleo i buchi comparivano solo col Mac carico, perche' l'audio aspettava il thread
+principale, lo stesso delle animazioni dell'isola. L'isola a riposo non anima piu' l'aura a pannello chiuso: da ferma
+resta a 0% di CPU. La mod chiude il turno di voce a ogni frase della cronaca (0.14): prima lo chiudeva il Nucleo dopo
+20 s di silenzio ("manca final").
+
 ### Il cruscotto (`Stats`, da `src/stats.ts`)
 
 Fonte: i registri di Claude Code `~/.claude/projects/<cartella>/<sessione>.jsonl` piu'
@@ -1103,7 +1116,7 @@ predefinito, spento quando vale solo per questa conversazione (e la nota sotto i
 Accenderlo rende predefinito il cervello di adesso; spegnerlo riporta il predefinito ad Agnes. Con Agnes predefinita e in
 uso e' acceso e fermo.
 
-`personaggio.set {chi}` (dalla build 124, `chi` in `melissa|darlene|elliot|krista`): con chi parla Andrea. Nella testata,
+`personaggio.set {chi}` (dalla build 124, `chi` e' `melissa` o la chiave di un file di `personaggi/`): con chi parla Andrea. Nella testata,
 sotto il cervello, «Melissa · Darlene · Elliot · Krista» (lo stato arriva in `assistant.personaggio`). Chi prende la
 chiamata saluta con la sua voce e risponde con gli stessi strumenti di Melissa: prompt `cuore()` di `src/personaggi.ts`
 (carattere del personaggio, regola su come si parla, regole di verita'), voce ElevenLabs del personaggio sul primo pezzo
@@ -1115,6 +1128,19 @@ o con una domanda per nome che chiude la battuta (`chiamatoPerNome`). Il persona
 Melissa chiude; ogni battuta si pensa mentre quella prima suona e parte quando il Nucleo dice che e' finita
 (`voice.state`), perche' due voci sono due socket e il loro audio si mescolerebbe. Nel registro le battute dei personaggi
 hanno il nome davanti. Personaggi, ruoli e scelta sono gli stessi della mod melissa e dell'iPhone (9.10).
+
+Dalla build 125: `AssistantState.personaggi` e' l'elenco dei personaggi caricati da `extensions/bottega-home/personaggi/`,
+in ordine di `ordine`, nella forma `[{chiave, nome, ruolo}]`. La barra non ha piu' nomi scritti a mano: genera un
+pulsante per Melissa, sempre per primo, e uno per ogni voce dell'elenco (`nome` come testo, `ruolo` come suggerimento);
+senza elenco resta solo Melissa. `personaggio.set {chi}` accetta 'melissa' o una chiave caricata, ogni altro valore si
+ignora. `answerPartial` non mostra mai il segnale `@chiave`, nemmeno a meta' durante lo stream. Con le battute a tre la
+risposta di Melissa chiude il suo turno con `voice.speak {final:true}` prima che parli il personaggio, e ogni battuta e'
+un turno a se' (`append:false, final:true`, con `voice`). Una frase detta mentre il turno e' in corso non apre un turno
+concorrente: si tiene e parte quando la voce ha finito. La battuta a tre usa il cervello che ha risposto al turno (anche
+la riserva o Apple). Nella storia del modello le righe di chi ha la chiamata restano sue, quelle degli altri diventano
+`user "(Nome ha detto: ...)"`. Si riconosce una domanda per nome solo se Melissa parla a lui (vocativo a inizio domanda,
+", Nome?" o "Nome?" in chiusura), con la stessa regola nella mod e sull'iPhone; un `@` dentro un indirizzo email non e'
+un segnale. `pubblica` toglie da `~/.bottega/personaggi` i file eliminati dalla sorgente.
 
 ### Cervelli
 
@@ -2111,9 +2137,13 @@ rete di casa dicono al Mac dov'e' l'iPhone, non portano dati.
   li sincronizza subito in blocchi di sei a `/v1/assistente/storia`; se manca la rete li invia al ritorno della
   connessione. Una scelta locale di cervello o impegno viene applicata al Mac come scelta «sempre». Siri usa lo
   stesso percorso diretto per il testo; la voce letta da Siri segue il sistema, mentre nell'app e' ElevenLabs.
-- Personaggi (dalla build 121, `ios/Bottega/Voce/Personaggi.swift`): Darlene, Elliot e Krista di Mr. Robot, con
-  carattere, saluti e voce ElevenLabs identici a quelli della mod melissa (`PERSONAGGI` in
-  `claude-code-mods/melissa/hooks/register.tsx`). Chi ne cambia uno lo cambia in tutti e due i posti.
+- Personaggi (dalla build 121, `ios/Bottega/Voce/Personaggi.swift`): Darlene, Elliot e Krista di Mr. Robot. Dalla build
+  125 stanno in un file per personaggio, `extensions/bottega-home/personaggi/<chiave>.json` (campi in
+  `personaggi/LEGGIMI.md`): carattere, saluti, voce ElevenLabs, ruolo, `parole` che lo fanno entrare. E' la fonte unica:
+  l'estensione li porta con se' e all'avvio li copia in `~/.bottega/personaggi/` (solo i file cambiati), da dove li legge
+  la mod melissa (dalla 0.14, al piu' una volta al minuto; senza cartella Melissa parla da sola); l'app iPhone li include
+  nella build (`project.yml`, cartella `personaggi`). Un personaggio nuovo e' un file nuovo: poi `scripts/package.sh`,
+  la build iPhone e `/reload-plugins`. Nomi, segnali `@chiave` e scelta di chi entra si leggono dai file.
   «Passami Darlene», «fammi parlare con Krista» passano la chiamata: saluta il personaggio con la sua voce e
   risponde lui finche' Andrea non dice «ridammi Melissa» o la conversazione si chiude. Con Melissa al telefono,
   «chiedi a Elliot», «sentiamo Darlene» la fanno chiudere con `@elliot`; a voce e in conversazione lo puo' fare anche

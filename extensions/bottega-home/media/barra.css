@@ -284,7 +284,8 @@ body.sfondo *::after { animation-play-state: paused !important; }
 	min-width: 0;
 }
 
-.impegno.personaggi { grid-template-columns: repeat(4, 1fr); margin-top: 6px; }
+/* un pulsante per Melissa e uno per ogni personaggio caricato: quanti sono lo dicono i file */
+.impegno.personaggi { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); margin-top: 6px; }
 
 .impegno label { position: relative; display: block; cursor: pointer; }
 

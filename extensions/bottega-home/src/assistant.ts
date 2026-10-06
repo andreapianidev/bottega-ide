@@ -8,7 +8,7 @@ import type { Cervelli } from './cervelli';
 import { BrainName, BrainRouter, OpenAiStreamFn, appleInstructions, appleOpenAiStream, appleToolSpecs } from './cervello';
 import { SystemStats } from './nucleo';
 import { ATTESA_MS, eFallito, fraseAttesa, fraseFine, fraseInizio } from './racconto';
-import { ORDINE, PERSONAGGI, REGOLE, RUOLI, chiChiede, chiamata, cuore, invito, nomeDi, ospiteChiesto, ospiteDellaFrase, senzaSegnale } from './personaggi';
+import { ORDINE, PERSONAGGI, REGOLE, RUOLI, chiChiede, chiamata, cuore, dallaRiga, elenco, esiste, invito, nomeDi, ospiteChiesto, ospiteDellaFrase, senzaSegnale, senzaSegnaleInCorso } from './personaggi';
 
 const NUCLEO_LOG = path.join(os.homedir(), '.bottega', 'nucleo.log');
 
@@ -53,7 +53,13 @@ export interface AssistantState {
 	raccontando?: boolean;
 	/** Chi ha la chiamata: 'melissa' o la chiave di un personaggio (src/personaggi.ts). */
 	personaggio?: string;
+	/** I personaggi caricati da personaggi/, in ordine: la barra fa un pulsante ciascuno, dopo Melissa. */
+	personaggi?: { chiave: string; nome: string; ruolo: string }[];
 }
+
+/** Una riga della storia con chi l'ha detta: per chi ha la chiamata le sue sono `assistant`, quelle degli altri
+ *  diventano "(Nome ha detto: ...)" quando si costruiscono i messaggi (come l'iPhone, AssistenteTelefono.storia(per:)). */
+type Detto = LlmMessage & { chi?: string };
 
 export interface Passo {
 	at: number;
@@ -605,7 +611,7 @@ export class Assistant {
 	private racconto?: { allegato: string };
 	/** Il testo puo' essere completo mentre l'altoparlante sta ancora leggendo. */
 	private raccontoAudio = false;
-	private history: LlmMessage[] = [];
+	private history: Detto[] = [];
 	private pending?: Pending;
 	private statusBar?: vscode.StatusBarItem;
 	private orbHideTimer?: NodeJS.Timeout;
@@ -618,6 +624,9 @@ export class Assistant {
 	private ultimoOspite = '';
 	/** Cosa il turno in corso aggiunge al prompt di Melissa per tirare dentro un personaggio. */
 	private invitoTurno = '';
+	/** Una frase arrivata mentre un turno (con le sue battute a tre) era in corso: parte dopo, mai insieme. */
+	private dopo?: { text: string; push: boolean };
+	private dopoInAttesa = false;
 	private readonly specs: ToolSpec[] = Object.values(TOOLS).map(t => t.spec);
 	/** Agnes finche' risponde; se cade, lo stesso turno va ad Apple Intelligence CON gli strumenti, e per 2 minuti
 	 *  i turni vanno diretti al Mac (src/cervello.ts). Apple scelto a mano nel selettore: sempre Apple. */
@@ -673,7 +682,8 @@ export class Assistant {
 	getState(): AssistantState {
 		return { ...this.state,
 			answerPartial: (this.state.state === 'thinking' || this.state.state === 'speaking') && this.turnText.trim()
-				? senzaSegnale(cleanForVoice(this.turnText)).slice(0, 12_000) : undefined,
+				? senzaSegnaleInCorso(cleanForVoice(this.turnText)).slice(0, 12_000) || undefined : undefined,
+			personaggi: elenco(),
 			log: this.state.log.slice(-30), attivita: (this.state.attivita ?? []).slice(-40), raccontando: !!this.racconto || this.raccontoAudio };
 	}
 	private emit(): void {
@@ -746,7 +756,7 @@ export class Assistant {
 
 	/** Andrea sceglie nella barra con chi parlare: chi prende la chiamata saluta con la sua voce. */
 	async setPersonaggio(chi: string): Promise<void> {
-		if ((chi !== 'melissa' && !PERSONAGGI[chi]) || this.remote) return;
+		if ((chi !== 'melissa' && !esiste(chi)) || this.remote) return;
 		const prima = this.chi();
 		if (prima === chi) return;
 		this.state.personaggio = chi;
@@ -816,8 +826,11 @@ export class Assistant {
 				typeof row.text === 'string' && row.text.trim().length > 0 && row.text.length <= 12_000 &&
 				typeof row.at === 'number' && Number.isFinite(row.at) && row.at > 0 && row.at <= now + 60_000,
 			).slice(-30);
-			this.history = this.state.log.filter(r => r.role === 'tu' || r.role === 'melissa')
-				.map(r => ({ role: r.role === 'tu' ? 'user' as const : 'assistant' as const, content: r.text }));
+			this.history = this.state.log.filter(r => r.role === 'tu' || r.role === 'melissa').map((r): Detto => {
+				if (r.role === 'tu') return { role: 'user', content: r.text };
+				const d = dallaRiga(r.text);
+				return { role: 'assistant', content: d.testo, chi: d.chi };
+			});
 			this.trimHistory();
 			for (const row of this.state.log) if (row.role !== 'azione') this.deps.onMemory?.({ ...row, role: row.role, restored: true });
 		}
@@ -1077,7 +1090,34 @@ export class Assistant {
 				return;
 			}
 		}
+		// Un turno e' ancora in corso: tra una battuta a tre e l'altra il Nucleo riapre il microfono, e un secondo
+		// turno insieme al primo si chiuderebbero la voce a vicenda. La frase si tiene e parte a turno finito.
+		if (this.currentAbort || this.dopoInAttesa) {
+			this.out.info(`frase tenuta per dopo il turno in corso: "${text}"`);
+			this.dopo = { text: this.dopo ? `${this.dopo.text} ${text}` : text, push: ownPush || !!this.dopo?.push };
+			return;
+		}
 		await this.turn(text, this.state.enabled && this.deps.nucleo.available);
+	}
+
+	/** Fine di un turno: la frase tenuta da parte parte adesso, quando anche la voce del turno ha finito di suonare
+	 *  (due voci ElevenLabs si mescolerebbero). Se nel frattempo la conversazione si e' chiusa, si lascia. */
+	private async riprendi(): Promise<void> {
+		if (!this.dopo || this.dopoInAttesa) return;
+		this.dopoInAttesa = true;
+		try {
+			const t0 = Date.now();
+			while ((this.attesaVoce || (this.vocePartita && !this.voceFinita)) && Date.now() - t0 < 20_000) {
+				await new Promise(r => setTimeout(r, 150));
+			}
+		} finally {
+			this.dopoInAttesa = false;
+		}
+		const d = this.dopo;
+		this.dopo = undefined;
+		if (!d || this.currentAbort || this.remote || !this.state.enabled || !(this.state.conversing || d.push)) return;
+		this.out.info(`frase tenuta da parte, adesso: "${d.text}"`);
+		await this.turn(d.text, this.state.enabled && this.deps.nucleo.available);
 	}
 
 	/** Vero mentre un turno e' in corso (pensa o parla): il ponte non ne apre un secondo. */
@@ -1244,24 +1284,32 @@ export class Assistant {
 			this.passo(speak ? 'risposta pronta, la voce finisce di parlare' : 'risposta pronta', 'fatto');
 			return full;
 		};
+		// le battute a tre gia' dette, anche se un tocco ferma il giro a meta'
+		const altre: { chi: string; testo: string }[] = [];
+		let detta: string | undefined;
+		// Ogni risposta passa di qui, da qualunque cervello arrivi: il segnale si toglie, e chi e' chiamato risponde.
+		const chiudi = async (risposta: string, brain: BrainName, said?: string | null): Promise<string> => {
+			const { testo: answer, ospite } = chiamata(risposta, offerti);
+			if (this.chi() === 'melissa') this.dallUltimoOspite++;
+			detta = answer;
+			const passata = ospite && speak ? await this.aTre(ospite, answer, ac.signal, altre, brain) : false;
+			const full = done(answer, brain, said, !passata);
+			this.registraAltre(altre);
+			return full;
+		};
 		const interrupted = (): string => {
 			// barge-in: chiudo senza "final" (la voce e' gia' stata fermata dal Nucleo)
-			const partial = this.turnText;
+			const partial = detta ?? this.turnText;
 			this.speaking = false;
 			this.passo('interrotta', 'errore');
-			this.markInterrupted(partial);
+			this.markInterrupted(partial, altre);
 			return partial;
 		};
 
 		try {
 			const risposta = await this.runAgent(userText, speak, ac.signal, pick.brain);
 			if (pick.brain === 'agnes' && viaRouter) this.router.agnesOk();
-			const { testo: answer, ospite } = chiamata(risposta, offerti);
-			if (this.chi() === 'melissa') this.dallUltimoOspite++;
-			const altre = ospite && speak ? await this.aTre(ospite, answer, ac.signal) : [];
-			const full = done(answer, pick.brain, note, altre.length === 0);
-			this.registraAltre(altre);
-			return full;
+			return await chiudi(risposta, pick.brain, note);
 		} catch (e) {
 			if (ac.signal.aborted) return interrupted();
 			this.out.warn(`cervello ${pick.brain}: ${(e as any)?.message ?? e}`);
@@ -1288,7 +1336,7 @@ export class Assistant {
 					try {
 						this.history.pop(); // la domanda la rimette runAgent
 						const answer = await this.runAgent(userText, speak, ac.signal, riserva);
-						return done(answer, riserva, note2);
+						return await chiudi(answer, riserva, note2);
 					} catch (e2) {
 						if (ac.signal.aborted) return interrupted();
 						this.out.warn(`cervello ${riserva}: ${(e2 as any)?.message ?? e2}`);
@@ -1298,14 +1346,13 @@ export class Assistant {
 			// Ultima spiaggia: Apple senza strumenti (vecchio ripiego).
 			const fb = !this.turnText.trim() ? await this.appleFallback(userText) : null;
 			if (fb !== null) {
-				this.state.brain = 'apple';
-				if (speak) {
-					this.feedSpeak(fb);
-					this.finalizeSpeech(true);
+				if (speak) this.feedSpeak(fb);
+				try {
+					return await chiudi(fb, 'apple');
+				} catch (e3) {
+					if (ac.signal.aborted) return interrupted();
+					throw e3;
 				}
-				this.recordAnswer(fb);
-				this.afterTurn(speak);
-				return fb;
 			}
 			this.state.brain = 'nessuno';
 			const msg = 'Agnes e\' a terra e pure il cervello di riserva non risponde. Riprova tra poco.';
@@ -1319,26 +1366,29 @@ export class Assistant {
 		} finally {
 			this.invitoTurno = '';
 			if (this.currentAbort === ac) this.currentAbort = undefined;
+			if (this.dopo) void this.riprendi();
 		}
 	}
 
 	/**
 	 * Melissa ha tirato dentro un personaggio: risponde lui con la sua voce, poi lei chiude, tornando ad Andrea.
 	 * Due battute brevi senza strumenti; ognuna si pensa mentre quella prima suona, e parte quando quella prima e'
-	 * finita (due voci ElevenLabs sono due socket, e il loro audio si mescolerebbe). Torna le righe per il registro.
+	 * finita (due voci ElevenLabs sono due socket, e il loro audio si mescolerebbe). Le righe dette vanno in `fatte`
+	 * appena partono, anche se un tocco ferma il giro dopo. Vero se ha preso la voce (e chiuso il turno di Melissa).
 	 */
-	private async aTre(chi: string, detta: string, signal: AbortSignal): Promise<{ chi: string; testo: string }[]> {
+	private async aTre(chi: string, detta: string, signal: AbortSignal, fatte: { chi: string; testo: string }[], brain: BrainName = 'agnes'): Promise<boolean> {
 		const p = PERSONAGGI[chi];
-		if (!p || !this.speaking || this.remote) return [];
-		// la coda della risposta di Melissa va detta prima di passare la voce
+		if (!p || !this.speaking || this.remote) return false;
+		// la coda della risposta di Melissa va detta prima di passare la voce, e il suo turno si chiude adesso:
+		// senza final il Nucleo lo tiene aperto (e "speaking") per 20 s, e la battuta aspetterebbe tutto quel silenzio
 		const rest = this.chunker.flush();
 		if (rest) this.emitClause(rest);
+		if (!this.firstSpeakChunk) this.chiudiVoce(); // un final senza frasi aprirebbe un turno vuoto
 		this.dallUltimoOspite = 0;
 		this.ultimoOspite = chi;
-		const fatte: { chi: string; testo: string }[] = [];
 		const finora = [
 			...this.state.log.filter(r => r.role !== 'azione').slice(-10)
-				.map(r => (r.role === 'tu' ? `Andrea: ${r.text}` : /^(Darlene|Elliot|Krista): /.test(r.text) ? r.text : `Melissa: ${r.text}`)),
+				.map(r => (r.role === 'tu' ? `Andrea: ${r.text}` : dallaRiga(r.text).chi !== 'melissa' ? r.text : `Melissa: ${r.text}`)),
 			`Melissa: ${detta}`,
 		].join('\n');
 		try {
@@ -1346,8 +1396,9 @@ export class Assistant {
 				`${p.carattere} Sei nella Bottega, l'IDE di Andrea, in una chiacchierata a voce a tre con lui e Melissa; Melissa ti ha appena tirato in mezzo, e tocca a te per ${RUOLI[chi] ?? 'dire la tua'}. Sai solo quello che c'e' nella chiacchierata: non inventare stati di progetti, lavori o sessioni. ${REGOLE}`,
 				`La chiacchierata:\n${finora}\n\nRispondi alla domanda di Melissa e ad Andrea in una o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero, e puoi anche punzecchiarla. Solo le parole che diresti.`,
 				signal,
+				brain,
 			);
-			if (!battuta) return fatte;
+			if (!battuta) return true;
 			await this.finoAlSilenzio(signal);
 			this.direCon(battuta, p.voce);
 			fatte.push({ chi, testo: battuta });
@@ -1355,6 +1406,7 @@ export class Assistant {
 				`${MELISSA_CORE}\n\n${TRUTH_RULE}`,
 				`La chiacchierata:\n${finora}\n${p.nome}: ${battuta}\n\n${p.nome} ha appena detto la sua. Chiudi tu in una o due frasi, rivolta ad Andrea, riprendendo il filo o rispondendo a ${p.nome} a modo tuo. Solo le parole che diresti.`,
 				signal,
+				brain,
 			);
 			if (chiusa) {
 				await this.finoAlSilenzio(signal);
@@ -1365,11 +1417,12 @@ export class Assistant {
 			if (signal.aborted) throw e;
 			this.out.warn(`personaggi: ${p.nome} non ha risposto (${(e as any)?.message ?? e})`);
 		}
-		return fatte;
+		return true;
 	}
 
-	/** Una battuta breve, senza strumenti, con il cervello di sempre. Null se non arriva niente. */
-	private async breve(system: string, user: string, signal: AbortSignal): Promise<string | null> {
+	/** Una battuta breve, senza strumenti, con il cervello che ha risposto al turno (con Agnes a terra, la riserva).
+	 *  Null se non arriva niente. */
+	private async breve(system: string, user: string, signal: AbortSignal, brain: BrainName = 'agnes'): Promise<string | null> {
 		let text = '';
 		const ac = new AbortController();
 		const stop = () => ac.abort();
@@ -1377,8 +1430,16 @@ export class Assistant {
 		const t = setTimeout(stop, 20_000);
 		try {
 			const messages: LlmMessage[] = [{ role: 'system', content: system }, { role: 'user', content: user }];
-			if (this.deps.stream) await this.deps.stream(messages, [], d => (text += d.content ?? ''), ac.signal);
-			else await this.callAgnesPlain(messages, d => (text += d.content ?? ''), ac.signal);
+			const riserva = brain === 'deepseek' ? this.deps.cervelli?.riservaDeepseek?.() : undefined;
+			const stream = brain === 'apple'
+				? (this.deps.appleStream ?? (this.appleAvailable() ? this.appleStreamFn() : undefined))
+				: (riserva && this.deps.cervelli?.streamFor(riserva)) || this.deps.stream;
+			if (stream) await stream(messages, [], d => (text += d.content ?? ''), ac.signal);
+			else if (brain === 'apple') {
+				// il ripiego di Apple senza stream: lo stesso ai.generate del Nucleo
+				const r = await this.deps.nucleo.request<{ text: string }>('ai.generate', { prompt: user, instructions: system, maxTokens: 300 }, 20_000);
+				text = r?.text ?? '';
+			} else await this.callAgnesPlain(messages, d => (text += d.content ?? ''), ac.signal);
 		} finally {
 			clearTimeout(t);
 			signal.removeEventListener('abort', stop);
@@ -1412,19 +1473,25 @@ export class Assistant {
 		});
 	}
 
-	/** Le battute a tre nel registro e nella storia: quelle dei personaggi col nome davanti, come le vede il Mac. */
-	private registraAltre(altre: { chi: string; testo: string }[]): void {
-		for (const r of altre) {
-			if (r.chi === 'melissa') {
-				this.pushLog('melissa', r.testo);
-				this.history.push({ role: 'assistant', content: r.testo });
-			} else {
-				const n = nomeDi(r.chi);
-				this.pushLog('melissa', `${n}: ${r.testo}`);
-				this.history.push({ role: 'user', content: `(${n} ha detto: ${r.testo})` });
-			}
-		}
+	/** Una riga detta nel registro (col nome davanti, se non e' Melissa) e nella storia, con chi l'ha detta. */
+	private registra(chi: string, testo: string, interrotta = false): void {
+		if (!testo && !interrotta) return;
+		const riga = chi !== 'melissa' ? `${nomeDi(chi)}: ${testo}` : testo;
+		if (testo) this.pushLog('melissa', interrotta ? `${riga} (interrotta)` : riga);
+		this.history.push({ role: 'assistant', content: interrotta ? (testo ? testo + ' ' : '') + '[interrotta da Andrea]' : testo, chi });
+	}
+
+	/** Le battute a tre nel registro e nella storia; `interrotta`: l'ultima e' stata fermata da un tocco. */
+	private registraAltre(altre: { chi: string; testo: string }[], interrotta = false): void {
+		altre.forEach((r, i) => this.registra(r.chi, r.testo, interrotta && i === altre.length - 1));
 		if (altre.length) this.trimHistory();
+	}
+
+	/** Messaggi per il cervello: le righe di chi ha la chiamata sono sue, quelle degli altri "(Nome ha detto: ...)". */
+	private storia(): LlmMessage[] {
+		const io = this.chi();
+		return this.history.map(({ chi, ...m }) =>
+			m.role !== 'assistant' || (chi ?? 'melissa') === io ? m : { role: 'user', content: `(${nomeDi(chi ?? 'melissa')} ha detto: ${m.content ?? ''})` });
 	}
 
 	private recordAnswer(answer: string): void {
@@ -1432,20 +1499,20 @@ export class Assistant {
 		clearTimeout(this.partialStateTimer);
 		this.partialStateTimer = undefined;
 		this.turnText = '';
-		// la risposta di un personaggio entra nel registro col suo nome davanti
-		const p = PERSONAGGI[this.chi()];
-		this.pushLog('melissa', p ? `${p.nome}: ${clean}` : clean);
-		this.history.push({ role: 'assistant', content: clean });
+		// la risposta di un personaggio entra nel registro col suo nome davanti, e nella storia come sua
+		this.registra(this.chi(), clean);
 		this.trimHistory();
 	}
 
-	private markInterrupted(partial: string): void {
-		const clean = cleanForVoice(partial);
+	/** Un tocco ha fermato la risposta. Durante le battute a tre la risposta era gia' detta per intero: resta, con le
+	 *  battute gia' partite, e l'interrotta e' l'ultima di queste. */
+	private markInterrupted(partial: string, altre: { chi: string; testo: string }[] = []): void {
+		const clean = senzaSegnale(cleanForVoice(partial));
 		clearTimeout(this.partialStateTimer);
 		this.partialStateTimer = undefined;
 		this.turnText = '';
-		if (clean) this.pushLog('melissa', clean + ' (interrotta)');
-		this.history.push({ role: 'assistant', content: (clean ? clean + ' ' : '') + '[interrotta da Andrea]' });
+		this.registra(this.chi(), clean, !altre.length);
+		this.registraAltre(altre, true);
 		this.trimHistory();
 	}
 
@@ -1505,7 +1572,7 @@ export class Assistant {
 			const clean = t.testo.trim().slice(0, 2000);
 			if (!clean) continue;
 			this.pushLog(t.chi, clean);
-			this.history.push({ role: t.chi === 'tu' ? 'user' : 'assistant', content: clean });
+			this.history.push(t.chi === 'tu' ? { role: 'user', content: clean } : { role: 'assistant', content: clean, chi: 'melissa' });
 		}
 		this.trimHistory();
 	}
@@ -1574,9 +1641,7 @@ export class Assistant {
 			return;
 		}
 		this.out.info(`voce: testo concluso, ${this.saidClauses.size} frasi inviate, ${this.turnText.length} caratteri generati`);
-		if (sendFinal) void this.deps.nucleo.request('voice.speak', { final: true }, 8000).catch((e: any) => {
-			this.out.warn(`voce: chiusura del turno nel Nucleo fallita (${e?.message ?? e})`);
-		});
+		if (sendFinal) this.chiudiVoce();
 		this.speaking = false;
 		if (this.saidClauses.size > 0 && !this.voceFinita) {
 			// La generazione del testo e' finita, ma il Nucleo potrebbe ancora riprodurre le frasi.
@@ -1592,6 +1657,14 @@ export class Assistant {
 			clearTimeout(this.orbHideTimer);
 			this.orbHideTimer = setTimeout(() => this.restOrb(), 4000);
 		}
+	}
+
+	/** Chiude il turno di voce aperto nel Nucleo: le frasi mandate suonano fino in fondo, poi voice.state dice che e'
+	 *  finita. Senza, il Nucleo resta su "speaking" per 20 s. */
+	private chiudiVoce(): void {
+		void this.deps.nucleo.request('voice.speak', { final: true }, 8000).catch((e: any) => {
+			this.out.warn(`voce: chiusura del turno nel Nucleo fallita (${e?.message ?? e})`);
+		});
 	}
 
 	/** Dice una frase intera gia' pronta (conferme, errori), con la stessa via dello streaming. */
@@ -1613,7 +1686,7 @@ export class Assistant {
 		const system = this.systemPrompt();
 		const messages: LlmMessage[] = [
 			{ role: 'system', content: brain === 'apple' ? appleInstructions(this.persona(), system.slice((this.cachedCore ?? '').length).trim()) : system },
-			...this.history,
+			...this.storia(),
 			// con «racconta» il contenuto gia' letto va con la domanda, ma non resta nella storia
 			{ role: 'user', content: this.racconto ? `${userText}\n\n${this.racconto.allegato}` : userText },
 		];

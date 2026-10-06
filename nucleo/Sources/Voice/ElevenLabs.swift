@@ -144,17 +144,39 @@ enum ElevenLabsError: Error, LocalizedError {
     }
 }
 
-/// The realtime socket. Main-actor bound: every callback lands on main.
+/// The realtime socket. Control (connect, send, flush, close, keep-alive) is main-actor
+/// bound; receiving is not: frames are read and decoded on a private serial queue
+/// (ElevenLabsReceiver), and their events land on main in arrival order.
+///
+/// Playback mode (`onPlayback` set before `connect()`, the Speaker): the PCM goes from the
+/// socket straight to AudioOut on that queue, never through main, with an AudioOut marker
+/// before the first PCM of each audio turn and one after its last. A busy main thread (the
+/// island's animations, the HTTP server, a build loading the Mac) then delays only the
+/// bookkeeping, not the audio. In that mode `.audio` and `.turnFinished` do not come
+/// through `onEvent`.
 @MainActor
 final class ElevenLabsStream {
-    enum Event {
+    enum Event: Sendable {
         case audio(Data)
         case turnFinished
         case sessionFinished
         case failed(ElevenLabsError)
     }
 
+    enum Playback: Sendable {
+        /// `bytes` of PCM went to AudioOut. `turn` is set on the first PCM of an audio
+        /// turn: its start marker was queued just before it.
+        case audio(bytes: Int, turn: Int?)
+        /// is_final_audio_for_turn. `turn` is set when the turn had audio: its end marker
+        /// was queued after its last PCM.
+        case turnFinished(turn: Int?)
+        /// AudioOut reached the start or the end marker of an audio turn. Delivered even
+        /// after a close: that audio was already queued and still plays.
+        case heard(turn: Int, end: Bool)
+    }
+
     var onEvent: ((Event) -> Void)?
+    var onPlayback: ((Playback) -> Void)?
 
     private let apiKey: String
     private let voiceID: String
@@ -162,18 +184,19 @@ final class ElevenLabsStream {
     /// Asked every keep-alive tick: false lets the socket close after `idleCutoff`.
     var keepWarm: (() -> Bool)?
     private var task: URLSessionWebSocketTask?
+    private var receiver: ElevenLabsReceiver?
     /// A close_socket frame is already queued. New text must use a fresh socket.
     private var finishing = false
-    private var pump: Task<Void, Never>?
     private var keepAlive: Timer?
     private var lastSend = Date()
-    /// Odd trailing byte of a chunk: a 16-bit frame split across two messages.
-    private var residue = Data()
     private(set) var hasSpokenBefore = false
     var isOpen: Bool { task != nil }
     /// The socket has sent close_socket and is still bringing in the last turn's audio: it
     /// takes no new text until the server ends the session and it is opened again.
     var isFinishing: Bool { task != nil && finishing }
+    /// Seconds since the receiver last had PCM, nil if none on this connection. Ahead of
+    /// main: its events may still be on their way.
+    var secondsSinceAudio: TimeInterval? { receiver?.secondsSinceAudio }
 
     /// Close after this long without text instead of pinging forever.
     private static let idleCutoff: TimeInterval = 90
@@ -199,19 +222,24 @@ final class ElevenLabsStream {
         task = socket
         finishing = false
         hasSpokenBefore = false
-        residue.removeAll()
         lastSend = Date()
         socket.resume()
         send(["voices": [voiceID], "voice_settings": ["stability": 0.5, "similarity_boost": 0.75]])
-        startPump(socket)
+        let r = ElevenLabsReceiver(socket: socket, plays: onPlayback != nil) { [weak self] delivery in
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated { self?.deliver(delivery, from: socket) }
+            }
+        }
+        receiver = r
+        r.start()
         startKeepAlive()
         return true
     }
 
     func close() {
         keepAlive?.invalidate(); keepAlive = nil
-        pump?.cancel(); pump = nil
-        residue.removeAll()
+        // after this nothing more of this connection reaches AudioOut or main
+        receiver?.stop(); receiver = nil
         let socket = task
         task = nil
         finishing = false
@@ -239,49 +267,26 @@ final class ElevenLabsStream {
         send(["close_socket": true])
     }
 
-    private func startPump(_ socket: URLSessionWebSocketTask) {
-        pump = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    let message = try await socket.receive()
-                    guard let self, self.task === socket else { return }
-                    self.handle(message)
-                } catch {
-                    guard let self, self.task === socket else { return }
-                    self.task = nil
-                    self.keepAlive?.invalidate(); self.keepAlive = nil
-                    self.onEvent?(.failed(.disconnected(error.localizedDescription)))
-                    return
-                }
+    private func deliver(_ delivery: ElevenLabsReceiver.Delivery, from socket: URLSessionWebSocketTask) {
+        switch delivery {
+        case .playback(let p):
+            if case .heard = p { onPlayback?(p); return }
+            guard task === socket else { return }
+            onPlayback?(p)
+        case .event(let e):
+            guard task === socket else { return }
+            switch e {
+            case .failed(.disconnected(_)):
+                task = nil
+                receiver = nil
+                keepAlive?.invalidate(); keepAlive = nil
+                onEvent?(e)
+            case .sessionFinished:
+                onEvent?(e)
+                close()
+            default:
+                onEvent?(e)
             }
-        }
-    }
-
-    private func handle(_ message: URLSessionWebSocketTask.Message) {
-        let payload: Data
-        switch message {
-        case .string(let s): payload = Data(s.utf8)
-        case .data(let d): payload = d
-        @unknown default: return
-        }
-        guard let frame = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else { return }
-        if frame["error"] != nil || frame["code"] != nil {
-            let detail = (frame["message"] as? String) ?? (frame["error"] as? String) ?? "errore sconosciuto"
-            onEvent?(.failed(.server(detail)))
-            return
-        }
-        if let b64 = frame["audio"] as? String, var pcm = Data(base64Encoded: b64), !pcm.isEmpty {
-            if !residue.isEmpty { pcm = residue + pcm; residue.removeAll() }
-            if pcm.count % 2 == 1 { residue = pcm.suffix(1); pcm = pcm.dropLast() }
-            if !pcm.isEmpty { onEvent?(.audio(pcm)) }
-        }
-        if frame["is_final_audio_for_turn"] as? Bool == true {
-            residue.removeAll()
-            onEvent?(.turnFinished)
-        }
-        if frame["is_final"] as? Bool == true {
-            onEvent?(.sessionFinished)
-            close()
         }
     }
 
@@ -307,6 +312,155 @@ final class ElevenLabsStream {
         lastSend = Date()
         socket.send(.string(json)) { error in
             if let error { Log.warn("ElevenLabs: invio fallito (\(error.localizedDescription))") }
+        }
+    }
+}
+
+/// The receiving half of one connection. Everything here runs on `lane`, never on main:
+/// receive, JSON and base64, the odd trailing byte, and in playback mode the Float32
+/// conversion and the hand-off to AudioOut, markers included, in arrival order.
+private final class ElevenLabsReceiver: @unchecked Sendable {
+    enum Delivery: Sendable {
+        case event(ElevenLabsStream.Event)
+        case playback(ElevenLabsStream.Playback)
+    }
+
+    private let socket: URLSessionWebSocketTask
+    private let plays: Bool
+    /// Hops to main. Called in arrival order, and (except `.heard`) never after `stop()`.
+    private let deliver: @Sendable (Delivery) -> Void
+    private let lane = DispatchQueue(label: "nucleo.elevenlabs-in", qos: .userInitiated)
+
+    // lane only
+    /// Odd trailing byte of a chunk: a 16-bit frame split across two messages.
+    private var residue = Data()
+    /// The audio turn being played: its start marker is queued, its end marker not yet.
+    private var turn: Int?
+    /// AudioOut generation of that turn: a barge-in drops the rest of it.
+    private var turnGeneration = 0
+
+    // shared with main, under `lock`
+    private let lock = NSLock()
+    private var alive = true
+    private var lastAudio: DispatchTime?
+
+    /// Audio turn numbers, unique across connections (the Speaker keys segments by them).
+    private static let seqLock = NSLock()
+    nonisolated(unsafe) private static var seq = 0
+
+    init(socket: URLSessionWebSocketTask, plays: Bool, deliver: @escaping @Sendable (Delivery) -> Void) {
+        self.socket = socket
+        self.plays = plays
+        self.deliver = deliver
+    }
+
+    func start() { lane.async { self.receiveNext() } }
+
+    /// After this returns nothing more of this connection reaches AudioOut or main (bar the
+    /// `.heard` of markers already queued).
+    func stop() {
+        lock.lock(); alive = false; lock.unlock()
+    }
+
+    var secondsSinceAudio: TimeInterval? {
+        lock.lock(); defer { lock.unlock() }
+        guard let lastAudio else { return nil }
+        return Double(DispatchTime.now().uptimeNanoseconds - lastAudio.uptimeNanoseconds) / 1e9
+    }
+
+    private var isAlive: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return alive
+    }
+
+    private static func nextTurn() -> Int {
+        seqLock.lock(); defer { seqLock.unlock() }
+        seq += 1
+        return seq
+    }
+
+    private func receiveNext() {
+        socket.receive { [self] result in
+            let at = DispatchTime.now()
+            lane.async {
+                guard self.isAlive else { return }
+                switch result {
+                case .success(let message):
+                    if self.handle(message, receivedAt: at) { self.receiveNext() }
+                case .failure(let error):
+                    self.post(.event(.failed(.disconnected(error.localizedDescription))))
+                }
+            }
+        }
+    }
+
+    private func post(_ d: Delivery) {
+        lock.lock(); defer { lock.unlock() }
+        if alive { deliver(d) }
+    }
+
+    /// False once the session is over: nothing more to read.
+    private func handle(_ message: URLSessionWebSocketTask.Message, receivedAt: DispatchTime) -> Bool {
+        let payload: Data
+        switch message {
+        case .string(let s): payload = Data(s.utf8)
+        case .data(let d): payload = d
+        @unknown default: return true
+        }
+        guard let frame = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else { return true }
+        if frame["error"] != nil || frame["code"] != nil {
+            let detail = (frame["message"] as? String) ?? (frame["error"] as? String) ?? "errore sconosciuto"
+            post(.event(.failed(.server(detail))))
+            return true
+        }
+        if let b64 = frame["audio"] as? String, var pcm = Data(base64Encoded: b64), !pcm.isEmpty {
+            if !residue.isEmpty { pcm = residue + pcm; residue.removeAll() }
+            if pcm.count % 2 == 1 { residue = pcm.suffix(1); pcm = pcm.dropLast() }
+            if !pcm.isEmpty { audio(pcm, receivedAt: receivedAt) }
+        }
+        if frame["is_final_audio_for_turn"] as? Bool == true {
+            residue.removeAll()
+            turnEnded()
+        }
+        if frame["is_final"] as? Bool == true {
+            post(.event(.sessionFinished))
+            return false
+        }
+        return true
+    }
+
+    private func audio(_ pcm: Data, receivedAt: DispatchTime) {
+        guard plays else { return post(.event(.audio(pcm))) }
+        // under the lock: a close() on main waits for this hand-off, then nothing follows it
+        lock.lock(); defer { lock.unlock() }
+        guard alive else { return }
+        lastAudio = receivedAt
+        var started: Int?
+        if turn == nil {
+            started = Self.nextTurn()
+            turn = started
+            turnGeneration = AudioOut.shared.generation
+        }
+        let gen = turnGeneration
+        // main learns of the turn before its start marker can fire (both hop to main, in order)
+        deliver(.playback(.audio(bytes: pcm.count, turn: started)))
+        if let started {
+            let deliver = self.deliver
+            AudioOut.shared.marker(generation: gen) { deliver(.playback(.heard(turn: started, end: false))) }
+        }
+        AudioOut.shared.enqueuePCM16(pcm, generation: gen, receivedAt: started == nil ? nil : receivedAt)
+    }
+
+    private func turnEnded() {
+        guard plays else { return post(.event(.turnFinished)) }
+        lock.lock(); defer { lock.unlock() }
+        guard alive else { return }
+        let ended = turn
+        turn = nil
+        deliver(.playback(.turnFinished(turn: ended)))
+        if let ended {
+            let deliver = self.deliver
+            AudioOut.shared.marker(generation: turnGeneration) { deliver(.playback(.heard(turn: ended, end: true))) }
         }
     }
 }

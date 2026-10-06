@@ -4,6 +4,7 @@ import type { AssistantState } from './assistant';
 import type { BrainState, Effort, Provider } from './cervelli';
 import type { WorkCounts, WorkItem } from './jobs';
 import type { AgentActivity } from './attivita-tipi';
+import { esiste } from './personaggi';
 
 /** Una voce della bacheca della Memoria, per sessione. */
 export interface BoardEntry {
@@ -28,7 +29,7 @@ export interface BarraActions {
 	converse(): void;
 	ask(text: string): void;
 	toggleVoice(): void;
-	/** Con chi parla Andrea: 'melissa', 'darlene', 'elliot' o 'krista' (src/personaggi.ts). */
+	/** Con chi parla Andrea: 'melissa' o la chiave di un personaggio caricato da personaggi/ (src/personaggi.ts). */
 	setPersonaggio(chi: string): void;
 	/** `sempre`: diventa il predefinito (CONTRATTI 9.8), altrimenti vale per questa conversazione */
 	setBrain(provider: Provider, model: string, sempre?: boolean): Promise<void>;
@@ -118,7 +119,7 @@ export class BarraView implements vscode.WebviewViewProvider {
 			case 'voice.toggle':
 				return this.act.toggleVoice();
 			case 'personaggio.set':
-				return ['melissa', 'darlene', 'elliot', 'krista'].includes(m.chi) ? this.act.setPersonaggio(m.chi) : undefined;
+				return m.chi === 'melissa' || esiste(m.chi) ? this.act.setPersonaggio(m.chi) : undefined;
 			case 'brain.set':
 				try {
 					await this.act.setBrain(m.provider, s(m.model), m.sempre === true);
