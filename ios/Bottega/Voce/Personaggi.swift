@@ -134,15 +134,20 @@ enum Personaggi {
 
     /// Cosa si aggiunge al prompt di Melissa perche' sappia di poter tirare dentro qualcuno.
     /// `voluto`: chi Andrea ha appena chiesto di sentire. `scelto`: chi puo' tirare dentro da sola adesso, se puo'.
-    static func invito(voluto: String?, scelto: String?) -> String {
+    /// `vivo`: piu' risposte senza ospiti, quindi lo tira dentro adesso. Stesso testo di `invitoConversa` della mod.
+    static func invito(voluto: String?, scelto: String?, vivo: Bool = false) -> String {
         if let voluto, let p = tutti[voluto] {
             return "Andrea vuole sentire anche \(p.nome): rispondi tu e chiudi con una domanda rivolta a lei o a lui, " +
                 "poi scrivi alla fine, da sola, la parola @\(voluto)."
         }
         guard let scelto, let p = tutti[scelto] else { return "" }
+        let chiudi = "chiudi con una domanda rivolta a \(p.nome) e scrivi alla fine, da sola, la parola @\(scelto)"
+        if vivo {
+            return "Stavolta tira dentro \(p.nome) di Mr. Robot (\(ruoli[scelto] ?? p.nome)): trova l'aggancio in quello che " +
+                "ha detto Andrea, rispondi tu e \(chiudi)."
+        }
         return "Con te c'e' anche \(p.nome) di Mr. Robot (\(ruoli[scelto] ?? p.nome)). Solo quando rende la chiacchierata " +
-            "piu' viva puoi tirarlo dentro: chiudi con una domanda rivolta a \(p.nome) e scrivi alla fine, da sola, la " +
-            "parola @\(scelto). Di solito rispondi da sola."
+            "piu' viva puoi tirarlo dentro: \(chiudi). Di solito rispondi da sola."
     }
 
     /// Il prompt di sistema di un personaggio che ha la chiamata sull'iPhone.

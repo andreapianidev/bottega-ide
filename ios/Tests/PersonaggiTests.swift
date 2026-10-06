@@ -41,6 +41,10 @@ final class PersonaggiTests: XCTestCase {
         XCTAssertTrue(uno.contains("@elliot"))
         XCTAssertFalse(uno.contains("@darlene"))
         XCTAssertFalse(uno.contains("\u{2014}"))
+        XCTAssertTrue(uno.contains("Solo quando"))
+        let vivo = Personaggi.invito(voluto: nil, scelto: "krista", vivo: true)
+        XCTAssertTrue(vivo.contains("Stavolta tira dentro Krista"))
+        XCTAssertTrue(vivo.contains("@krista"))
     }
 
     func testAdattoSceglieIlCodiceNonIlModello() {

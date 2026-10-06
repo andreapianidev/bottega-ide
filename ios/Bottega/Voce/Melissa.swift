@@ -215,7 +215,8 @@ final class Melissa {
             let voluto = p == nil ? Personaggi.ospiteChiesto(testo) : nil
             let scelto = p == nil && self.conversazione && voce && self.dallUltimoOspite >= 2
                 ? Personaggi.adatto(testo, ultimo: self.ultimoOspite) : nil
-            let invito = p == nil ? Personaggi.invito(voluto: voluto, scelto: scelto) : ""
+            // dopo due risposte senza ospiti puo' tirarlo dentro, dopo quattro lo fa (come la mod 0.12)
+            let invito = p == nil ? Personaggi.invito(voluto: voluto, scelto: scelto, vivo: self.dallUltimoOspite >= 4) : ""
             let contesto = p == nil ? self.ponte.contestoMelissa(per: testo) : nil
             let battuta = try await telefono.rispondi(testo, chi: self.chiParla, invito: invito, voce: voce,
                                                       contestoMac: contesto, audio: suona)
@@ -263,8 +264,9 @@ final class Melissa {
         parlante = "Melissa e \(p.nome)"
         _ = try await telefono.interviene(
             chi,
-            istruzione: "Sei in una chiacchierata a voce a tre con Melissa e Andrea; Melissa ti ha appena tirato in mezzo. " +
-                "Rispondi a Melissa e ad Andrea in una o due frasi, a modo tuo: puoi anche punzecchiarla. Solo le parole che diresti.",
+            istruzione: "Sei in una chiacchierata a voce a tre con Melissa e Andrea; Melissa ti ha appena tirato in mezzo, e " +
+                "tocca a te per \(Personaggi.ruoli[chi] ?? "dire la tua"). Rispondi alla domanda di Melissa e ad Andrea in una " +
+                "o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero, e puoi anche punzecchiarla. Solo le parole che diresti.",
             voce: voce, audio: audio)
         _ = try await telefono.interviene(
             "melissa",

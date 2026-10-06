@@ -2107,7 +2107,9 @@ rete di casa dicono al Mac dov'e' l'iPhone, non portano dati.
   da sola, non piu' di una volta ogni tre risposte. Chi puo' tirare dentro da sola lo sceglie il codice
   (`Personaggi.adatto`, dalla build 122): Elliot se Andrea parla di sicurezza, Krista se rimanda o cerca scuse,
   altrimenti uno diverso dall'ultimo; al prompt arriva solo quel nome, e un altro `@nome` si ignora. Lasciato al
-  modello sceglieva sempre Darlene. I ruoli sono quelli della cronaca della mod (0.11). Il segnale non si mostra e non si legge: il personaggio risponde
+  modello sceglieva sempre Darlene. Dalla build 123, dopo quattro risposte senza ospiti l'invito diventa deciso
+  («Stavolta tira dentro ...») e il personaggio sa per cosa e' stato chiamato. Ruoli, scelta e testo dell'invito
+  sono gli stessi della chiacchierata della mod (0.12, `ospiteDellaFrase`, `invitoConversa`). Il segnale non si mostra e non si legge: il personaggio risponde
   con la sua voce, poi Melissa chiude. Ogni battuta apre il suo socket ElevenLabs con la voce di chi parla. Il
   personaggio usa lo stesso cervello (Agnes o DeepSeek), senza lo snapshot del Mac. Nella storia locale `chi` e' la
   chiave del personaggio; verso il Mac e nella vista diventa `melissa` con il nome davanti («Darlene: ...»), cosi'
