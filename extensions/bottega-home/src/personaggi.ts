@@ -303,6 +303,19 @@ export function invito(voluto: string | null, scelto: string | null, vivo: boole
 		: `Con te c'e' anche ${p.nome} di Mr. Robot (${RUOLI[scelto] ?? p.nome}). Solo quando rende la chiacchierata piu' viva puoi tirarlo dentro: ${chiudi}. Di solito rispondi da sola.`;
 }
 
+/** Quante letture di «racconta» finiscono passando la parola a un personaggio (CONTRATTI 9.11). */
+export const OSPITE_RACCONTO = 0.5;
+
+/**
+ * L'invito in una lettura di «racconta»: Melissa racconta tutto da sola e solo nell'ultima frase tira dentro `chi`,
+ * con un aggancio in quello che ha raccontato. '' se `chi` non c'e'.
+ */
+export function invitoRacconto(chi: string | null): string {
+	const p = chi ? PERSONAGGI[chi] : undefined;
+	if (!chi || !p) return '';
+	return `Racconta tutto da sola, come ti e' chiesto; solo alla fine, nell'ultima frase, tira dentro ${p.nome} di Mr. Robot (${RUOLI[chi] ?? p.nome}): trova l'aggancio in quello che hai raccontato, un punto delicato, un rischio o una scelta da discutere, chiudi con una domanda rivolta a ${p.nome} e scrivi alla fine, da sola, la parola @${chi}.`;
+}
+
 /** Le regole che ogni personaggio rispetta, qualunque carattere abbia: voce, lingua. */
 export const REGOLE =
 	"Parli sempre e solo in italiano. Tutto viene letto ad alta voce: frasi parlate, niente markdown, elenchi, emoji, asterischi, niente lineette lunghe.";

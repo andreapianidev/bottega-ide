@@ -8,7 +8,7 @@ import type { Cervelli } from './cervelli';
 import { BrainName, BrainRouter, OpenAiStreamFn, appleInstructions, appleOpenAiStream, appleToolSpecs } from './cervello';
 import { SystemStats } from './nucleo';
 import { ATTESA_MS, eFallito, fraseAttesa, fraseFine, fraseInizio } from './racconto';
-import { ORDINE, PERSONAGGI, REGOLE, RIEMPITIVI_MELISSA, RUOLI, chiChiede, chiamata, chiamatoPerNome, cuore, dallaRiga, elenco, esiste, invito, nomeDi, ospiteChiesto, ospiteDellaFrase, perArgomento, senzaSegnale, senzaSegnaleInCorso } from './personaggi';
+import { ORDINE, OSPITE_RACCONTO, PERSONAGGI, REGOLE, RIEMPITIVI_MELISSA, RUOLI, chiChiede, chiamata, chiamatoPerNome, cuore, dallaRiga, elenco, esiste, invito, invitoRacconto, nomeDi, ospiteChiesto, ospiteDellaFrase, perArgomento, senzaSegnale, senzaSegnaleInCorso } from './personaggi';
 import { sezioneMemoria } from './memoria-contesto';
 import { Intento, RIEMPI_MEMORIA, RIEMPI_STRUMENTO_MS, RIEMPI_TEMPI, daScaldare, intento, scegliRiempitivo, senzaAttacco, soloAttacco } from './riempitivi';
 
@@ -616,7 +616,7 @@ export class Assistant {
 	private registro?: vscode.Memento;
 	private registroWrites: Promise<void> = Promise.resolve();
 	/** Durante «racconta»: DeepSeek per pensare, il contenuto gia' letto attaccato alla domanda, i passi detti a voce. */
-	private racconto?: { allegato: string };
+	private racconto?: { allegato: string; titolo: string };
 	/** Il testo puo' essere completo mentre l'altoparlante sta ancora leggendo. */
 	private raccontoAudio = false;
 	private history: Detto[] = [];
@@ -1239,7 +1239,7 @@ export class Assistant {
 			c.tipo === 'codice'
 				? `Il codice davanti ad Andrea, gia' letto (non serve codice_leggi):\n${c.testo}\n\nRacconta il file fino in fondo: spiega il suo scopo, poi percorri i blocchi o le funzioni in ordine e i punti delicati. Non fermarti alla prima frase e non applicare il limite delle risposte brevi. Se il file e' lungo, raggruppa le parti simili ma copri quelle che contano. Parla in frasi naturali, senza leggere simboli o codice riga per riga.`
 				: `I dati veri di ${c.titolo}, come li vede Andrea adesso:\n${c.testo}\n\nRaccontali a voce: il quadro in una frase, poi le due o tre cose che contano con i loro numeri, poi dove intervenire. Non aggiungere numeri che qui non ci sono; se ti serve il dettaglio, usa gli strumenti.`;
-		this.racconto = { allegato };
+		this.racconto = { allegato, titolo: c.titolo };
 		this.emit();
 		try {
 			return await this.turn(domanda, voce, { ragiona: true });
@@ -1304,12 +1304,18 @@ export class Assistant {
 		const scelto = conMelissa && !voluto && this.state.conversing && puo
 			? ospiteDellaFrase(userText, this.ultimoOspite) : null;
 		this.invitoTurno = invito(voluto, scelto, this.dallUltimoOspite >= 2 || (!!adatto && scelto === adatto));
+		// in «racconta» niente chiacchierata, ma meta' delle letture finisce passando la parola a uno di loro, scelto dal
+		// codice come in conversazione: per argomento, altrimenti diverso dall'ultimo (CONTRATTI 9.11)
+		const inRacconto = this.chi() === 'melissa' && speak && !this.remote && !!this.racconto;
+		const ospiteRacconto = inRacconto && this.caso() < OSPITE_RACCONTO
+			? ospiteDellaFrase(`${this.racconto!.titolo} ${userText}`, this.ultimoOspite) : null;
+		if (ospiteRacconto) this.invitoTurno = invitoRacconto(ospiteRacconto);
 		// chi il codice le ha chiesto di tirare dentro: se lo nomina, ovunque, risponde
-		const invitato = voluto ?? scelto;
+		const invitato = voluto ?? scelto ?? ospiteRacconto;
 		// Andrea si rivolge per nome a un personaggio ("Vabbe' Elliot, hai ragione"): risponde lui, poi Melissa chiude
 		const aLui = conMelissa ? chiamatoPerNome(userText, null, true) : null;
 		// risponde chi Melissa chiama, proposto o no: una domanda senza risposta e' peggio
-		const offerti = conMelissa ? ORDINE : [];
+		const offerti = conMelissa || inRacconto ? ORDINE : [];
 
 		const ac = new AbortController();
 		this.currentAbort = ac;

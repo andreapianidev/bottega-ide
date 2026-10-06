@@ -2251,6 +2251,16 @@ chi lo ha chiamato); se la sua battuta chiama davvero qualcuno (regola sopra, co
 risponde una volta ("<Nome> ti ha appena chiesto qualcosa"), poi Melissa chiude con tutto il giro davanti. Gli ospiti
 entrano dopo ogni risposta di Melissa senza ospite; l'invito e' deciso dopo due, o subito per argomento.
 
+**Anche nelle letture (build 131, mod 0.17.3).** Nella barra, una lettura di «racconta» (Melissa a voce, non dall'iPhone)
+finisce con un ospite nella meta' dei casi (`OSPITE_RACCONTO = 0.5`, tirato con `caso`). Lo sceglie il codice con
+`ospiteDellaFrase` sul titolo di cio' che si racconta piu' la domanda: per argomento (Elliot su `password.py`),
+altrimenti uno diverso dall'ultimo. Melissa riceve `invitoRacconto`: racconta tutto da sola e solo nell'ultima frase
+chiude con una domanda per lui e il segnale `@chiave`. Da li' il giro e' quello di sempre: risponde con la sua voce
+(al 40% passa la parola a un altro), poi Melissa chiude; «ferma» interrompe anche lui. In una lettura chi Melissa
+chiama comunque per nome risponde, come in conversazione. Nella mod vale per il riassunto finale (`concludi`) con le
+regole della cronaca: niente ospite per `OSPITE_PAUSA_MS` (60 s) dopo l'ultimo, dopo `OSPITE_VIVO_MS` (120 s) lo tira
+dentro di sicuro; la scelta e' `ospiteAdatto` sulla risposta di Claude e la battuta la dice `interviene`, dopo di lei.
+
 **Sanno cosa fa Andrea.** Melissa e i personaggi ricevono, in fondo al prompt e come dati e non istruzioni, il contesto
 della memoria della Bottega (al piu' 2500 caratteri, passato da `censura`, riletto al piu' ogni due minuti):
 il riassunto del progetto in `~/.bottega/memoria/contesto/<projectKey>.md` (la chiave dalla tabella `sessions` per la

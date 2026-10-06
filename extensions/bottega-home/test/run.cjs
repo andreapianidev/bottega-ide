@@ -1321,6 +1321,32 @@ function makeAssistant(over = {}) {
 		assert.ok(/memoria della Bottega[\s\S]*barra di Melissa/.test(visti[1][1].content), 'e i personaggi');
 	});
 
+	await test('racconta: meta\' delle letture finisce passando la parola a un personaggio, scelto per argomento, con la sua voce', async () => {
+		const nucleo = nucleoCheParla();
+		const visti = [];
+		const giro = scriptedStream([
+			[{ content: 'Il file salva le password in chiaro. Elliot, tu che dici? @elliot' }],
+			[{ content: 'Che vanno cifrate, subito.' }],
+			[{ content: 'Hai sentito.' }],
+		]);
+		const { a } = makeAssistant({ nucleo, stream: (m, ...x) => (visti.push(m), giro(m, ...x)) });
+		a.wire(ctxProva());
+		// 0.9: nessun invito, e il prompt della lettura resta quello di sempre
+		const senza = scriptedStream([[{ content: 'Il file salva i dati.' }]]);
+		const solo = makeAssistant({ nucleo: nucleoCheParla(), stream: (m, ...x) => (visti.push(m), senza(m, ...x)) });
+		solo.a.caso = () => 0.9;
+		solo.a.wire(ctxProva());
+		await solo.a.racconta({ tipo: 'codice', titolo: 'auth.py', testo: 'def login(): pass' });
+		assert.ok(!/@elliot|@darlene|@krista/.test(visti.pop()[0].content), 'senza invito nessun segnale nel prompt');
+		a.caso = () => 0.1;
+		await a.racconta({ tipo: 'codice', titolo: 'password.py', testo: 'def salva(p): open("p").write(p)' });
+		assert.ok(/solo alla fine, nell'ultima frase, tira dentro Elliot[\s\S]*@elliot/.test(visti[0][0].content), 'Elliot, per la password nel titolo');
+		assert.strictEqual(visti.length, 3, 'la lettura, Elliot, la chiusa di Melissa');
+		const suaVoce = nucleo.speaks.find(x => x.voice === ELLIOT);
+		assert.ok(suaVoce && /cifrate/.test(suaVoce.text), 'Elliot parla con la sua voce');
+		assert.ok(!nucleo.speaks.some(x => /@/.test(x.text || '')), 'il segnale non si legge');
+	});
+
 	await test('personaggi: nel 40% dei casi l\'ospite riceve l\'invito a passare la parola a un altro', async () => {
 		const nucleo = nucleoCheParla();
 		const visti = [];
