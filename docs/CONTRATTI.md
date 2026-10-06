@@ -157,7 +157,7 @@ gli errori hanno `ok: false` ed `errore`.
 | `POST /detta` | `{sessione, progetto}` | `{ok}`: apre il microfono (riconoscimento di Apple, `it-IT`, modo push). 409 se ascolta gia' un'altra sessione |
 | `POST /detta/fine` | | `{ok}`: chiude la frase; il testo arriva come evento |
 | `POST /stato` | `{stato: pensa\|pronto\|riposo, testo?}` | `{ok}`: l'isola mostra lo stato (`pronto` si ritira da sola dopo 1,8 s) |
-| `POST /parla` | `{sessione, testo}` | `{ok, voce}`: Melissa lo dice (ElevenLabs, voce di sistema se non risponde). 409 mentre ascolta |
+| `POST /parla` | `{sessione, testo, append?, final?}` | `{ok, voce}`: Melissa lo dice (ElevenLabs `eleven_v4_turbo` sul socket caldo, voce di sistema se non risponde). Con `append: true` i pezzi di uno stesso testo (la risposta di Claude letta mentre arriva) si accodano nello stesso turno di voce; `final: true` lo chiude, anche con testo vuoto. 409 mentre ascolta |
 | `POST /zitta` | | `{ok}`: silenzio subito |
 | `GET /eventi?sessione=X` | | trattenuta fino a 15 s: `{ok, eventi: [...]}`, vuota se non succede niente |
 
@@ -169,6 +169,10 @@ Il dettato si chiude da solo 3,5 s dopo l'ultima parola nuova, o dopo 10 s senza
 il dettato; mentre Melissa racconta, ferma Claude. L'isola sta nella tacca del MacBook (sugli schermi senza tacca
 pende sotto la barra dei menu) e si ritira quando non ha niente da dire. Il processo esce dopo 15 minuti senza
 richieste, dettato o voce; un secondo `--isola` trova il socket vivo ed esce subito.
+
+Il microfono apre solo quando macOS lo concede (la prima volta chiede il permesso): l'orologio dei 10 s parte da li', e
+un dettato chiuso mentre il microfono si apriva lo richiude subito. Il log va dove lo manda `open --stderr` (la mod usa
+`~/.bottega/nucleo/isola.log`).
 
 L'isola segue la voce del proprio processo con `Out.tap` (gli stessi eventi `voice.*` della modalita' servizio):
 stdout non porta niente, `Out.enabled` e' spento.

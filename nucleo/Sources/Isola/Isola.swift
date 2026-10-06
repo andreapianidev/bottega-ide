@@ -14,7 +14,8 @@
 //    POST /detta     {sessione, progetto}     -> {ok}  opens the microphone (Apple recognizer)
 //    POST /detta/fine                         -> {ok}  closes it; the text arrives as an event
 //    POST /stato     {stato, testo?}          -> {ok}  the island: pensa | pronto | riposo
-//    POST /parla     {sessione, testo}        -> {ok}  Melissa says it (ElevenLabs, Apple as fallback)
+//    POST /parla     {sessione, testo, append?, final?} -> {ok}  Melissa says it (ElevenLabs, Apple as
+//                                             fallback); append streams pieces of one text in order
 //    POST /zitta                              -> {ok}  silence now
 //    GET  /eventi?sessione=X                  -> held up to 15 s: {eventi:[...]}
 //
@@ -46,6 +47,8 @@ final class Isola {
     /// The session the microphone is open for.
     private var dettaPer: String?
     private var dettaParziale = ""
+    /// Bumped at every /detta: a microphone that opens late knows whether it is still wanted.
+    private var dettaGiro = 0
     private var silenzio: DispatchWorkItem?
     /// The session Melissa last spoke for (the one a click on the island stops).
     private var narraPer: String?
@@ -114,14 +117,24 @@ final class Isola {
             dettaPer = sessione
             dettaParziale = ""
             narraPer = nil
+            dettaGiro &+= 1
+            let giro = dettaGiro
             IsolaPanel.shared.mostra(.ascolto, testo: "Ti ascolto")
-            armaSilenzio(vuoto: true)
             res.ok()
             Task {
                 do {
+                    // The first time macOS asks for the microphone here: the silence clock
+                    // starts only once the microphone is really open.
                     try await Listener.shared.listen(mode: .push, locale: "it-IT")
+                    if self.dettaPer == sessione, self.dettaGiro == giro {
+                        self.armaSilenzio(vuoto: true)
+                    } else {
+                        // Closed (a click, an error) while the microphone was still opening:
+                        // it must not stay open with nobody listening.
+                        await Listener.shared.stop()
+                    }
                 } catch {
-                    self.fineDettatura(errore: error.localizedDescription)
+                    if self.dettaGiro == giro { self.fineDettatura(errore: error.localizedDescription) }
                 }
             }
 
@@ -141,12 +154,16 @@ final class Isola {
             res.ok()
 
         case ("POST", "/parla"):
+            // append: a piece of a text still being written (Claude's answer read live), spoken
+            // in order on the same warm ElevenLabs turn; final closes it (text may be empty then).
             let testo = (corpo["testo"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !testo.isEmpty else { return res.errore(400, "Niente da dire.") }
+            let append = corpo["append"] as? Bool ?? false
+            let final = corpo["final"] as? Bool ?? !append
+            guard !testo.isEmpty || final else { return res.errore(400, "Niente da dire.") }
             guard dettaPer == nil else { return res.errore(409, "Melissa sta ascoltando.") }
             if !sessione.isEmpty { narraPer = sessione }
-            IsolaPanel.shared.mostra(.parla, testo: testo)
-            Speaker.shared.speak(text: testo, append: false, final: true, model: nil, voice: nil)
+            if !testo.isEmpty { IsolaPanel.shared.mostra(.parla, testo: testo) }
+            Speaker.shared.speak(text: testo.isEmpty ? "" : testo + " ", append: append, final: final, model: nil, voice: nil)
             res.ok(["voce": Speaker.shared.currentEngine.rawValue])
 
         case ("POST", "/zitta"):
