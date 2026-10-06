@@ -25,6 +25,8 @@ final class Melissa {
     private(set) var parlante = "Melissa"
     /// Le risposte di Melissa da quando un personaggio e' intervenuto: non ne tira dentro uno ogni volta.
     private var dallUltimoOspite = 99
+    /// Chi e' intervenuto l'ultima volta: il prossimo, se non c'e' un motivo, e' un altro.
+    private var ultimoOspite: String?
     var avviso: String?
     var voceAccesa: Bool = UserDefaults.standard.object(forKey: "voce") as? Bool ?? true {
         didSet { UserDefaults.standard.set(voceAccesa, forKey: "voce") }
@@ -209,15 +211,19 @@ final class Melissa {
                 return
             }
             let p = Personaggi.tutti[self.chiParla]
-            // chi puo' entrare: quello che Andrea chiede, o uno a scelta di Melissa ogni tanto, solo a voce
-            let invito = p == nil
-                ? Personaggi.invito(voluto: Personaggi.ospiteChiesto(testo), spontaneo: self.conversazione && voce && self.dallUltimoOspite >= 2)
-                : ""
+            // chi puo' entrare: quello che Andrea chiede, o ogni tanto, solo a voce, quello che il codice sceglie
+            let voluto = p == nil ? Personaggi.ospiteChiesto(testo) : nil
+            let scelto = p == nil && self.conversazione && voce && self.dallUltimoOspite >= 2
+                ? Personaggi.adatto(testo, ultimo: self.ultimoOspite) : nil
+            let invito = p == nil ? Personaggi.invito(voluto: voluto, scelto: scelto) : ""
             let contesto = p == nil ? self.ponte.contestoMelissa(per: testo) : nil
             let battuta = try await telefono.rispondi(testo, chi: self.chiParla, invito: invito, voce: voce,
                                                       contestoMac: contesto, audio: suona)
             self.dallUltimoOspite += 1
-            if let ospite = battuta.ospite { try await self.aTre(ospite, voce: voce, audio: suona) }
+            // entra solo chi era stato offerto: un altro nome scritto dal modello si ignora
+            if let ospite = battuta.ospite, ospite == voluto || ospite == scelto {
+                try await self.aTre(ospite, voce: voce, audio: suona)
+            }
         }
         lavoroTelefono = task
         defer { lavoroTelefono = nil; if chiParla == "melissa" { parlante = "Melissa" } }
@@ -253,6 +259,7 @@ final class Melissa {
         guard let p = Personaggi.tutti[chi] else { return }
         let telefono = AssistenteTelefono.shared
         dallUltimoOspite = 0
+        ultimoOspite = chi
         parlante = "Melissa e \(p.nome)"
         _ = try await telefono.interviene(
             chi,

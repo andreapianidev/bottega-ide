@@ -35,11 +35,20 @@ final class PersonaggiTests: XCTestCase {
     }
 
     func testInvito() {
-        XCTAssertEqual(Personaggi.invito(voluto: nil, spontaneo: false), "")
-        XCTAssertTrue(Personaggi.invito(voluto: "krista", spontaneo: false).contains("@krista"))
-        let tutti = Personaggi.invito(voluto: nil, spontaneo: true)
-        XCTAssertTrue(tutti.contains("Darlene, Elliot e Krista"))
-        XCTAssertTrue(tutti.contains("@darlene oppure @elliot oppure @krista"))
+        XCTAssertEqual(Personaggi.invito(voluto: nil, scelto: nil), "")
+        XCTAssertTrue(Personaggi.invito(voluto: "krista", scelto: "elliot").contains("@krista"))
+        let uno = Personaggi.invito(voluto: nil, scelto: "elliot")
+        XCTAssertTrue(uno.contains("@elliot"))
+        XCTAssertFalse(uno.contains("@darlene"))
+        XCTAssertFalse(uno.contains("\u{2014}"))
+    }
+
+    func testAdattoSceglieIlCodiceNonIlModello() {
+        XCTAssertEqual(Personaggi.adatto("ho paura che mi rubino la password", ultimo: "elliot", caso: 0), "elliot")
+        XCTAssertEqual(Personaggi.adatto("lo faccio domani, sono stanco", ultimo: nil, caso: 0), "krista")
+        XCTAssertEqual(Personaggi.adatto("che ne dici del film", ultimo: "darlene", caso: 0), "elliot")
+        XCTAssertEqual(Personaggi.adatto("che ne dici del film", ultimo: "darlene", caso: 0.99), "krista")
+        XCTAssertEqual(Personaggi.adatto("che ne dici del film", ultimo: nil, caso: 0), "darlene")
     }
 
     func testOgniPersonaggioHaVoceESaluti() {

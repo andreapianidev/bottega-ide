@@ -112,20 +112,37 @@ enum Personaggi {
         nomi.count <= 1 ? (nomi.first ?? "") : nomi.dropLast().joined(separator: ", ") + " e " + nomi.last!
     }
 
+    /// A cosa serve ciascuno, gli stessi ruoli della cronaca della mod (RUOLI in register.tsx).
+    static let ruoli = [
+        "elliot": "sicurezza, chiavi e codice",
+        "darlene": "quando c'e' da provocare o rompere le regole",
+        "krista": "quando Andrea fa il vago, rimanda o cerca scuse",
+    ]
+
+    private static let sicurezza = "chiav|segret|token|password|credenzial|hacker|attacc|sicurezz|virus|privacy|server|firewall|wifi|vpn"
+    private static let scuse = "domani|pi[uù] tardi|non ho voglia|non so se|forse|rimand|stanc|scus|procrastin|dovrei|non ce la faccio"
+
+    /// Chi entra quando Melissa lo tira dentro da sola: Elliot se si parla di sicurezza, Krista se Andrea
+    /// rimanda o cerca scuse, altrimenti uno diverso dall'ultimo. Lo sceglie il codice: lasciato al modello,
+    /// chiamava sempre Darlene (misura del 6 ottobre 2026 sulla cronaca della mod). `caso` in [0, 1).
+    static func adatto(_ testo: String, ultimo: String?, caso: Double = Double.random(in: 0..<1)) -> String {
+        if primo("(\(sicurezza))", in: testo) != nil { return "elliot" }
+        if primo("(\(scuse))", in: testo) != nil { return "krista" }
+        let altri = ordine.filter { $0 != ultimo }
+        return altri[min(altri.count - 1, Int(caso * Double(altri.count)))]
+    }
+
     /// Cosa si aggiunge al prompt di Melissa perche' sappia di poter tirare dentro qualcuno.
-    /// `voluto`: chi Andrea ha appena chiesto di sentire. `spontaneo`: se puo' farlo da sola, adesso.
-    static func invito(voluto: String?, spontaneo: Bool) -> String {
+    /// `voluto`: chi Andrea ha appena chiesto di sentire. `scelto`: chi puo' tirare dentro da sola adesso, se puo'.
+    static func invito(voluto: String?, scelto: String?) -> String {
         if let voluto, let p = tutti[voluto] {
             return "Andrea vuole sentire anche \(p.nome): rispondi tu e chiudi con una domanda rivolta a lei o a lui, " +
                 "poi scrivi alla fine, da sola, la parola @\(voluto)."
         }
-        guard spontaneo else { return "" }
-        let nomi = elenco(ordine.compactMap { tutti[$0]?.nome })
-        return "Con te ci sono anche \(nomi), di Mr. Robot (Elliot per sicurezza e informatica, Darlene per provocare " +
-            "e rompere le regole, Krista quando Andrea fa il vago o cerca scuse). Ogni tanto, solo quando rende la " +
-            "chiacchierata piu' viva e non piu' di una volta ogni tre risposte, puoi tirarne dentro uno: chiudi con una " +
-            "domanda rivolta a lui o a lei e scrivi alla fine, da sola, " +
-            ordine.map { "@\($0)" }.joined(separator: " oppure ") + ". Di solito rispondi da sola."
+        guard let scelto, let p = tutti[scelto] else { return "" }
+        return "Con te c'e' anche \(p.nome) di Mr. Robot (\(ruoli[scelto] ?? p.nome)). Solo quando rende la chiacchierata " +
+            "piu' viva puoi tirarlo dentro: chiudi con una domanda rivolta a \(p.nome) e scrivi alla fine, da sola, la " +
+            "parola @\(scelto). Di solito rispondi da sola."
     }
 
     /// Il prompt di sistema di un personaggio che ha la chiamata sull'iPhone.

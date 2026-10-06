@@ -2104,7 +2104,10 @@ rete di casa dicono al Mac dov'e' l'iPhone, non portano dati.
   «Passami Darlene», «fammi parlare con Krista» passano la chiamata: saluta il personaggio con la sua voce e
   risponde lui finche' Andrea non dice «ridammi Melissa» o la conversazione si chiude. Con Melissa al telefono,
   «chiedi a Elliot», «sentiamo Darlene» la fanno chiudere con `@elliot`; a voce e in conversazione lo puo' fare anche
-  da sola, non piu' di una volta ogni tre risposte. Il segnale non si mostra e non si legge: il personaggio risponde
+  da sola, non piu' di una volta ogni tre risposte. Chi puo' tirare dentro da sola lo sceglie il codice
+  (`Personaggi.adatto`, dalla build 122): Elliot se Andrea parla di sicurezza, Krista se rimanda o cerca scuse,
+  altrimenti uno diverso dall'ultimo; al prompt arriva solo quel nome, e un altro `@nome` si ignora. Lasciato al
+  modello sceglieva sempre Darlene. I ruoli sono quelli della cronaca della mod (0.11). Il segnale non si mostra e non si legge: il personaggio risponde
   con la sua voce, poi Melissa chiude. Ogni battuta apre il suo socket ElevenLabs con la voce di chi parla. Il
   personaggio usa lo stesso cervello (Agnes o DeepSeek), senza lo snapshot del Mac. Nella storia locale `chi` e' la
   chiave del personaggio; verso il Mac e nella vista diventa `melissa` con il nome davanti («Darlene: ...»), cosi'
