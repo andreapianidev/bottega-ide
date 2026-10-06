@@ -47,6 +47,7 @@ import { carica as caricaPersonaggi, pubblica as pubblicaPersonaggi } from './pe
 import { RegiaPersonaggi } from './regia-personaggi';
 import { avviaRegiaPersonaggi } from './regia-personaggi-host';
 import { forzatureDalleRegole } from './forzature-regole';
+import { IsolaAttivita, isolaVera } from './isola-attivita';
 
 // Melissa usa i connettori di Claude Code in sola lettura (docs/CONTRATTI.md, 5 e 6): prima che nasca l'assistente.
 Object.assign(TOOLS, STRUMENTI_CONNETTORI satisfies typeof TOOLS);
@@ -143,6 +144,8 @@ let occhioGlobale: Occhio | undefined;
 let waitingBefore = new Set<string>();
 let osservatorio: Osservatorio | undefined;
 let vedettaNativa: VedettaNativa | undefined;
+/** L'isola segue anche Cline, Codex e i terminali integrati (src/isola-attivita.ts). */
+let isolaAttivita: IsolaAttivita | undefined;
 let aggiornamenti: Aggiornamenti | undefined;
 let ponte: { notify(): void } | undefined;
 let categorieCache: { at: number; value: CategorieMinuti | null } = { at: 0, value: null };
@@ -273,6 +276,7 @@ function liveScan(): void {
 function refreshDynamic(): void {
 	snapshot = withDynamic(snapshot);
 	idee?.activityChanged();
+	isolaAttivita?.aggiorna(snapshot.activity);
 	panelHost?.pushSnapshot(snapshot);
 	pushRegiaMetal();
 	vedettaNativa?.push();
@@ -951,6 +955,9 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 	const melissa = assistant;
 	const regiaMod = avviaRegiaPersonaggi(new RegiaPersonaggi({ chiVuole: f => melissa.chiVuole(f), ascolta: f => melissa.impegni.ascolta(f), strumenti: melissa.strumenti, log: r => melissa.scriviRegistro(r) }), r => melissa.scriviRegistro(r));
 	ctx.subscriptions.push({ dispose: () => regiaMod.chiudi() });
+	// l'isola nella tacca segue anche Cline, Codex e i terminali integrati, sempre (CONTRATTI 1, Andrea 6/10/2026)
+	isolaAttivita = new IsolaAttivita({ ...isolaVera(), log: r => melissa.scriviRegistro(r) });
+	ctx.subscriptions.push({ dispose: () => isolaAttivita?.dispose() });
 	const savedRegia = ctx.globalState.get<RegiaDigest>('regia.digest');
 	if (savedRegia?.text && Number.isFinite(savedRegia.at)) regiaDigest = savedRegia;
 	saveRegiaDigest = digest => { void ctx.globalState.update('regia.digest', digest); };

@@ -21,6 +21,7 @@ import { certificatoPonte } from './ponte-tls';
      POST /v1/voce {testo}        -> audio/wav              la voce di Melissa, sintetizzata sul Mac
      POST /v1/lavoro {id, testo}  -> {ok}                   scrive in un lavoro della Bottega
      POST /v1/dispositivo {...}   -> {ok}                   i token APNs dell'iPhone (9.4): notifiche, Live Activity, widget
+     POST /v1/personaggio {chi, frase} -> {memoria, letture}  memoria e letture di un ospite, per l'iPhone (9.11)
      /v1/sessione...              -> la scheda di una sessione (9.5), in src/ponte-sessioni.ts
      GET  /v1/stanza?nome=..      -> una stanza della plancia in sola lettura (9.6), in src/ponte-stanze.ts
      POST /v1/stanza/azione {..}  -> {ok, messaggio}        ignora, ripristina, verifica, lavoro nella stanza App Store (9.7)
@@ -155,6 +156,8 @@ export interface PonteDeps {
 	configTelefono?(): Promise<{ agnes?: string; deepseek?: string; elevenlabs?: string; voiceID: string; prompt: string }>;
 	/** Turni completati offline; il ponte conserva gli ID per non importarli due volte. */
 	importaTurniTelefono?(turns: { id: string; chi: 'tu' | 'melissa'; testo: string }[]): void;
+	/** La memoria e le letture di un personaggio per l'iPhone (9.11): POST /v1/personaggio {chi, frase}. */
+	personaggio?(chi: string, frase: string): Promise<{ memoria: string; letture: { nome: string; testo: string }[] }>;
 	/** Solo per i test: dove ascoltare al posto dell'indirizzo Tailscale. */
 	indirizzo?: () => Promise<Rete | null>;
 	porta?: number;
@@ -507,6 +510,14 @@ export class Ponte {
 				if (req.method !== 'GET') return json(405, { errore: 'La configurazione si legge con GET.' });
 				if (!('encrypted' in req.socket) || !req.socket.encrypted) return json(403, { errore: 'La configurazione richiede HTTPS.' });
 				return json(200, await this.deps.configTelefono());
+			}
+			if (url === '/v1/personaggio' && this.deps.personaggio) {
+				if (req.method !== 'POST') return json(405, { errore: 'Il personaggio si chiede con POST.' });
+				const body = await leggiCorpo(req);
+				const chi = typeof body?.chi === 'string' ? body.chi : '';
+				if (!/^[a-z]{1,40}$/.test(chi)) return json(400, { errore: 'Personaggio non valido.' });
+				const frase = typeof body?.frase === 'string' ? body.frase.slice(0, 2000) : '';
+				return json(200, await this.deps.personaggio(chi, frase));
 			}
 			if (url === '/v1/assistente/storia' && this.deps.importaTurniTelefono) {
 				if (req.method !== 'POST') return json(405, { errore: 'La cronologia si manda con POST.' });

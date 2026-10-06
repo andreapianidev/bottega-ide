@@ -379,6 +379,8 @@ final class Melissa {
         var dette: [String] = []
         for (i, chi) in voci.enumerated() {
             guard let p = Personaggi.tutti[chi], !p.voce.isEmpty else { continue }
+            // col Mac collegato: la sua memoria, il mestiere e le letture (docs/CONTRATTI.md, 9.11)
+            let dalMac = await ponte.personaggio(chi, frase: ultimaFraseDiAndrea())
             dallUltimoOspite = 0
             ultimoOspite = chi
             let perche = chi == nuovo ? "Melissa ti ha appena passato la chiamata, e Andrea vuole sentire anche gli altri"
@@ -386,7 +388,7 @@ final class Melissa {
             do {
                 _ = try await telefono.interviene(chi, istruzione: "Sei in una chiacchierata a voce con Melissa, Andrea e gli " +
                                                     "altri di Mr. Robot. \(perche). " + Personaggi.istruzioneGiro(chi, primo: i == 0),
-                                                  memoria: memoria, voce: voce, audio: self.audio(di: chi, voce: voce, suona))
+                                                  memoria: unisci(memoria, dalMac), voce: voce, audio: self.audio(di: chi, voce: voce, suona))
                 dette.append(p.nome)
             } catch {
                 if Task.isCancelled { throw error }
@@ -426,6 +428,8 @@ final class Melissa {
         guard let p = Personaggi.tutti[chi] else { return }
         let telefono = AssistenteTelefono.shared
         let memoria = ponte.memoriaMelissa()
+        // col Mac collegato: la sua memoria, il mestiere e le letture (docs/CONTRATTI.md, 9.11); senza, come prima
+        let dalMac = await ponte.personaggio(chi, frase: ultimaFraseDiAndrea())
         dallUltimoOspite = 0
         ultimoOspite = chi
         // ogni tanto chiude chiedendo a un altro di loro, per nome, cosa ne pensa, e quello risponde: parlano fra loro
@@ -445,7 +449,7 @@ final class Melissa {
             (passa.map { " Poi chiedi a \(Personaggi.nome($0)) cosa ne pensa. " + Personaggi.chiamaCon($0) } ?? "") +
             " Solo le parole che diresti."
         let battuta = try await telefono.interviene(chi, istruzione: istruzione, passaA: ultima ? [] : altri, deciso: passa,
-                                                    memoria: memoria, voce: voce, audio: self.audio(di: chi, voce: voce, audio))
+                                                    memoria: unisci(memoria, dalMac), voce: voce, audio: self.audio(di: chi, voce: voce, audio))
         // quello a cui ha chiesto risponde una volta, e basta; poi Melissa chiude con tutto il giro davanti
         if !ultima, let altro = battuta.ospite, altri.contains(altro) {
             try await aTre(altro, voce: voce, ultima: true, daChi: chi, audio: audio)
@@ -457,6 +461,17 @@ final class Melissa {
                 "o rispondendo a modo tuo, senza fare domande a \(p.nome) ne' agli altri. Solo le parole che diresti.",
             memoria: memoria, voce: voce, audio: self.audio(di: "melissa", voce: voce, audio))
         // la chiusa non ha lo strumento: la parola torna ad Andrea (docs/CONTRATTI.md, 9.11)
+    }
+
+    /// L'ultima cosa che Andrea ha detto, per i ricordi dell'ospite.
+    private func ultimaFraseDiAndrea() -> String {
+        AssistenteTelefono.shared.turni.last { $0.chi == "tu" }?.testo ?? ""
+    }
+
+    /// La memoria della Bottega e quella dell'ospite dal Mac, in fondo al prompt.
+    private func unisci(_ a: String?, _ b: String?) -> String? {
+        let parti = [a, b].compactMap { $0 }.filter { !$0.isEmpty }
+        return parti.isEmpty ? nil : parti.joined(separator: "\n\n")
     }
 
     // MARK: - riempitivi

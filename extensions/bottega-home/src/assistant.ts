@@ -2012,8 +2012,21 @@ export class Assistant {
 			if (!clean) continue;
 			this.pushLog(t.chi, clean);
 			this.history.push(t.chi === 'tu' ? { role: 'user', content: clean } : { role: 'assistant', content: clean, chi: 'melissa' });
+			// anche quello che Andrea dice all'iPhone puo' essere un impegno, per Krista (CONTRATTI 9.11)
+			if (t.chi === 'tu') this.impegni.ascolta(clean);
 		}
 		this.trimHistory();
+	}
+
+	/** Per l'iPhone (ponte, POST /v1/personaggio): la memoria di `chi` (ultime battute, ricordi su `frase`, mestiere) e
+	 *  tutte le sue letture eseguite adesso, in parallelo, ognuna al piu' 1,5 s (CONTRATTI 9.11). */
+	async perPersonaggio(chi: string, frase: string): Promise<{ memoria: string; letture: { nome: string; testo: string }[] }> {
+		if (!esiste(chi)) return { memoria: '', letture: [] };
+		const [memoria, letture] = await Promise.all([
+			this.memoria.leggi(chi, frase),
+			Promise.all(this.strumenti.specs(chi).map(async s => ({ nome: s.function.name, testo: await this.strumenti.esegui(chi, s.function.name) }))),
+		]);
+		return { memoria, letture };
 	}
 
 	// ----- voce in streaming -----
