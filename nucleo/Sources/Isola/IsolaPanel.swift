@@ -253,15 +253,18 @@ struct IsolaVista: View {
     let sfera: OrbMTKView?
 
     static let molla = Animation.spring(response: 0.46, dampingFraction: 0.74, blendDuration: 0.1)
-    // Sizes of the open island, about three quarters of the first version (build 126: smaller
-    // and finer). The strip level with the notch keeps the notch's own height.
-    static let sfera: CGFloat = 18
+    // Sizes of the open island (build 127): smaller and finer than the first version, with
+    // a text that reads at a glance, about 45 characters a line. The strip level with the
+    // notch keeps the notch's own height.
+    static let sfera: CGFloat = 20
     private static let orecchio: CGFloat = 54
-    private static let larghezzaAperta: CGFloat = 296
+    private static let larghezzaAperta: CGFloat = 326
     private static let spalla: CGFloat = 7
     /// The line being said: light, with room between the lines.
-    static let carattereTesto = Font.system(size: 11, weight: .regular, design: .rounded)
-    static let interlinea: CGFloat = 2.5
+    static let carattereTesto = Font.system(size: 13, weight: .regular, design: .rounded)
+    static let interlinea: CGFloat = 3
+    /// A new line comes in: fades in while it rises a few points.
+    static let entrata = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.3)
 
     @State private var sopra = false
 
@@ -288,7 +291,7 @@ struct IsolaVista: View {
     }
 
     private var isola: some View {
-        let forma = FormaTacca(spalla: Self.spalla, fondo: conTesto ? 19 : (m.aperta ? 11 : 10))
+        let forma = FormaTacca(spalla: Self.spalla, fondo: conTesto ? 21 : (m.aperta ? 11 : 10))
         return VStack(spacing: 0) {
             barra
                 .frame(height: m.tacca.height)
@@ -320,16 +323,12 @@ struct IsolaVista: View {
         HStack(spacing: 0) {
             if m.aperta {
                 ZStack {
-                    Circle()
-                        .fill(Palette.colori(m.fase).first ?? .white)
-                        .blur(radius: 6)
-                        .opacity(0.5)
-                        .frame(width: Self.sfera, height: Self.sfera)
+                    Alone(fase: m.fase, lato: Self.sfera)
                     if let sfera {
                         SferaVista(vista: sfera)
                             .frame(width: Self.sfera, height: Self.sfera)
                     } else {
-                        Circle().fill(Palette.gradiente(m.fase)).frame(width: 12, height: 12)
+                        Circle().fill(Palette.gradiente(m.fase)).frame(width: 13, height: 13)
                     }
                 }
                 .padding(.leading, 10)
@@ -344,36 +343,55 @@ struct IsolaVista: View {
         }
     }
 
+    /// While she speaks each new line enters (fade, a small rise); while she listens or
+    /// thinks the text only follows, without entrances (a partial changes word by word).
+    private var chiaveTesto: String { m.fase == .parla ? m.testo : "segue" }
+
     private var corpo: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 5) {
-                Text(m.chi.uppercased())
-                    .foregroundStyle(.white.opacity(0.4))
-                    .contentTransition(.interpolate)
+                // a new name crossfades over the old one
+                ZStack(alignment: .leading) {
+                    Text(m.chi.uppercased())
+                        .foregroundStyle(.white.opacity(0.42))
+                        .id(m.chi)
+                        .transition(.opacity.animation(.easeInOut(duration: 0.3)))
+                }
                 Text(Palette.parola(m.fase).uppercased())
                     .foregroundStyle(Palette.gradiente(m.fase))
                     .contentTransition(.interpolate)
             }
-            .font(.system(size: 7, weight: .semibold, design: .rounded))
-            .tracking(1.0)
+            .font(.system(size: 8.5, weight: .semibold, design: .rounded))
+            .tracking(0.8)
 
-            Text(m.testo)
-                .font(Self.carattereTesto)
-                .lineSpacing(Self.interlinea)
-                .foregroundStyle(.white.opacity(0.94))
-                .lineLimit(3)
-                .truncationMode(.head)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentTransition(.interpolate)
-                .animation(.smooth(duration: 0.22), value: m.testo)
-                .overlay {
-                    if m.fase == .pensa { Luccichio().mask(Text(m.testo).font(Self.carattereTesto).lineSpacing(Self.interlinea).lineLimit(3).truncationMode(.head).frame(maxWidth: .infinity, alignment: .leading)) }
-                }
+            ZStack(alignment: .topLeading) {
+                testo
+                    .id(chiaveTesto)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .offset(y: 4)).animation(Self.entrata),
+                        removal: .opacity.animation(.easeOut(duration: 0.14))))
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 3)
-        .padding(.bottom, 12)
+        .padding(.horizontal, 18)
+        .padding(.top, 4)
+        .padding(.bottom, 14)
+    }
+
+    private var testo: some View {
+        Text(m.testo)
+            .font(Self.carattereTesto)
+            .lineSpacing(Self.interlinea)
+            .foregroundStyle(.white.opacity(0.94))
+            .lineLimit(3)
+            .truncationMode(.head)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentTransition(.interpolate)
+            .animation(.smooth(duration: 0.22), value: m.fase == .parla ? "" : m.testo)
+            .overlay {
+                if m.fase == .pensa { Luccichio().mask(Text(m.testo).font(Self.carattereTesto).lineSpacing(Self.interlinea).lineLimit(3).truncationMode(.head).frame(maxWidth: .infinity, alignment: .leading)) }
+            }
     }
 }
 
@@ -414,40 +432,114 @@ struct IsolaStato: View {
                 EmptyView()
             }
         }
-        .frame(width: 26, height: 15)
+        .frame(width: 28, height: 16)
     }
 }
 
-/// Five bars on the live audio: the microphone while listening, Melissa's voice while speaking.
+/// The voice as the island draws it: one smoothed level for the halo and the aura, five
+/// bars for the right ear. Each follows its target on a spring, stiff when the voice rises
+/// (quick attack) and soft when it falls (gentle release). Advanced by time, not by calls:
+/// the views that read it in the same frame do not step it twice, and after a pause it
+/// starts again from where it was, without a jump. It is read only by timelines that run
+/// while she listens or speaks: at rest nothing asks for frames.
+@MainActor
+final class VoceViva {
+    static let shared = VoceViva()
+    static let barre = 5
+
+    private(set) var livello: CGFloat = 0
+    private var velLivello: CGFloat = 0
+    private(set) var altezze = [CGFloat](repeating: 0, count: VoceViva.barre)
+    private var velAltezze = [CGFloat](repeating: 0, count: VoceViva.barre)
+    private var ultimo: Double = 0
+
+    /// Speech bands per bar (the middle of the 16) and how much each bar takes of them.
+    private static let gruppi = [[1, 2], [3, 4], [5, 6, 7], [8, 9], [10, 11, 12]]
+    private static let peso: [CGFloat] = [0.72, 0.9, 1.0, 0.88, 0.7]
+    /// Each bar its own rhythm, so they never move as one block.
+    private static let fase: [Double] = [0.0, 1.7, 3.1, 4.6, 5.9]
+    private static let passo: [Double] = [4.1, 4.7, 3.8, 5.2, 4.4]
+
+    func aggiorna(_ t: Double, fonte: Int32) {
+        var dt = t - ultimo
+        guard dt > 0 else { return }
+        ultimo = t
+        if dt > 0.1 { dt = 1.0 / 60 }   // after a pause: one frame, not a jump
+        let s = AudioLevels.shared.snapshot(forOrbState: fonte)
+        let voce = CGFloat(min(1, s.level * 1.4))
+        var obiettivi = [CGFloat](repeating: 0, count: Self.barre)
+        for i in 0..<Self.barre {
+            let idx = Self.gruppi[i].filter { $0 < s.bands.count }
+            let banda = idx.isEmpty ? 0 : CGFloat(idx.map { s.bands[$0] }.reduce(0, +) / Float(idx.count))
+            // a little texture of its own on top of the voice, and a slow breath in silence
+            let grana = 0.86 + 0.14 * CGFloat(sin(t * (7.3 + 1.1 * Double(i)) + Self.fase[i]))
+            let v = min(1, max(banda * 1.8, voce) * Self.peso[i] * grana)
+            let respiro = 0.1 + 0.05 * CGFloat(sin(t * Self.passo[i] + Self.fase[i]))
+            obiettivi[i] = max(respiro, v)
+        }
+        // small fixed steps keep the stiff spring stable at any frame rate
+        var resto = dt
+        while resto > 0 {
+            let h = min(resto, 1.0 / 240)
+            resto -= h
+            Self.molla(&livello, &velLivello, voce, h)
+            for i in 0..<Self.barre { Self.molla(&altezze[i], &velAltezze[i], obiettivi[i], h) }
+        }
+    }
+
+    /// Rising: stiff and near critical (about 40 ms). Falling: soft (about 250 ms).
+    private static func molla(_ x: inout CGFloat, _ v: inout CGFloat, _ target: CGFloat, _ h: Double) {
+        let sale = target > x
+        let k: CGFloat = sale ? 900 : 110
+        let c: CGFloat = sale ? 54 : 19
+        v += (k * (target - x) - c * v) * CGFloat(h)
+        x = min(1.1, max(0, x + v * CGFloat(h)))
+    }
+}
+
+/// Five rounded bars on the live audio: the microphone while listening, Melissa's voice
+/// (AudioOut's real output, AudioLevels .tts) while speaking. Display rate while shown.
 struct Onda: View {
     let fonte: Int32
     let fase: IsolaPanel.Fase
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 40)) { ctx in
-            let t = ctx.date.timeIntervalSinceReferenceDate
-            let snap = AudioLevels.shared.snapshot(forOrbState: fonte)
-            HStack(spacing: 2) {
-                ForEach(0..<5, id: \.self) { i in
-                    Capsule()
+        TimelineView(.animation) { ctx in
+            let voce = VoceViva.shared
+            let _ = voce.aggiorna(ctx.date.timeIntervalSinceReferenceDate, fonte: fonte)
+            HStack(spacing: 2.2) {
+                ForEach(0..<VoceViva.barre, id: \.self) { i in
+                    Capsule(style: .continuous)
                         .fill(Palette.gradiente(fase))
-                        .frame(width: 2, height: Onda.altezza(snap, i, t))
+                        .frame(width: 2.2, height: 3 + 13 * voce.altezze[i])
                 }
             }
-            .frame(height: 15)
+            .frame(height: 16)
         }
     }
+}
 
-    /// Bars from the speech bands (the middle of the 16), the centre one tallest, with a
-    /// small breath so the ear is alive in silence too.
-    static func altezza(_ s: (level: Float, bands: [Float]), _ i: Int, _ t: Double) -> CGFloat {
-        let gruppi = [[1, 2], [3, 4], [5, 6, 7], [8, 9], [10, 11, 12]]
-        let idx = gruppi[i].filter { $0 < s.bands.count }
-        let banda = idx.isEmpty ? 0 : idx.map { s.bands[$0] }.reduce(0, +) / Float(idx.count)
-        let peso: [Float] = [0.7, 0.9, 1.0, 0.9, 0.7]
-        let v = min(1, max(banda * 1.8, s.level * 1.4) * peso[i])
-        let respiro = 0.12 + 0.08 * sin(t * 5 + Double(i) * 0.9)
-        return 3 + 12 * CGFloat(max(Float(respiro), v))
+/// The halo behind the sphere: it breathes with the voice, gently. Still (no timeline
+/// running) unless she listens or speaks.
+struct Alone: View {
+    let fase: IsolaPanel.Fase
+    let lato: CGFloat
+
+    private var viva: Bool { fase == .parla || fase == .ascolto }
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: nil, paused: !viva)) { ctx in
+            let voce = VoceViva.shared
+            let _ = viva ? voce.aggiorna(ctx.date.timeIntervalSinceReferenceDate, fonte: fase == .parla ? 3 : 1) : ()
+            let l = viva ? voce.livello : 0
+            Circle()
+                .fill(Palette.colori(fase).first ?? .white)
+                .blur(radius: 6)
+                .opacity(0.42 + 0.3 * min(1, l))
+                .scaleEffect(1 + 0.22 * min(1, l))
+                .frame(width: lato, height: lato)
+        }
+        .allowsHitTesting(false)
     }
 }
 
@@ -467,7 +559,7 @@ struct Anello: View {
                             style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
                     .rotationEffect(.degrees((a * 300).truncatingRemainder(dividingBy: 360)))
             }
-            .frame(width: 11, height: 11)
+            .frame(width: 12, height: 12)
         }
     }
 }
@@ -497,11 +589,13 @@ struct Aura: View {
     private var viva: Bool { accesa && fase != .riposo }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !viva)) { ctx in
+        TimelineView(.animation(minimumInterval: nil, paused: !viva)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
-            let livello = CGFloat(AudioLevels.shared.snapshot(forOrbState: fase == .parla ? 3 : 1).level)
+            let voce = VoceViva.shared
+            let _ = voce.aggiorna(t, fonte: fase == .parla ? 3 : 1)
             let respiro = 0.5 + 0.5 * sin(t * 2.2)
-            let forza = viva ? 0.35 + 0.15 * respiro + 0.5 * min(1, livello * 1.5) : 0
+            // the voice through the same soft spring as the bars: it swells, it never flashes
+            let forza = viva ? 0.32 + 0.12 * respiro + 0.4 * min(1, voce.livello) : 0
             Capsule()
                 .fill(Palette.gradienteLineare(fase))
                 .padding(.horizontal, 20)
