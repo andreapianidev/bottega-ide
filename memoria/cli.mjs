@@ -29,6 +29,7 @@ const HELP = `Memoria della Bottega
   grafici [--giorni N] [--json]       come lavora la memoria: scritti e letti per giorno, progetti, totali
   remember <testo> [--progetto P]     aggiunge una nota
   summarize <sessionId> [--json]      riassume subito una sessione
+  motore [deepseek|agnes] [--json]    il motore dei riassunti (senza argomento lo mostra)
   backfill [--giorni N] [--max N] [--prova]
                                       riassume le sessioni passate gia' su disco
   context <cartella> [--json]         il contesto che riceve una sessione aperta li'
@@ -118,6 +119,17 @@ async function main() {
 			ingest();
 			const r = await summarizeSession(pos[0], { soloAgnes: !!flags['solo-agnes'] });
 			return print(r, r.skipped ? `Saltata: ${r.skipped}` : `Riassunta con ${r.engine}: ${r.title} (${r.project}, ${r.memories} memorie)`);
+		}
+		case 'motore': {
+			const { openStore } = await import('./lib/store.mjs');
+			const { chosenEngine, deepseekUsable } = await import('./lib/engines.mjs');
+			const s = openStore();
+			if (pos[0]) {
+				if (!['deepseek', 'agnes'].includes(pos[0])) throw new Error('motore: deepseek o agnes');
+				s.meta('motore_riassunti', pos[0]);
+			}
+			const r = { motore: chosenEngine(s), deepseekUsabile: deepseekUsable(s) };
+			return print(r, `Riassunti con ${r.motore}${r.motore === 'deepseek' && !r.deepseekUsabile ? ' (ora non usabile: si passa ad Agnes)' : ''}`);
 		}
 		case 'backfill': {
 			const { backfill } = await import('./lib/core.mjs');
@@ -236,7 +248,7 @@ async function status() {
 	const fs = await import('node:fs');
 	const P = await import('./lib/paths.mjs');
 	const { openStore } = await import('./lib/store.mjs');
-	const { nucleoPath, agnesKey } = await import('./lib/engines.mjs');
+	const { nucleoPath, agnesKey, deepseekKey, chosenEngine } = await import('./lib/engines.mjs');
 	const { hooksStatus, mcpStatus, settingsPath } = await import('./lib/install.mjs');
 	const s = openStore();
 	const kinds = Object.fromEntries(s.all('SELECT kind, COUNT(*) AS n FROM memories GROUP BY kind').map(r => [r.kind, Number(r.n)]));
@@ -272,7 +284,7 @@ async function status() {
 		spoolPendingBytes: spoolPending,
 		lastIngest: Number(s.meta('last_ingest') || 0) || null,
 		worker,
-		engines: { apple: !!nucleoPath(), nucleo: nucleoPath() || null, agnes: !!agnesKey() },
+		engines: { apple: !!nucleoPath(), nucleo: nucleoPath() || null, agnes: !!agnesKey(), deepseek: !!deepseekKey(), riassunti: chosenEngine(s) },
 		hooks: hooksStatus(),
 		settings: settingsPath(),
 		mcp: mcpStatus(),

@@ -204,6 +204,12 @@ export class Memoria {
 		}
 	}
 
+	/** Il motore dei riassunti (impostazione bottega.memoria.motore): la Memoria lo tiene nel suo database. */
+	async setMotore(motore: string): Promise<void> {
+		if (!this.available || !['deepseek', 'agnes'].includes(motore)) return;
+		await this.run(['motore', motore]);
+	}
+
 	/** Installa gli hook di Claude Code e il server MCP, dopo conferma modale. */
 	async install(): Promise<void> {
 		if (!this.available) {

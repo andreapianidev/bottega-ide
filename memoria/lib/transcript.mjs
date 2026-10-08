@@ -142,7 +142,8 @@ export function parseTranscript(file, { maxChars = 12_000 } = {}) {
 		if (!Array.isArray(c)) continue;
 		for (const part of c) {
 			if (part?.type === 'text' && part.text?.trim()) {
-				lines.push(`CLAUDE: ${clip(part.text, 700)}`);
+				// 1500, non 700: i dettagli che contano (orari, nomi di file, cosa NON si e' toccato) stanno spesso in fondo
+				lines.push(`CLAUDE: ${clip(part.text, 1500)}`);
 				lastTool = '';
 			} else if (part?.type === 'tool_use') {
 				out.tools++;

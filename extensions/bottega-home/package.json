@@ -501,6 +501,19 @@
           "default": "agnes",
           "description": "Il cervello del terminale. Per una richiesta sola: «#! deepseek ...» o «#! agnes ...». Se non risponde si passa all'altro e poi ad Apple Intelligence."
         },
+        "bottega.memoria.motore": {
+          "type": "string",
+          "enum": [
+            "deepseek",
+            "agnes"
+          ],
+          "enumDescriptions": [
+            "DeepSeek V4.1 Flash, a consumo: legge meglio orari, file e cosa non e' stato toccato.",
+            "Agnes 3.0 Flash, gratis."
+          ],
+          "default": "deepseek",
+          "description": "Chi scrive i riassunti della Memoria (sessioni, decisioni, fatti). Se DeepSeek non risponde o il credito finisce si passa ad Agnes e poi ad Apple Intelligence. Vale per i riassunti scritti da ora in poi."
+        },
         "bottega.nucleoPath": {
           "type": "string",
           "default": "",

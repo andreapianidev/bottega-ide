@@ -240,9 +240,16 @@ L'estensione la usa con `--json`.
 
 Soglie dei riassunti: al primo `Stop` con almeno 15 osservazioni, poi ogni 25 nuove osservazioni e non
 prima di 20 minuti dall'ultimo; `SessionEnd` riassume sempre se c'e' qualcosa di nuovo; `SessionStart`
-recupera le sessioni ferme da 30 minuti senza `SessionEnd`. Motore: Agnes `agnes-3.0-flash` (massimo 6
-richieste al minuto), riserva Apple Intelligence tramite `nucleo --cli generate` (testo tagliato a
-7000 caratteri) solo se Agnes rifiuta o non risponde. Nessun modello da scaricare.
+recupera le sessioni ferme da 30 minuti senza `SessionEnd`. Motore (dall'08/10/2026): quello scelto
+nell'impostazione `bottega.memoria.motore`, `deepseek` (predefinito) o `agnes`. L'estensione lo passa alla
+Memoria con `motore <deepseek|agnes>` all'avvio e a ogni cambio; la Memoria lo tiene in `meta.motore_riassunti`.
+`motore` senza argomento lo mostra (`--json`: `{motore, deepseekUsabile}`); `status --json` ha `engines.deepseek` e
+`engines.riassunti`. DeepSeek `deepseek-flash` (V4.1 Flash, `reasoning_effort: low`, testo fino a 40.000 caratteri,
+chiave `DEEPSEEK_API_KEY` o `~/.secrets/deepseek-harness.env`): un 401 o 402 lo mette da parte per un'ora
+(`meta.deepseek_blocked_until`), qualsiasi errore passa ad Agnes. Poi Agnes `agnes-3.0-flash` (massimo 6
+richieste al minuto, 12.000 caratteri), riserva Apple Intelligence tramite `nucleo --cli generate` (testo tagliato a
+7000 caratteri) solo se Agnes rifiuta o non risponde. `--solo-agnes` salta DeepSeek. Nella trascrizione ogni
+risposta di Claude entra fino a 1500 caratteri. Nessun modello da scaricare.
 
 Schema JSON di una voce restituita da `search`/`recent`:
 `{"id": 12, "kind": "riassunto|fatto|decisione|nota|prompt", "project": "Peak", "projectPath": "...",

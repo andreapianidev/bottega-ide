@@ -852,6 +852,12 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 
 	nucleo = new Nucleo(extPath);
 	memoria = new Memoria(extPath);
+	// Il motore dei riassunti: all'avvio e a ogni cambio dell'impostazione (08/10/2026).
+	const syncMotore = () => void memoria?.setMotore(cfg().get<string>('memoria.motore', 'deepseek')).catch(() => console.warn('Memoria: motore dei riassunti non impostato'));
+	syncMotore();
+	ctx.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
+		if (e.affectsConfiguration('bottega.memoria.motore')) syncMotore();
+	}));
 	const syncMemory = () => void memoria?.sync().catch(() => console.warn('Memoria: acquisizione delle fonti non riuscita'));
 	syncMemory();
 	const memoryTick = setInterval(syncMemory, 60_000);

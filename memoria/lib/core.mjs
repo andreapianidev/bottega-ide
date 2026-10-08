@@ -10,7 +10,7 @@ import {
 import { redact, undash, clip, cleanPrompt } from './redact.mjs';
 import { openStore, blobToVec, cosine, toItem } from './store.mjs';
 import { parseTranscript, findTranscript, listTranscripts, trim } from './transcript.mjs';
-import { appleGenerate, agnesGenerate, embed, embedAvailable, RateLimited, nucleoPath, agnesKey } from './engines.mjs';
+import { appleGenerate, agnesGenerate, deepseekGenerate, deepseekUsable, chosenEngine, embed, embedAvailable, RateLimited, nucleoPath, agnesKey } from './engines.mjs';
 import { tilde } from './hook.mjs';
 import { readAllBoards, readSessionInfo } from './bacheca.mjs';
 
@@ -156,6 +156,7 @@ Non inventare nulla che non sia nella trascrizione. Non riportare mai chiavi, pa
 
 const APPLE_MAX = 7_000; // il modello sul dispositivo ha una finestra piccola
 const AGNES_MAX = 12_000;
+const DEEPSEEK_MAX = 40_000; // finestra ampia: la sessione arriva quasi sempre intera
 
 export function parseSummary(out) {
 	const text = undash(String(out).replace(/\*\*/g, '').replace(/^#+\s*/gm, '')).trim();
@@ -186,6 +187,16 @@ export function parseSummary(out) {
 }
 
 async function generate(store, text, opts = {}) {
+	// DeepSeek per primo quando e' il motore scelto (08/10/2026: Agnes invertiva i dettagli tecnici, "apertura
+	// alle 13" per una finestra che alle 13 si chiude). Se non risponde, o la chiave o il credito mancano, si
+	// passa ad Agnes e poi ad Apple come prima. --solo-agnes lo salta.
+	if (!opts.soloAgnes && chosenEngine(store) === 'deepseek' && deepseekUsable(store)) {
+		try {
+			return { engine: 'deepseek', out: await deepseekGenerate(store, INSTRUCTIONS, trim(text, DEEPSEEK_MAX)) };
+		} catch (e) {
+			log(`deepseek: ${e?.message || e}, provo Agnes`);
+		}
+	}
 	// Agnes per prima: piu' veloce e riassunti migliori. Apple Intelligence (gia' dentro macOS,
 	// nessun download) solo come riserva se Agnes rifiuta per quota o non risponde.
 	if (agnesKey()) {
@@ -232,7 +243,7 @@ export async function summarizeSession(sid, opts = {}) {
 	let parsed;
 	let size = 0;
 	if (tp) {
-		parsed = parseTranscript(tp, { maxChars: AGNES_MAX });
+		parsed = parseTranscript(tp, { maxChars: DEEPSEEK_MAX }); // ogni motore poi taglia alla sua misura
 		size = fs.statSync(tp).size;
 	}
 	if (!s) {
