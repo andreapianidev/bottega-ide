@@ -426,7 +426,7 @@
 			<button type="button" class="altro" id="altro" aria-haspopup="menu" aria-expanded="false" aria-controls="altro-menu" hidden><span>Altro</span><span class="segnale punto" id="segnale-altro" hidden></span><svg class="freccina" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" /></svg></button>
 			<div class="altro-menu" id="altro-menu" role="menu" aria-label="Altre stanze" hidden></div>
 		</nav>
-		<button type="button" id="calcolo-condiviso" title="Lavori eseguiti dall’iPhone per Bottega e Avo">Calcolo condiviso</button><p class="sistema" id="sistema"></p>
+		<p class="sistema" id="sistema"></p>
 	</header>
 
 	<section class="vista" id="vista-plancia" role="tabpanel" aria-labelledby="tab-plancia" hidden>
@@ -873,7 +873,6 @@
 		if (fuoco) $('altro').focus();
 	}
 
-	$('calcolo-condiviso').addEventListener('click', () => vscode.postMessage({ type: 'worker.open' }));
 	$('altro').addEventListener('click', () => ($('altro-menu').hidden ? apriAltro() : chiudiAltro()));
 	$('altro-menu').addEventListener('click', () => chiudiAltro());
 	$('altro-menu').addEventListener('keydown', e => {

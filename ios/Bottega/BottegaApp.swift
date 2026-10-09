@@ -13,7 +13,6 @@ struct BottegaApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegato
     @State private var ponte = Ponte.shared
     @State private var melissa = Melissa(ponte: Ponte.shared)
-    @State private var worker = MacWorker.shared
     @Environment(\.scenePhase) private var fase
     /// Un link della Bottega non valido arrivato da scollegati: lo mostra la schermata di benvenuto.
     @State private var avvisoLink: String?
@@ -21,10 +20,8 @@ struct BottegaApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if WorkerBenchmarkLaunch.requested {
-                    WorkerBenchmarkView()
-                } else if ponte.collegato {
-                    PlanciaView(ponte: ponte, melissa: melissa, worker: worker, davanti: fase == .active)
+                if ponte.collegato {
+                    PlanciaView(ponte: ponte, melissa: melissa, davanti: fase == .active)
                 } else {
                     BenvenutoView(ponte: ponte, avvisoLink: $avvisoLink)
                 }
@@ -32,13 +29,11 @@ struct BottegaApp: App {
             .preferredColorScheme(.dark)
             .tint(Tinte.ambra)
             .onOpenURL { url in
-                guard !WorkerBenchmarkLaunch.requested else { return }
                 guard let errore = Navigazione.shared.apri(url, ponte: ponte) else { return }
                 // l'avviso di Melissa vive nella plancia: da scollegati non si vedrebbe
                 if ponte.collegato { melissa.avviso = errore } else { avvisoLink = errore }
             }
             .onChange(of: ponte.collegato) { _, si in
-                guard !WorkerBenchmarkLaunch.requested else { return }
                 if si {
                     avvisoLink = nil
                     Avvisi.shared.avvia()
@@ -47,18 +42,8 @@ struct BottegaApp: App {
                     Navigazione.shared.ascoltaSubito = false
                     PonteStanze.shared.dimentica()
                 }
-                aggiornaWorker()
-            }
-            .onChange(of: ponte.identitaWorker) { _, _ in aggiornaWorker() }
-            .onChange(of: melissa.sfera) { _, _ in aggiornaWorker() }
-            .onChange(of: melissa.conversazione) { _, _ in aggiornaWorker() }
-            .onReceive(NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification)) { _ in
-                aggiornaWorker()
             }
             .onChange(of: fase) { _, nuova in
-                guard !WorkerBenchmarkLaunch.requested else { return }
-                // Stop compute immediately, before voice/bridge lifecycle work.
-                worker.update(foreground: nuova == .active, voice: voceAttiva)
                 switch nuova {
                 case .active:
                     // aperta prima del primo sblocco il gettone non si leggeva: si riprova
@@ -69,19 +54,7 @@ struct BottegaApp: App {
                 default: break
                 }
             }
-            .onAppear {
-                guard !WorkerBenchmarkLaunch.requested else { return }
-                ponte.avvia(); Avvisi.shared.avvia()
-                aggiornaWorker()
-            }
+            .onAppear { ponte.avvia(); Avvisi.shared.avvia() }
         }
-    }
-
-    private var voceAttiva: Bool {
-        melissa.conversazione || (melissa.sfera != .riposo && melissa.sfera != .errore)
-    }
-    private func aggiornaWorker() {
-        guard !WorkerBenchmarkLaunch.requested else { return }
-        worker.update(foreground: fase == .active, voice: voceAttiva)
     }
 }

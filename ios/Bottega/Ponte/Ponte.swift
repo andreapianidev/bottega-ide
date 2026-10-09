@@ -99,21 +99,6 @@ final class Ponte {
 
     var collegato: Bool { collegamento != nil }
 
-    /// A non-secret binding for durable worker receipts; a newly paired Mac never receives an old result.
-    var identitaWorker: String? {
-        guard let c = collegamento else { return nil }
-        return SHA256.hash(data: Data("\(c.host):\(c.porta):\(c.token)".utf8))
-            .map { String(format: "%02x", $0) }.joined()
-    }
-
-    /// The worker uses the paired, authenticated, certificate-pinned session just like Melissa.
-    func richiestaWorker(_ action: String, body: [String: Any], pairing: String,
-                         timeout: TimeInterval = 15) async throws -> Data {
-        guard ["claim", "complete", "release", "presence"].contains(action),
-              identitaWorker == pairing else { throw CancellationError() }
-        return try await mandaDati("/v1/worker/\(action)", body, timeout: timeout)
-    }
-
     /// Anche senza rete Melissa può leggere l'ultimo registro del Mac abbinato, con la sua età esplicita.
     func contestoMelissa(per domanda: String) -> String? {
         guard collegato else { return nil }

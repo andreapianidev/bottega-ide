@@ -228,12 +228,6 @@
         "command": "bottega.openVercel",
         "title": "Apri i progetti Vercel",
         "category": "Bottega"
-      },
-      {
-        "command": "bottega.openWorker",
-        "title": "Apri il calcolo condiviso con iPhone",
-        "category": "Bottega",
-        "icon": "$(device-mobile)"
       }
     ],
     "viewsContainers": {
@@ -753,7 +747,7 @@
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=out/extension.js",
     "typecheck": "tsc --noEmit",
-    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/attivita-cline.cjs && node test/attivita-codex.cjs && node test/attivita-terminale.cjs && node test/attivita-sicurezza.cjs && node test/idee.cjs && node test/stato-refresh.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/whatsapp.cjs && node test/strumenti-connettori.cjs && node test/vercel.cjs && node test/vedetta-nativa.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs && node test/ponte-sessioni.cjs && node test/ponte-stanze.cjs && node test/avvisi.cjs && node test/aggiorna.cjs && node test/cline.cjs && node test/terminale.cjs && node test/appstore.cjs && node test/terminale-agnes.cjs && node test/strumenti-stanze.cjs && node test/conti.cjs && node test/occhio.cjs && node test/racconto.cjs && node test/riempitivi.cjs && node test/sessioni.cjs && node test/fonti-integrate.cjs && node test/stack-clienti.cjs && node --test test/continuita.cjs test/worker.cjs test/worker-http.cjs"
+    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/attivita-cline.cjs && node test/attivita-codex.cjs && node test/attivita-terminale.cjs && node test/attivita-sicurezza.cjs && node test/idee.cjs && node test/stato-refresh.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/whatsapp.cjs && node test/strumenti-connettori.cjs && node test/vercel.cjs && node test/vedetta-nativa.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs && node test/ponte-sessioni.cjs && node test/ponte-stanze.cjs && node test/avvisi.cjs && node test/aggiorna.cjs && node test/cline.cjs && node test/terminale.cjs && node test/appstore.cjs && node test/terminale-agnes.cjs && node test/strumenti-stanze.cjs && node test/conti.cjs && node test/occhio.cjs && node test/racconto.cjs && node test/riempitivi.cjs && node test/sessioni.cjs && node test/fonti-integrate.cjs && node test/stack-clienti.cjs && node --test test/continuita.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
