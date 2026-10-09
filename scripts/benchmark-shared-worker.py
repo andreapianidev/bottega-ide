@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import base64
 import csv
+import ctypes
 import hashlib
 import io
 import ipaddress
@@ -48,6 +49,57 @@ def cpu_ms():
     values = [resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(resource.RUSAGE_CHILDREN)]
     return 1000 * sum(v.ru_utime + v.ru_stime for v in values)
 
+
+
+def orchestration_cpu_ms():
+    value = resource.getrusage(resource.RUSAGE_SELF)
+    return 1000 * (value.ru_utime + value.ru_stime)
+
+
+class RUsageInfoV0(ctypes.Structure):
+    # Exact SDK sys/resource.h RUSAGE_INFO_V0 layout: UUID + ten uint64 fields.
+    _fields_ = [('ri_uuid', ctypes.c_uint8 * 16)] + [(name, ctypes.c_uint64) for name in (
+        'ri_user_time', 'ri_system_time', 'ri_pkg_idle_wkups', 'ri_interrupt_wkups',
+        'ri_pageins', 'ri_wired_size', 'ri_resident_size', 'ri_phys_footprint',
+        'ri_proc_start_abstime', 'ri_proc_exit_abstime')]
+
+
+class BridgeUsage:
+    def __init__(self, pid):
+        self.pid = pid  # Runtime only: never copied into reports.
+        self.read = None
+        try:
+            library = ctypes.CDLL('/usr/lib/libproc.dylib', use_errno=True)
+            self.read = library.proc_pid_rusage
+            self.read.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
+            self.read.restype = ctypes.c_int
+        except (OSError, AttributeError):
+            pass
+
+    def sample(self):
+        if self.read is None:
+            return None
+        try:
+            usage = RUsageInfoV0()
+            if self.read(self.pid, 0, ctypes.byref(usage)) != 0:
+                return None
+            return {'cpu_ms': (usage.ri_user_time + usage.ri_system_time) / 1_000_000,
+                    'resident_bytes': usage.ri_resident_size,
+                    '_identity': (bytes(usage.ri_uuid), usage.ri_proc_start_abstime)}
+        except (OSError, ValueError, ctypes.ArgumentError):
+            return None
+
+
+def accounted_cpu(orchestration, compute, local_compute, before, after):
+    partial = orchestration + (compute if local_compute else 0)
+    stable = before is not None and after is not None and before['_identity'] == after['_identity']
+    bridge_cpu = after['cpu_ms'] - before['cpu_ms'] if stable and after['cpu_ms'] >= before['cpu_ms'] else None
+    return {'bridge_cpu_ms': bridge_cpu,
+            'bridge_rss_before_bytes': before['resident_bytes'] if before is not None else None,
+            'bridge_rss_after_bytes': after['resident_bytes'] if after is not None else None,
+            'bridge_identity_stable': stable if before is not None and after is not None else None,
+            'mac_accounted_cpu_ms': partial + bridge_cpu if bridge_cpu is not None else None,
+            'mac_observed_partial_cpu_ms': partial}
 
 def read_private(path):
     info = path.lstat()
@@ -227,8 +279,9 @@ class Local:
         self.process.stdout.close()
 
 
-def flow(executor, profile, texts, image):
-    started, cpu_started = time.perf_counter(), cpu_ms()
+def flow(executor, profile, texts, image, bridge=None, local_compute=False):
+    started, cpu_started = time.perf_counter(), orchestration_cpu_ms()
+    bridge_before = bridge.sample() if bridge is not None else None
     stages, payload_hashes = [], []
     def step(operation, payload):
         payload_hashes.append(digest({'operation': operation, 'input': payload}))
@@ -248,11 +301,14 @@ def flow(executor, profile, texts, image):
             if not extracted or len(extracted.encode('utf-16-le')) // 2 > 2000:
                 raise Failure('ocr_output_not_valid_for_embedding_batch')
             step('embeddings', {'texts': [extracted]})
-    return {'stages': stages, 'payload_hashes': payload_hashes,
-            'e2e_ms': (time.perf_counter() - started) * 1000,
+    elapsed = (time.perf_counter() - started) * 1000
+    orchestration = orchestration_cpu_ms() - cpu_started
+    bridge_after = bridge.sample() if bridge is not None else None
+    compute_cpu = sum(stage['compute_cpu_ms'] for stage in stages)
+    return {'stages': stages, 'payload_hashes': payload_hashes, 'e2e_ms': elapsed,
             'compute_ms': sum(stage['compute_ms'] for stage in stages),
-            'compute_cpu_ms': sum(stage['compute_cpu_ms'] for stage in stages),
-            'orchestration_resource_cpu_ms': cpu_ms() - cpu_started}
+            'compute_cpu_ms': compute_cpu, 'orchestration_resource_cpu_ms': orchestration,
+            **accounted_cpu(orchestration, compute_cpu, local_compute, bridge_before, bridge_after)}
 
 
 def quality(local, remote, expected=None):
@@ -306,6 +362,15 @@ def summarize(samples):
                 'remote_python_orchestration_cpu_median_ms': remote_orchestration,
                 'reduction_percent': (1 - remote_orchestration / local_cpu) * 100 if local_cpu > 0 else None,
                 'excludes': 'VS Code/bridge server, UI, other Mac processes; not whole-Mac CPU reduction'}
+        observed = [sample for sample in good if all(sample[device].get('mac_accounted_cpu_ms') is not None for device in ('mac', 'iphone'))]
+        if observed:
+            left = [sample['mac']['mac_accounted_cpu_ms'] for sample in observed]
+            right = [sample['iphone']['mac_accounted_cpu_ms'] for sample in observed]
+            summary['mac_accounted_cpu_comparison'] = {'n': len(observed), 'local_median_ms': statistics.median(left),
+                'remote_median_ms': statistics.median(right), 'ratio_of_medians_local_over_remote': ratio(statistics.median(left), statistics.median(right)),
+                'median_paired_ratio_local_over_remote': statistics.median([a / b for a, b in zip(left, right) if b > 0]) if any(b > 0 for b in right) else None,
+                'reduction_percent': (1 - statistics.median(right) / statistics.median(left)) * 100 if statistics.median(left) > 0 else None,
+                'scope': 'Python harness + selected bridge process + production CLI compute CPU only for local run; bridge background activity included; not whole Mac'}
         summaries[profile] = summary
     return summaries
 
@@ -331,7 +396,7 @@ def reports(directory, report):
     private_write(directory / 'shared-worker.json', json.dumps(report, indent=2, ensure_ascii=False) + '\n')
     buffer = io.StringIO()
     columns = ['profile', 'repetition', 'phase', 'quality_passed', 'identical_payloads', 'ocr_exact', 'vector_max_abs_error',
-               'mac_compute_ms', 'iphone_compute_ms', 'mac_e2e_ms', 'iphone_e2e_ms', 'mac_compute_cpu_ms', 'iphone_compute_cpu_ms', 'remote_mac_orchestration_resource_cpu_ms']
+               'mac_compute_ms', 'iphone_compute_ms', 'mac_e2e_ms', 'iphone_e2e_ms', 'mac_compute_cpu_ms', 'iphone_compute_cpu_ms', 'remote_mac_orchestration_resource_cpu_ms', 'mac_bridge_cpu_ms', 'iphone_bridge_cpu_ms', 'mac_accounted_cpu_ms', 'iphone_mac_accounted_cpu_ms', 'mac_bridge_rss_before_bytes', 'mac_bridge_rss_after_bytes', 'iphone_bridge_rss_before_bytes', 'iphone_bridge_rss_after_bytes']
     writer = csv.DictWriter(buffer, fieldnames=columns)
     writer.writeheader()
     for sample in report['samples']:
@@ -342,21 +407,31 @@ def reports(directory, report):
             for metric in ('compute_ms', 'e2e_ms', 'compute_cpu_ms'):
                 row[device + '_' + metric] = sample[device][metric]
         row['remote_mac_orchestration_resource_cpu_ms'] = sample['iphone']['orchestration_resource_cpu_ms']
+        for device in ('mac', 'iphone'):
+            row[device + '_bridge_cpu_ms'] = sample[device].get('bridge_cpu_ms')
+            for field in ('bridge_rss_before_bytes', 'bridge_rss_after_bytes'):
+                row[device + '_' + field] = sample[device].get(field)
+        row['mac_accounted_cpu_ms'] = sample['mac'].get('mac_accounted_cpu_ms')
+        row['iphone_mac_accounted_cpu_ms'] = sample['iphone'].get('mac_accounted_cpu_ms')
         writer.writerow(row)
     private_write(directory / 'shared-worker.csv', buffer.getvalue())
     lines = ['Calcolo condiviso: confronto breve Mac / iPhone', 'Rapporti Mac/iPhone: oltre 1 significa iPhone più rapido.',
              'Calcolo e durata totale sono misure diverse; nessuna misura riguarda accelerazione di un LLM.',
              'Primo campione per profilo e ripetizioni; ogni fase registra anche primo campione/successivi per operazione e dispositivo. Lo stato davvero freddo dell’app iPhone non è noto.',
              'CPU Mac durante le richieste remote: sola orchestrazione Python, non CPU dell’estensione Bottega.',
+             'Con --bridge-pid: CPU del ponte e RSS prima/dopo osservati via proc_pid_rusage; RSS non è picco. CPU contabilizzata = Python + ponte selezionato + compute CLI soltanto nel caso locale. Include rumore di sfondo del ponte, esclude altri processi: non intero Mac. Se la lettura manca il KPI resta sconosciuto.',
              'CPU totale Mac via resource: harness + figlio CLI locale, raccolta dopo la chiusura del figlio.',
              'Memoria: peakResidentBytes, se disponibile, è del processo worker; nessuna somma RAM fra dispositivi. Stato termico osservato per fase.',
              'Bytes canonici del payload riportati separatamente: i contatori interni del coordinatore e del compute possono includere involucri JSON differenti.',
              'Qualità OCR: uguaglianza dopo NFC e spazi normalizzati; anche confronto grezzo della coppia. Vettori: errore massimo ≤ 1e-5.', '']
     for profile, summary in report['summary'].items():
         lines.append(profile + ': n=' + str(summary['n']) + ', campioni qualità respinti=' + str(summary['rejected_quality']))
+        accounted = summary.get('mac_accounted_cpu_comparison')
+        if accounted and accounted['reduction_percent'] is not None:
+            lines.append(f"  CPU Mac contabilizzata (harness+ponte+compute locale): locale {accounted['local_median_ms']:.3f} ms vs remoto {accounted['remote_median_ms']:.3f} ms; riduzione {accounted['reduction_percent']:.1f}% su n={accounted['n']}. Include attività di sfondo del ponte; non intero Mac.")
         cpu = summary.get('mac_cpu_scope_comparison')
         if cpu and cpu['reduction_percent'] is not None:
-            lines.append(f"  CPU Mac perimetro dichiarato: calcolo locale {cpu['local_compute_cpu_median_ms']:.3f} ms vs orchestrazione remota Python {cpu['remote_python_orchestration_cpu_median_ms']:.3f} ms; riduzione {cpu['reduction_percent']:.1f}% (esclusi VS Code, ponte e altri processi).")
+            lines.append(f"  Diagnostica CPU (compute locale vs Python remoto, ponte escluso): calcolo locale {cpu['local_compute_cpu_median_ms']:.3f} ms vs orchestrazione remota Python {cpu['remote_python_orchestration_cpu_median_ms']:.3f} ms; riduzione {cpu['reduction_percent']:.1f}% (esclusi VS Code, ponte e altri processi).")
         for metric, label in (('compute_ms', 'Calcolo'), ('e2e_ms', 'Durata totale')):
             if metric in summary:
                 value = summary[metric]
@@ -374,17 +449,20 @@ def main():
     parser.add_argument('--local', type=Path, help='Production worker JSONL executable; otherwise compile it in a private temporary directory.')
     parser.add_argument('--repetitions', type=int, default=3)
     parser.add_argument('--timeout', type=float, default=40)
+    parser.add_argument('--bridge-pid', type=int, help='Optional existing bridge process to observe with libproc; never persisted in reports.')
     parser.add_argument('--self-test', action='store_true', help='Offline synthetic contract checks only.')
     args = parser.parse_args()
     if args.self_test:
         return 0 if unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(OfflineTests)).wasSuccessful() else 1
-    if args.output_dir is None or args.dataset is None or not 1 <= args.repetitions <= 6 or not 1 <= args.timeout <= 60:
+    if args.output_dir is None or args.dataset is None or not 1 <= args.repetitions <= 6 or not 1 <= args.timeout <= 60 or (args.bridge_pid is not None and args.bridge_pid <= 0):
         parser.error('--dataset and --output-dir required; repetitions 1...6, per-job timeout 1...60 seconds')
     report = {'version': 1, 'repetitions': args.repetitions, 'samples': [], 'summary': {}, 'stopped_reason': None,
               'scope': 'Production Apple OCR/embedding only; no LLM acceleration claim.',
               'cold_state': {'mac': 'first observed task in fresh persistent CLI', 'iphone': 'unknown; existing foreground app, first observed then warm followups'},
-              'cpu_scope': 'Per-job compute CPU from production executor; remote Mac CPU from resource self+children delta (Python orchestration only). Aggregate Mac resource CPU includes reaped local CLI.'}
+              'bridge_observation_requested': args.bridge_pid is not None,
+              'cpu_scope': 'Optional accounted CPU: Python harness self + selected bridge process + executor compute CPU for local only, without child double-counting; no whole-Mac claim. Bridge background activity included. Per-job compute CPU from production executor; remote Mac CPU from resource self+children delta (Python orchestration only). Aggregate Mac resource CPU includes reaped local CLI.'}
     local = None
+    bridge = BridgeUsage(args.bridge_pid) if args.bridge_pid is not None else None
     cpu_started = None
     with tempfile.TemporaryDirectory(prefix='shared-worker-local-') as scratch:
         try:
@@ -415,7 +493,7 @@ def main():
                     remote.ready()
                     runs = {}
                     for name, executor in ([('mac', local), ('iphone', remote)] if repetition % 2 == 0 else [('iphone', remote), ('mac', local)]):
-                        runs[name] = flow(executor, profile, texts, image)
+                        runs[name] = flow(executor, profile, texts, image, bridge=bridge, local_compute=name == 'mac')
                     check = quality(runs['mac'], runs['iphone'], image['expected'] if profile != 'bottega' else None)
                     report['samples'].append({'profile': profile, 'repetition': repetition + 1,
                         'phase': 'first_profile_pair' if repetition == 0 else 'profile_repeat', 'order': 'mac_first' if repetition % 2 == 0 else 'iphone_first',
@@ -489,6 +567,34 @@ class OfflineTests(unittest.TestCase):
             remote.execute('embeddings', {'texts': ['synthetic']}, 'bottega')
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[1][0], '/v1/worker/jobs/' + calls[0][1]['id'] + '/cancel')
+
+    def test_accounted_cpu_adds_local_compute_once_and_keeps_bridge_rss_distinct(self):
+        before = {'cpu_ms': 10, 'resident_bytes': 100, '_identity': (b'example', 1)}
+        after = {'cpu_ms': 14, 'resident_bytes': 120, '_identity': (b'example', 1)}
+        local = accounted_cpu(2, 20, True, before, after)
+        remote = accounted_cpu(3, 90, False, before, after)
+        self.assertEqual(local['mac_accounted_cpu_ms'], 26)
+        self.assertEqual(remote['mac_accounted_cpu_ms'], 7)  # Never add phone compute CPU to Mac.
+        self.assertEqual(local['bridge_cpu_ms'], 4)
+        self.assertEqual(local['bridge_rss_before_bytes'], 100)
+        self.assertEqual(local['bridge_rss_after_bytes'], 120)
+        self.assertNotIn('_identity', local)
+
+    def test_missing_or_restarted_bridge_is_unknown_not_zero(self):
+        before = {'cpu_ms': 10, 'resident_bytes': 100, '_identity': (b'example', 1)}
+        after = {'cpu_ms': 14, 'resident_bytes': 120, '_identity': (b'restarted', 2)}
+        for left, right in ((None, None), (before, None), (before, after)):
+            result = accounted_cpu(2, 20, True, left, right)
+            self.assertIsNone(result['bridge_cpu_ms'])
+            self.assertIsNone(result['mac_accounted_cpu_ms'])
+            self.assertEqual(result['mac_observed_partial_cpu_ms'], 22)
+        sampler = BridgeUsage.__new__(BridgeUsage)
+        sampler.pid, sampler.read = 1, None
+        self.assertIsNone(sampler.sample())
+        sampler.read = lambda *_: -1
+        self.assertIsNone(sampler.sample())
+        self.assertEqual(ctypes.sizeof(RUsageInfoV0), 96)
+        self.assertEqual(RUsageInfoV0.ri_resident_size.offset, 64)
 
     def test_lost_submit_ack_retries_same_identity(self):
         remote = Remote.__new__(Remote)

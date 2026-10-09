@@ -115,7 +115,7 @@
 					<label title="L'equilibrio di sempre"><input type="radio" name="impegno" value="normale"><span>normale</span></label>
 					<label title="Pensa a fondo, ci mette di più"><input type="radio" name="impegno" value="profondo"><span>profondo</span></label>
 				</fieldset>
-				<label class="sempre" title="Il cervello scelto resta anche dopo questa conversazione, come dall'iPhone; tolto, si torna ad Agnes"><input type="checkbox" id="sempre"><span>sempre</span></label>
+				<label class="sempre" title="Il cervello scelto resta anche dopo questa conversazione, come dall'iPhone; tolto, si torna a DeepSeek"><input type="checkbox" id="sempre"><span>sempre</span></label>
 				<button type="button" class="racconta" id="racconta" title="Melissa legge quello che hai davanti (il file di codice o la stanza della Home), lo fa analizzare a DeepSeek e te lo racconta a voce">racconta</button>
 			</div>
 			<details class="conti" id="conti" hidden>
@@ -627,7 +627,7 @@
 	});
 	// «racconta»: quello che hai davanti, analizzato e raccontato a voce; durante il racconto diventa «ferma»
 	$('racconta').addEventListener('click', () => post({ type: 'comando', id: S.assistant && S.assistant.raccontando ? 'racconta.ferma' : 'racconta' }));
-	// «sempre»: il cervello di adesso diventa il predefinito; tolto, si torna ad Agnes (CONTRATTI 9.8)
+	// «sempre»: il cervello di adesso diventa il predefinito; tolto, si torna a DeepSeek (CONTRATTI 9.8)
 	$('sempre').addEventListener('change', ev => {
 		const cur = (S.brain && S.brain.current) || {};
 		const on = /** @type {HTMLInputElement} */ (ev.target).checked;
