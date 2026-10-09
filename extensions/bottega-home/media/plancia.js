@@ -2642,6 +2642,8 @@
 			g.addColorStop(1, rgba(C, 0.3));
 			ctx.fillStyle = g;
 			ctx.fillRect(0, 0, S, S);
+			// Elliot: il codice che scende dentro la sfera, piu' veloce con la voce e l'emozione
+			if (mol && mol.pesi[0] > 0.001) A.pioggia2D(ctx, c, c, R, mol.pesi[0], performance.now() / 1000, level, mol.agit, mol.colore);
 			ctx.restore();
 		}
 

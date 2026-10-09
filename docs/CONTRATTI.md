@@ -2594,20 +2594,35 @@ quella del Nucleo in Metal (isola e sfera sullo schermo, `nucleo/Sources/Orb/`) 
 Avo Agency AI: chi cambia una regola qui la cambia anche li'.
 
 - **Fonte unica**: il campo facoltativo `"sfera": {"forma": "...", "colore": "#RRGGBB"}` nel file del personaggio
-  (`personaggi/LEGGIMI.md`). Forme valide: `sfera`, `cubo`, `rombo`, `stella`. Oggi: Darlene `stella` `#FF2E9A`, Elliot
-  `cubo` `#38F27A`, Krista `rombo` `#FFB547`; `melissa.json` non lo ha (sfera, tavolozza di sempre, niente tinta). Senza
-  campo, o per la parte non valida, decide la chiave: h = FNV-1a a 32 bit dei suoi byte UTF-8, forma = [cubo, rombo,
-  stella][h % 3], colore HSV con tonalita' (h >> 8) % 360, saturazione 0,75, valore 1. Mai la sfera, che e' di Melissa.
+  (`personaggi/LEGGIMI.md`). Forme valide: `sfera`, `codice`, `rombo`, `stella`; `cubo` si accetta ancora e vale
+  `codice` (il cubo non si disegna piu', Andrea il 9 ottobre: per Elliot "codice che scende tipo Matrix, piu' a tema").
+  Oggi: Darlene `stella` `#FF2E9A`, Elliot `codice` `#38F27A`, Krista `rombo` `#FFB547`; `melissa.json` non lo ha (sfera,
+  tavolozza di sempre, niente tinta). Senza campo, o per la parte non valida, decide la chiave: h = FNV-1a a 32 bit dei
+  suoi byte UTF-8, forma = [stella, codice, rombo][h % 3], colore HSV con tonalita' (h >> 8) % 360, saturazione 0,75, valore 1. Mai la sfera, che e' di Melissa.
   Stesse funzioni in `src/sfera-aspetto.ts` (estensione) e `nucleo/Sources/Orb/OrbAspetto.swift` (Nucleo).
 - **Forme**, distanze in raymarching uguali in Metal (`OrbShaders.metal`) e WGSL (`sfera-gpu.js`). R e' il raggio base,
-  q = rotX(rotY(p, angolo), 0,45), disp lo spostamento organico di sempre. Sfera `length(p) - (R + disp)`; cubo
-  `sdRoundBox(q, 0,66R, 0,16R) - 0,6 disp`; rombo `(|q.x| + |q.y| + |q.z| - 1,32R) x 0,57735 - 0,06R - 0,6 disp`; stella
+  q = rotX(rotY(p, angolo), 0,45), disp lo spostamento organico di sempre. Sfera `length(p) - (R + disp)`; il codice
+  non deforma: e' una sfera; rombo `(|q.x| + |q.y| + |q.z| - 1,32R) x 0,57735 - 0,06R - 0,6 disp`; stella
   `length(p) - (0,86R + 0,5 disp + punta x R x spikes(normalize(q)))`, con spikes = pow del massimo dei prodotti scalari
   con i 12 vertici dell'icosaedro (a = 0,5257311, b = 0,8506508), esponente 28. Distanza finale: sfera x (1 - somma dei
-  pesi) + cubo x w1 + rombo x w2 + stella x w3. Pesi, tinta, colore e agitazione vanno al valore nuovo in circa 0,4 s
+  pesi di rombo e stella) + rombo x w2 + stella x w3 (il peso del codice, w1, non entra nella distanza). Pesi, tinta, colore e agitazione vanno al valore nuovo in circa 0,4 s
   (esponenziale con costante 0,13 s), mai a scatti; con il Riduci movimento ci vanno subito. Con la stella il passo del
   raymarch e' 0,45 invece di 0,72 e i passi fuori 120 invece di 80 (le punte non sono lipschitziane), e la sfera di
-  ricerca si allarga di R x (0,4 stella + 0,1 rombo + 0,05 cubo).
+  ricerca si allarga di R x (0,4 stella + 0,1 rombo).
+- **Il codice che scende** (Elliot), in spazio schermo dentro il disco, dopo il raymarch, pesato da w1 (che segue il
+  passaggio come gli altri pesi). p sono le coordinate centrate con l'aspetto, pr = length(p), loud il volume della voce,
+  verde = colore x luce. m = p / (2,3R) + 0,5; 26 colonne, cw = 1/26, ch = 1,45 cw; colId = floor(m.x / cw), hc =
+  hash21(colId, 17,3); velocita' = (0,25 + 0,75 hc) x (1 + 1,6 loud + 0,8 agitazione); yGiu = 1 - m.y; lungo = 0,35 +
+  0,45 hash21(colId, 3,1); testa = fract(t x velocita' x 0,45 + 7 hc), dietro = fract(testa - yGiu + 1), scia = exp(-3,2
+  dietro / lungo) se dietro < lungo; seconda scia con fract(t x velocita' x 0,27 + 13 hc), lunga 0,6 lungo, al 45%. Glifo:
+  riga = floor(yGiu / ch), cella = (fract(m.x / cw), fract(yGiu / ch)), dentro = (cella - 0,14) / 0,72; dentro [0, 1) un
+  blocco di 3 x 5, ogni quadretto acceso se hash21(7 colId + x + 0,37 scatto, 11 riga + 3 y) > 0,42, con scatto =
+  floor(t x (1,5 + 5 hash21(colId, riga))). Testa chiara quando dietro < 1,1 ch: pioggia = mix(1,4 verde, (0,85, 1, 0,9)
+  x 2,2, testa) x glifo x scia. Disco = smoothstep(1,18R, 1,02R, pr): col = mix(col, 0,18 col + 0,04 verde, w1 x disco)
+  (vetro scuro), col += pioggia x disco x w1, alfa = max(alfa, w1 x disco x max(0,55, glifo x scia)). hash21 e' quello
+  della sfera (fract(p x (127,31, 311,7)); p += dot(p, p + 34,12); fract(p.x p.y)). Nel Canvas 2D di ripiego
+  (`aspetto.pioggia2D`) stessa logica di colonne, velocita' e scie, con caratteri veri (katakana e cifre) verdi e la testa
+  chiara, dentro il cerchio scurito.
 - **Colore**: base = mix(tavolozza di stato con la sua deriva di tonalita', colore x luce, tinta), con tinta 0,85 per un
   personaggio e 0 per Melissa: della deriva viva all'ospite resta solo un filo. Anche particelle e scie prendono la tinta.
 - **Emozione**: un'agitazione da 0 a 1, neutra 0,3. Decide il primo tag audio che dice un'emozione: alti `[laughs]`,
@@ -2631,7 +2646,8 @@ Avo Agency AI: chi cambia una regola qui la cambia anche li'.
   mentre parla chi parla (`parla`), se no chi ha la chiamata (`personaggio`), e ne fa il quarto argomento di
   `set(stato, spenta, livello, {forma, colore, agitazione})`. Senza quarto argomento la sfera e' di Melissa, calma: chi
   chiamava `set` con tre argomenti non cambia. La sfera Canvas 2D di ripiego segue le stesse regole (`aspetto.molla` per
-  il passaggio, `aspetto.traccia` per la sagoma piatta della forma ruotata, con i pesi mescolati, e il colore).
+  il passaggio, `aspetto.traccia` per la sagoma piatta della forma ruotata, con i pesi mescolati, `aspetto.pioggia2D` per il codice, e
+  il colore).
 - **Fuori**: la Bottega per iPhone e la mod melissa non hanno ancora la sfera per personaggio; il campo nei file per loro
   e' in piu' e lo ignorano.
 

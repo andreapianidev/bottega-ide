@@ -35,10 +35,11 @@
               frames }
      stato: 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'; spenta: boolean (Nucleo assente
      o voce spenta: la sfera sbiadisce verso il grigio e poi si ferma); livello: 0..1 (la voce).
-     aspetto (facoltativo, 9/10/2026): { forma: 'sfera' | 'cubo' | 'rombo' | 'stella', colore?: '#RRGGBB',
+     aspetto (facoltativo, 9/10/2026): { forma: 'sfera' | 'codice' | 'rombo' | 'stella', colore?: '#RRGGBB',
      agitazione?: 0..1 } di chi parla (CONTRATTI 9.11, «La sfera di chi parla»). Senza, la sfera di Melissa, calma.
      Forma, colore e agitazione vanno al valore nuovo in circa 0,4 s, mai a scatti. Con un colore la sfera ne prende
-     l'85%; l'agitazione fa girare la forma (0,15 + 0,6 x agitazione rad/s), allunga le punte della stella fino a 1,5
+     l'85%; 'codice' (Elliot; 'cubo' vale lo stesso) e' una sfera di vetro scuro con il codice verde che scende come in
+     Matrix, piu' veloce con la voce e l'agitazione; l'agitazione fa girare la forma (0,15 + 0,6 x agitazione rad/s), allunga le punte della stella fino a 1,5
      volte, alza la deformazione fino al 60% e cambia la luce del colore (+15% sopra 0,75, -25% sotto 0,1).
    window.BottegaSferaGPU.aspetto: le stesse regole per le viste e per la sfera Canvas 2D di ripiego:
      daStato(assistant) -> aspetto (chi parla o ha la chiamata, dallo stato dell'assistente), rgb(colore), luce(agitazione),
@@ -63,11 +64,11 @@
 
 	/* L'aspetto di chi parla (CONTRATTI 9.11, «La sfera di chi parla»): le stesse regole del Nucleo
 	   (nucleo/Sources/Orb/OrbAspetto.swift) e di Avo Agency AI. Melissa e' la sfera con la sua tavolozza; un personaggio ha
-	   una forma (cubo, rombo, stella) e un colore. L'agitazione (0..1, 0,3 neutra) viene dall'emozione della battuta. */
+	   una forma (codice, rombo, stella) e un colore. L'agitazione (0..1, 0,3 neutra) viene dall'emozione della battuta. */
 	const ASPETTO = (() => {
 		const NEUTRA = 0.3;
-		/** l'indice nei pesi (cubo, rombo, stella); la sfera non ha peso, e' il resto */
-		const INDICE = { sfera: -1, cubo: 0, rombo: 1, stella: 2 };
+		/** l'indice nei pesi (codice, rombo, stella); la sfera non ha peso, e' il resto; `cubo` vale `codice` */
+		const INDICE = { sfera: -1, codice: 0, cubo: 0, rombo: 1, stella: 2 };
 		const liscio = (a, b, x) => {
 			const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
 			return t * t * (3 - 2 * t);
@@ -87,7 +88,7 @@
 			const n = Number(x);
 			return x !== null && x !== undefined && x !== '' && Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : NEUTRA;
 		};
-		/** il quarto argomento di set, normalizzato: pesi (cubo, rombo, stella), tinta (0,85 con un colore), colore, agitazione */
+		/** il quarto argomento di set, normalizzato: pesi (codice, rombo, stella), tinta (0,85 con un colore), colore, agitazione */
 		function leggi(a) {
 			const o = a && typeof a === 'object' ? a : {};
 			const i = Object.hasOwn(INDICE, o.forma) ? INDICE[o.forma] : -1;
@@ -102,7 +103,7 @@
 			const p = chi !== 'melissa' && Array.isArray(a.personaggi) ? a.personaggi.find(x => x && x.chiave === chi) : null;
 			const sf = p && p.sfera;
 			if (!sf || typeof sf !== 'object' || !Object.hasOwn(INDICE, sf.forma)) return { forma: 'sfera', agitazione: ag };
-			return { forma: sf.forma, colore: sf.colore, agitazione: ag };
+			return { forma: sf.forma === 'cubo' ? 'codice' : sf.forma, colore: sf.colore, agitazione: ag };
 		}
 		/** l'aspetto che si muove: va al valore chiesto in circa 0,4 s (95%), mai a scatti; l'angolo gira con l'agitazione */
 		function molla() {
@@ -160,8 +161,6 @@
 		};
 		const ICO = [];
 		for (const u of [1, -1]) for (const w of [1, -1]) ICO.push([u * 0.5257311, w * 0.8506508, 0], [0, u * 0.5257311, w * 0.8506508], [w * 0.8506508, 0, u * 0.5257311]);
-		const CUBO = [];
-		for (const x of [1, -1]) for (const y of [1, -1]) for (const z of [1, -1]) CUBO.push([x * 0.62, y * 0.62, z * 0.62]);
 		const ROMBO = [[1.22, 0, 0], [-1.22, 0, 0], [0, 1.22, 0], [0, -1.22, 0], [0, 0, 1.22], [0, 0, -1.22]];
 		function inviluppo(pt) {
 			pt.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
@@ -193,17 +192,17 @@
 			}
 			return Number.isFinite(r) ? r : 1;
 		}
-		/** il percorso della sagoma (beginPath compreso): pesi (cubo, rombo, stella), il resto e' la sfera di raggio R */
+		/** il percorso della sagoma (beginPath compreso): pesi (codice, rombo, stella); il resto, e il codice, e' la sfera di
+		 *  raggio R */
 		function traccia(ctx, cx, cy, R, pesi, angolo, agit) {
 			ctx.beginPath();
 			const w = Array.isArray(pesi) ? pesi : [0, 0, 0];
-			const altre = w[0] + w[1] + w[2];
+			const altre = w[1] + w[2];
 			if (altre < 0.001) {
 				ctx.arc(cx, cy, R, 0, Math.PI * 2);
 				return;
 			}
 			const ang = Number(angolo) || 0;
-			const cubo = w[0] > 0.001 ? inviluppo(CUBO.map(v => proietta(v, ang))) : null;
 			const rombo = w[1] > 0.001 ? inviluppo(ROMBO.map(v => proietta(v, ang))) : null;
 			const punte = w[2] > 0.001 ? ICO.map(v => proietta(v, ang)) : null;
 			const L = punta(agitazione(agit));
@@ -212,7 +211,6 @@
 				const f = (k / N) * Math.PI * 2;
 				const dx = Math.cos(f), dy = Math.sin(f);
 				let r = 1 - altre;
-				if (cubo) r += w[0] * raggioPoligono(cubo, dx, dy);
 				if (rombo) r += w[1] * raggioPoligono(rombo, dx, dy);
 				if (punte) {
 					let m = 0;
@@ -224,7 +222,59 @@
 			}
 			ctx.closePath();
 		}
-		return { NEUTRA, rgb, luce, punta, leggi, daStato, molla, traccia };
+		// il codice che scende, per la sfera Canvas 2D: la stessa logica dello shader (26 colonne, velocita' con la voce e
+		// l'agitazione, due scie, testa chiara), con caratteri veri (katakana e cifre) al posto dei glifi a blocchi
+		const h21 = (x, y) => {
+			let a = (x * 127.31) % 1, b = (y * 311.7) % 1;
+			if (a < 0) a += 1;
+			if (b < 0) b += 1;
+			const d = a * (a + 34.12) + b * (b + 34.12);
+			a += d;
+			b += d;
+			const v = (a * b) % 1;
+			return v < 0 ? v + 1 : v;
+		};
+		const fr = x => x - Math.floor(x);
+		const SEGNI = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン0123456789';
+		/** dentro la sagoma gia' ritagliata: vetro scuro e colonne di caratteri verdi. peso 0..1, t in secondi, voce 0..1 */
+		function pioggia2D(ctx, cx, cy, R, peso, t, voce, agit, colore) {
+			if (!(peso > 0.001)) return;
+			const verde = colore || [0.22, 0.95, 0.48];
+			const L = luce(agitazione(agit));
+			const s8 = c => Math.round(255 * Math.min(1, Math.max(0, c)));
+			const W = R * 2.3, x0 = cx - W / 2, y0 = cy - W / 2;
+			const cw = W / 26, ch = cw * 1.45;
+			ctx.save();
+			ctx.globalCompositeOperation = 'source-over';
+			ctx.fillStyle = `rgba(2,8,4,${(0.82 * peso).toFixed(3)})`;
+			ctx.fillRect(cx - R * 1.6, cy - R * 1.6, R * 3.2, R * 3.2);
+			ctx.globalCompositeOperation = 'lighter';
+			ctx.font = `${Math.max(6, ch * 0.85).toFixed(1)}px monospace`;
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			const righe = Math.ceil(1 / (ch / W));
+			for (let c = 0; c < 26; c++) {
+				const hc = h21(c, 17.3);
+				const vel = (0.25 + 0.75 * hc) * (1 + 1.6 * (voce || 0) + 0.8 * agitazione(agit));
+				const lungo = 0.35 + 0.45 * h21(c, 3.1);
+				const t1 = fr(t * vel * 0.45 + hc * 7), t2 = fr(t * vel * 0.27 + hc * 13);
+				for (let r = 0; r < righe; r++) {
+					const yG = (r + 0.5) * (ch / W);
+					const d1 = fr(t1 - yG + 1), d2 = fr(t2 - yG + 1);
+					let scia = d1 < lungo ? Math.exp((-d1 / lungo) * 3.2) : 0;
+					scia = Math.max(scia, d2 < lungo * 0.6 ? 0.45 * Math.exp((-d2 / (lungo * 0.6)) * 3.2) : 0);
+					if (scia < 0.04) continue;
+					const scatto = Math.floor(t * (1.5 + 5 * h21(c, r)));
+					const segno = SEGNI[Math.floor(h21(c * 7 + scatto * 0.37, r * 11) * SEGNI.length) % SEGNI.length];
+					const testa = d1 < (ch / W) * 1.1;
+					const k = testa ? [0.85 * 2.2, 2.2, 0.9 * 2.2] : [verde[0] * L * 1.4, verde[1] * L * 1.4, verde[2] * L * 1.4];
+					ctx.fillStyle = `rgba(${s8(k[0])},${s8(k[1])},${s8(k[2])},${Math.min(1, scia * peso).toFixed(3)})`;
+					ctx.fillText(segno, x0 + (c + 0.5) * cw, y0 + (r + 0.5) * ch);
+				}
+			}
+			ctx.restore();
+		}
+		return { NEUTRA, rgb, luce, punta, leggi, daStato, molla, traccia, pioggia2D };
 	})();
 	/** Lato del volume di rumore, come in Avo. */
 	const DIM = 96;
@@ -325,7 +375,7 @@ struct U {
 	p5: vec4f,
 	spettro: array<vec4f, 4>,
 	p6: vec4f,
-	// chi parla: p7 = (cubo, rombo, stella, tinta), p8 = (colore, agitazione), p9 = (angolo, luce, punta, 0)
+	// chi parla: p7 = (codice, rombo, stella, tinta), p8 = (colore, agitazione), p9 = (angolo, luce, punta, 0)
 	p7: vec4f,
 	p8: vec4f,
 	p9: vec4f,
@@ -373,12 +423,6 @@ fn rotX(p: vec3f, a: f32) -> vec3f {
 	return vec3f(p.x, c * p.y - s * p.z, s * p.y + c * p.z);
 }
 
-// il cubo smussato
-fn scatola(p: vec3f, b: vec3f, r: f32) -> f32 {
-	let q = abs(p) - b + r;
-	return length(max(q, vec3f(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
-}
-
 // le punte della stella: i 12 vertici dell'icosaedro, sei assi con il loro opposto
 fn punte(dir: vec3f) -> f32 {
 	let a = 0.5257311;
@@ -401,8 +445,7 @@ struct Spinta {
 	medi: f32,
 	verso: f32,
 	rivela: f32,
-	// i pesi delle forme dei personaggi (la sfera e' il resto), l'angolo della forma e la lunghezza delle punte
-	cubo: f32,
+	// i pesi delle forme dei personaggi (la sfera e' il resto; il codice resta una sfera), l'angolo e le punte
 	rombo: f32,
 	stella: f32,
 	angolo: f32,
@@ -427,13 +470,12 @@ fn mappa(pos: vec3f, d: Spinta) -> f32 {
 	let dir = normalize(pos + vec3f(1e-5));
 	let sp = spostamento(dir, d);
 	let palla = length(pos) - (d.baseR + sp);
-	let altre = d.cubo + d.rombo + d.stella;
+	let altre = d.rombo + d.stella;
 	if (altre < 0.001) { return palla; }
-	// le forme dei personaggi girano piano, inclinate, cosi' cubo e rombo si leggono in 3D
+	// le forme dei personaggi girano piano, inclinate, cosi' il rombo si legge in 3D
 	let q = rotX(rotY(pos, d.angolo), 0.45);
 	let R = d.baseR;
 	var dist = palla * (1.0 - altre);
-	if (d.cubo > 0.001) { dist += (scatola(q, vec3f(0.66 * R), 0.16 * R) - sp * 0.6) * d.cubo; }
 	if (d.rombo > 0.001) { dist += ((abs(q.x) + abs(q.y) + abs(q.z) - 1.32 * R) * 0.57735 - 0.06 * R - sp * 0.6) * d.rombo; }
 	if (d.stella > 0.001) { dist += (length(pos) - (0.86 * R + 0.5 * sp + d.punta * R * punte(normalize(q + vec3f(1e-5))))) * d.stella; }
 	return dist;
@@ -579,7 +621,7 @@ struct VF { @builtin(position) pos: vec4f };
 	d.vortice = 0.10;
 	d.verso = 1.0;
 	d.rivela = rivela;
-	d.cubo = u.p7.x;
+	let codice = clamp(u.p7.x, 0.0, 1.0);
 	d.rombo = u.p7.y;
 	d.stella = u.p7.z;
 	d.angolo = u.p9.x;
@@ -654,7 +696,7 @@ struct VF { @builtin(position) pos: vec4f };
 	let rd = vec3f(0.0, 0.0, -1.0);
 	let R = d.baseR;
 	// le punte della stella e i vertici del rombo escono dalla sfera: la sfera di ricerca si allarga con loro
-	let maxR = R + 0.24 + R * (0.4 * d.stella + 0.1 * d.rombo + 0.05 * d.cubo);
+	let maxR = R + 0.24 + R * (0.4 * d.stella + 0.1 * d.rombo);
 	let pxMondo = 2.0 * zoom / res.y;
 	// le punte non sono lipschitziane: con la stella il passo e' piu' prudente, e i passi di piu'
 	let prudenza = mix(0.72, 0.45, d.stella);
@@ -772,6 +814,42 @@ struct VF { @builtin(position) pos: vec4f };
 				alfa = cop;
 			}
 		}
+	}
+
+	// il codice di Elliot che scende, in spazio schermo dentro il disco: vetro scuro, poi colonne verdi di glifi con la
+	// testa chiara (CONTRATTI 9.11, «La sfera di chi parla»); uguale al Nucleo e ad Avo
+	if (codice > 0.001) {
+		let verde = u.p8.xyz * u.p9.y;
+		let m = p / (R * 2.3) + 0.5;
+		let cw = 1.0 / 26.0;
+		let ch = cw * 1.45;
+		let colId = floor(m.x / cw);
+		let hc = hash21(vec2f(colId, 17.3));
+		let velocita = (0.25 + 0.75 * hc) * (1.0 + 1.6 * forte + 0.8 * agitazione);
+		let yGiu = 1.0 - m.y;
+		let lungo = 0.35 + 0.45 * hash21(vec2f(colId, 3.1));
+		let testa1 = fract(tempo * velocita * 0.45 + hc * 7.0);
+		let dietro = fract(testa1 - yGiu + 1.0);
+		var scia = select(0.0, exp(-dietro / lungo * 3.2), dietro < lungo);
+		let testa2 = fract(tempo * velocita * 0.27 + hc * 13.0);
+		let dietro2 = fract(testa2 - yGiu + 1.0);
+		scia = max(scia, select(0.0, 0.45 * exp(-dietro2 / (lungo * 0.6) * 3.2), dietro2 < lungo * 0.6));
+		let riga = floor(yGiu / ch);
+		let cella = vec2f(fract(m.x / cw), fract(yGiu / ch));
+		let dentro = (cella - 0.14) / 0.72;
+		var glifo = 0.0;
+		if (all(dentro >= vec2f(0.0)) && all(dentro < vec2f(1.0))) {
+			let pezzo = floor(dentro * vec2f(3.0, 5.0));
+			let scatto = floor(tempo * (1.5 + 5.0 * hash21(vec2f(colId, riga))));
+			let bit = hash21(vec2f(colId * 7.0 + pezzo.x + scatto * 0.37, riga * 11.0 + pezzo.y * 3.0));
+			glifo = select(0.0, 1.0, bit > 0.42);
+		}
+		let punta = select(0.0, 1.0, dietro < ch * 1.1);
+		let pioggia = mix(verde * 1.4, vec3f(0.85, 1.0, 0.9) * 2.2, punta) * glifo * scia;
+		let disco = smoothstep(R * 1.18, R * 1.02, pr);
+		col = mix(col, col * 0.18 + verde * 0.04, codice * disco);
+		col += pioggia * disco * codice;
+		alfa = max(alfa, codice * disco * max(0.55, glifo * scia));
 	}
 
 	// alone morbido
@@ -1119,7 +1197,7 @@ fn codifica(x: f32) -> f32 {
 		let spenta = 0;
 		let costoGpu = 0;
 		const spettro = new Float32Array(16);
-		// l'aspetto di chi parla (set, quarto argomento): pesi delle forme (cubo, rombo, stella), tinta, colore, agitazione;
+		// l'aspetto di chi parla (set, quarto argomento): pesi delle forme (codice, rombo, stella), tinta, colore, agitazione;
 		// i valori vogliono andare ai *Vuole in circa 0,4 s, l'angolo della forma gira con l'agitazione
 		const mol = ASPETTO.molla();
 		// p0..p5 (24) + spettro (16) + p6..p9 (16): 224 byte

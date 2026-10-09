@@ -4,7 +4,7 @@
 //
 //  Who is speaking, at a glance (CONTRATTI 9.11, «La sfera di chi parla»). Melissa is a sphere
 //  with her own palette; every character has a shape (cube, rhombus, star) and a colour of
-//  their own, from the `sfera` field of their file in ~/.bottega/personaggi (ChiParla reads it),
+//  their own (Elliot's `codice` is a dark glass sphere with falling green code), from the `sfera` field of their file in ~/.bottega/personaggi (ChiParla reads it),
 //  or chosen from the key when the field is missing (never the sphere: that is Melissa's).
 //  The emotion of the line gives an agitation 0..1 that spins the shape, lengthens the star's
 //  spikes, deforms more and changes the light of the colour. Melissa changes agitation, never
@@ -22,7 +22,9 @@ import Foundation
 import simd
 
 struct SferaAspetto: Equatable {
-    enum Forma: String, CaseIterable { case sfera, cubo, rombo, stella }
+    /// `codice`: a sphere of dark glass with green code falling inside (Elliot); `cubo` in a
+    /// file is read as `codice` (no cube is drawn any more).
+    enum Forma: String, CaseIterable { case sfera, codice, rombo, stella }
 
     var forma: Forma
     /// nil: Melissa's palette, no tint.
@@ -30,11 +32,11 @@ struct SferaAspetto: Equatable {
 
     static let melissa = SferaAspetto(forma: .sfera, colore: nil)
 
-    /// The weights of (cube, rhombus, star); the sphere is what is left.
+    /// The weights of (code, rhombus, star); the sphere is what is left (the code is a sphere too).
     var pesi: SIMD3<Float> {
         switch forma {
         case .sfera: return .zero
-        case .cubo: return SIMD3(1, 0, 0)
+        case .codice: return SIMD3(1, 0, 0)
         case .rombo: return SIMD3(0, 1, 0)
         case .stella: return SIMD3(0, 0, 1)
         }
@@ -44,16 +46,16 @@ struct SferaAspetto: Equatable {
     static func leggi(_ x: Any?, chiave: String) -> SferaAspetto {
         let def = predefinito(chiave: chiave)
         guard let o = x as? [String: Any] else { return def }
-        let forma = (o["forma"] as? String).flatMap(Forma.init(rawValue:)) ?? def.forma
+        let forma = (o["forma"] as? String).flatMap { Forma(rawValue: $0 == "cubo" ? "codice" : $0) } ?? def.forma
         let colore = (o["colore"] as? String).flatMap(rgb) ?? def.colore
         return SferaAspetto(forma: forma, colore: colore)
     }
 
-    /// Without a `sfera` field: h = FNV-1a 32 of the key (UTF-8), shape = [cube, rhombus,
-    /// star][h % 3], hue = (h >> 8) % 360, saturation 0.75, value 1.
+    /// Without a `sfera` field: h = FNV-1a 32 of the key (UTF-8), shape = [star, code,
+    /// rhombus][h % 3], hue = (h >> 8) % 360, saturation 0.75, value 1.
     static func predefinito(chiave: String) -> SferaAspetto {
         let h = fnv1a(chiave)
-        let forme: [Forma] = [.cubo, .rombo, .stella]
+        let forme: [Forma] = [.stella, .codice, .rombo]
         return SferaAspetto(forma: forme[Int(h % 3)], colore: rgb(hsvHex(Double((h >> 8) % 360), 0.75, 1)))
     }
 

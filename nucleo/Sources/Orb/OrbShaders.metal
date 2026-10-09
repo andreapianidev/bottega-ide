@@ -20,9 +20,10 @@
 //         the sphere fills ~78% of the view; the breath phase comes from MetalEngine (it
 //         speeds up with the Claude sessions at work)
 //    spectrum[4] = 16 audio bands (0..1), low to high
-//    p6 = (cube, rhombus, star weights, tint)           who speaks (OrbAspetto.swift): the sphere
-//    p7 = (character colour rgb, agitation)             is 1 - the weights; tint 0.85 for a
-//    p8 = (shape angle, colour light, spike length, 0)  character, 0 for Melissa
+//    p6 = (code, rhombus, star weights, tint)           who speaks (OrbAspetto.swift): the sphere
+//    p7 = (character colour rgb, agitation)             is 1 - rhombus - star (code keeps the sphere
+//    p8 = (shape angle, colour light, spike length, 0)  and adds the falling code); tint 0.85 for a
+//                                                       character, 0 for Melissa
 //  Output is LINEAR EXTENDED for an EDR rgba16Float target, premultiplied alpha.
 //
 
@@ -40,7 +41,7 @@ struct OrbUniforms {
     float4 p4;
     float4 p5;            // (zoom, docked 0/1, breath phase, phase set 0/1): zoom < 1 makes the sphere fill more of the view
     float4 spectrum[4];
-    float4 p6;            // (cube, rhombus, star, tint)
+    float4 p6;            // (code, rhombus, star, tint)
     float4 p7;            // (colour rgb, agitation)
     float4 p8;            // (angle, light, spike length, 0)
 };
@@ -84,12 +85,6 @@ static inline float3 orb_rotX(float3 p, float a) {
     return float3(p.x, c * p.y - s * p.z, s * p.y + c * p.z);
 }
 
-// the rounded cube
-static inline float orb_roundBox(float3 p, float3 b, float r) {
-    float3 q = abs(p) - b + r;
-    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
-}
-
 // the star's spikes: the 12 vertices of the icosahedron, six axes and their opposites
 static inline float orb_spikes(float3 dir) {
     const float a = 0.5257311, b = 0.8506508;
@@ -111,8 +106,7 @@ struct OrbDrive {
     float mid;
     float flowSign;
     float reveal;
-    // the characters' shapes (the sphere is what is left), the shape's angle, the spike length
-    float cube;
+    // the characters' shapes (the sphere is what is left; the code is a sphere), the shape's angle, the spike length
     float romb;
     float star;
     float angle;
@@ -137,13 +131,12 @@ static inline float orb_map(float3 pos, OrbDrive d, texture3d<float> tex, sample
     float3 dir = normalize(pos + float3(1e-5));
     float disp = orb_displacement(dir, d, tex, s);
     float ball = length(pos) - (d.baseR + disp);
-    float others = d.cube + d.romb + d.star;
+    float others = d.romb + d.star;
     if (others < 0.001) return ball;
-    // the characters' shapes turn slowly, tilted, so cube and rhombus read in 3D
+    // the characters' shapes turn slowly, tilted, so the rhombus reads in 3D
     float3 q = orb_rotX(orb_rotY(pos, d.angle), 0.45);
     float R = d.baseR;
     float dist = ball * (1.0 - others);
-    if (d.cube > 0.001) dist += (orb_roundBox(q, float3(0.66 * R), 0.16 * R) - disp * 0.6) * d.cube;
     if (d.romb > 0.001) dist += ((abs(q.x) + abs(q.y) + abs(q.z) - 1.32 * R) * 0.57735 - 0.06 * R - disp * 0.6) * d.romb;
     if (d.star > 0.001) dist += (length(pos) - (0.86 * R + 0.5 * disp + d.spike * R * orb_spikes(normalize(q + float3(1e-5))))) * d.star;
     return dist;
@@ -293,7 +286,8 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
     d.time = time; d.bass = bass; d.mid = mid;
     d.baseR = 0.46; d.amp = 0.05; d.swirl = 0.10; d.flowSign = 1.0;
     d.reveal = reveal;
-    d.cube = u.p6.x; d.romb = u.p6.y; d.star = u.p6.z;
+    d.romb = u.p6.y; d.star = u.p6.z;
+    float code = clamp(u.p6.x, 0.0, 1.0);
     d.angle = u.p8.x; d.spike = u.p8.z;
     float agit = clamp(u.p7.w, 0.0, 1.0);
     float coreGain = 1.0, glowGain = 1.0;
@@ -368,7 +362,7 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
     float3 rd = float3(0.0, 0.0, -1.0);
     float  R  = d.baseR;
     // the star's spikes and the rhombus's vertices leave the sphere: the search sphere grows with them
-    float  maxR = R + 0.24 + R * (0.4 * d.star + 0.1 * d.romb + 0.05 * d.cube);
+    float  maxR = R + 0.24 + R * (0.4 * d.star + 0.1 * d.romb);
     float  pxWorld = 2.0 * zoom / res.y;
     // the spikes are not Lipschitz: with the star a more careful step, and more steps
     float  stepK = mix(0.72, 0.45, d.star);
@@ -494,6 +488,42 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
                 alpha = cov;
             }
         }
+    }
+
+    // Elliot's falling code, in screen space inside the disc: dark glass, then green columns
+    // of glyphs with a light head (CONTRATTI 9.11, «La sfera di chi parla»)
+    if (code > 0.001) {
+        float3 green = u.p7.xyz * u.p8.y;
+        float2 m = p / (R * 2.3) + 0.5;
+        const float cols = 26.0;
+        float cw = 1.0 / cols, ch = cw * 1.45;
+        float colId = floor(m.x / cw);
+        float hc = orb_hash21(float2(colId, 17.3));
+        float speed = (0.25 + 0.75 * hc) * (1.0 + 1.6 * loud + 0.8 * agit);
+        float yDown = 1.0 - m.y;
+        float len = 0.35 + 0.45 * orb_hash21(float2(colId, 3.1));
+        float head = fract(time * speed * 0.45 + hc * 7.0);
+        float behind = fract(head - yDown + 1.0);
+        float trail = behind < len ? exp(-behind / len * 3.2) : 0.0;
+        float head2 = fract(time * speed * 0.27 + hc * 13.0);
+        float behind2 = fract(head2 - yDown + 1.0);
+        trail = max(trail, behind2 < len * 0.6 ? 0.45 * exp(-behind2 / (len * 0.6) * 3.2) : 0.0);
+        float rowId = floor(yDown / ch);
+        float2 cell = float2(fract(m.x / cw), fract(yDown / ch));
+        float2 inside = (cell - 0.14) / 0.72;
+        float glyph = 0.0;
+        if (all(inside >= 0.0) && all(inside < 1.0)) {
+            float2 sub = floor(inside * float2(3.0, 5.0));
+            float tick = floor(time * (1.5 + 5.0 * orb_hash21(float2(colId, rowId))));
+            float bit = orb_hash21(float2(colId * 7.0 + sub.x + tick * 0.37, rowId * 11.0 + sub.y * 3.0));
+            glyph = bit > 0.42 ? 1.0 : 0.0;
+        }
+        float tip = behind < ch * 1.1 ? 1.0 : 0.0;
+        float3 rain = mix(green * 1.4, float3(0.85, 1.0, 0.9) * 2.2, tip) * glyph * trail;
+        float disc = smoothstep(R * 1.18, R * 1.02, pr);
+        col = mix(col, col * 0.18 + green * 0.04, code * disc);
+        col += rain * disc * code;
+        alpha = max(alpha, code * disc * max(0.55, glyph * trail));
     }
 
     // soft outer halo

@@ -1,11 +1,12 @@
 // L'aspetto della sfera per chi parla (CONTRATTI 9.11, «La sfera di chi parla»). Melissa e' una sfera con i colori di
-// sempre; ogni personaggio ha una forma e un colore suoi, dal campo `sfera` del suo file in personaggi/, o, se manca,
+// sempre; ogni personaggio ha una forma (rombo, stella, o `codice`: una sfera di vetro scuro con il codice che scende
+// come in Matrix) e un colore suoi, dal campo `sfera` del suo file in personaggi/, o, se manca,
 // scelti dalla chiave in modo deterministico (mai la sfera, che e' di Melissa). L'emozione della battuta da' un valore
 // di agitazione da 0 a 1: forma, rotazione e luce lo seguono.
 // Le stesse regole stanno nel Nucleo (nucleo/Sources/Voice/ChiParla.swift, SferaAspetto) e in Avo Agency AI: chi le
 // cambia qui le cambia anche li'.
 
-export const FORME = ['sfera', 'cubo', 'rombo', 'stella'] as const;
+export const FORME = ['sfera', 'codice', 'rombo', 'stella'] as const;
 export type Forma = (typeof FORME)[number];
 
 export interface AspettoSfera {
@@ -37,19 +38,21 @@ function hsvHex(tono: number, s: number, v: number): string {
 	return `#${h2(r)}${h2(g)}${h2(b)}`;
 }
 
-/** Per un personaggio senza campo `sfera`: forma = [cubo, rombo, stella][h % 3], tonalita' = (h >> 8) % 360, saturazione
- *  0,75, valore 1, con h = fnv1a(chiave). */
+/** Per un personaggio senza campo `sfera`: forma = [stella, codice, rombo][h % 3], tonalita' = (h >> 8) % 360,
+ *  saturazione 0,75, valore 1, con h = fnv1a(chiave). */
 export function aspettoPredefinito(chiave: string): AspettoSfera {
 	const h = fnv1a(chiave);
-	const forme = ['cubo', 'rombo', 'stella'] as const;
+	const forme = ['stella', 'codice', 'rombo'] as const;
 	return { forma: forme[h % 3]!, colore: hsvHex((h >>> 8) % 360, 0.75, 1) };
 }
 
-/** Il campo `sfera` di un file: quello che e' valido si tiene, il resto viene dalla chiave. */
+/** Il campo `sfera` di un file: quello che e' valido si tiene, il resto viene dalla chiave. `cubo` (la forma di Elliot
+ *  fino al 9/10/2026) vale come `codice`: il cubo non si disegna piu'. */
 export function leggiSfera(x: any, chiave: string): AspettoSfera {
 	const def = aspettoPredefinito(chiave);
 	if (!x || typeof x !== 'object') return def;
-	const forma = (FORME as readonly string[]).includes(x.forma) ? (x.forma as Forma) : def.forma;
+	const f = x.forma === 'cubo' ? 'codice' : x.forma;
+	const forma = (FORME as readonly string[]).includes(f) ? (f as Forma) : def.forma;
 	const colore = typeof x.colore === 'string' && /^#[0-9a-f]{6}$/i.test(x.colore.trim()) ? x.colore.trim().toUpperCase() : def.colore;
 	return { forma, colore };
 }
