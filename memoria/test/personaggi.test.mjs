@@ -114,7 +114,12 @@ test('personaggio: ultime battute e ricordi, senza doppioni e solo di quel perso
 	assert.ok(r.ultime.every(u => u.at > 0));
 	const testi = r.ricordi.map(u => u.testo);
 	assert.ok(testi.includes('Il lunedi del faro ti aspetta, smettila di rimandare la lanterna.'));
-	assert.ok(r.ricordi.some(u => u.chi === 'andrea' && /Domani sistemo/.test(u.testo)), 'anche Andrea con lei');
+	// Andrea con lei: nelle sue ultime frasi (`andrea`) o nei ricordi, mai in tutti e due
+	const conLei = [...r.andrea.map(u => u.testo), ...r.ricordi.filter(u => u.chi === 'andrea').map(u => u.testo)];
+	assert.ok(conLei.some(t => /Domani sistemo/.test(t)), 'anche Andrea con lei');
+	assert.equal(new Set(conLei).size, conLei.length, 'niente doppioni fra andrea e ricordi');
+	assert.ok(r.andrea.every(u => u.at > 0));
+	assert.ok(!r.andrea.some(u => /la sistemo io/.test(u.testo)), 'niente Andrea con Elliot');
 	assert.ok(!testi.some(t => /sintomo|la sistemo io/.test(t)), 'niente Elliot ne Andrea con Elliot');
 	assert.ok(r.ricordi.length <= 3);
 
@@ -130,7 +135,7 @@ test('personaggio: ultime battute e ricordi, senza doppioni e solo di quel perso
 });
 
 test('un personaggio senza file e senza battute non rompe niente', () => {
-	assert.deepEqual(cli('personaggio', 'darlene', '--frase', 'lanterna'), { ultime: [], ricordi: [] });
+	assert.deepEqual(cli('personaggio', 'darlene', '--frase', 'lanterna'), { ultime: [], andrea: [], ricordi: [] });
 	assert.equal(cli('personaggio', 'elliot', '--frase', 'sistema').ultime[0].testo, 'La lanterna e solo un sintomo, il problema e il sistema.');
 	const male = spawnSync(process.execPath, [CLI, 'personaggio', '../etc', '--json'], { encoding: 'utf8', env: process.env });
 	assert.equal(male.status, 1);

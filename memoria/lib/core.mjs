@@ -189,27 +189,45 @@ export function parseSummary(out) {
 async function generate(store, text, opts = {}) {
 	// DeepSeek per primo quando e' il motore scelto (08/10/2026: Agnes invertiva i dettagli tecnici, "apertura
 	// alle 13" per una finestra che alle 13 si chiude). Se non risponde, o la chiave o il credito mancano, si
-	// passa ad Agnes e poi ad Apple come prima. --solo-agnes lo salta.
+	// passa ad Agnes e poi ad Apple. --solo-agnes lo salta.
+	let deepseekProvato = false;
 	if (!opts.soloAgnes && chosenEngine(store) === 'deepseek' && deepseekUsable(store)) {
+		deepseekProvato = true;
 		try {
 			return { engine: 'deepseek', out: await deepseekGenerate(store, INSTRUCTIONS, trim(text, DEEPSEEK_MAX)) };
 		} catch (e) {
 			log(`deepseek: ${e?.message || e}, provo Agnes`);
 		}
 	}
-	// Agnes per prima: piu' veloce e riassunti migliori. Apple Intelligence (gia' dentro macOS,
-	// nessun download) solo come riserva se Agnes rifiuta per quota o non risponde.
+	// Quando Agnes e' satura (429, finestra dei 6 al minuto piena) o non risponde, la riserva e' SEMPRE DeepSeek
+	// Flash (Andrea, 09/10/2026), anche col motore Agnes scelto. Apple Intelligence resta l'ultima, solo se manca
+	// anche DeepSeek (chiave assente, o in pausa dopo un 401/402, o appena fallito come primo motore).
+	const riservaDeepseek = !opts.soloAgnes && !deepseekProvato && deepseekUsable(store);
+	const allaRiserva = async e => {
+		if (riservaDeepseek) {
+			try {
+				return { engine: 'deepseek', out: await deepseekGenerate(store, INSTRUCTIONS, trim(text, DEEPSEEK_MAX)) };
+			} catch (e2) {
+				log(`deepseek (riserva di Agnes): ${e2?.message || e2}`);
+			}
+		}
+		const apple = appleGenerate(INSTRUCTIONS, trim(text, APPLE_MAX));
+		if (apple) return { engine: 'apple', out: apple };
+		throw e;
+	};
 	if (agnesKey()) {
 		try {
-			const out = await agnesGenerate(store, INSTRUCTIONS, trim(text, AGNES_MAX), { maxWaitMs: opts.maxWaitMs });
+			// Con DeepSeek pronto non si resta minuti in coda per Agnes: oltre 15 s d'attesa e' satura, si passa a lui.
+			const maxWaitMs = riservaDeepseek ? 15_000 : opts.maxWaitMs;
+			const out = await agnesGenerate(store, INSTRUCTIONS, trim(text, AGNES_MAX), { maxWaitMs });
 			return { engine: 'agnes', out };
 		} catch (e) {
 			if (opts.soloAgnes) throw e;
-			const apple = appleGenerate(INSTRUCTIONS, trim(text, APPLE_MAX));
-			if (apple) return { engine: 'apple', out: apple };
-			throw e;
+			log(`agnes: ${e?.message || e}, ${riservaDeepseek ? 'passo a DeepSeek Flash' : 'provo Apple'}`);
+			return allaRiserva(e);
 		}
 	}
+	if (riservaDeepseek) return allaRiserva(new Error('chiave Agnes assente e DeepSeek non ha risposto'));
 	const apple = opts.soloAgnes ? null : appleGenerate(INSTRUCTIONS, trim(text, APPLE_MAX));
 	if (apple) return { engine: 'apple', out: apple };
 	throw new Error('chiave Agnes assente e Apple Intelligence non disponibile');

@@ -127,9 +127,11 @@ Tutto resta sul Mac. Prima di scrivere qualunque cosa, chiavi, token e password 
 vengono sostituiti da `[chiave nascosta]`.
 
 L'unica cosa che esce dal Mac e' il testo da riassumere (richieste, risposte e strumenti di una
-sessione, al massimo 12.000 caratteri, gia' ripulito dalle chiavi): va ad Agnes AI
-(`agnes-3.0-flash`), che e' il motore dei riassunti. Agnes riceve al massimo 6 richieste al minuto
-dalla Memoria, perche' il piano e' condiviso con altre app. Se Agnes risponde «troppe richieste» o
-non risponde, il riassunto lo fa Apple Intelligence, gia' dentro macOS: nessun download.
+sessione, al massimo 12.000 caratteri, gia' ripulito dalle chiavi). Il motore si sceglie nelle
+impostazioni (`bottega.memoria.motore`): DeepSeek V4.1 Flash (predefinito) oppure Agnes AI
+(`agnes-3.0-flash`). Agnes riceve al massimo 6 richieste al minuto dalla Memoria, perche' il piano e'
+condiviso con altre app. Se Agnes e' satura (risponde «troppe richieste», o bisognerebbe aspettarla
+piu' di 15 secondi) o non risponde, la riserva e' sempre DeepSeek Flash. Apple Intelligence, gia'
+dentro macOS, fa il riassunto solo se manca anche DeepSeek.
 
 © 2026 Bottega · Andrea Piani · NIE Z2331796-S · Tijarafe, Santa Cruz de Tenerife · Islas Canarias

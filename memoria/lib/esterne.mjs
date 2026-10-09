@@ -97,7 +97,8 @@ function paroleFrase(frase) {
 
 /**
  * La memoria di un personaggio (docs/CONTRATTI.md 9.11): `ultime` le sue ultime battute, di qualunque giorno;
- * `ricordi` fino a 3 note sue o di Andrea con lui che rispondono a `frase` (FTS), senza quelle gia' in `ultime`.
+ * `andrea` le ultime frasi di Andrea in chiacchierata con lui; `ricordi` fino a 3 note sue o di Andrea con lui che
+ * rispondono a `frase` (FTS), senza quelle gia' in `ultime` o in `andrea`.
  */
 export function memoriaPersonaggio(store, chiave, { frase = '', limite = 5 } = {}) {
 	const k = chiavePersonaggio(chiave);
@@ -111,11 +112,20 @@ export function memoriaPersonaggio(store, chiave, { frase = '', limite = 5 } = {
 		n,
 	);
 	const ultime = ultimeRows.map(r => ({ at: Number(r.at), testo: r.testo }));
+	// Le ultime frasi di Andrea in chiacchierata con lui (09/10/2026, per Avo Agency AI): senza, un personaggio
+	// ricorda solo le proprie battute, e «martedi' eri giu'» torna solo se la frase di adesso usa le stesse parole.
+	const andreaRows = store.all(
+		`SELECT p.memoryId AS id, p.at AS at, m.text AS testo FROM personaggi_battute p JOIN memories m ON m.id = p.memoryId
+		 WHERE p.chi = 'andrea' AND p.chiave = ? ORDER BY p.at DESC, p.memoryId DESC LIMIT ?`,
+		k,
+		n,
+	);
+	const andrea = andreaRows.map(r => ({ at: Number(r.at), testo: r.testo }));
 	const ricordi = [];
 	const parole = paroleFrase(frase);
 	if (parole.length) {
-		const visti = new Set(ultimeRows.map(r => Number(r.id)));
-		const testi = new Set(ultimeRows.map(r => norma(r.testo)));
+		const visti = new Set([...ultimeRows, ...andreaRows].map(r => Number(r.id)));
+		const testi = new Set([...ultimeRows, ...andreaRows].map(r => norma(r.testo)));
 		let rows = [];
 		try {
 			// CROSS JOIN: prima l'indice FTS, poi le battute. Lasciato al pianificatore, SQLite parte dalle battute e
@@ -142,7 +152,7 @@ export function memoriaPersonaggio(store, chiave, { frase = '', limite = 5 } = {
 			if (ricordi.length >= 3) break;
 		}
 	}
-	return { ultime, ricordi };
+	return { ultime, andrea, ricordi };
 }
 
 const norma = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
