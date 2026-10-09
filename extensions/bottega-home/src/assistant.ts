@@ -15,6 +15,7 @@ import { GIRI_STRUMENTI, StrumentiPersonaggi } from './strumenti-personaggi';
 import type { RulesState } from './tipi';
 import type { Voluto } from './personaggi';
 import { sezioneMemoria } from './memoria-contesto';
+import { AGITAZIONE_NEUTRA, agitazioneDi, type AspettoSfera } from './sfera-aspetto';
 import { Intento, RIEMPI_MEMORIA, RIEMPI_STRUMENTO_MS, RIEMPI_TEMPI, daScaldare, intento, scegliRiempitivo, senzaAttacco, soloAttacco } from './riempitivi';
 
 const NUCLEO_LOG = path.join(os.homedir(), '.bottega', 'nucleo.log');
@@ -63,8 +64,12 @@ export interface AssistantState {
 	/** Di chi e' la voce che suona adesso ('melissa' o una chiave): nel giro a tre e' l'ospite, poi Melissa che chiude.
 	 *  Dal Nucleo (voice.spoken {chi}) quando la battuta suona davvero; con un Nucleo che non lo dice, quando parte. */
 	parla?: string;
-	/** I personaggi caricati da personaggi/, in ordine: la barra fa un pulsante ciascuno, dopo Melissa. */
-	personaggi?: { chiave: string; nome: string; ruolo: string }[];
+	/** I personaggi caricati da personaggi/, in ordine: la barra fa un pulsante ciascuno, dopo Melissa. `sfera`: la forma e
+	 *  il colore della sfera quando parla lui (src/sfera-aspetto.ts). */
+	personaggi?: { chiave: string; nome: string; ruolo: string; sfera: AspettoSfera }[];
+	/** L'agitazione della battuta che si dice, 0..1 (src/sfera-aspetto.ts, agitazioneDi): la sfera la segue. 0,3 fuori
+	 *  dalla voce e per una battuta senza emozioni. */
+	agitazione?: number;
 }
 
 /** Una riga della storia con chi l'ha detta: per chi ha la chiamata le sue sono `assistant`, quelle degli altri
@@ -624,7 +629,7 @@ interface Pending {
 
 export class Assistant {
 	readonly deps: AssistantDeps;
-	private state: AssistantState = { enabled: true, conversing: false, state: 'idle', log: [], brain: 'agnes', attivita: [], personaggio: 'melissa' };
+	private state: AssistantState = { enabled: true, conversing: false, state: 'idle', log: [], brain: 'agnes', attivita: [], personaggio: 'melissa', agitazione: AGITAZIONE_NEUTRA };
 	private static readonly registroKey = 'bottega.melissa.registro.v1';
 	private registro?: vscode.Memento;
 	private registroWrites: Promise<void> = Promise.resolve();
@@ -772,6 +777,8 @@ export class Assistant {
 	private setState(s: AssistantState['state'], partial?: string): void {
 		const changed = this.state.state !== s;
 		this.state.state = s;
+		// fuori dalla voce la sfera torna calma: l'emozione e' quella della battuta che si sente
+		if (s !== 'speaking') this.state.agitazione = AGITAZIONE_NEUTRA;
 		this.state.partial = partial;
 		if (changed) this.paintStatus();
 		this.emit();
@@ -821,6 +828,16 @@ export class Assistant {
 
 	/** Di chi e' la voce adesso, per le etichette della barra. `suona`: lo dice il Nucleo, la battuta suona davvero;
 	 *  altrimenti vale solo con un Nucleo che non lo dice (si cambia quando la battuta parte). */
+	/** L'emozione della battuta che parte (src/sfera-aspetto.ts): `intera`, una battuta nuova, la decide sempre; un
+	 *  pezzo di una risposta in corso la cambia solo se dice un'emozione. */
+	private umore(testo: string, intera: boolean): void {
+		const a = agitazioneDi(testo);
+		if (!intera && a === AGITAZIONE_NEUTRA) return;
+		if (this.state.agitazione === a) return;
+		this.state.agitazione = a;
+		this.emit();
+	}
+
 	private parla(chi: string, suona = false): void {
 		if (!suona && this.nucleoDiceChi) return;
 		if (this.state.parla === chi) return;
@@ -1891,6 +1908,7 @@ export class Assistant {
 	 *  (Nucleo build 120, `voice.speak {voice}`). Senza voce, quella di Melissa. */
 	private direCon(testo: string, voce?: string, chi = 'melissa'): void {
 		this.parla(chi);
+		this.umore(testo, true);
 		this.vocePartita = false;
 		this.voceFinita = false;
 		this.saidClauses.add(normClause(testo));
@@ -2099,8 +2117,9 @@ export class Assistant {
 			if (p) args.voice = p.voce;
 			args.chi = nomeDi(this.chi());
 			this.parla(this.chi());
+			this.umore(clause, true);
 			this.firstSpeakChunk = false;
-		}
+		} else this.umore(clause, false);
 		void this.deps.nucleo.request('voice.speak', args, 8000).catch((e: any) => {
 			this.out.warn(`voce: invio frase al Nucleo fallito (${e?.message ?? e})`);
 		});
@@ -2165,6 +2184,7 @@ export class Assistant {
 		const p = PERSONAGGI[this.chi()];
 		if (p) args.voice = p.voce;
 		this.parla(this.chi());
+		this.umore(frase, true);
 		void this.deps.nucleo.request('voice.speak', args, 8000).catch((e: any) => {
 			this.out.warn(`voce: riempitivo non arrivato al Nucleo (${e?.message ?? e})`);
 		});

@@ -6,6 +6,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { intento, leggiRiempitivi, Riempitivi } from './riempitivi';
+import { AspettoSfera, leggiSfera } from './sfera-aspetto';
 
 /** I fatti che fanno entrare un ospite (CONTRATTI 9.11, «Ospiti dai fatti»), in ordine di precedenza: vince il primo che c'e' e che ha qualcuno che ci entra. */
 export const OCCASIONI = ['sicurezza', 'errore', 'rischio', 'scelta', 'fine', 'umore', 'attesa'] as const;
@@ -37,6 +38,8 @@ export interface Personaggio {
 	mestiere?: Mestiere;
 	/** le letture che puo' fare quando parla (src/strumenti-personaggi.ts); senza, nessuna */
 	strumenti?: ('vedetta_leggi' | 'mestiere_leggi' | 'bacheca_leggi')[];
+	/** forma e colore della sfera quando parla (src/sfera-aspetto.ts, CONTRATTI 9.11); senza campo, dalla chiave */
+	sfera: AspettoSfera;
 }
 
 /** I mestieri che la Memoria della Bottega conta per un personaggio (memoria/lib/mestiere.mjs). */
@@ -107,6 +110,7 @@ function leggi(x: any, n: string, avvisa: (msg: string) => void): Personaggio {
 		...(MESTIERI.includes(x.mestiere) ? { mestiere: x.mestiere as Mestiere } : {}),
 		...(Array.isArray(x.strumenti) ? { strumenti: (['vedetta_leggi', 'mestiere_leggi', 'bacheca_leggi'] as const).filter(t => x.strumenti.includes(t)) } : {}),
 		...(riempitivi ? { riempitivi } : {}),
+		sfera: leggiSfera(x.sfera, chiave),
 	};
 }
 
@@ -186,9 +190,9 @@ export function esiste(chi: unknown): chi is string {
 	return typeof chi === 'string' && Object.hasOwn(PERSONAGGI, chi);
 }
 
-/** Chi c'e', in ordine, per la barra: dopo Melissa, un pulsante ciascuno. */
-export function elenco(): { chiave: string; nome: string; ruolo: string }[] {
-	return ORDINE.map(k => ({ chiave: k, nome: PERSONAGGI[k]!.nome, ruolo: RUOLI[k] ?? PERSONAGGI[k]!.nome }));
+/** Chi c'e', in ordine, per la barra: dopo Melissa, un pulsante ciascuno, con la forma e il colore della sua sfera. */
+export function elenco(): { chiave: string; nome: string; ruolo: string; sfera: AspettoSfera }[] {
+	return ORDINE.map(k => ({ chiave: k, nome: PERSONAGGI[k]!.nome, ruolo: RUOLI[k] ?? PERSONAGGI[k]!.nome, sfera: PERSONAGGI[k]!.sfera }));
 }
 
 /** Una riga del registro: "Elliot: ..." e' di Elliot, il resto di Melissa. */

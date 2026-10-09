@@ -25,11 +25,18 @@ struct OrbUniforms {
     var p4: SIMD4<Float>
     var p5: SIMD4<Float>
     var spectrum: (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>)
+    /// Who speaks (OrbAspetto.swift): (cube, rhombus, star, tint), (colour, agitation),
+    /// (angle, light, spike length, 0).
+    var p6: SIMD4<Float>
+    var p7: SIMD4<Float>
+    var p8: SIMD4<Float>
 }
 
 private struct ParticleUniforms {
     var q0: SIMD4<Float>
     var q1: SIMD4<Float>
+    /// The colour of who speaks (with its light) and the tint.
+    var q2: SIMD4<Float>
 }
 
 private struct ParticleData {
@@ -123,6 +130,8 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
     private var lastLevel: Float = 0
     private var reveal: Float = 0
     private var spectrumS = [Float](repeating: 0, count: AudioLevels.bandCount)
+    /// This renderer's own way to OrbAspetto (who speaks): about 0.4 s, never a jump.
+    private var molla = OrbMolla()
 
     init?(device: MTLDevice, library lib: MTLLibrary, pixelFormat: MTLPixelFormat) {
         // One command queue for the whole Nucleo (MetalEngine), when we are on its device.
@@ -275,9 +284,14 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
     private func encodeFrame(cmd: MTLCommandBuffer, target rpd: MTLRenderPassDescriptor, width vw: Int, height vh: Int) {
 
         let now = CACurrentMediaTime()
+        let primo = !started
         if !started { started = true; lastState = state; prevState = state; stateChangeTime = now - 1; lastFrameTime = now }
         var dt = Float(now - lastFrameTime); lastFrameTime = now
         dt = min(max(dt, 1.0 / 240.0), 0.05)
+        // who speaks: shape, colour and agitation; with Reduce motion (rare frames) and on the
+        // first frame they are there at once
+        molla.passo(dt: dt, verso: OrbAspetto.aspetto, agitazione: OrbAspetto.agitazione,
+                    salta: primo || MetalEngine.shared.reduceMotion)
 
         if state != lastState { prevState = lastState; lastState = state; stateChangeTime = now; impulseVel += 7.0 }
         let mix = Float(min(1.0, max(0.0, (now - stateChangeTime) / 0.35)))
@@ -320,9 +334,14 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
             p3: SIMD4(ld.x, ld.y, ld.z, 0.35),
             p4: SIMD4(0.10, 0.16, 0.26, 0.5),
             p5: SIMD4(docked ? Self.dockedZoom : 1, docked ? 1 : 0, breath * (1.1 / 1.4), 1),
-            spectrum: (vec(0), vec(1), vec(2), vec(3)))
+            spectrum: (vec(0), vec(1), vec(2), vec(3)),
+            p6: SIMD4(molla.pesi.x, molla.pesi.y, molla.pesi.z, molla.tinta),
+            p7: SIMD4(molla.colore.x, molla.colore.y, molla.colore.z, molla.agit),
+            p8: SIMD4(molla.angolo, Umore.luce(molla.agit), Umore.punta(molla.agit), 0))
+        let lc = molla.colore * Umore.luce(molla.agit)
         var pu = ParticleUniforms(q0: SIMD4(dt, tSec, Float(state), loud),
-                                  q1: SIMD4(1, Float(Self.particleCount), pulse, 0))
+                                  q1: SIMD4(1, Float(Self.particleCount), pulse, 0),
+                                  q2: SIMD4(lc.x, lc.y, lc.z, molla.tinta))
 
         if !docked, let pc = particleCompute, let pb = particleBuffer, let ce = cmd.makeComputeCommandEncoder() {
             ce.setComputePipelineState(pc)

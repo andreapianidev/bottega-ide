@@ -182,7 +182,8 @@ aggiunta e ci mette sopra stderr (resta sul terminale solo se l'isola e' lanciat
 L'isola segue la voce del proprio processo con `Out.tap` (gli stessi eventi `voice.*` della modalita' servizio):
 stdout non porta niente, `Out.enabled` e' spento.
 Sopra il testo l'isola scrive chi parla: Melissa, o il personaggio la cui voce (`/parla {voce}`) e' nei file
-`~/.bottega/personaggi/*.json` (`voce` -> `nome`, riletti al massimo una volta al minuto). Nome e testo cambiano quando
+`~/.bottega/personaggi/*.json` (`voce` -> `nome`, riletti al massimo una volta al minuto). Dalla stessa risoluzione la
+sfera dell'isola prende forma e colore di chi parla e l'agitazione della sua battuta (9.11, «La sfera di chi parla»). Nome e testo cambiano quando
 quel pezzo comincia davvero a suonare, non quando arriva la `/parla`: le battute di voci diverse stanno nella stessa
 coda. Se davanti non c'e' niente, il nome sale gia' alla `/parla`.
 
@@ -794,7 +795,9 @@ grande in conversazione, piccola agganciata con `bottega.voice.orbAlwaysVisible`
 
 La sfera delle viste (barra e pagina di Melissa) usa il componente unico in WebGPU se c'e'
 (`media/motore/sfera-gpu.js`): `window.BottegaSferaGPU.mount(canvas, {reduced, onFail}) -> {set(stato, spenta,
-livello), wake(), sleep(), riposa(si), redraw()}`. Riposo (build 32, rivisto nella 34): con `riposa(true)` la sfera
+livello, aspetto?), wake(), sleep(), riposa(si), redraw()}`. `aspetto` (dal 9/10/2026) e' `{forma, colore, agitazione}` di
+chi parla, da `window.BottegaSferaGPU.aspetto.daStato(assistant)`; senza, la sfera di Melissa (9.11, «La sfera di chi
+parla»). Barra e pagina di Melissa lo passano sempre, anche alla sfera Canvas 2D di ripiego. Riposo (build 32, rivisto nella 34): con `riposa(true)` la sfera
 in `idle` o spenta, finiti i movimenti (1,5 s dall'ultimo cambio, voce muta), si ferma su un fotogramma e riparte al
 primo `set` che cambia stato. Barra e Home chiamano `riposa(false)` finche' la finestra della Bottega e' davanti
 (`fuoco`): li' la sfera gira sempre, anche con Melissa spenta (ferma sembrava un'immagine). Dietro si ferma, tranne
@@ -1208,7 +1211,8 @@ Melissa chiude; ogni battuta si pensa mentre quella prima suona e parte quando i
 hanno il nome davanti. Personaggi, ruoli e scelta sono gli stessi della mod melissa e dell'iPhone (9.10).
 
 Dalla build 125: `AssistantState.personaggi` e' l'elenco dei personaggi caricati da `extensions/bottega-home/personaggi/`,
-in ordine di `ordine`, nella forma `[{chiave, nome, ruolo}]`. La barra non ha piu' nomi scritti a mano: genera un
+in ordine di `ordine`, nella forma `[{chiave, nome, ruolo, sfera}]` (`sfera: {forma, colore}` dal 9/10/2026, sempre
+risolta, 9.11 «La sfera di chi parla»; insieme c'e' `AssistantState.agitazione`, 0..1). La barra non ha piu' nomi scritti a mano: genera un
 pulsante per Melissa, sempre per primo, e uno per ogni voce dell'elenco (`nome` come testo, `ruolo` come suggerimento);
 senza elenco resta solo Melissa. `personaggio.set {chi}` accetta 'melissa' o una chiave caricata, ogni altro valore si
 ignora. Con le battute a tre la
@@ -1505,8 +1509,9 @@ nascosta, documento nascosto o tela fuori schermo, un fotogramma solo con Riduci
 un timer che scade 17 ms prima e poi chiede `requestAnimationFrame`, cosi' la webview si sveglia solo per i fotogrammi
 che disegna e non 60 volte al secondo), `cielo-gpu.js`
 (`window.BottegaCieloGPU.mount(canvas, {reduced, rilascio, onStato, onFail})`) e `sfera-gpu.js`
-(`window.BottegaSferaGPU.mount(canvas, {reduced, zoom?, post?, onFail?})` -> `{set(stato, spenta, livello), wake(),
-sleep(), riposa(si), redraw(), smonta(), motore, stato, costo, costoGpu, frames}`). Il tempo della sfera avanza solo
+(`window.BottegaSferaGPU.mount(canvas, {reduced, zoom?, post?, onFail?})` -> `{set(stato, spenta, livello, aspetto?), wake(),
+sleep(), riposa(si), redraw(), smonta(), motore, stato, costo, costoGpu, frames}`; `aspetto` = `{forma, colore, agitazione}`
+di chi parla, 9.11 «La sfera di chi parla»; `window.BottegaSferaGPU.aspetto` ne espone le regole per le viste). Il tempo della sfera avanza solo
 mentre si muove: ripartendo dal riposo riprende dallo stesso fotogramma, senza salti. `mount` lancia se WebGPU manca; se cade dopo
 chiama `onFail(motivo)` e la vista passa al Canvas 2D. Caricati da `panel.ts` (tutti e tre, `gpu.js` per primo) e da
 `barra.ts` (`gpu.js`, `sfera-gpu.js`). `gpu.js` chiede `timestamp-query` quando l'adattatore lo offre (serve solo a
@@ -2579,6 +2584,56 @@ i suoi riempitivi: non e' un personaggio, non entra nell'elenco e non si chiama.
 - Voce: un riempitivo e' un turno di voce intero, con la voce di chi parla (`final: true`). Il Nucleo ne tiene l'audio
   gia' pronto (modalita' isola, `POST /scalda`; servizio, `voice.scalda`), cosi' parte senza aspettare ElevenLabs.
   L'iPhone ha una sua copia in `Caches/riempitivi/`. Le frasi di `eco` cambiano ogni volta e vanno dal vivo.
+
+#### La sfera di chi parla (9 ottobre 2026)
+
+Andrea, 9 ottobre: chi parla si riconosce a occhio. Melissa resta una sfera con i colori di sempre; ogni personaggio ha
+una forma e un colore suoi, e la sfera cambia anche con l'emozione della battuta. Vale per tutte le sfere della Bottega:
+quella del Nucleo in Metal (isola e sfera sullo schermo, `nucleo/Sources/Orb/`) e quella delle viste in WebGPU
+(`media/motore/sfera-gpu.js`, barra e pagina di Melissa) con il ripiego Canvas 2D. E' lo stesso aspetto della sfera di
+Avo Agency AI: chi cambia una regola qui la cambia anche li'.
+
+- **Fonte unica**: il campo facoltativo `"sfera": {"forma": "...", "colore": "#RRGGBB"}` nel file del personaggio
+  (`personaggi/LEGGIMI.md`). Forme valide: `sfera`, `cubo`, `rombo`, `stella`. Oggi: Darlene `stella` `#FF2E9A`, Elliot
+  `cubo` `#38F27A`, Krista `rombo` `#FFB547`; `melissa.json` non lo ha (sfera, tavolozza di sempre, niente tinta). Senza
+  campo, o per la parte non valida, decide la chiave: h = FNV-1a a 32 bit dei suoi byte UTF-8, forma = [cubo, rombo,
+  stella][h % 3], colore HSV con tonalita' (h >> 8) % 360, saturazione 0,75, valore 1. Mai la sfera, che e' di Melissa.
+  Stesse funzioni in `src/sfera-aspetto.ts` (estensione) e `nucleo/Sources/Orb/OrbAspetto.swift` (Nucleo).
+- **Forme**, distanze in raymarching uguali in Metal (`OrbShaders.metal`) e WGSL (`sfera-gpu.js`). R e' il raggio base,
+  q = rotX(rotY(p, angolo), 0,45), disp lo spostamento organico di sempre. Sfera `length(p) - (R + disp)`; cubo
+  `sdRoundBox(q, 0,66R, 0,16R) - 0,6 disp`; rombo `(|q.x| + |q.y| + |q.z| - 1,32R) x 0,57735 - 0,06R - 0,6 disp`; stella
+  `length(p) - (0,86R + 0,5 disp + punta x R x spikes(normalize(q)))`, con spikes = pow del massimo dei prodotti scalari
+  con i 12 vertici dell'icosaedro (a = 0,5257311, b = 0,8506508), esponente 28. Distanza finale: sfera x (1 - somma dei
+  pesi) + cubo x w1 + rombo x w2 + stella x w3. Pesi, tinta, colore e agitazione vanno al valore nuovo in circa 0,4 s
+  (esponenziale con costante 0,13 s), mai a scatti; con il Riduci movimento ci vanno subito. Con la stella il passo del
+  raymarch e' 0,45 invece di 0,72 e i passi fuori 120 invece di 80 (le punte non sono lipschitziane), e la sfera di
+  ricerca si allarga di R x (0,4 stella + 0,1 rombo + 0,05 cubo).
+- **Colore**: base = mix(tavolozza di stato con la sua deriva di tonalita', colore x luce, tinta), con tinta 0,85 per un
+  personaggio e 0 per Melissa: della deriva viva all'ospite resta solo un filo. Anche particelle e scie prendono la tinta.
+- **Emozione**: un'agitazione da 0 a 1, neutra 0,3. Decide il primo tag audio che dice un'emozione: alti `[laughs]`,
+  `[excited]`, `[cheerful]`, `[happy]`, `[surprised]` da 0,8 a 0,85, `[gasps]` 0,9, `[shouts]`, `[angry]` 0,95; bassi
+  `[sad]`, `[crying]` 0,05, `[sighs]`, `[exhales]`, `[whispers]` 0,1. Senza tag, le parole, conta la prima che compare:
+  "ahah", "evviva", "fantastico", "wow", "aiuto", "attenzione", "allarme", "cazzo", "!!" danno 0,75; "purtroppo", "mi
+  dispiace", "che peccato", "triste", "uff" danno 0,1. Effetti: la forma gira a 0,15 + 0,6 x agitazione rad/s; la
+  deformazione si moltiplica per 1 + 0,6 x agitazione; le punte della stella sono 0,42R e si allungano fino a 1,5 volte
+  (smoothstep da 0,3 a 0,85); la luce del colore sale del 15% da 0,75 in su e scende del 25% da 0,1 in giu' (smoothstep,
+  1 a 0,3). Vale anche per Melissa, che cambia agitazione ma non forma ne' colore.
+- **Chi parla, nel Nucleo**: `ChiParla` legge anche `chiave` e `sfera` dai file di `~/.bottega/personaggi` (stessa
+  rilettura, al piu' una volta al minuto) e da' l'aspetto per nome (`ChiParla.aspetto(nome:)`). Quando un pezzo comincia
+  davvero a suonare (`Speaker.segmentStarted`, lo stesso istante in cui l'isola cambia nome) `OrbAspetto.parla(chi,
+  testo)` mette forma e colore di chi parla e l'agitazione del testo con i tag; a voce finita, o con `zitta`, torna
+  Melissa calma. Sull'isola la fase `parla` mostra la sfera di chi parla (anche per le battute della barra arrivate con
+  `/mostra`, senza emozione perche' arrivano senza tag); ogni altra fase e' di Melissa. Nessun campo nuovo nel protocollo.
+- **Chi parla, nelle viste**: `AssistantState.personaggi[].sfera` e' `{forma, colore}` gia' risolto (mai assente) e
+  `AssistantState.agitazione` (0..1) e' l'emozione della battuta che si dice. La decide il testo mandato con `voice.speak`:
+  una battuta intera, un riempitivo o il primo pezzo di una risposta sempre, i pezzi dopo solo se dicono un'emozione;
+  torna 0,3 a ogni stato che non e' `speaking`. `window.BottegaSferaGPU.aspetto.daStato(assistant)` sceglie chi si vede:
+  mentre parla chi parla (`parla`), se no chi ha la chiamata (`personaggio`), e ne fa il quarto argomento di
+  `set(stato, spenta, livello, {forma, colore, agitazione})`. Senza quarto argomento la sfera e' di Melissa, calma: chi
+  chiamava `set` con tre argomenti non cambia. La sfera Canvas 2D di ripiego segue le stesse regole (`aspetto.molla` per
+  il passaggio, `aspetto.traccia` per la sagoma piatta della forma ruotata, con i pesi mescolati, e il colore).
+- **Fuori**: la Bottega per iPhone e la mod melissa non hanno ancora la sfera per personaggio; il campo nei file per loro
+  e' in piu' e lo ignorano.
 
 ## 10. Gli aggiornamenti: VS Code solo quando serve, Claude Code sempre
 

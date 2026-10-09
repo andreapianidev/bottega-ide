@@ -1808,7 +1808,8 @@ function makeAssistant(over = {}) {
 			assert.deepStrictEqual(p.occasione('Claude lancia sudo make'), { tipo: 'sicurezza', chi: 'robot', fatto: "c'e' «sudo»" }, 'sicurezza va a chi ha le parole, anche senza occasioni');
 			assert.strictEqual(p.ospiteDellaFrase('le chiavi', 'tyrell', 0), null, 'nessuna eccezione: senza parole valide e senza `chiacchiera`, nessuno');
 			assert.strictEqual(p.chiChiede('passami Mr. Robot'), 'robot');
-			assert.deepStrictEqual(p.elenco(), [{ chiave: 'tyrell', nome: 'Tyrell', ruolo: 'Tyrell' }, { chiave: 'robot', nome: 'Mr. Robot', ruolo: 'Mr. Robot' }]);
+			// senza campo `sfera` forma e colore vengono dalla chiave (CONTRATTI 9.11, «La sfera di chi parla»)
+			assert.deepStrictEqual(p.elenco(), [{ chiave: 'tyrell', nome: 'Tyrell', ruolo: 'Tyrell', sfera: { forma: 'stella', colore: '#FF40D6' } }, { chiave: 'robot', nome: 'Mr. Robot', ruolo: 'Mr. Robot', sfera: { forma: 'stella', colore: '#40F2FF' } }]);
 			// pubblica: copia i cambiati, toglie i .json che non ci sono piu', lascia il resto
 			const a = fs.mkdtempSync(path.join(os.tmpdir(), 'personaggi-mod-'));
 			fs.writeFileSync(path.join(a, 'vecchio.json'), '{}');

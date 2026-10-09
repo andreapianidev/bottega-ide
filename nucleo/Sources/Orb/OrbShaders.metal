@@ -20,6 +20,9 @@
 //         the sphere fills ~78% of the view; the breath phase comes from MetalEngine (it
 //         speeds up with the Claude sessions at work)
 //    spectrum[4] = 16 audio bands (0..1), low to high
+//    p6 = (cube, rhombus, star weights, tint)           who speaks (OrbAspetto.swift): the sphere
+//    p7 = (character colour rgb, agitation)             is 1 - the weights; tint 0.85 for a
+//    p8 = (shape angle, colour light, spike length, 0)  character, 0 for Melissa
 //  Output is LINEAR EXTENDED for an EDR rgba16Float target, premultiplied alpha.
 //
 
@@ -37,6 +40,9 @@ struct OrbUniforms {
     float4 p4;
     float4 p5;            // (zoom, docked 0/1, breath phase, phase set 0/1): zoom < 1 makes the sphere fill more of the view
     float4 spectrum[4];
+    float4 p6;            // (cube, rhombus, star, tint)
+    float4 p7;            // (colour rgb, agitation)
+    float4 p8;            // (angle, light, spike length, 0)
 };
 
 struct OrbVSOut { float4 pos [[position]]; float2 uv; };
@@ -73,6 +79,29 @@ static inline float3 orb_rotY(float3 p, float a) {
     return float3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
 }
 
+static inline float3 orb_rotX(float3 p, float a) {
+    float s = sin(a), c = cos(a);
+    return float3(p.x, c * p.y - s * p.z, s * p.y + c * p.z);
+}
+
+// the rounded cube
+static inline float orb_roundBox(float3 p, float3 b, float r) {
+    float3 q = abs(p) - b + r;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
+}
+
+// the star's spikes: the 12 vertices of the icosahedron, six axes and their opposites
+static inline float orb_spikes(float3 dir) {
+    const float a = 0.5257311, b = 0.8506508;
+    float m = abs(dot(dir, float3(a, b, 0.0)));
+    m = max(m, abs(dot(dir, float3(a, -b, 0.0))));
+    m = max(m, abs(dot(dir, float3(0.0, a, b))));
+    m = max(m, abs(dot(dir, float3(0.0, a, -b))));
+    m = max(m, abs(dot(dir, float3(b, 0.0, a))));
+    m = max(m, abs(dot(dir, float3(-b, 0.0, a))));
+    return pow(m, 28.0);
+}
+
 struct OrbDrive {
     float time;
     float baseR;
@@ -82,6 +111,12 @@ struct OrbDrive {
     float mid;
     float flowSign;
     float reveal;
+    // the characters' shapes (the sphere is what is left), the shape's angle, the spike length
+    float cube;
+    float romb;
+    float star;
+    float angle;
+    float spike;
 };
 
 static inline float orb_displacement(float3 dir, OrbDrive d, texture3d<float> tex, sampler s) {
@@ -100,7 +135,18 @@ static inline float orb_displacement(float3 dir, OrbDrive d, texture3d<float> te
 
 static inline float orb_map(float3 pos, OrbDrive d, texture3d<float> tex, sampler s) {
     float3 dir = normalize(pos + float3(1e-5));
-    return length(pos) - (d.baseR + orb_displacement(dir, d, tex, s));
+    float disp = orb_displacement(dir, d, tex, s);
+    float ball = length(pos) - (d.baseR + disp);
+    float others = d.cube + d.romb + d.star;
+    if (others < 0.001) return ball;
+    // the characters' shapes turn slowly, tilted, so cube and rhombus read in 3D
+    float3 q = orb_rotX(orb_rotY(pos, d.angle), 0.45);
+    float R = d.baseR;
+    float dist = ball * (1.0 - others);
+    if (d.cube > 0.001) dist += (orb_roundBox(q, float3(0.66 * R), 0.16 * R) - disp * 0.6) * d.cube;
+    if (d.romb > 0.001) dist += ((abs(q.x) + abs(q.y) + abs(q.z) - 1.32 * R) * 0.57735 - 0.06 * R - disp * 0.6) * d.romb;
+    if (d.star > 0.001) dist += (length(pos) - (0.86 * R + 0.5 * disp + d.spike * R * orb_spikes(normalize(q + float3(1e-5))))) * d.star;
+    return dist;
 }
 
 static inline float3 orb_normal(float3 pos, OrbDrive d, texture3d<float> tex, sampler s) {
@@ -247,6 +293,9 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
     d.time = time; d.bass = bass; d.mid = mid;
     d.baseR = 0.46; d.amp = 0.05; d.swirl = 0.10; d.flowSign = 1.0;
     d.reveal = reveal;
+    d.cube = u.p6.x; d.romb = u.p6.y; d.star = u.p6.z;
+    d.angle = u.p8.x; d.spike = u.p8.z;
+    float agit = clamp(u.p7.w, 0.0, 1.0);
     float coreGain = 1.0, glowGain = 1.0;
     float flow = 0.0;
 
@@ -291,6 +340,8 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
         coreGain  = 1.10 + 0.50 * burst;
     }
 
+    // the agitation of the line deforms more, up to 60%
+    d.amp    *= 1.0 + 0.6 * agit;
     d.baseR  += heart * 0.012 + impulse * 0.05;
     glowGain += heart * 0.08  + onset * 0.45;
     flow     += onset * 0.5;
@@ -310,12 +361,18 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
         float warmDir = (state == 3) ? 1.0 : -1.0;
         baseCol = orb_hueRotate(baseCol, (energy - 0.30) * 0.55 * warmDir);
     }
+    // the colour of who speaks, with the light of the emotion: of the palette's drift only a trace stays
+    baseCol = mix(baseCol, u.p7.xyz * u.p8.y, clamp(u.p6.w, 0.0, 1.0));
 
     float3 ro = float3(p, 2.5);
     float3 rd = float3(0.0, 0.0, -1.0);
     float  R  = d.baseR;
-    float  maxR = R + 0.24;
+    // the star's spikes and the rhombus's vertices leave the sphere: the search sphere grows with them
+    float  maxR = R + 0.24 + R * (0.4 * d.star + 0.1 * d.romb + 0.05 * d.cube);
     float  pxWorld = 2.0 * zoom / res.y;
+    // the spikes are not Lipschitz: with the star a more careful step, and more steps
+    float  stepK = mix(0.72, 0.45, d.star);
+    int    outSteps = d.star > 0.01 ? 120 : 80;
 
     float3 col   = float3(0.0);
     float  alpha = 0.0;
@@ -326,12 +383,12 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
         bool  hit = false;
         float minDist = 1e9;
         float3 pos = ro + rd * t;
-        for (int i = 0; i < 80; i++) {
+        for (int i = 0; i < outSteps; i++) {
             pos = ro + rd * t;
             float dist = orb_map(pos, d, noiseTex, noiseSamp);
             minDist = min(minDist, dist);
             if (dist < 0.0009) { hit = true; break; }
-            t += dist * 0.72;
+            t += dist * stepK;
             if (pos.z < -maxR) break;
         }
 
@@ -515,16 +572,22 @@ struct OrbParticle {
 struct ParticleUniforms {
     float4 q0;   // dt, time, state, level
     float4 q1;   // aspect, count, pulse 0..1, reserved
+    float4 q2;   // colour of who speaks (with its light), tint
 };
 
 static inline float pr_rand(float s) { return fract(sin(s) * 43758.5453); }
 
-static inline float3 pr_color(int state) {
+static inline float3 pr_stateColor(int state) {
     if (state == 1) return float3(0.31, 0.86, 0.92);
     if (state == 2) return float3(0.66, 0.52, 0.98);
     if (state == 3) return float3(0.55, 0.88, 0.60);
     if (state == 4) return float3(0.98, 0.72, 0.30);
     return float3(0.60, 0.80, 0.95);
+}
+
+// the sparks take the colour of who speaks too
+static inline float3 pr_color(int state, float4 tint) {
+    return mix(pr_stateColor(state), tint.xyz, clamp(tint.w, 0.0, 1.0));
 }
 
 kernel void orb_particle_update(device OrbParticle* parts [[buffer(0)]],
@@ -589,6 +652,7 @@ struct ParticleVSOut {
     float  psize [[point_size]];
     float  bright;
     int    state [[flat]];
+    float4 tint [[flat]];
 };
 
 vertex ParticleVSOut orb_particle_vertex(const device OrbParticle* parts [[buffer(0)]],
@@ -605,6 +669,7 @@ vertex ParticleVSOut orb_particle_vertex(const device OrbParticle* parts [[buffe
     o.bright = life * life * (1.0 + 0.40 * pulse) * edge;
     o.psize  = mix(2.0, 6.0, life) * (wp.z * 0.2 + 1.0) * (1.0 + 0.35 * pulse);
     o.state  = int(pu.q0.z + 0.5);
+    o.tint   = pu.q2;
     return o;
 }
 
@@ -612,7 +677,7 @@ fragment float4 orb_particle_fragment(ParticleVSOut in [[stage_in]],
                                       float2 pc [[point_coord]]) {
     float dd = length(pc - 0.5);
     float a  = smoothstep(0.5, 0.0, dd) * in.bright;
-    float3 col = pr_color(in.state) * 1.7;
+    float3 col = pr_color(in.state, in.tint) * 1.7;
     return float4(col * a, a);
 }
 
@@ -620,6 +685,7 @@ struct ParticleTrailVSOut {
     float4 pos [[position]];
     float  bright;
     int    state [[flat]];
+    float4 tint [[flat]];
 };
 
 vertex ParticleTrailVSOut orb_particle_trail_vertex(const device OrbParticle* parts [[buffer(0)]],
@@ -639,12 +705,13 @@ vertex ParticleTrailVSOut orb_particle_trail_vertex(const device OrbParticle* pa
     float edge = 1.0 - smoothstep(0.80, 0.98, max(abs(wp.x), abs(wp.y)));
     o.bright = tail ? 0.0 : life * life * (1.0 + 0.40 * pulse) * 0.85 * edge;
     o.state  = int(pu.q0.z + 0.5);
+    o.tint   = pu.q2;
     return o;
 }
 
 fragment float4 orb_particle_trail_fragment(ParticleTrailVSOut in [[stage_in]]) {
     float a = clamp(in.bright, 0.0, 1.0);
-    return float4(pr_color(in.state) * 1.7 * a, a);
+    return float4(pr_color(in.state, in.tint) * 1.7 * a, a);
 }
 
 // ===========================================================================

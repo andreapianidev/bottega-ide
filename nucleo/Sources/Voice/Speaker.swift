@@ -815,6 +815,9 @@ final class Speaker: NSObject {
         if !seg.text.isEmpty {
             spokenSoFar += spokenSoFar.isEmpty ? seg.text : " " + seg.text
             VoiceHub.shared.speakingSegment(SpokenText.strippingAudioTags(seg.text))
+            // the sphere takes the shape and colour of who says this line, and the agitation of
+            // its emotion (audio tags included): CONTRATTI 9.11, «La sfera di chi parla»
+            OrbAspetto.parla(chi: seg.chi, testo: seg.text)
             // the island shows who says this line, now that it really sounds; from the service
             // (the bar) it goes to the island of the mod, if one is running (IsolaAvviso)
             if Isola.attiva { Isola.shared.segmentoIniziato(testo: SpokenText.strippingAudioTags(seg.text), chi: seg.chi) }
@@ -843,6 +846,7 @@ final class Speaker: NSObject {
             VoiceHub.shared.speakingEnded(spoken: spokenSoFar)
             spokenSoFar = ""
             IsolaAvviso.fine()   // only from the service: the island's own voice is its own
+            OrbAspetto.riposo()  // the voice is over: Melissa's sphere again, calm
         }
     }
 

@@ -213,6 +213,10 @@
 		const raf = window.requestAnimationFrame ? window.requestAnimationFrame.bind(window) : f => setTimeout(() => f(performance.now()), 33);
 		const caf = window.cancelAnimationFrame ? window.cancelAnimationFrame.bind(window) : clearTimeout;
 
+		// l'aspetto di chi parla (CONTRATTI 9.11, «La sfera di chi parla»): le regole stanno in motore/sfera-gpu.js
+		// (window.BottegaSferaGPU.aspetto); se quel file non c'e', la sfera resta tonda e coi colori di Melissa
+		const A = /** @type {any} */ (window).BottegaSferaGPU && /** @type {any} */ (window).BottegaSferaGPU.aspetto;
+		const mol = A ? A.molla() : null;
 		let target = 'idle';
 		let col = LIN.idle.slice();
 		let e = MOTO.idle.e, v = MOTO.idle.v;
@@ -264,8 +268,12 @@
 			ctx.fillRect(0, 0, S, S);
 
 			ctx.save();
-			ctx.beginPath();
-			ctx.arc(c, c, R, 0, Math.PI * 2);
+			// la sagoma di chi parla: la sfera di Melissa, o la forma del personaggio (cubo, rombo, stella)
+			if (mol) A.traccia(ctx, c, c, R, mol.pesi, mol.angolo, mol.agit);
+			else {
+				ctx.beginPath();
+				ctx.arc(c, c, R, 0, Math.PI * 2);
+			}
 			ctx.clip();
 
 			// corpo: profondo al centro, quasi spento sul bordo
@@ -274,7 +282,7 @@
 			g.addColorStop(0, rgba(scale(C, 0.5), 1));
 			g.addColorStop(1, rgba(scale(C, 0.06), 1));
 			ctx.fillStyle = g;
-			ctx.fillRect(c - R, c - R, R * 2, R * 2);
+			ctx.fillRect(0, 0, S, S);
 
 			// plasma: cinque correnti che girano piano e si sommano
 			ctx.globalCompositeOperation = 'lighter';
@@ -289,7 +297,7 @@
 				g.addColorStop(0, rgba(hue, 0.1 + 0.42 * E));
 				g.addColorStop(1, rgba(hue, 0));
 				ctx.fillStyle = g;
-				ctx.fillRect(c - R, c - R, R * 2, R * 2);
+				ctx.fillRect(0, 0, S, S);
 			}
 
 			// nucleo caldo, quasi bianco
@@ -301,7 +309,7 @@
 			g.addColorStop(0.35, rgba(mixC(C, [1, 1, 1], 0.55), 0.6));
 			g.addColorStop(1, rgba(C, 0));
 			ctx.fillStyle = g;
-			ctx.fillRect(c - R, c - R, R * 2, R * 2);
+			ctx.fillRect(0, 0, S, S);
 
 			// bordo scuro, poi un filo di luce radente
 			ctx.globalCompositeOperation = 'source-over';
@@ -309,18 +317,26 @@
 			g.addColorStop(0, 'rgba(3,6,16,0)');
 			g.addColorStop(1, 'rgba(3,6,16,0.62)');
 			ctx.fillStyle = g;
-			ctx.fillRect(c - R, c - R, R * 2, R * 2);
+			ctx.fillRect(0, 0, S, S);
 			ctx.globalCompositeOperation = 'lighter';
 			g = ctx.createRadialGradient(c, c, R * 0.88, c, c, R);
 			g.addColorStop(0, rgba(C, 0));
 			g.addColorStop(1, rgba(C, 0.3));
 			ctx.fillStyle = g;
-			ctx.fillRect(c - R, c - R, R * 2, R * 2);
+			ctx.fillRect(0, 0, S, S);
 			ctx.restore();
 		}
 
+		/** il colore voluto: quello dello stato, e con un personaggio l'85% del suo, con la luce della sua emozione */
+		function voluto() {
+			const base = LIN[target] || LIN.idle;
+			if (!mol || mol.tinta < 0.001) return base;
+			return mixC(base, scale(mol.colore, A.luce(mol.agit)), mol.tinta);
+		}
+
 		function step(dt) {
-			const want = LIN[target] || LIN.idle;
+			if (mol) mol.passo(dt);
+			const want = voluto();
 			const m = MOTO[target] || MOTO.idle;
 			const k = 1 - Math.exp(-dt * 4);
 			col = mixC(col, want, k);
@@ -349,7 +365,8 @@
 		}
 
 		function snapTo() {
-			col = (LIN[target] || LIN.idle).slice();
+			if (mol) mol.salta();
+			col = voluto().slice();
 			const m = MOTO[target] || MOTO.idle;
 			e = m.e;
 			v = m.v;
@@ -357,8 +374,9 @@
 		}
 
 		return {
-			set(st, dimmed, lvl) {
-				const changed = st !== target || (dimmed ? 1 : 0) !== dimWant;
+			set(st, dimmed, lvl, aspetto) {
+				const nuovo = mol ? mol.vai(aspetto) : false;
+				const changed = st !== target || (dimmed ? 1 : 0) !== dimWant || nuovo;
 				target = st;
 				dimWant = dimmed ? 1 : 0;
 				level = lvl || 0;
@@ -403,9 +421,14 @@
 		const fresh = /** @type {HTMLCanvasElement} */ (old.cloneNode(false));
 		old.replaceWith(fresh);
 		orbImpl = makeOrb2D();
-		if (orbLast) orbImpl.set(orbLast[0], orbLast[1], orbLast[2]);
+		if (orbLast) orbImpl.set(orbLast[0], orbLast[1], orbLast[2], orbLast[3]);
 		if (orbImpl.riposa) orbImpl.riposa(orbRiposa);
 		if (orbAwake) orbImpl.wake();
+	};
+	/** Forma, colore e agitazione della sfera dallo stato dell'assistente (motore/sfera-gpu.js); senza quel file, niente. */
+	const aspettoDi = a => {
+		const G = /** @type {any} */ (window).BottegaSferaGPU;
+		return G && G.aspetto ? G.aspetto.daStato(a) : undefined;
 	};
 	const gpu = /** @type {any} */ (window).BottegaSferaGPU;
 	if (gpu && typeof gpu.mount === 'function') {
@@ -419,9 +442,10 @@
 	if (!orbImpl) orbImpl = makeOrb2D();
 	/** La sfera, qualunque motore ci sia sotto: la barra chiama sempre questi quattro. */
 	const orb = {
-		set(st, dimmed, lvl) {
-			orbLast = [st, dimmed, lvl];
-			orbImpl.set(st, dimmed, lvl);
+		/** `aspetto`: chi parla, {forma, colore, agitazione} (window.BottegaSferaGPU.aspetto.daStato); senza, Melissa. */
+		set(st, dimmed, lvl, aspetto) {
+			orbLast = [st, dimmed, lvl, aspetto];
+			orbImpl.set(st, dimmed, lvl, aspetto);
 		},
 		wake() {
 			orbAwake = true;
@@ -694,7 +718,8 @@
 		const a = S.assistant;
 		const on = !!(a && a.enabled);
 		const st = a ? (a.state === 'idle' && a.conversing ? 'listening' : a.state) : 'idle';
-		orb.set(st, !on, a && a.level);
+		// la sfera di chi parla (o di chi ha la chiamata), con l'emozione della battuta
+		orb.set(st, !on, a && a.level, aspettoDi(a));
 		const tasto = $('sfera-tasto');
 		setAttr(tasto, 'aria-pressed', String(!!(a && a.conversing)));
 		$('notte').classList.toggle('viva', !!(on && a && (a.conversing || a.state !== 'idle')));

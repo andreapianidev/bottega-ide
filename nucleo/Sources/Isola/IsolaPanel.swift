@@ -74,6 +74,9 @@ final class IsolaPanel {
     /// sounding now says who it is, Isola.segmentoIniziato), every other phase is Melissa's.
     func mostra(_ f: Fase, testo nuovo: String, chi: String? = nil) {
         let nome = chi ?? (f == .parla ? modello.chi : ChiParla.melissa)
+        // the sphere of who speaks (its agitation comes from the Speaker, which has the audio
+        // tags); every other phase is Melissa's
+        if f == .parla { OrbAspetto.parla(chi: nome) } else { OrbAspetto.riposo() }
         nascondi?.cancel(); nascondi = nil
         ritiro?.cancel(); ritiro = nil
         if panel == nil { costruisci() }

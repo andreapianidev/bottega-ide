@@ -18,6 +18,14 @@ in `docs/CONTRATTI.md`, 9.11, "Ospiti dai fatti"), `riempitivi` (le frasi che di
 `battuta`, `chiacchiera`, `lunga`, `eco`; le regole sono in `docs/CONTRATTI.md`, 9.11). A parita' vince chi ha
 `ordine` piu' basso.
 
+`sfera` (facoltativo): `{"forma": "...", "colore": "#RRGGBB"}`, come appare la sfera quando parla lui, cosi' Andrea
+riconosce chi parla a occhio (nella barra, nella pagina di Melissa e sull'isola del Nucleo). Forme: `sfera`, `cubo`,
+`rombo`, `stella`. Oggi Darlene e' una stella magenta (`#FF2E9A`), Elliot un cubo verde terminale (`#38F27A`), Krista un
+rombo ambra (`#FFB547`). Senza il campo, o con un valore non valido, forma e colore si scelgono dalla chiave, sempre
+uguali per la stessa chiave e mai la sfera (che e' di Melissa): la regola e' in `docs/CONTRATTI.md`, 9.11, «La sfera di
+chi parla». L'emozione della battuta (tag audio come `[laughs]` o `[sighs]`, o le parole) fa girare la forma piu' o meno
+in fretta e cambia la luce del colore. `melissa.json` non lo ha: Melissa resta la sfera con i suoi colori.
+
 Essenziali: `chiave` (non `melissa`, e una sola per file), `nome`, `voce`, `carattere`, `saluti`. Senza uno di questi il
 file si salta e la Bottega lo scrive nel registro. Gli altri sono facoltativi: `ordine` 99, `ruolo` il nome,
 `ruolo_cronaca` il ruolo, `parole` e `parole_cronaca` vuote (mai), `errori_ripetuti` 0, `occasioni` vuote (non entra mai da solo). Un'espressione regolare che non
