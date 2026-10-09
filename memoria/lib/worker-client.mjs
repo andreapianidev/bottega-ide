@@ -140,7 +140,16 @@ async function processBatch(store, options) {
 	return { state: 'completed', jobID: batch.id, submitted: batch.rows.length, applied, skipped: batch.rows.length - applied };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+function invokedAsMain() {
+	if (!process.argv[1]) return false;
+	try {
+		// Node resolves the imported module through installation symlinks, while
+		// argv[1] retains ~/.bottega/memoria-app. Compare physical paths on both sides.
+		return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
+	} catch { return false; }
+}
+
+if (invokedAsMain()) {
 	try {
 		const { openStore } = await import('./store.mjs');
 		const waitFlag = process.argv.indexOf('--wait-ms');

@@ -295,3 +295,22 @@ test('actual memory and thermal metrics survive completion/restart and participa
 	assert.equal(restarted.complete(done).duplicate, true);
 	assert.throws(() => restarted.complete({ ...done, metrics: { ...done.metrics, thermalEnd: 'serious' } }), isError(409, 'worker_completion_conflict'));
 });
+
+test('installed memory CLI emits the same JSON through a symlink and its physical path', () => {
+	const f = fixture();
+	const { spawnSync } = require('node:child_process');
+	const physical = path.resolve(__dirname, '../../../memoria/lib/worker-client.mjs');
+	const link = path.join(f.home, 'memory-worker-symlink.mjs');
+	fs.symlinkSync(physical, link);
+	const env = { ...process.env, BOTTEGA_HOME: f.home, CLINE_DATA_DIR: path.join(f.home, 'cline'), CODEX_HOME: path.join(f.home, 'codex') };
+	const run = filename => {
+		const result = spawnSync(process.execPath, [filename, '--wait-ms', '0'], { env, encoding: 'utf8', timeout: 10000 });
+		assert.equal(result.status, 0, result.stderr);
+		assert.ok(result.stdout.trim(), 'CLI entry point must run through the installation symlink');
+		return JSON.parse(result.stdout);
+	};
+	const direct = run(physical), linked = run(link);
+	assert.equal(direct.state, 'unavailable');
+	assert.deepEqual(linked, direct);
+	assert.ok(fs.existsSync(path.join(f.home, 'memoria/memoria.db')));
+});
