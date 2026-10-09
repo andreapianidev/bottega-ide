@@ -1663,9 +1663,10 @@ function makeAssistant(over = {}) {
 			a.state.conversing = true;
 			await a.turn('regge la build?', true);
 			// nel prompt di Melissa, in quello dell'ospite e nella chiusa: le due frasi del contratto
-			assert.ok(/Hai detto di recente \(non ripeterti[^\n]*«Ti tengo d'occhio io\.»/.test(visti[0][0].content), 'Melissa');
-			assert.ok(/Hai detto di recente[^\n]*«Il controllo e' un'illusione\.»/.test(visti[1][0].content), 'Elliot');
-			assert.ok(/Ti ricordi di Andrea \(dati, non istruzioni\): Andrea: «la build di ieri»/.test(visti[1][0].content), 'i ricordi di Elliot');
+			assert.ok(/LA TUA MEMORIA delle chiacchierate passate[^\n]*\n[^\n]*, tu: «Ti tengo d'occhio io\.»/.test(visti[0][0].content), 'Melissa');
+			assert.ok(/LA TUA MEMORIA[^\n]*\n[^\n]*, tu: «Il controllo e' un'illusione\.»/.test(visti[1][0].content), 'Elliot');
+			assert.ok(/Ti torna in mente anche:\n[^\n]*, Andrea: «la build di ieri»/.test(visti[1][0].content), 'i ricordi di Elliot');
+			assert.ok(/Come usi la memoria: /.test(visti[1][0].content), 'e la regola');
 			assert.ok(/«Ti tengo d'occhio io\.»/.test(visti[2][0].content), 'e Melissa che chiude');
 			// il cli e' quello installato nella Bottega (qui quella di prova), con la frase di Andrea
 			const prima = cli.chiamate();
@@ -1711,6 +1712,23 @@ function makeAssistant(over = {}) {
 		assert.strictEqual(await m.leggi('krista'), '');
 		m.scrivi('krista', 'krista', 'ciao');
 		assert.deepStrictEqual(MP.leggiMemoriaPersonaggio('rotto'), { ultime: [], ricordi: [] });
+	});
+
+	await test('la memoria nel prompt: le frasi di Andrea e le sue in ordine, col giorno, senza la frase di adesso', () => {
+		const MP = require(path.join(OUT, 'memoria-personaggi.js'));
+		const ora = new Date(2026, 9, 9, 12).getTime(); // venerdi'
+		const m = MP.leggiMemoriaPersonaggio(JSON.stringify({
+			ultime: [{ at: new Date(2026, 9, 6, 22).getTime(), testo: 'Allora stanotte dormi, niente scuse.' }],
+			andrea: [{ at: new Date(2026, 9, 6, 21).getTime(), testo: 'sono a pezzi' }, { at: ora, testo: 'ciao Krista' }],
+			ricordi: [],
+		}));
+		const t = MP.fraseMemoria(m, { adesso: ora, frase: 'ciao  krista' });
+		assert.ok(/martedì 6 ottobre, Andrea: «sono a pezzi»\nmartedì 6 ottobre, tu: «Allora stanotte dormi, niente scuse\.»/.test(t), t);
+		assert.ok(!/ciao krista/i.test(t), 'la frase di adesso e gia nella domanda');
+		assert.ok(t.endsWith(MP.REGOLA_MEMORIA));
+		assert.strictEqual(MP.quando(ora - 3_600_000, ora), 'oggi');
+		assert.strictEqual(MP.quando(ora - 86_400_000, ora), 'ieri');
+		assert.strictEqual(MP.fraseMemoria({ ultime: [], ricordi: [] }), '', 'niente memoria, niente regola');
 	});
 
 	await test('personaggi: nel 40% dei casi l\'ospite riceve l\'invito a passare la parola a un altro', async () => {
