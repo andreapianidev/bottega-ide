@@ -10,7 +10,7 @@ import {
 import { redact, undash, clip, cleanPrompt } from './redact.mjs';
 import { openStore, blobToVec, cosine, toItem } from './store.mjs';
 import { parseTranscript, findTranscript, listTranscripts, trim } from './transcript.mjs';
-import { appleGenerate, agnesGenerate, deepseekGenerate, deepseekUsable, chosenEngine, embed, embedAvailable, RateLimited, nucleoPath, agnesKey } from './engines.mjs';
+import { appleGenerate, deepseekGenerate, deepseekUsable, chosenEngine, embed, embedAvailable, RateLimited, RetryableGenerationError, nucleoPath } from './engines.mjs';
 import { tilde } from './hook.mjs';
 import { readAllBoards, readSessionInfo } from './bacheca.mjs';
 
@@ -187,50 +187,19 @@ export function parseSummary(out) {
 }
 
 async function generate(store, text, opts = {}) {
-	// DeepSeek per primo quando e' il motore scelto (08/10/2026: Agnes invertiva i dettagli tecnici, "apertura
-	// alle 13" per una finestra che alle 13 si chiude). Se non risponde, o la chiave o il credito mancano, si
-	// passa ad Agnes e poi ad Apple. --solo-agnes lo salta.
-	let deepseekProvato = false;
-	if (!opts.soloAgnes && chosenEngine(store) === 'deepseek' && deepseekUsable(store)) {
-		deepseekProvato = true;
+	if (opts.soloAgnes) throw new Error('Agnes e stato ritirato: togli --solo-agnes.');
+	let errore = new RetryableGenerationError('DeepSeek non disponibile e Apple Intelligence non disponibile');
+	if (chosenEngine(store) !== 'apple' && deepseekUsable(store)) {
 		try {
 			return { engine: 'deepseek', out: await deepseekGenerate(store, INSTRUCTIONS, trim(text, DEEPSEEK_MAX)) };
 		} catch (e) {
-			log(`deepseek: ${e?.message || e}, provo Agnes`);
+			errore = e;
+			log(`deepseek: ${e?.message || e}, provo Apple`);
 		}
 	}
-	// Quando Agnes e' satura (429, finestra dei 6 al minuto piena) o non risponde, la riserva e' SEMPRE DeepSeek
-	// Flash (Andrea, 09/10/2026), anche col motore Agnes scelto. Apple Intelligence resta l'ultima, solo se manca
-	// anche DeepSeek (chiave assente, o in pausa dopo un 401/402, o appena fallito come primo motore).
-	const riservaDeepseek = !opts.soloAgnes && !deepseekProvato && deepseekUsable(store);
-	const allaRiserva = async e => {
-		if (riservaDeepseek) {
-			try {
-				return { engine: 'deepseek', out: await deepseekGenerate(store, INSTRUCTIONS, trim(text, DEEPSEEK_MAX)) };
-			} catch (e2) {
-				log(`deepseek (riserva di Agnes): ${e2?.message || e2}`);
-			}
-		}
-		const apple = appleGenerate(INSTRUCTIONS, trim(text, APPLE_MAX));
-		if (apple) return { engine: 'apple', out: apple };
-		throw e;
-	};
-	if (agnesKey()) {
-		try {
-			// Con DeepSeek pronto non si resta minuti in coda per Agnes: oltre 15 s d'attesa e' satura, si passa a lui.
-			const maxWaitMs = riservaDeepseek ? 15_000 : opts.maxWaitMs;
-			const out = await agnesGenerate(store, INSTRUCTIONS, trim(text, AGNES_MAX), { maxWaitMs });
-			return { engine: 'agnes', out };
-		} catch (e) {
-			if (opts.soloAgnes) throw e;
-			log(`agnes: ${e?.message || e}, ${riservaDeepseek ? 'passo a DeepSeek Flash' : 'provo Apple'}`);
-			return allaRiserva(e);
-		}
-	}
-	if (riservaDeepseek) return allaRiserva(new Error('chiave Agnes assente e DeepSeek non ha risposto'));
-	const apple = opts.soloAgnes ? null : appleGenerate(INSTRUCTIONS, trim(text, APPLE_MAX));
+	const apple = appleGenerate(INSTRUCTIONS, trim(text, APPLE_MAX));
 	if (apple) return { engine: 'apple', out: apple };
-	throw new Error('chiave Agnes assente e Apple Intelligence non disponibile');
+	throw errore;
 }
 
 /** Il testo che il riassunto manda al modello (Agnes, o Apple come riserva): solo le osservazioni degli hook,
@@ -553,7 +522,8 @@ export async function runWorker({ motivo = 'stop', sessione } = {}) {
 	for (let round = 0; round < 2; round++) {
 		if (!lock()) return { busy: true };
 		try {
-			await drain(store);
+			const result = await drain(store);
+			if (result?.deferred) break;
 		} finally {
 			unlock();
 		}
@@ -562,7 +532,7 @@ export async function runWorker({ motivo = 'stop', sessione } = {}) {
 	return { ok: true };
 }
 
-async function drain(store) {
+export async function drain(store) {
 	for (let guard = 0; guard < 50; guard++) {
 		ingest(store);
 		const item = store.get('SELECT * FROM queue ORDER BY at ASC LIMIT 1');
@@ -576,9 +546,10 @@ async function drain(store) {
 			await summarizeSession(item.sessionId, { store, maxWaitMs: 5 * 60_000 });
 			store.run('DELETE FROM queue WHERE sessionId = ?', item.sessionId);
 		} catch (e) {
-			if (e instanceof RateLimited) {
+			if (e instanceof RateLimited || e instanceof RetryableGenerationError) {
 				log(`worker: ${e.message}, riprovo piu' tardi`);
-				return;
+				store.run('UPDATE sessions SET lastError = ? WHERE id = ?', String(e.message).slice(0, 300), item.sessionId);
+				return { deferred: true };
 			}
 			log(`worker: riassunto ${item.sessionId.slice(0, 8)} fallito: ${e?.message || e}`);
 			store.run('UPDATE sessions SET attempts = attempts + 1, lastError = ? WHERE id = ?', String(e?.message || e).slice(0, 300), item.sessionId);

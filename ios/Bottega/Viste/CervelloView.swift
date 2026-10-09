@@ -18,12 +18,12 @@ struct CervelloTelefonoFoglio: View {
         NavigationStack {
             Form {
                 Section {
-                    ForEach(["agnes", "deepseek"], id: \.self) { p in
+                    ForEach(["deepseek"], id: \.self) { p in
                         Button {
                             telefono.provider = p
                         } label: {
                             HStack {
-                                Text(p == "agnes" ? "Agnes" : "DeepSeek")
+                                Text("DeepSeek")
                                 Spacer()
                                 if telefono.provider == p { Image(systemName: "checkmark") }
                             }

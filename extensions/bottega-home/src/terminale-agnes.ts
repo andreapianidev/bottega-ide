@@ -776,7 +776,7 @@ export function pensatore(o: {
 			const r = await runAppleTurn(n, { instructions: sistema, prompt: utente, history: [], tools: [], exec: async () => '', signal, maxTokens: 300, timeoutMs: 25_000 });
 			return r.text;
 		}
-		const stream = o.cervelli.streamFor({ provider: cervello, model: cervello === 'agnes' ? DEFAULT_CHOICE.model : 'deepseek-chat', effort: 'rapido' });
+		const stream = o.cervelli.streamFor({ provider: 'deepseek', model: DEFAULT_CHOICE.model, effort: 'rapido' });
 		if (!stream) throw new Error('cervello non disponibile');
 		let testo = '';
 		const messaggi: LlmMessage[] = [
@@ -880,8 +880,7 @@ export function apriSportello(o: SportelloOpzioni): Sportello {
 		if (tipo === 'comando' && !richiesta) return { esito: 'errore', errore: 'scrivi cosa vuoi fare' };
 		if (tipo === 'perche' && !(c.ultimo ?? '').trim()) return { esito: 'errore', errore: 'non ho un ultimo comando da spiegare' };
 		if (occupato) return { esito: 'aspetta', errore: 'aspetta un attimo, sto gia\' pensando' };
-		const scelto: CervelloTerminale = c.cervello === 'deepseek' ? 'deepseek' : c.cervello === 'agnes' ? 'agnes' : o.cervello();
-		const fila: Pensatore[] = scelto === 'agnes' ? ['agnes', 'deepseek', 'apple'] : ['deepseek', 'agnes', 'apple'];
+		const fila: Pensatore[] = ['deepseek', 'apple']; // anche le preferenze Agnes storiche migrano
 		if (fila[0] === 'agnes' && ora() - ultimaAgnes < PAUSA_AGNES) return { esito: 'aspetta', errore: 'aspetta un attimo: Agnes accetta una richiesta ogni 3 secondi' };
 		occupato = true;
 		const t0 = ora();

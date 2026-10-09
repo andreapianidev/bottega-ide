@@ -1,19 +1,15 @@
-/* I due cervelli di Melissa: Agnes (in rete, il principale) e Apple Intelligence sul Mac (gratis, privato,
-   senza rete), questo ora CON gli strumenti: il Nucleo trasforma le ToolSpec in Tool di FoundationModels e,
-   quando il modello ne chiama uno, lo chiede a noi con l'evento `tool.call`; noi lo eseguiamo con lo stesso
-   `runTool` di Melissa (stesse conferme per le azioni a rischio) e rispondiamo con `tool.result`.
+/* I cervelli di Melissa: DeepSeek in rete e Apple Intelligence sul Mac, con gli strumenti.
+   Il Nucleo inoltra tool.call, l'estensione esegue lo stesso runTool e restituisce tool.result.
    Contratto: docs/CONTRATTI.md, sezione 7.1.
 
-   Chi decide (BrainRouter):
-   - `agnes` / `apple`: forzati dall'impostazione bottega.melissa.cervello;
-   - `auto` (scelta di Andrea, 2 ottobre 2026): Agnes sempre, finche' risponde. Quando Agnes non risponde (429,
-     rete, 5xx) entra la riserva, subito e con gli strumenti: prima DeepSeek, poi Apple Intelligence (ordine di
-     Andrea, 4 ottobre 2026). Per 2 minuti i turni vanno diretti alla riserva (interruttore), niente attese
-     cieche. Senza riserve, Agnes comunque.
-   Melissa dice quale cervello usa solo quando cambia. Niente vscode qui dentro: si prova da Node. */
+   auto usa DeepSeek, con Apple come riserva temporanea per quota, rete o errori del server.
+   apple forza il Mac quando disponibile; deepseek forza il servizio remoto.
+   Il valore storico agnes viene letto come deepseek. I nomi dei metodi legacy restano
+   compatibili con i chiamanti, ma non avviano richieste ad Agnes.
+   Melissa annuncia il cervello soltanto quando cambia. Nessuna dipendenza da vscode. */
 
 export type BrainName = 'agnes' | 'deepseek' | 'apple';
-export type BrainMode = 'auto' | 'agnes' | 'apple';
+export type BrainMode = 'auto' | 'agnes' | 'deepseek' | 'apple';
 
 export interface ToolSpecLike {
 	type: 'function';
@@ -41,11 +37,11 @@ export function appleToolSpecs(all: ToolSpecLike[]): ToolSpecLike[] {
 	return APPLE_TOOLS.map(n => byName.get(n)).filter((t): t is ToolSpecLike => !!t);
 }
 
-/** Errori di Agnes che aprono l'interruttore: quota, rete, server. Non il barge-in. */
+/** Errori del servizio remoto che aprono l'interruttore: quota, rete, server. Non il barge-in. */
 export function isAgnesOutage(e: any): boolean {
 	const m = String(e?.message ?? e ?? '');
 	if (/abort/i.test(m) || e?.name === 'AbortError') return false;
-	return /429|quota|rate|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|fetch failed|network|rete|5\d\d|Nessuna chiave/i.test(m);
+	return /401|402|credito|chiave|429|quota|rate|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|fetch failed|network|rete|5\d\d|Nessuna chiave/i.test(m);
 }
 
 export class BrainRouter {
@@ -57,15 +53,14 @@ export class BrainRouter {
 		return this.opts.now ? this.opts.now() : Date.now();
 	}
 
-	/** La riserva di Agnes, in ordine: DeepSeek, poi il Mac. */
+	/** Il Mac e la riserva del servizio remoto. */
 	reserves(): BrainName[] {
 		const out: BrainName[] = [];
-		if (this.opts.deepseekAvailable?.()) out.push('deepseek');
 		if (this.opts.appleAvailable()) out.push('apple');
 		return out;
 	}
 
-	/** Agnes ha appena fallito: per un po' si va diretti alla riserva. */
+	/** Il servizio remoto ha fallito: per un po' si va diretti alla riserva. */
 	agnesFailed(e?: any): void {
 		if (e === undefined || isAgnesOutage(e)) this.openUntil = this.now() + (this.opts.breakerMs ?? 120_000);
 	}
@@ -79,13 +74,13 @@ export class BrainRouter {
 	choose(text: string): { brain: BrainName; why: 'forzato' | 'interruttore' | 'principale' | 'senza-apple' } {
 		const mode = this.opts.mode();
 		const apple = this.opts.appleAvailable();
-		if (mode === 'agnes') return { brain: 'agnes', why: 'forzato' };
-		if (mode === 'apple') return apple ? { brain: 'apple', why: 'forzato' } : { brain: 'agnes', why: 'senza-apple' };
+		if (mode === 'agnes' || mode === 'deepseek') return { brain: 'deepseek', why: 'forzato' };
+		if (mode === 'apple') return apple ? { brain: 'apple', why: 'forzato' } : { brain: 'deepseek', why: 'senza-apple' };
 		const riserva = this.reserves()[0];
-		if (!riserva) return { brain: 'agnes', why: 'senza-apple' };
+		if (!riserva) return { brain: 'deepseek', why: 'senza-apple' };
 		if (this.breakerOpen) return { brain: riserva, why: 'interruttore' };
-		void text; // le domande brevi non contano piu': Agnes finche' risponde (scelta di Andrea)
-		return { brain: 'agnes', why: 'principale' };
+		void text; // la lunghezza della domanda non cambia il cervello scelto
+		return { brain: 'deepseek', why: 'principale' };
 	}
 
 	/** La mezza frase da dire quando il cervello cambia davvero, altrimenti null. */
@@ -93,10 +88,10 @@ export class BrainRouter {
 		const prev = this.last;
 		this.last = brain;
 		if (prev === null || prev === brain) return null;
-		if (brain === 'deepseek') return 'Agnes non risponde, ti rispondo con DeepSeek.';
+		if (brain === 'deepseek') return 'DeepSeek e tornato.';
 		return brain === 'apple'
-			? (why === 'forzato' ? 'Ti rispondo col cervello del Mac.' : prev === 'deepseek' ? 'Neanche DeepSeek risponde, ti rispondo dal Mac.' : 'Agnes non risponde, ti rispondo dal Mac.')
-			: 'Agnes e\' tornata.';
+			? (why === 'forzato' ? 'Ti rispondo col cervello del Mac.' : 'DeepSeek non risponde, ti rispondo dal Mac.')
+			: 'DeepSeek e tornato.';
 	}
 }
 

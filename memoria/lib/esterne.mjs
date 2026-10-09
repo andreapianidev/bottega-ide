@@ -43,6 +43,11 @@ function ensurePersonaggi(store) {
 	);
 	CREATE INDEX IF NOT EXISTS personaggi_chi ON personaggi_battute(chi, at);
 	CREATE INDEX IF NOT EXISTS personaggi_chiave ON personaggi_battute(chiave, at);`);
+	// Additive migration: old rows keep unknown provenance; never rewrite their speaker.
+	const columns = new Set(store.all('PRAGMA table_info(personaggi_battute)').map(r => r.name));
+	for (const [name, type] of [['speakerRecorded', 'INTEGER'], ['surface', 'TEXT'], ['recipient', 'TEXT'], ['eventID', 'TEXT']]) {
+		if (!columns.has(name)) store.db.exec(`ALTER TABLE personaggi_battute ADD COLUMN ${name} ${type}`);
+	}
 	store._personaggi = true;
 }
 
@@ -53,8 +58,11 @@ export function saveExternal(store, e) {
 	if (!names[e.source] || typeof e.text !== 'string' || !Number.isFinite(e.at) || e.at <= 0 || e.at > Date.now() + 60_000) return 0;
 	const personaggio = e.source === PERSONAGGIO;
 	const chiave = personaggio ? chiavePersonaggio(e.sid) : '';
-	if (personaggio && !chiave) return 0;
-	const chi = personaggio ? (String(e.who || '').trim().toLowerCase() === 'andrea' ? 'andrea' : chiavePersonaggio(e.who) || chiave) : '';
+	if (personaggio && e.sid != null && String(e.sid).trim() && !chiave) return 0;
+	// A room does not prove who spoke. Missing/invalid speakers remain unknown.
+	const chi = personaggio ? chiavePersonaggio(e.who) : '';
+	const surface = typeof e.surface === 'string' ? e.surface.trim().slice(0, 80) : null;
+	const recipient = personaggio ? (chiavePersonaggio(e.recipient) || null) : null;
 	const text = redact(e.text).trim().slice(0, 8000);
 	if (!text) return 0;
 	store.db.exec('CREATE TABLE IF NOT EXISTS external_events (event TEXT PRIMARY KEY, memoryId INTEGER)');
@@ -64,15 +72,15 @@ export function saveExternal(store, e) {
 	const old = store.get('SELECT memoryId FROM external_events WHERE event = ?', event);
 	const project = projectOf(e.cwd) || HOME_PROJECT;
 	const title = personaggio
-		? `${nomePersonaggio(chiave)} · ${nomePersonaggio(chi)}: ${clip(text, 100)}`
+		? `${chiave ? nomePersonaggio(chiave) : 'Destinatario non registrato'} · ${chi ? nomePersonaggio(chi) : 'Voce non registrata'}: ${clip(text, 100)}`
 		: `${names[e.source]} · ${e.who || 'Attività'}: ${clip(text, 100)}`;
 	if (old) {
 		store.run('UPDATE memories SET title = ?, text = ? WHERE id = ? AND (title != ? OR text != ?)', title, text, old.memoryId, title, text);
 		return 0;
 	}
-	const id = store.addMemory({ kind: 'nota', origin: e.source, sessionId: `${e.source}:${sid}`, project: project.name, projectPath: project.path, projectKey: project.key, title, text, createdAt: e.at });
+	const id = store.addMemory({ kind: 'nota', origin: e.source, sessionId: `${e.source}:${sid || 'incerto'}`, project: project.name, projectPath: project.path, projectKey: project.key, title, text, createdAt: e.at });
 	store.run('INSERT INTO external_events VALUES (?, ?)', event, id);
-	if (personaggio) store.run('INSERT OR REPLACE INTO personaggi_battute(memoryId, chiave, chi, at) VALUES (?, ?, ?, ?)', id, chiave, chi, e.at);
+	if (personaggio) store.run('INSERT OR REPLACE INTO personaggi_battute(memoryId, chiave, chi, at, speakerRecorded, surface, recipient, eventID) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', id, chiave, chi, e.at, chi ? 1 : 0, surface, recipient, String(e.event_id || e.id || ''));
 	return 1;
 }
 
@@ -107,7 +115,8 @@ export function memoriaPersonaggio(store, chiave, { frase = '', limite = 5 } = {
 	const n = Math.max(1, Math.min(50, Math.floor(Number(limite)) || 5));
 	const ultimeRows = store.all(
 		`SELECT p.memoryId AS id, p.at AS at, m.text AS testo FROM personaggi_battute p JOIN memories m ON m.id = p.memoryId
-		 WHERE p.chi = ? ORDER BY p.at DESC, p.memoryId DESC LIMIT ?`,
+		 WHERE p.chi = ? AND p.chiave = ? AND p.speakerRecorded = 1 AND (p.recipient IS NULL OR (p.chi = 'andrea' AND p.recipient = p.chiave) OR (p.chi = p.chiave AND p.recipient = 'andrea')) ORDER BY p.at DESC, p.memoryId DESC LIMIT ?`,
+		k,
 		k,
 		n,
 	);
@@ -116,7 +125,7 @@ export function memoriaPersonaggio(store, chiave, { frase = '', limite = 5 } = {
 	// ricorda solo le proprie battute, e «martedi' eri giu'» torna solo se la frase di adesso usa le stesse parole.
 	const andreaRows = store.all(
 		`SELECT p.memoryId AS id, p.at AS at, m.text AS testo FROM personaggi_battute p JOIN memories m ON m.id = p.memoryId
-		 WHERE p.chi = 'andrea' AND p.chiave = ? ORDER BY p.at DESC, p.memoryId DESC LIMIT ?`,
+		 WHERE p.chi = 'andrea' AND p.chiave = ? AND p.speakerRecorded = 1 AND (p.recipient IS NULL OR (p.chi = 'andrea' AND p.recipient = p.chiave) OR (p.chi = p.chiave AND p.recipient = 'andrea')) ORDER BY p.at DESC, p.memoryId DESC LIMIT ?`,
 		k,
 		n,
 	);
@@ -133,7 +142,7 @@ export function memoriaPersonaggio(store, chiave, { frase = '', limite = 5 } = {
 			rows = store.all(
 				`SELECT m.id AS id, p.at AS at, p.chi AS chi, m.text AS testo
 				 FROM memories_fts CROSS JOIN personaggi_battute p ON p.memoryId = memories_fts.rowid CROSS JOIN memories m ON m.id = p.memoryId
-				 WHERE memories_fts MATCH ? AND m.origin = '${PERSONAGGIO}' AND (p.chi = ? OR (p.chi = 'andrea' AND p.chiave = ?))
+				 WHERE memories_fts MATCH ? AND m.origin = '${PERSONAGGIO}' AND p.speakerRecorded = 1 AND (p.recipient IS NULL OR (p.chi = 'andrea' AND p.recipient = p.chiave) OR (p.chi = p.chiave AND p.recipient = 'andrea')) AND p.chiave = ? AND (p.chi = ? OR p.chi = 'andrea')
 				 ORDER BY bm25(memories_fts, 4.0, 1.0, 0.5) LIMIT ?`,
 				parole.map(w => `"${w}"*`).join(' OR '),
 				k,

@@ -162,7 +162,7 @@ export function registerTerminale(ctx: vscode.ExtensionContext, deps: TerminaleD
 	const SOCK = path.join(BOTTEGA, 'terminale.sock');
 	const CONSENTITI = path.join(BOTTEGA, 'terminale-consentiti.json');
 	const agnesAccesa = () => !!deps.agnes && cfg().get<boolean>('agnes', true);
-	const cervelloScelto = (): CervelloTerminale => (cfg().get<string>('cervello', 'agnes') === 'deepseek' ? 'deepseek' : 'agnes');
+	const cervelloScelto = (): CervelloTerminale => 'deepseek';
 	const modo = (): Modo => {
 		const m = cfg().get<string>('agnesModo', 'chiedi');
 		return m === 'proponi' || m === 'auto' ? m : 'chiedi';

@@ -89,7 +89,7 @@ final class AssistenteTelefono {
     private let archivio: URL
 
     private init() {
-        provider = UserDefaults.standard.string(forKey: "melissa.telefono.provider") ?? "agnes"
+        provider = "deepseek" // migrazione del provider Agnes ritirato; l’impegno resta invariato
         impegno = UserDefaults.standard.string(forKey: "melissa.telefono.impegno") ?? "normale"
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -99,7 +99,7 @@ final class AssistenteTelefono {
         }
     }
 
-    var nome: String { provider == "deepseek" ? (impegno == "profondo" ? "DeepSeek V4 Pro" : "DeepSeek") : "Agnes" }
+    var nome: String { impegno == "profondo" ? "DeepSeek V4 Pro" : "DeepSeek" }
     var righe: [StatoMac.Riga] { turni.map(\.riga) }
 
     private func segnaScelta() {
@@ -110,7 +110,7 @@ final class AssistenteTelefono {
     func aggiornaSceltaDalMac(_ scelta: StatoMac.Scelta?) {
         guard !sceltaInAttesa, let scelta else { return }
         applicandoSceltaMac = true
-        provider = scelta.provider == "deepseek" ? "deepseek" : "agnes"
+        provider = "deepseek"
         impegno = scelta.impegno
         applicandoSceltaMac = false
     }
@@ -135,7 +135,7 @@ final class AssistenteTelefono {
 
     private static func valida(_ config: ConfigurazioneTelefono?) -> Bool {
         guard let config else { return false }
-        return config.agnes?.isEmpty == false || config.deepseek?.isEmpty == false
+        return config.deepseek?.isEmpty == false
     }
 
     func importa(_ config: ConfigurazioneTelefono) throws {
@@ -300,8 +300,8 @@ final class AssistenteTelefono {
                         audio: @escaping (Data) -> Void) async throws -> Battuta {
         let config = try configurazione(voce: voce)
         let personaggio = Personaggi.tutti[chi]
-        let chosen = provider == "deepseek" ? "deepseek" : "agnes"
-        guard let key = chosen == "deepseek" ? config.deepseek : config.agnes, !key.isEmpty else {
+        let chosen = "deepseek"
+        guard let key = config.deepseek, !key.isEmpty else {
             throw ErrorePonte(messaggio: "Manca la chiave \(chosen == "deepseek" ? "DeepSeek" : "Agnes") sull'iPhone.")
         }
         let storia = storia(per: chi)
@@ -312,8 +312,8 @@ final class AssistenteTelefono {
             self?.ultimiByteVoce += pcm.count
             audio(pcm)
         }) : nil
-        let url = chosen == "agnes" ? "https://apihub.agnes-ai.com/v1/chat/completions" : "https://api.deepseek.com/chat/completions"
-        let model = chosen == "agnes" ? "agnes-3.0-flash" : (impegno == "profondo" ? "deepseek-v4-pro" : "deepseek-flash")
+        let url = "https://api.deepseek.com/chat/completions"
+        let model = impegno == "profondo" ? "deepseek-v4-pro" : "deepseek-flash"
         let effort = voce ? "none" : (impegno == "profondo" ? "high" : impegno == "normale" ? "low" : "none")
         let now = Date().formatted(date: .complete, time: .shortened)
         // Le configurazioni importate prima della build 86 contengono una frase fissa che dichiara
@@ -364,7 +364,7 @@ final class AssistenteTelefono {
                 result = candidate
                 break
             }
-            guard let (bytes, response) = result else { throw ErrorePonte(messaggio: "Agnes è occupata: riprova tra poco.") }
+            guard let (bytes, response) = result else { throw ErrorePonte(messaggio: "DeepSeek è occupato: riprova tra poco.") }
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 throw ErrorePonte(messaggio: "\(chosen == "agnes" ? "Agnes" : "DeepSeek") ha risposto \(status).")

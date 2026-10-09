@@ -1,5 +1,5 @@
-// I motori dei riassunti: DeepSeek (dall'08/10/2026, scelta nell'impostazione bottega.memoria.motore), poi
-// Agnes AI, poi Apple Intelligence sul Mac (Nucleo) come ultima riserva.
+// I motori dei riassunti: DeepSeek e riserva Apple Intelligence sul Mac (Nucleo).
+// Agnes ritirato il 9 ottobre 2026; dati e credenziali storici restano conservati.
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -78,6 +78,8 @@ export function embedAvailable() {
 // cervello della Bottega: DEEPSEEK_API_KEY o ~/.secrets/deepseek-harness.env.
 const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions';
 export const DEEPSEEK_MODEL = 'deepseek-flash';
+/** Provider/rete temporaneamente indisponibile: il lavoro resta nella coda durevole. */
+export class RetryableGenerationError extends Error {}
 const DEEPSEEK_PAUSE_MS = 60 * 60_000; // un 401/402 (chiave o credito) lo mette da parte per un'ora
 
 export function deepseekKey() {
@@ -91,9 +93,9 @@ export function deepseekKey() {
 	}
 }
 
-/** Il motore scelto per i riassunti: 'deepseek' (predefinito) o 'agnes'. Lo scrive `cli.mjs motore`. */
+/** Il motore scelto per i riassunti: 'deepseek' (predefinito) o 'apple'. Lo scrive `cli.mjs motore`. */
 export function chosenEngine(store) {
-	return store.meta('motore_riassunti') === 'agnes' ? 'agnes' : 'deepseek';
+	return store.meta('motore_riassunti') === 'apple' ? 'apple' : 'deepseek';
 }
 
 /** DeepSeek si puo' usare adesso: c'e' la chiave e non e' in pausa dopo un 401/402. */
@@ -123,111 +125,28 @@ export async function deepseekGenerate(store, instructions, text, { maxTokens = 
 			signal: AbortSignal.timeout(120_000),
 		});
 	} catch (e) {
-		throw new Error(`DeepSeek non raggiungibile: ${e?.name === 'TimeoutError' ? 'tempo scaduto' : e?.message}`);
+		throw new RetryableGenerationError(`DeepSeek non raggiungibile: ${e?.name === 'TimeoutError' ? 'tempo scaduto' : e?.message}`);
 	}
 	if (res.status === 401 || res.status === 402) {
 		store.meta('deepseek_blocked_until', Date.now() + DEEPSEEK_PAUSE_MS);
-		log(`deepseek ${res.status}: ${res.status === 402 ? 'credito finito' : 'chiave rifiutata'}, un'ora su Agnes`);
-		throw new Error(`DeepSeek HTTP ${res.status}`);
+		log(`deepseek ${res.status}: ${res.status === 402 ? 'credito finito' : 'chiave rifiutata'}, un'ora sulla riserva locale`);
+		throw new RetryableGenerationError(`DeepSeek HTTP ${res.status}`);
 	}
 	if (!res.ok) {
 		const body = (await res.text().catch(() => '')).slice(0, 200).replace(key, '[chiave]');
-		throw new Error(`DeepSeek HTTP ${res.status}: ${body}`);
+		const Failure = res.status === 408 || res.status === 429 || res.status >= 500 ? RetryableGenerationError : Error;
+		throw new Failure(`DeepSeek HTTP ${res.status}: ${body}`);
 	}
-	const d = await res.json();
+	let d;
+	try { d = await res.json(); } catch { throw new RetryableGenerationError('DeepSeek: risposta non valida'); }
 	const out = d?.choices?.[0]?.message?.content;
-	if (!out || !String(out).trim()) throw new Error('DeepSeek: risposta vuota');
+	if (!out || !String(out).trim()) throw new RetryableGenerationError('DeepSeek: risposta vuota');
 	return String(out).trim();
 }
 
-// ---- Agnes ------------------------------------------------------------------------------
-
-const AGNES_URL = 'https://apihub.agnes-ai.com/v1/chat/completions';
-const AGNES_MODEL = 'agnes-3.0-flash';
-const PER_MINUTE = 6; // il piano gratuito (~20 al minuto) e' condiviso con le altre app di Andrea
-const MIN_GAP_MS = 10_000;
-
-export function agnesKey() {
-	if (process.env.AGNES_API_KEY) return process.env.AGNES_API_KEY.trim();
-	try {
-		const raw = fs.readFileSync(path.join(HOME, '.secrets', 'agnes-ai.env'), 'utf8');
-		const m = /^\s*(?:export\s+)?AGNES_API_KEY\s*=\s*["']?([^"'\s#]+)/m.exec(raw);
-		return m?.[1];
-	} catch {
-		return undefined;
-	}
-}
-
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-/**
- * Prenota un posto nel limite di Agnes, condiviso tra tutti i processi della Memoria tramite il
- * database. Ritorna false se l'attesa supererebbe `maxWaitMs`.
- */
-async function reserve(store, maxWaitMs) {
-	const deadline = Date.now() + maxWaitMs;
-	for (;;) {
-		const now = Date.now();
-		const wait = store.tx(() => {
-			store.run('DELETE FROM agnes_calls WHERE at < ?', now - 60_000);
-			const blocked = Number(store.meta('agnes_blocked_until') || 0);
-			if (blocked > now) return blocked - now;
-			const rows = store.all('SELECT at FROM agnes_calls ORDER BY at ASC');
-			const last = rows.length ? Number(rows[rows.length - 1].at) : 0;
-			if (rows.length >= PER_MINUTE) return Number(rows[0].at) + 60_000 - now + 50;
-			if (now - last < MIN_GAP_MS) return MIN_GAP_MS - (now - last);
-			store.run('INSERT INTO agnes_calls(at) VALUES (?)', now);
-			return 0;
-		});
-		if (wait <= 0) return true;
-		if (Date.now() + wait > deadline) return false;
-		await sleep(wait);
-	}
-}
-
+// Compatibilita' di import per tool precedenti; le chiavi e i dati storici restano intatti.
+export function agnesKey() { return undefined; }
 export class RateLimited extends Error {}
-
-/** Una chiamata ad Agnes con reasoning_effort "none". Ritorna il testo, oppure lancia. */
-export async function agnesGenerate(store, instructions, text, { maxTokens = 1100, maxWaitMs = 10 * 60_000 } = {}) {
-	const key = agnesKey();
-	if (!key) throw new Error('chiave Agnes assente');
-	if (!(await reserve(store, maxWaitMs))) throw new RateLimited('limite Agnes: troppa attesa');
-	let res;
-	try {
-		res = await fetch(AGNES_URL, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-			body: JSON.stringify({
-				model: AGNES_MODEL,
-				reasoning_effort: 'none',
-				temperature: 0.2,
-				max_tokens: maxTokens,
-				messages: [
-					{ role: 'system', content: instructions },
-					{ role: 'user', content: text },
-				],
-			}),
-			signal: AbortSignal.timeout(90_000),
-		});
-	} catch (e) {
-		throw new Error(`Agnes non raggiungibile: ${e?.name === 'TimeoutError' ? 'tempo scaduto' : e?.message}`);
-	}
-	if (res.status === 429) {
-		// Nessun Retry-After: si aspetta alla cieca, sempre di piu' finche' non passa.
-		const streak = Number(store.meta('agnes_429_streak') || 0) + 1;
-		const backoff = Math.min(10 * 60_000, 30_000 * 2 ** (streak - 1));
-		store.meta('agnes_429_streak', streak);
-		store.meta('agnes_blocked_until', Date.now() + backoff);
-		log(`agnes 429: pausa di ${Math.round(backoff / 1000)} s`);
-		throw new RateLimited('Agnes: troppe richieste (429)');
-	}
-	if (!res.ok) {
-		const body = (await res.text().catch(() => '')).slice(0, 200).replace(key, '[chiave]');
-		throw new Error(`Agnes HTTP ${res.status}: ${body}`);
-	}
-	store.meta('agnes_429_streak', 0);
-	const d = await res.json();
-	const out = d?.choices?.[0]?.message?.content;
-	if (!out || !String(out).trim()) throw new Error('Agnes: risposta vuota');
-	return String(out).trim();
+export async function agnesGenerate() {
+	throw new Error('Agnes e stato ritirato: usa DeepSeek o Apple Intelligence.');
 }

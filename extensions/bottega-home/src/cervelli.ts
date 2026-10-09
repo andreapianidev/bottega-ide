@@ -1,10 +1,8 @@
-/* I cervelli di Melissa: Agnes (predefinito, gratis), DeepSeek (a consumo, se ha credito), Apple Intelligence sul Mac
-   (dal Nucleo, la riserva quando Agnes non risponde). Agnes e DeepSeek parlano l'API compatibile OpenAI con gli
-   strumenti, in streaming: un solo client, con le differenze di ciascuno (url, chiave, modello, come si chiede
-   l'impegno). L'impegno e il predefinito si ricordano; una scelta «per questa conversazione» no. Si cambia dalla barra,
-   a voce e dall'iPhone (POST /v1/cervello, sezione 9).
-   OpenRouter (Claude, Gemini, GPT a consumo) e' stato tolto il 3/10/2026: «Agnes e DeepSeek bastano e avanzano».
-   Contratto: docs/CONTRATTI.md, sezione 6. */
+/* I cervelli di Melissa dal 9 ottobre 2026: DeepSeek Flash (cloud, predefinito),
+   DeepSeek Pro su scelta dell'impegno profondo e Apple Intelligence dal Nucleo.
+   Agnes resta nei tipi e nelle statistiche storiche per compatibilita', ma non viene
+   piu' chiamato. Le preferenze Agnes precedenti migrano a DeepSeek, le preferenze
+   Apple esplicite restano valide. Contratto: docs/CONTRATTI.md, sezione 6. */
 
 import * as fs from 'fs';
 import * as os from 'os';
@@ -37,7 +35,7 @@ export interface Account {
 export interface BrainState {
 	current: { provider: Provider; model: string; label: string };
 	effort: Effort;
-	/** il cervello a cui si torna a fine conversazione: Agnes, salvo una scelta «sempre» */
+	/** il cervello a cui si torna a fine conversazione: DeepSeek, salvo una scelta Apple «sempre» */
 	defaultProvider: Provider;
 	/** vero se il cervello di adesso vale solo per questa conversazione */
 	temporary: boolean;
@@ -82,12 +80,11 @@ const AGNES_DAY = 'bottega.agnes.oggi';
 /** Una scelta manuale scade dopo 15 minuti senza domande. */
 const TEMP_MS = 15 * 60_000;
 const HOUR = 3_600_000;
-const AGNES = { url: 'https://apihub.agnes-ai.com/v1/chat/completions', model: 'agnes-3.0-flash' };
 /** DeepSeek (GET /models, 3/10/2026): deepseek-flash e' DeepSeek-V4.1-Flash, deepseek-v4-pro il modello grande; tutti e
  *  due con reasoning_effort. I nomi vecchi deepseek-chat e deepseek-reasoner portano a V4.1 Flash senza e con ragionamento:
  *  fino alla build 60 rapido e normale erano la stessa cosa e il Pro non si usava mai. */
 const DEEPSEEK = { url: 'https://api.deepseek.com/chat/completions', fast: 'deepseek-flash', deep: 'deepseek-v4-pro' };
-export const DEFAULT_CHOICE: Choice = { provider: 'agnes', model: AGNES.model, effort: 'normale' };
+export const DEFAULT_CHOICE: Choice = { provider: 'deepseek', model: DEEPSEEK.fast, effort: 'normale' };
 
 export class BrainError extends Error {
 	constructor(readonly provider: Provider, readonly status: number, message: string) {
@@ -118,7 +115,7 @@ export function spokenChoice(text: string): { provider?: Provider; effort?: Effo
 	if (/\b(piu a fondo|ragiona bene|pensaci bene|profond|con calma)\b/.test(t)) out.effort = 'profondo';
 	else if (/\b(veloce|rapid|in fretta|sbrigati)\b/.test(t)) out.effort = 'rapido';
 	else if (/\b(normale|come prima)\b/.test(t)) out.effort = 'normale';
-	if (/\bagnes\b/.test(t)) out.provider = 'agnes';
+	if (/\bagnes\b/.test(t)) out.provider = 'deepseek';
 	else if (/\bapple\b|\bsul mac\b|\blocale\b/.test(t)) out.provider = 'apple';
 	else if (/\bdeep ?seek\b/.test(t)) out.provider = 'deepseek';
 	return out;
@@ -156,7 +153,7 @@ export class Cervelli {
 	}
 
 	key(p: Provider): string | undefined {
-		if (p === 'agnes') return process.env.AGNES_API_KEY || readEnv(path.join(this.secrets, 'agnes-ai.env')).AGNES_API_KEY;
+		if (p === 'agnes') return undefined; // slot storico conservato, provider ritirato
 		if (p === 'deepseek') return process.env.DEEPSEEK_API_KEY || readEnv(path.join(this.secrets, 'deepseek-harness.env')).DEEPSEEK_API_KEY;
 		return undefined;
 	}
@@ -166,18 +163,18 @@ export class Cervelli {
 		return e === 'rapido' || e === 'profondo' || e === 'normale' ? e : DEFAULT_CHOICE.effort;
 	}
 
-	/** Il predefinito scelto con «sempre» (Agnes se non c'e'). */
+	/** Il predefinito scelto con «sempre»; assente o Agnes storico = DeepSeek. */
 	defaultProvider(): Provider {
 		const p = this.o.memento.get<Provider>(DEFAULT_KEY);
-		return p === 'deepseek' || p === 'apple' ? p : 'agnes';
+		return p === 'apple' ? 'apple' : 'deepseek';
 	}
 
-	/** Il cervello a cui si torna: il predefinito se adesso si puo' usare, altrimenti Agnes. */
+	/** Il cervello a cui si torna: la scelta esplicita disponibile, altrimenti DeepSeek. */
 	private base(): Choice {
 		const p = this.defaultProvider();
 		const usable = p === 'apple' ? !!this.o.appleAvailable?.() : p === 'deepseek' ? !!this.key('deepseek') && !this.isDown('deepseek') : false;
-		if (!usable) return { ...DEFAULT_CHOICE, effort: this.effort() };
-		return { provider: p, model: p === 'apple' ? 'apple-on-device' : DEEPSEEK.fast, effort: this.effort() };
+		if (!usable) return { ...DEFAULT_CHOICE, model: this.effort() === 'profondo' ? DEEPSEEK.deep : DEEPSEEK.fast, effort: this.effort() };
+		return { provider: p, model: p === 'apple' ? 'apple-on-device' : this.effort() === 'profondo' ? DEEPSEEK.deep : DEEPSEEK.fast, effort: this.effort() };
 	}
 
 	/** DeepSeek come riserva quando Agnes non risponde (prima di Apple, scelta di Andrea del 4/10/2026): c'e' la
@@ -188,7 +185,7 @@ export class Cervelli {
 		return { provider: 'deepseek', model: effort === 'profondo' ? DEEPSEEK.deep : DEEPSEEK.fast, effort };
 	}
 
-	/** Il cervello di adesso: il predefinito (Agnes), salvo una scelta manuale ancora valida per questa conversazione. */
+	/** Il cervello di adesso: il predefinito (DeepSeek), salvo una scelta manuale ancora valida per questa conversazione. */
 	choice(): Choice {
 		if (this.temp && this.temp.until > this.now()) return { provider: this.temp.provider, model: this.temp.model, effort: this.effort() };
 		this.temp = null;
@@ -202,12 +199,12 @@ export class Cervelli {
 	}
 
 	/** Scelta manuale: vale per questa conversazione (15 minuti senza domande al massimo), poi si torna al predefinito.
-	 *  Con `always` diventa il nuovo predefinito (Agnes con `always` toglie il predefinito). */
+	 *  Con `always` diventa il nuovo predefinito; Agnes storico migra a DeepSeek. */
 	async set(provider: Provider, model?: string, always = false): Promise<Choice> {
 		const before = this.signature();
 		try {
-			if (provider === 'agnes') model = AGNES.model;
-			else {
+			if (provider === 'agnes') provider = 'deepseek'; // richieste dei client precedenti
+			{
 				const opts = await this.options();
 				const opt = opts.find(o => o.provider === provider && (!model || o.model === model)) ?? opts.find(o => o.provider === provider);
 				if (!opt) throw new Error(`Non conosco il cervello ${provider}.`);
@@ -215,7 +212,7 @@ export class Cervelli {
 				model = opt.model;
 			}
 			if (always) {
-				await this.o.memento.update(DEFAULT_KEY, provider === 'agnes' ? undefined : provider);
+				await this.o.memento.update(DEFAULT_KEY, provider);
 				this.temp = null;
 			} else if (provider === this.base().provider) this.temp = null;
 			else this.temp = { provider, model: model!, until: this.now() + TEMP_MS };
@@ -239,7 +236,7 @@ export class Cervelli {
 		if (this.temp) this.temp.until = this.now() + TEMP_MS;
 	}
 
-	/** Fine della conversazione: si torna al predefinito (Agnes). */
+	/** Fine della conversazione: si torna al predefinito. */
 	endConversation(): void {
 		const before = this.signature();
 		this.temp = null;
@@ -317,7 +314,7 @@ export class Cervelli {
 	/** I conti nella barra. Melissa pensa con Agnes, gratis (decisione di Andrea, 2 ottobre 2026): DeepSeek, a pagamento,
 	 *  si vede solo mentre una conversazione lo sta usando; il suo credito sta sempre nel Cruscotto (src/conti.ts). */
 	private async accounts(inUse: Provider): Promise<Account[]> {
-		const out: Account[] = [this.agnesAccount()];
+		const out: Account[] = [];
 		const money = (n: number) => `${n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
 		const b = await this.otherBalances();
 		if (b.deepseek !== undefined && inUse === 'deepseek') out.push({ id: 'deepseek', label: 'DeepSeek', text: b.deepseekOk ? `restano ${money(b.deepseek)}` : `saldo ${money(b.deepseek)}: senza credito`, tone: b.deepseekOk ? 'ok' : 'male' });
@@ -328,7 +325,7 @@ export class Cervelli {
 		return out;
 	}
 
-	/** Un 401 o un 402 mette il cervello da parte per un'ora; si torna subito ad Agnes. */
+	/** Un 401 o un 402 mette il cervello da parte per un'ora; il router puo' usare il Mac. */
 	markDown(p: Provider, why: string): void {
 		const before = this.signature();
 		this.down.set(p, { until: this.now() + HOUR, why });
@@ -344,7 +341,6 @@ export class Cervelli {
 	/** Tutte le opzioni, con disponibilita' e prezzi. Rete solo se la cache e' vecchia. */
 	async options(): Promise<BrainOption[]> {
 		const out: BrainOption[] = [];
-		out.push({ provider: 'agnes', model: AGNES.model, label: 'Agnes 3.0 Flash', note: 'gratis', available: !!this.key('agnes') && !this.isDown('agnes'), why: !this.key('agnes') ? 'manca la chiave' : this.isDown('agnes') });
 		out.push({ provider: 'apple', model: 'apple-on-device', label: 'Apple Intelligence', note: 'sul Mac', available: !!this.o.appleAvailable?.(), why: this.o.appleAvailable?.() ? undefined : (this.o.appleReason?.() ?? 'Apple Intelligence non risponde ancora dal Nucleo') });
 		if (this.key('deepseek')) {
 			await this.probeDeepseek();
@@ -355,38 +351,28 @@ export class Cervelli {
 		return out;
 	}
 
-	/** DeepSeek senza credito risponde 402 anche a una richiesta minima: si prova al massimo una volta all'ora. */
+	/** La disponibilita' si legge dal saldo, senza generare token a ogni apertura del selettore. */
 	private async probeDeepseek(): Promise<void> {
 		if (this.now() - this.deepseekChecked < HOUR) return;
 		this.deepseekChecked = this.now();
-		try {
-			const r = await this.fetchFn(DEEPSEEK.url, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json', authorization: `Bearer ${this.key('deepseek')}` },
-				body: JSON.stringify({ model: DEEPSEEK.fast, messages: [{ role: 'user', content: 'ok' }], max_tokens: 1 }),
-			});
-			if (r.status === 402) this.markDown('deepseek', 'senza credito');
-			else if (r.status === 401) this.markDown('deepseek', 'chiave rifiutata');
-		} catch {
-			// senza rete non si decide niente
-		}
+		await this.otherBalances();
 	}
 
 	async state(): Promise<BrainState> {
 		const options = await this.options();
 		let c = this.choice();
-		let cur = options.find(o => o.provider === c.provider && o.model === c.model);
+		let cur = options.find(o => o.provider === c.provider);
 		if (!cur || !cur.available) {
 			this.temp = null;
 			c = this.choice();
-			cur = options.find(o => o.provider === c.provider && o.model === c.model);
+			cur = options.find(o => o.provider === c.provider);
 			if (!cur?.available) {
 				c = { ...DEFAULT_CHOICE, effort: c.effort };
-				cur = options.find(o => o.provider === 'agnes');
+				cur = options.find(o => o.provider === 'deepseek');
 			}
 		}
 		return {
-			current: { provider: c.provider, model: c.model, label: cur?.label ?? 'Agnes 3.0 Flash' },
+			current: { provider: c.provider, model: c.model, label: cur?.label ?? 'DeepSeek V4.1 Flash' },
 			effort: c.effort,
 			defaultProvider: this.defaultProvider(),
 			temporary: !!this.temp,
@@ -400,7 +386,8 @@ export class Cervelli {
 	 *  `extra`: campi in piu' della richiesta (max_tokens, temperature). */
 	streamFor(c: Choice = this.choice(), extra: Record<string, unknown> = {}): LlmStreamFn | undefined {
 		if (c.provider === 'apple') return undefined;
-		const url = c.provider === 'agnes' ? AGNES.url : DEEPSEEK.url;
+		if (c.provider === 'agnes') c = { ...c, provider: 'deepseek', model: DEEPSEEK.fast };
+		const url = DEEPSEEK.url;
 		return async (messages, tools, onDelta, signal) => {
 			const key = this.key(c.provider);
 			if (!key) throw new BrainError(c.provider, 0, 'Manca la chiave.');

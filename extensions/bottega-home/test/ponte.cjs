@@ -282,14 +282,14 @@ function call(port, method, url, { token, body, raw } = {}) {
 	ok('dispositivo: token esadecimali, campi fusi, attivita vuota tolta, errori');
 
 	// il cervello di Melissa (9.8): letto e cambiato con gli stessi metodi della barra
-	assert.deepStrictEqual(s.body.melissa.scelta, { provider: 'agnes', nome: 'Agnes', impegno: 'normale', predefinito: 'agnes', perOra: false });
+	assert.deepStrictEqual(s.body.melissa.scelta, { provider: 'deepseek', nome: 'DeepSeek', impegno: 'normale', predefinito: 'deepseek', perOra: false });
 	let cb = await call(port, 'GET', '/v1/cervelli', { token: t1 });
 	assert.strictEqual(cb.status, 200);
-	assert.deepStrictEqual(cb.body.opzioni.map(o => [o.provider, o.nome, o.nota, o.disponibile]), [['agnes', 'Agnes', 'gratis', true], ['apple', 'Apple Intelligence', 'gratis, sul Mac', false], ['deepseek', 'DeepSeek', 'a consumo, a fondo V4 Pro', true]]);
-	assert.strictEqual(cb.body.opzioni[1].perche, 'il Nucleo non è acceso');
+	assert.deepStrictEqual(cb.body.opzioni.map(o => [o.provider, o.nome, o.nota, o.disponibile]), [['apple', 'Apple Intelligence', 'gratis, sul Mac', false], ['deepseek', 'DeepSeek', 'a consumo, a fondo V4 Pro', true]]);
+	assert.strictEqual(cb.body.opzioni[0].perche, 'il Nucleo non è acceso');
 	cb = await call(port, 'POST', '/v1/cervello', { token: t1, body: { provider: 'deepseek', impegno: 'profondo' } });
 	assert.strictEqual(cb.status, 200);
-	assert.deepStrictEqual([cb.body.provider, cb.body.nome, cb.body.impegno, cb.body.perOra, cb.body.predefinito], ['deepseek', 'DeepSeek V4 Pro', 'profondo', true, 'agnes']);
+	assert.deepStrictEqual([cb.body.provider, cb.body.nome, cb.body.impegno, cb.body.perOra, cb.body.predefinito], ['deepseek', 'DeepSeek V4 Pro', 'profondo', false, 'deepseek']);
 	assert.strictEqual(cv.choice().provider, 'deepseek', 'la barra del Mac vede lo stesso cervello');
 	assert.strictEqual((await call(port, 'GET', '/v1/stato', { token: t1 })).body.melissa.scelta.nome, 'DeepSeek V4 Pro');
 	cb = await call(port, 'POST', '/v1/cervello', { token: t1, body: { provider: 'deepseek', impegno: 'normale', sempre: true } });
@@ -309,7 +309,7 @@ function call(port, method, url, { token, body, raw } = {}) {
 	assert.strictEqual((await call(port, 'POST', '/v1/cervelli', { token: t1, body: {} })).status, 405);
 	assert.strictEqual((await call(port, 'POST', '/v1/cervello', { body: { provider: 'agnes' } })).status, 401);
 	cb = await call(port, 'POST', '/v1/cervello', { token: t1, body: { provider: 'agnes', sempre: true } });
-	assert.deepStrictEqual([cb.body.provider, cb.body.predefinito, cb.body.perOra], ['agnes', 'agnes', false]);
+	assert.deepStrictEqual([cb.body.provider, cb.body.predefinito, cb.body.perOra], ['deepseek', 'deepseek', false]);
 	assert.strictEqual(nomeCervello('deepseek', 'rapido'), 'DeepSeek');
 	assert.strictEqual(typeof leggiSceltaCervello(null), 'string');
 	assert.ok(![JSON.stringify(cb.body)].some(t => /[—–]/.test(t)));

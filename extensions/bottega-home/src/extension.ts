@@ -12,6 +12,7 @@ import { Nucleo, SystemStats } from './nucleo';
 import { Job, JobManager, computeLimit, limitReason, WorkCounts, WorkItem, workCounts, workItems } from './jobs';
 import { Memoria } from './memoria';
 import { ContestoMemoria } from './memoria-contesto';
+import { ContinuitaMelissa } from './continuita';
 import { Assistant, AssistantState } from './assistant';
 import { StatsEngine, summarizeObservedActivity, type Stats } from './stats';
 import { Idee, IdeeDynamic } from './idee';
@@ -85,7 +86,7 @@ export interface Snapshot {
 	advice?: IdeeDynamic['advice'];
 }
 
-const DEFAULT_ASSISTANT: AssistantState = { enabled: true, conversing: false, state: 'idle', log: [], brain: 'agnes' };
+const DEFAULT_ASSISTANT: AssistantState = { enabled: true, conversing: false, state: 'idle', log: [], brain: 'deepseek' };
 
 let snapshot: Snapshot = { projects: [], live: [], elsewhere: [], scannedAt: 0, home: os.homedir(), jobs: [], work: [], activity: [], workCounts: workCounts([]), jobLimit: 3, jobLimitReason: 'valori predefiniti', system: null, nucleo: false, assistant: DEFAULT_ASSISTANT };
 let lastMenuActivity = '';
@@ -895,7 +896,15 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 		const file = vscode.window.activeTextEditor?.document.uri;
 		return (file?.scheme === 'file' ? vscode.workspace.getWorkspaceFolder(file) : undefined)?.uri.fsPath || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
 	};
+	let continuita: ContinuitaMelissa | undefined;
+	try {
+		continuita = new ContinuitaMelissa({ log: message => console.warn(message) });
+		void continuita.leggi('melissa').catch(() => undefined);
+	} catch {
+		console.warn('Continuità: stato privato non leggibile, file conservato; la Bottega continua senza ponte memoria.');
+	}
 	assistant = new Assistant({
+		continuita,
 		contesto: () => contestoMemoria.testo(cartellaAttiva()),
 		// la memoria dei personaggi nella Memoria della Bottega (CONTRATTI 9.11)
 		registraMemoria: e => registraMemoria({ ...e, cwd: e.cwd ?? cartellaAttiva() }),

@@ -31,6 +31,8 @@ targets:
         buildPhase: resources
       - path: ../nucleo/Sources/Orb/OrbRenderer.swift
         group: Bottega/Sfera/Nucleo
+      - path: ../nucleo/Sources/Orb/OrbAspetto.swift
+        group: Bottega/Sfera/Nucleo
       - path: ../nucleo/Sources/Orb/OrbShaders.metal
         group: Bottega/Sfera/Nucleo
       - path: ../nucleo/Sources/Voice/AudioLevels.swift

@@ -20,7 +20,9 @@ struct BottegaApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if ponte.collegato {
+                if WorkerBenchmarkLaunch.requested {
+                    WorkerBenchmarkView()
+                } else if ponte.collegato {
                     PlanciaView(ponte: ponte, melissa: melissa, davanti: fase == .active)
                 } else {
                     BenvenutoView(ponte: ponte, avvisoLink: $avvisoLink)
@@ -29,11 +31,13 @@ struct BottegaApp: App {
             .preferredColorScheme(.dark)
             .tint(Tinte.ambra)
             .onOpenURL { url in
+                guard !WorkerBenchmarkLaunch.requested else { return }
                 guard let errore = Navigazione.shared.apri(url, ponte: ponte) else { return }
                 // l'avviso di Melissa vive nella plancia: da scollegati non si vedrebbe
                 if ponte.collegato { melissa.avviso = errore } else { avvisoLink = errore }
             }
             .onChange(of: ponte.collegato) { _, si in
+                guard !WorkerBenchmarkLaunch.requested else { return }
                 if si {
                     avvisoLink = nil
                     Avvisi.shared.avvia()
@@ -44,6 +48,7 @@ struct BottegaApp: App {
                 }
             }
             .onChange(of: fase) { _, nuova in
+                guard !WorkerBenchmarkLaunch.requested else { return }
                 switch nuova {
                 case .active:
                     // aperta prima del primo sblocco il gettone non si leggeva: si riprova
@@ -54,7 +59,10 @@ struct BottegaApp: App {
                 default: break
                 }
             }
-            .onAppear { ponte.avvia(); Avvisi.shared.avvia() }
+            .onAppear {
+                guard !WorkerBenchmarkLaunch.requested else { return }
+                ponte.avvia(); Avvisi.shared.avvia()
+            }
         }
     }
 }

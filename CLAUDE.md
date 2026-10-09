@@ -23,8 +23,10 @@ VS Code compilato dai sorgenti (tag in `bottega.json`), piu' estensioni proprie.
 - La Memoria e' installata davvero in `~/.claude/settings.json` (5 hook) e come server MCP utente:
   gli hook devono restare sotto i 150 ms e uscire sempre con 0. Per provare usa
   `BOTTEGA_HOME` e `CLAUDE_SETTINGS` verso una cartella di prova, mai i file veri.
-- Chiavi: Agnes da `~/.secrets/agnes-ai.env`, ElevenLabs da `~/.secrets/elevenlabs.env`. Agnes e' a
-  ~20 richieste al minuto condivise con tutte le app di Andrea: i test reali sono su richiesta
+- Provider testuale e riassunti: DeepSeek (`deepseek-flash`), chiave `DEEPSEEK_API_KEY` o
+  `~/.secrets/deepseek-harness.env`; Apple Intelligence resta la riserva locale. Agnes e' ritirato:
+  non usare le sue credenziali storiche. ElevenLabs legge `~/.secrets/elevenlabs.env`. I test
+  ordinari usano rete e Nucleo finti; chiamate reali a pagamento solo su richiesta esplicita
   (`BOTTEGA_TEST_REALE=1 npm test`).
 - Il Nucleo si compila con `nucleo/build.sh` (leggero); da fermo deve restare a 0% di CPU.
 - **Andrea ha sempre l'ultima versione in /Applications (regola, 2 ottobre 2026).** Ogni modifica

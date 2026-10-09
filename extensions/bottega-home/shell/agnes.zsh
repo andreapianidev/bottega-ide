@@ -81,7 +81,7 @@ zmodload -F zsh/datetime p:EPOCHREALTIME 2>/dev/null
 autoload -Uz add-zle-hook-widget add-zsh-hook is-at-least
 is-at-least 5.3 || return 0
 
-typeset -g __bottega_ultimo='' __bottega_nome=Agnes __bottega_riga='' __bottega_proposta='' __bottega_origine=''
+typeset -g __bottega_ultimo='' __bottega_nome=DeepSeek __bottega_riga='' __bottega_proposta='' __bottega_origine=''
 typeset -g __bottega_mappa=main __bottega_attesa='' __bottega_post='' __bottega_indizio_riga=$'\0' __bottega_consentibile=no
 typeset -gi __bottega_codice=0 __bottega_vivo=0 __bottega_spento=0 __bottega_forza=0 __bottega_cosi=0
 typeset -gF __bottega_t0=0

@@ -23,7 +23,7 @@ const test = (name, fn) => tests.push([name, fn]);
 
 test('auto: Agnes per tutto finche\' risponde, anche le domande brevi e le liste', () => {
 	const r = new C.BrainRouter({ mode: () => 'auto', appleAvailable: () => true });
-	for (const q of ['ciao', 'che ore sono?', 'annota: provare il widget', 'apri Peak']) assert.equal(r.choose(q).brain, 'agnes', q);
+	for (const q of ['ciao', 'che ore sono?', 'annota: provare il widget', 'apri Peak']) assert.equal(r.choose(q).brain, 'deepseek', q);
 });
 
 test('riserva di Agnes: prima DeepSeek, poi il Mac, poi nessuna', () => {
@@ -32,23 +32,23 @@ test('riserva di Agnes: prima DeepSeek, poi il Mac, poi nessuna', () => {
 		r.agnesFailed(new Error('Agnes ha risposto 429.'));
 		return r;
 	};
-	assert.deepEqual(mk(true, true).reserves(), ['deepseek', 'apple']);
-	assert.deepEqual(mk(true, true).choose('ciao'), { brain: 'deepseek', why: 'interruttore' });
-	assert.deepEqual(mk(true, false).choose('ciao'), { brain: 'deepseek', why: 'interruttore' });
+	assert.deepEqual(mk(true, true).reserves(), ['apple']);
+	assert.deepEqual(mk(true, true).choose('ciao'), { brain: 'apple', why: 'interruttore' });
+	assert.deepEqual(mk(true, false).choose('ciao'), { brain: 'deepseek', why: 'senza-apple' });
 	assert.deepEqual(mk(false, true).choose('ciao'), { brain: 'apple', why: 'interruttore' });
-	assert.deepEqual(mk(false, false).choose('ciao'), { brain: 'agnes', why: 'senza-apple' });
+	assert.deepEqual(mk(false, false).choose('ciao'), { brain: 'deepseek', why: 'senza-apple' });
 });
 
 test('interruttore: 429 e rete aprono, il barge-in no; dopo 2 minuti si richiude', () => {
 	let now = 1_000_000;
 	const r = new C.BrainRouter({ mode: () => 'auto', appleAvailable: () => true, now: () => now });
-	assert.equal(r.choose('dimmi lo stato dei lavori').brain, 'agnes');
+	assert.equal(r.choose('dimmi lo stato dei lavori').brain, 'deepseek');
 	r.agnesFailed(Object.assign(new Error('aborted'), { name: 'AbortError' }));
 	assert.equal(r.breakerOpen, false);
 	r.agnesFailed(new Error('Agnes continua a rispondere 429.'));
 	assert.deepEqual(r.choose('dimmi lo stato dei lavori'), { brain: 'apple', why: 'interruttore' });
 	now += 121_000;
-	assert.equal(r.choose('dimmi lo stato dei lavori').brain, 'agnes');
+	assert.equal(r.choose('dimmi lo stato dei lavori').brain, 'deepseek');
 	r.agnesFailed(new Error('fetch failed'));
 	assert.equal(r.breakerOpen, true);
 	r.agnesOk();
@@ -58,18 +58,18 @@ test('interruttore: 429 e rete aprono, il barge-in no; dopo 2 minuti si richiude
 test('impostazione e Apple assente', () => {
 	const mk = (mode, apple) => new C.BrainRouter({ mode: () => mode, appleAvailable: () => apple });
 	assert.equal(mk('apple', true).choose('apri Peak').brain, 'apple');
-	assert.equal(mk('apple', false).choose('ciao').brain, 'agnes');
-	assert.equal(mk('agnes', true).choose('ciao').brain, 'agnes');
-	assert.equal(mk('auto', false).choose('ciao').brain, 'agnes');
+	assert.equal(mk('apple', false).choose('ciao').brain, 'deepseek');
+	assert.equal(mk('deepseek', true).choose('ciao').brain, 'deepseek');
+	assert.equal(mk('auto', false).choose('ciao').brain, 'deepseek');
 });
 
 test('Melissa dice il cervello solo quando cambia', () => {
 	const r = new C.BrainRouter({ mode: () => 'auto', appleAvailable: () => true });
-	assert.equal(r.announce('agnes', 'principale'), null); // il primo non si dice
-	assert.equal(r.announce('agnes', 'principale'), null);
-	assert.match(r.announce('apple', 'interruttore'), /Agnes non risponde/);
+	assert.equal(r.announce('deepseek', 'principale'), null); // il primo non si dice
+	assert.equal(r.announce('deepseek', 'principale'), null);
+	assert.match(r.announce('apple', 'interruttore'), /DeepSeek non risponde/);
 	assert.equal(r.announce('apple', 'interruttore'), null);
-	assert.match(r.announce('agnes', 'principale'), /tornata/);
+	assert.match(r.announce('deepseek', 'principale'), /tornato/);
 	for (const s of [r.announce('apple', 'forzato'), 'Agnes e\' tornata.']) assert.ok(!/[–—]/.test(s));
 });
 

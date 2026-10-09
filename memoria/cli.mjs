@@ -29,7 +29,7 @@ const HELP = `Memoria della Bottega
   grafici [--giorni N] [--json]       come lavora la memoria: scritti e letti per giorno, progetti, totali
   remember <testo> [--progetto P]     aggiunge una nota
   summarize <sessionId> [--json]      riassume subito una sessione
-  motore [deepseek|agnes] [--json]    il motore dei riassunti (senza argomento lo mostra)
+  motore [deepseek|apple] [--json]    il motore dei riassunti (senza argomento lo mostra)
   backfill [--giorni N] [--max N] [--prova]
                                       riassume le sessioni passate gia' su disco
   context <cartella> [--json]         il contesto che riceve una sessione aperta li'
@@ -125,11 +125,11 @@ async function main() {
 			const { chosenEngine, deepseekUsable } = await import('./lib/engines.mjs');
 			const s = openStore();
 			if (pos[0]) {
-				if (!['deepseek', 'agnes'].includes(pos[0])) throw new Error('motore: deepseek o agnes');
+				if (!['deepseek', 'apple'].includes(pos[0])) throw new Error('motore: deepseek o apple');
 				s.meta('motore_riassunti', pos[0]);
 			}
 			const r = { motore: chosenEngine(s), deepseekUsabile: deepseekUsable(s) };
-			return print(r, `Riassunti con ${r.motore}${r.motore === 'deepseek' && !r.deepseekUsabile ? ' (ora non usabile: si passa ad Agnes)' : ''}`);
+			return print(r, `Riassunti con ${r.motore}${r.motore === 'deepseek' && !r.deepseekUsabile ? ' (ora non usabile: si passa ad Apple Intelligence)' : ''}`);
 		}
 		case 'backfill': {
 			const { backfill } = await import('./lib/core.mjs');

@@ -1224,39 +1224,34 @@ la riserva o Apple). Nella storia del modello le righe di chi ha la chiamata res
 
 ### Cervelli
 
-I due cervelli in rete parlano l'API compatibile OpenAI con gli strumenti, in streaming. OpenRouter (Claude, Gemini,
-GPT a consumo) c'era fino alla build 60: tolto il 3/10/2026 per scelta di Andrea («Agnes e DeepSeek bastano e avanzano»);
-a voce «usa Claude» risponde che non c'e' piu'. La sua chiave resta nel vault e la Bottega la ignora.
+Dal 9 ottobre 2026 DeepSeek e il provider cloud di Melissa; Agnes e ritirato. I tipi e gli slot storici
+restano leggibili per compatibilita, senza cancellare credenziali o statistiche. `Cervelli` interpreta un
+predefinito assente o Agnes come DeepSeek; una preferenza Apple esplicita resta valida. Le richieste Agnes
+provenienti da un vecchio client vengono normalizzate a DeepSeek prima di leggere la chiave o fare rete.
 
 | provider | url | chiave | modelli | impegno |
 |---|---|---|---|---|
-| agnes | `https://apihub.agnes-ai.com/v1/chat/completions` | `AGNES_API_KEY` (`~/.secrets/agnes-ai.env`) | `agnes-3.0-flash` | `reasoning_effort`: none / low / high |
-| deepseek | `https://api.deepseek.com/chat/completions` | `DEEPSEEK_API_KEY` (`~/.secrets/deepseek-harness.env`) | `deepseek-flash` (DeepSeek-V4.1-Flash) per rapido e normale, `deepseek-v4-pro` per profondo (`GET /models`, 3/10/2026) | `reasoning_effort`: none / low / high; non disponibile finche' l'API risponde 402 |
-| apple | Nucleo, cervello Foundation Models con strumenti (build 16, `src/cervello.ts` della sessione nativo) | | sul Mac | |
+| deepseek | `https://api.deepseek.com/chat/completions` | `DEEPSEEK_API_KEY` (`~/.secrets/deepseek-harness.env`) | `deepseek-flash` per rapido e normale, `deepseek-v4-pro` per profondo | `reasoning_effort`: none / low / high |
+| apple | Nucleo, Foundation Models con strumenti | nessuna | sul Mac | locale |
 
-**Agnes e' il cervello predefinito** (decisione di Andrea, 2 ottobre 2026). Un altro cervello si usa se Andrea lo
-sceglie: dalla barra, dall'iPhone o a voce con `cervello_cambia {cervello?, impegno?}` («usa DeepSeek», «pensa piu' a
-fondo», «torna ad Agnes»). Di solito vale per quella conversazione: si torna al predefinito quando la conversazione si
-chiude, dopo 15 minuti senza domande, al riavvio della Bottega e dopo qualsiasi errore (un 401 o un 402 mette anche il
-cervello da parte per un'ora). Dal 3 ottobre 2026 la scelta puo' valere «sempre» (interruttore nella barra, selettore
-dell'iPhone, 9.8): quel cervello diventa il predefinito, salvato in `globalState` (`bottega.cervello.predefinito`,
-assente = Agnes) e sopravvive al riavvio, finche' non si sceglie «sempre» un altro. Un predefinito che adesso non si
-puo' usare (DeepSeek senza credito, Apple senza Nucleo) ripiega su Agnes senza cancellarsi. L'impegno si ricorda sempre
-(`bottega.cervello.impegno`). Apple Intelligence resta la riserva automatica solo quando Agnes non risponde (429, rete).
-Ogni cambio (barra, voce, iPhone, cervello messo da parte) chiama `onChange` di `Cervelli`: la barra rilegge il cervello
-e il ponte avvisa l'iPhone sugli eventi, cosi' Mac e iPhone mostrano sempre la stessa scelta. A voce lo strumento
-`cervello_cambia` non ha `sempre`: la sua scelta vale per la conversazione, poi si torna al predefinito.
-Con DeepSeek i nomi vecchi `deepseek-chat` e `deepseek-reasoner` portano entrambi a V4.1 Flash, senza e con ragionamento:
-fino alla build 60 rapido e normale erano la stessa cosa e V4 Pro non si usava mai.
+Endpoint e modelli verificati sulla [documentazione ufficiale DeepSeek](https://api-docs.deepseek.com/en/).
+Le scelte per conversazione scadono dopo 15 minuti senza domande; «sempre» conserva il predefinito in
+`bottega.cervello.predefinito`, mentre `bottega.cervello.impegno` conserva l'impegno. Un errore di DeepSeek
+prima della risposta passa al Nucleo, quando disponibile; il breaker dura due minuti. Un 401/402 mette
+DeepSeek da parte per un'ora. Nessuna riserva usa Agnes. Il selettore legge `GET /user/balance`, mai una
+generazione a pagamento per controllare se il servizio e disponibile.
+
+La Memoria usa DeepSeek e poi Apple Intelligence; `motore apple` conserva la scelta locale esplicita.
+Le vecchie preferenze `motore_riassunti=agnes` diventano DeepSeek. `--solo-agnes` fallisce con un messaggio
+esplicito. Il terminale usa DeepSeek e poi Apple, anche se una vecchia configurazione indica Agnes.
+L'iPhone chiama DeepSeek con la propria chiave; «Racconta» non ripiega sul provider ritirato e il Mac
+non esporta piu le credenziali Agnes nella configurazione del telefono.
 
 ### I conti dei servizi (in testa alla barra)
 
-Solo dati veri, al massimo ogni 5 minuti (mai a ogni domanda):
-- Agnes: nessun endpoint di saldo (`/user/balance` risponde 404). Si mostra se risponde, le richieste fatte oggi dalla
-  Bottega (contate in `globalState`) e i 429 degli ultimi 10 minuti (limite di circa 20 richieste al minuto).
-- DeepSeek: `GET https://api.deepseek.com/user/balance` (`is_available`, `balance_infos`).
-- ElevenLabs: la chiave non puo' leggere l'account; i caratteri del mese da `~/.bottega/nucleo/usage.json`, dichiarati
-  come conteggio della Bottega.
+Solo dati veri, al massimo ogni cinque minuti: saldo DeepSeek da `GET /user/balance` (`is_available`,
+`balance_infos`) e caratteri ElevenLabs da `~/.bottega/nucleo/usage.json`, dichiarati come conteggio locale.
+Le statistiche Agnes storiche restano conservate e non compaiono come servizio attivo nella barra.
 
 ### Le mani di Melissa
 
@@ -2149,7 +2144,7 @@ accessibilita' «Scegli il cervello»), apre il selettore: i cervelli che il Mac
 fondo V4 Pro», «gratis, sul Mac») e, se non disponibili, il perche' («senza credito», «il Nucleo non è acceso»); «Per
 questa conversazione» o «Sempre»; l'impegno (rapido, normale, profondo, come nella barra: resta finche' non lo cambi).
 Cambiare «Per questa conversazione»/«Sempre» vale anche per il cervello di adesso se non e' Agnes. Con il Mac spento
-il selettore locale offre Agnes e DeepSeek, con l'impegno; la scelta viene applicata come predefinita anche al Mac
+il selettore locale offre DeepSeek, con l'impegno; la scelta viene applicata come predefinita anche al Mac
 quando torna in linea. Apple Intelligence del Mac non e' disponibile in questa modalita'. Lo stato di una Bottega
 vecchia senza `scelta` si legge ancora (il nome non compare).
 
@@ -2485,6 +2480,49 @@ Claude Code, dal terminale e dalla Bottega.
   col giorno giusto, una volta e senza forzare; niente ripetizioni, niente ricordi inventati, niente elenchi). La mod e la barra la chiamano con `~/.bottega/bin/node
   ~/.bottega/memoria-app/cli.mjs` (la copia installata, la stessa degli hook), con cache di 30 s per personaggio.
   L'iPhone resta con la sua copia in `UserDefaults` finche' il ponte non porta queste letture.
+
+**Provenienza dei personaggi e storico incerto (9 ottobre 2026).** Lo spool conserva i campi
+`sid` (stanza/personaggio destinatario della conversazione), `who` (autore esplicitamente registrato) e,
+quando disponibili, `surface`, `recipient`, `event_id`. Avo aggiunge anche `persona` e `speaker` come
+metadati espliciti e usa `surface: "avo-mac"`. La tabella locale `personaggi_battute` aggiunge in modo
+compatibile `speakerRecorded`, `surface`, `recipient`, `eventID`: nessuna riga storica viene reinterpretata.
+`who` mancante non viene ricostruito da `sid`; un destinatario mancante resta non registrato. Le note incerte
+restano cercabili come note con attribuzione incerta, ma non entrano nella memoria personale.
+`ultime`, `andrea` e `ricordi` richiedono `speakerRecorded=1` e la stessa stanza del personaggio richiesto;
+una battuta di Krista nella stanza di Elliot non diventa un dialogo diretto di Krista con Andrea.
+Lo storico preesistente con provenienza non verificabile conserva i valori originali e il marker NULL,
+restando fuori dal prompt personale. Il formato JSON restituito da `personaggio` resta compatibile.
+
+**Continuita delle conversazioni sulla VM (9 ottobre 2026).** La VM Segretaria conserva le conversazioni
+condivise; la Bottega resta autorevole per sessioni di lavoro, strumenti, progetti e relativo spool.
+`src/continuita.ts` collega le due superfici senza trasferire il database del lavoro ne creare un servizio nuovo.
+La configurazione privata e `~/.secrets/segretaria-bridge.env`: `SEGRETARIA_URL` e `SEGRETARIA_BRIDGE_TOKEN`,
+letti fuori dal repository. Il bearer compare soltanto nell'header Authorization, mai nei messaggi,
+nei file degli eventi o nel contesto del modello. Configurazione assente rende l'integrazione facoltativa.
+
+Il contratto VM usa `GET /mem/pointer` per il thread attivo, `GET /mem/recent?conversation=...&persona=...&n=20`
+per il contesto e `POST /mem/add` per una scrittura con
+`{source, role, content, conversation_id, persona, speaker, recipient, event_id, created_at, trust}`.
+`created_at` e Unix in secondi; lo spool Bottega continua a usare `at` in millisecondi. `persona` indica la
+stanza della conversazione e non sostituisce `speaker`: un ospite conserva il proprio nome come autore.
+Le letture filtrano il personaggio; righe storiche senza identita restano dichiarate incerte con la fonte,
+mai ricostruite arbitrariamente. Il contesto VM e presentato al modello come dati, mai come istruzioni.
+Le parole registrate di Andrea usano `trust: "diretto"`; le risposte degli assistenti e degli ospiti
+usano `trust: "esterno"`, cosi non diventano fatti permanenti tramite l'estrazione automatica, nemmeno
+quando contengono risultati di strumenti o contenuti esterni.
+
+Il thread viene acquisito una volta per turno, prima della domanda, e passa esplicitamente a letture e
+scritture: un cambio del puntatore VM non puo dividere domanda, risposta e contesto tra thread diversi.
+Al primo avvio senza rete, un identificatore di ambito locale viene associato al primo puntatore VM
+disponibile; la sua associazione resta in un file `.scope` immutabile, comune agli eventi del turno.
+Ogni nuova scrittura ha un `event_id` stabile anche nei retry. Sul server l'indice univoco su `messages.event_id`
+restituisce lo stesso id per lo stesso evento; un id riusato per contenuto o provenienza diversi produce 409.
+Le colonne `persona`, `speaker`, `recipient`, `event_id` sono aggiunte in modo compatibile e restano NULL
+nelle righe storiche. `include_unknown` permette di includere lo storico incerto esplicitamente.
+La coda locale Bottega usa `~/.bottega/continuita/events/<event_id>.json`, file 600 in directory 700,
+con un file immutabile per evento: finestre diverse non sovrascrivono le scritture in attesa. I retry
+avvengono al collegamento/uso, senza timer inattivi. La conferma server precede la rimozione del file;
+una risposta persa causa un retry dello stesso evento. Errori di rete non cancellano i turni in coda.
 
 **Ognuno ha la memoria del suo mestiere (build 137, mod 0.19.1).** Ogni file di personaggio puo' avere `mestiere`:
 Elliot `incidenti`, Krista `impegni`, Darlene `forzature` (`personaggi/LEGGIMI.md`; chi ha quale mestiere si legge dai file,

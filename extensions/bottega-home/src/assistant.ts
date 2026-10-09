@@ -36,8 +36,8 @@ function appendNucleoLog(chunk: string): void {
 // La conversazione e' sempre in tempo reale: TTS a chunk mentre Agnes genera, barge-in quando
 // Andrea parla sopra.
 
-const AGNES_URL = 'https://apihub.agnes-ai.com/v1/chat/completions';
-const AGNES_MODEL = 'agnes-3.0-flash';
+const AGNES_URL = 'https://api.deepseek.com/chat/completions'; // nome interno storico
+const AGNES_MODEL = 'deepseek-flash';
 const TZ = 'Atlantic/Canary';
 const TAP_MS = 300;
 const SILENCE_MS = 60_000;
@@ -166,6 +166,8 @@ export interface NucleoLike {
 }
 
 export interface AssistantDeps {
+	/** Shared Nucleo memory, with stable outbox and explicit character provenance. */
+	continuita?: { leggi(persona: string, turno?: string): Promise<string>; iniziaTurno?(): Promise<string>; scrivi(persona: string, speaker: string, text: string, source?: string, turno?: string, recipient?: string): void };
 	onMemory?(row: { role: 'tu' | 'melissa'; text: string; at: number; restored?: boolean }): void;
 	nucleo: NucleoLike;
 	actions: AssistantActions;
@@ -573,7 +575,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		},
 	},
 	cervello_cambia: {
-		spec: { type: 'function', function: { name: 'cervello_cambia', description: 'Cambia il cervello con cui Melissa pensa, per questa conversazione (poi si torna al predefinito, di solito Agnes), e/o l\'impegno. Usalo quando Andrea dice "usa DeepSeek", "torna ad Agnes", "pensa piu\' a fondo", "rispondi veloce". I cervelli sono solo Agnes, DeepSeek e Apple Intelligence: Claude, Gemini e GPT non ci sono piu\'.', parameters: obj({ cervello: { type: 'string', description: 'agnes, deepseek o apple' }, impegno: { type: 'string', description: 'rapido, normale o profondo' } }) } },
+		spec: { type: 'function', function: { name: 'cervello_cambia', description: 'Cambia il cervello con cui Melissa pensa, per questa conversazione (poi si torna al predefinito, DeepSeek), e/o l\'impegno. Usalo quando Andrea dice "usa DeepSeek", "pensa piu\' a fondo", "rispondi veloce". I cervelli sono DeepSeek e Apple Intelligence: Claude, Gemini e GPT non ci sono piu\'.', parameters: obj({ cervello: { type: 'string', description: 'deepseek o apple' }, impegno: { type: 'string', description: 'rapido, normale o profondo' } }) } },
 		async run(a, ctx) {
 			if (!ctx.deps.actions.switchBrain) return 'Non posso cambiare cervello da qui.';
 			const r = await ctx.deps.actions.switchBrain(a.cervello, a.impegno);
@@ -629,7 +631,7 @@ interface Pending {
 
 export class Assistant {
 	readonly deps: AssistantDeps;
-	private state: AssistantState = { enabled: true, conversing: false, state: 'idle', log: [], brain: 'agnes', attivita: [], personaggio: 'melissa', agitazione: AGITAZIONE_NEUTRA };
+	private state: AssistantState = { enabled: true, conversing: false, state: 'idle', log: [], brain: 'deepseek', attivita: [], personaggio: 'melissa', agitazione: AGITAZIONE_NEUTRA };
 	private static readonly registroKey = 'bottega.melissa.registro.v1';
 	private registro?: vscode.Memento;
 	private registroWrites: Promise<void> = Promise.resolve();
@@ -638,6 +640,10 @@ export class Assistant {
 	/** Il testo puo' essere completo mentre l'altoparlante sta ancora leggendo. */
 	private raccontoAudio = false;
 	private history: Detto[] = [];
+	private personaTurno?: string;
+	private tokenTurno?: string;
+	private fonteTurno?: string;
+	private personaggioDopo?: string;
 	private pending?: Pending;
 	private statusBar?: vscode.StatusBarItem;
 	private orbHideTimer?: NodeJS.Timeout;
@@ -855,6 +861,10 @@ export class Assistant {
 	async setPersonaggio(chi: string): Promise<void> {
 		if ((chi !== 'melissa' && !esiste(chi)) || this.remote) return;
 		const prima = this.chi();
+		if (this.personaTurno) {
+			this.personaggioDopo = chi;
+			return;
+		}
 		if (prima === chi) return;
 		this.state.personaggio = chi;
 		this.emit();
@@ -1321,6 +1331,29 @@ export class Assistant {
 	}
 
 	async turn(userText: string, speak: boolean, opts: { ragiona?: boolean } = {}): Promise<string> {
+		if (this.personaTurno) return "Sto ancora rispondendo: riprova tra un attimo.";
+		const requested = this.remote ? null : chiChiede(userText);
+		const persona = requested && (requested === 'melissa' || esiste(requested)) ? requested : this.chi();
+		const source = this.remote ? (speak ? 'bottega-ios-voce' : 'bottega-ios') : (speak ? 'bottega-voce' : 'bottega');
+		this.personaTurno = persona;
+		this.fonteTurno = source;
+		try {
+			this.tokenTurno = await this.deps.continuita?.iniziaTurno?.().catch(() => undefined);
+			this.deps.continuita?.scrivi(persona, 'andrea', userText, source, this.tokenTurno, persona);
+			// Each actual speaker is recorded by registra(); a chorus return value is never a new turn.
+			return await this.turnInternal(userText, speak, opts);
+		} finally {
+			this.personaTurno = undefined;
+			this.tokenTurno = undefined;
+			this.fonteTurno = undefined;
+			const next = this.personaggioDopo;
+			this.personaggioDopo = undefined;
+			if (next) await this.setPersonaggio(next);
+			if (this.dopo) void this.riprendi();
+		}
+	}
+
+	private async turnInternal(userText: string, speak: boolean, opts: { ragiona?: boolean } = {}): Promise<string> {
 		// Il limite di inattivita' vale mentre ascolto Andrea. Durante generazione e
 		// riproduzione una risposta lunga non deve chiudere la conversazione.
 		if (this.state.conversing) clearTimeout(this.silenceTimer);
@@ -1422,8 +1455,8 @@ export class Assistant {
 		const choice = this.deps.cervelli?.choice();
 		if (choice && choice.provider !== 'agnes') this.deps.cervelli!.touch();
 		// Agnes (o il cervello scelto a mano), oppure Apple: scelto a mano, o di riserva con l'interruttore aperto.
-		const viaRouter = !choice || choice.provider === 'agnes' || choice.provider === 'apple';
-		const pick = viaRouter ? this.router.choose(userText) : { brain: 'agnes' as BrainName, why: 'principale' as const };
+		const viaRouter = true; // il breaker vale anche per DeepSeek, primario dal 9 ottobre
+		const pick = viaRouter ? this.router.choose(userText) : { brain: 'deepseek' as BrainName, why: 'principale' as const };
 		const note = viaRouter && choice?.provider !== 'apple' ? this.router.announce(pick.brain, pick.why) : null;
 		if (note && speak) this.emitClause(note);
 		// mentre il modello pensa: a 900 ms un riempitivo per quello che Andrea ha detto, a 5 e 10 s uno di `lunga`.
@@ -1440,7 +1473,13 @@ export class Assistant {
 			return full;
 		};
 		// cosa fa Andrea, dalla memoria: di solito gia' letto (due minuti di cache), al massimo 800 ms d'attesa
-		[this.memoriaTurno, this.ricordiTurno] = await Promise.all([this.contestoMemoria(), this.memoria.leggi(this.chi(), userText)]);
+		const persona = this.personaTurno ?? this.chi();
+		const [projectMemory, personalMemory, sharedMemory] = await Promise.all([
+			this.contestoMemoria(), this.memoria.leggi(persona, userText),
+			this.leggiContinuita(persona, this.tokenTurno),
+		]);
+		this.memoriaTurno = projectMemory;
+		this.ricordiTurno = [personalMemory, sharedMemory].filter(Boolean).join('\n\n');
 		// le battute a tre gia' dette, anche se un tocco ferma il giro a meta'
 		const altre: { chi: string; testo: string }[] = [];
 		let detta: string | undefined;
@@ -1483,7 +1522,7 @@ export class Assistant {
 
 		try {
 			const risposta = await this.runAgent(userText, speak, ac.signal, pick.brain);
-			if (pick.brain === 'agnes' && viaRouter) this.router.agnesOk();
+			if (pick.brain !== 'apple' && viaRouter) this.router.agnesOk();
 			return await chiudi(risposta, pick.brain, note);
 		} catch (e) {
 			if (ac.signal.aborted) return passaggio.v ? this.dirige(passaggio.v, speak, pick.brain) : interrupted();
@@ -1491,7 +1530,7 @@ export class Assistant {
 			if (pick.brain === 'apple' && choice?.provider === 'apple') {
 				// Apple scelto a mano e non risponde: si torna ad Agnes e lo si dice.
 				this.deps.cervelli!.endConversation();
-				const msg = 'Apple Intelligence non risponde. Torno ad Agnes: ridimmelo.';
+				const msg = 'Apple Intelligence non risponde. Torno a DeepSeek: ridimmelo.';
 				if (speak) {
 					this.feedSpeak(msg);
 					this.finalizeSpeech(true);
@@ -1502,7 +1541,7 @@ export class Assistant {
 			}
 			// Agnes a terra (429, rete, server): lo stesso turno passa alla riserva, CON gli strumenti, se non ha ancora
 			// detto niente. Prima DeepSeek, poi il Mac (ordine di Andrea, 4/10/2026).
-			if (pick.brain === 'agnes' && viaRouter) this.router.agnesFailed(e);
+			if (pick.brain !== 'apple' && viaRouter) this.router.agnesFailed(e);
 			if (pick.brain !== 'apple' && viaRouter) {
 				for (const riserva of this.router.reserves().filter(b => b !== pick.brain)) {
 					if (this.turnText.trim()) break;
@@ -1530,7 +1569,7 @@ export class Assistant {
 				}
 			}
 			this.state.brain = 'nessuno';
-			const msg = 'Agnes e\' a terra e pure il cervello di riserva non risponde. Riprova tra poco.';
+			const msg = 'DeepSeek e il cervello di riserva non rispondono. Riprova tra poco.';
 			if (speak) {
 				this.feedSpeak(msg);
 				this.finalizeSpeech(true);
@@ -1544,7 +1583,6 @@ export class Assistant {
 			this.invitoTurno = '';
 			this.passaOfferti = [];
 			if (this.currentAbort === ac) this.currentAbort = undefined;
-			if (this.dopo) void this.riprendi();
 		}
 	}
 
@@ -1756,7 +1794,7 @@ export class Assistant {
 	 * Parlano fra loro (CONTRATTI 9.11): nel 40% dei casi il chiamato chiude chiedendo a un altro cosa ne pensa e gli da'
 	 * la parola con passa_parola, e quello risponde una volta; poi Melissa chiude con tutto il giro davanti.
 	 */
-	private async aTre(chi: string, detta: string, signal: AbortSignal, fatte: { chi: string; testo: string }[], brain: BrainName = 'agnes', prima: string[] = [], ultima = false, daChi: string | null = null): Promise<boolean> {
+	private async aTre(chi: string, detta: string, signal: AbortSignal, fatte: { chi: string; testo: string }[], brain: BrainName = 'deepseek', prima: string[] = [], ultima = false, daChi: string | null = null): Promise<boolean> {
 		const p = PERSONAGGI[chi];
 		if (!p || !this.speaking || this.remote) return false;
 		if (!ultima) {
@@ -1829,7 +1867,7 @@ export class Assistant {
 
 	/** Una battuta breve, senza strumenti, con il cervello che ha risposto al turno (con Agnes a terra, la riserva).
 	 *  Null se non arriva niente. */
-	private async breve(system: string, user: string, signal: AbortSignal, brain: BrainName = 'agnes'): Promise<string | null> {
+	private async breve(system: string, user: string, signal: AbortSignal, brain: BrainName = 'deepseek'): Promise<string | null> {
 		return (await this.breveConPassa(system, user, signal, brain, [])).testo;
 	}
 
@@ -1928,13 +1966,18 @@ export class Assistant {
 		const riga = chi !== 'melissa' ? `${nomeDi(chi)}: ${testo}` : testo;
 		if (testo) this.pushLog('melissa', interrotta ? `${riga} (interrotta)` : riga);
 		this.history.push({ role: 'assistant', content: interrotta ? (testo ? testo + ' ' : '') + '[interrotta da Andrea]' : testo, chi });
+		if (testo && this.personaTurno) {
+			this.deps.continuita?.scrivi(this.personaTurno, chi, testo, this.fonteTurno, this.tokenTurno,
+				chi === this.personaTurno ? 'andrea' : undefined);
+		}
 	}
 
 	/** Le battute a tre nel registro e nella storia; `interrotta`: l'ultima e' stata fermata da un tocco. */
 	private registraAltre(altre: { chi: string; testo: string }[], interrotta = false): void {
 		altre.forEach((r, i) => {
 			this.registra(r.chi, r.testo, interrotta && i === altre.length - 1);
-			this.ricorda(r.chi, r.testo);
+			// An intervention belongs to this room, not an invented direct conversation with its speaker.
+			this.memoria.scrivi(this.personaTurno ?? this.chi(), r.chi, r.testo);
 		});
 		if (altre.length) this.trimHistory();
 	}
@@ -2036,15 +2079,28 @@ export class Assistant {
 		this.trimHistory();
 	}
 
+	/** A late read warms the adapter cache; voice never waits for the VM beyond this budget. */
+	private async leggiContinuita(persona: string, turno?: string): Promise<string> {
+		if (!this.deps.continuita) return '';
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			return await Promise.race([
+				this.deps.continuita.leggi(persona, turno).catch(() => ''),
+				new Promise<string>(resolve => { timer = setTimeout(() => resolve(''), 350); }),
+			]);
+		} finally { clearTimeout(timer); }
+	}
+
 	/** Per l'iPhone (ponte, POST /v1/personaggio): la memoria di `chi` (ultime battute, ricordi su `frase`, mestiere) e
 	 *  tutte le sue letture eseguite adesso, in parallelo, ognuna al piu' 1,5 s (CONTRATTI 9.11). */
 	async perPersonaggio(chi: string, frase: string): Promise<{ memoria: string; letture: { nome: string; testo: string }[] }> {
 		if (!esiste(chi)) return { memoria: '', letture: [] };
-		const [memoria, letture] = await Promise.all([
+		const [memoria, letture, condivisa] = await Promise.all([
 			this.memoria.leggi(chi, frase),
 			Promise.all(this.strumenti.specs(chi).map(async s => ({ nome: s.function.name, testo: await this.strumenti.esegui(chi, s.function.name) }))),
+			this.leggiContinuita(chi),
 		]);
-		return { memoria, letture };
+		return { memoria: [memoria, condivisa].filter(Boolean).join('\n\n'), letture };
 	}
 
 	// ----- voce in streaming -----
@@ -2262,7 +2318,7 @@ export class Assistant {
 
 	// ----- il giro dei tool con Agnes in streaming (max 8 passi) -----
 
-	async runAgent(userText: string, speak: boolean, signal: AbortSignal, brain: BrainName = 'agnes'): Promise<string> {
+	async runAgent(userText: string, speak: boolean, signal: AbortSignal, brain: BrainName = 'deepseek'): Promise<string> {
 		// a chi puo' dare la parola: con Apple nessuno, e nemmeno l'invito nel prompt (non avrebbe lo strumento)
 		const offerti = brain === 'apple' ? [] : this.passaOfferti;
 		const system = this.systemPrompt(offerti.length > 0);
@@ -2318,17 +2374,7 @@ export class Assistant {
 					calls.set(i, cur);
 				}
 			}, signal);
-			try {
-				await run(stream);
-			} catch (e: any) {
-				// il cervello scelto non risponde (402, rete): stessa domanda ad Agnes, e lo si dice. DeepSeek come
-				// riserva no: Agnes e' appena caduta, il turno passa al Mac (turn)
-				if (!chosen || stream === agnes || got || signal.aborted || riserva) throw e;
-				this.azione(`${chosenName} non risponde (${e?.message ?? e}): torno ad Agnes`);
-				this.deps.cervelli?.endConversation();
-				stream = agnes;
-				await run(stream);
-			}
+			await run(stream); // il router gestisce la riserva locale, senza riprovare il provider ritirato
 
 			if (calls.size) {
 				const toolCalls: LlmToolCall[] = [...calls.entries()]
@@ -2472,24 +2518,21 @@ export class Assistant {
 
 	private async apiKey(): Promise<string | undefined> {
 		if (this.cachedKey) return this.cachedKey;
-		if (process.env.AGNES_API_KEY) return (this.cachedKey = process.env.AGNES_API_KEY);
+		const key = this.deps.cervelli?.key('deepseek') || process.env.DEEPSEEK_API_KEY;
+		if (key) return (this.cachedKey = key);
 		try {
-			const env = fs.readFileSync(path.join(os.homedir(), '.secrets', 'agnes-ai.env'), 'utf8');
-			const m = /^\s*AGNES_API_KEY\s*=\s*(.+?)\s*$/m.exec(env);
-			if (m && m[1]) return (this.cachedKey = m[1].replace(/^["']|["']$/g, ''));
-		} catch {
-			// nessun file dei segreti
-		}
-		const stored = await this.deps.secrets.get('bottega.agnesKey');
+			const env = fs.readFileSync(path.join(os.homedir(), '.secrets', 'deepseek-harness.env'), 'utf8');
+			const m = /^\s*(?:export\s+)?DEEPSEEK_API_KEY\s*=\s*(.+?)\s*$/m.exec(env);
+			if (m?.[1]) return (this.cachedKey = m[1].replace(/^["']|["']$/g, ''));
+		} catch { /* file assente */ }
+		const stored = await this.deps.secrets.get('bottega.deepseekKey');
 		if (stored) return (this.cachedKey = stored);
 		const entered = await vscode.window.showInputBox({
-			title: 'Chiave Agnes AI',
-			prompt: 'Serve la chiave di Agnes AI per far parlare Melissa. La salvo nel portachiavi della Bottega.',
-			password: true,
-			ignoreFocusOut: true,
+			title: 'Chiave DeepSeek', prompt: 'Serve la chiave DeepSeek per Melissa. La salvo nel portachiavi della Bottega.',
+			password: true, ignoreFocusOut: true,
 		});
 		if (entered) {
-			await this.deps.secrets.store('bottega.agnesKey', entered);
+			await this.deps.secrets.store('bottega.deepseekKey', entered);
 			return (this.cachedKey = entered);
 		}
 		return undefined;
@@ -2499,7 +2542,7 @@ export class Assistant {
 
 	private async callAgnesStream(messages: LlmMessage[], tools: ToolSpec[], onDelta: (d: LlmDelta) => void, signal: AbortSignal): Promise<void> {
 		const key = await this.apiKey();
-		if (!key) throw new Error('Nessuna chiave Agnes.');
+		if (!key) throw new Error('Nessuna chiave DeepSeek.');
 		const effort = this.deps.cervelli?.choice().effort;
 		// A voce Agnes risponde senza ragionare, come la Melissa di Avo (reasoning_effort none): con "profondo"
 		// pensava circa 4 s prima della prima parola. L'impegno scelto vale per le domande scritte.
@@ -2518,35 +2561,35 @@ export class Assistant {
 				});
 			} catch (e: any) {
 				if (e?.name === 'AbortError') throw e;
-				this.deps.cervelli?.noteAgnes(0);
-				throw new Error('Rete giu\' verso Agnes.');
+				// nessun contatore Agnes per le chiamate DeepSeek
+				throw new Error('Rete giu\' verso DeepSeek.');
 			}
-			this.deps.cervelli?.noteAgnes(res.status);
+			// le richieste vanno a DeepSeek
 			if (res.status === 429) {
 				// Con una riserva (DeepSeek o il Mac) niente attese cieche: il turno passa subito a quella.
-				if (this.router.reserves().length) throw new Error('Agnes ha risposto 429.');
+				if (this.router.reserves().length) throw new Error('DeepSeek ha risposto 429.');
 				await sleep(wait, signal);
 				wait = Math.min(wait * 2, 16_000);
 				continue;
 			}
-			if (!res.ok || !res.body) throw new Error(`Agnes ha risposto ${res.status}.`);
+			if (!res.ok || !res.body) throw new Error(`DeepSeek ha risposto ${res.status}.`);
 			await this.readSse(res.body, onDelta);
 			return;
 		}
-		throw new Error('Agnes continua a rispondere 429.');
+		throw new Error('DeepSeek continua a rispondere 429.');
 	}
 
 	/** Come callAgnesStream, ma senza strumenti (testo puro). */
 	private async callAgnesPlain(messages: LlmMessage[], onDelta: (d: LlmDelta) => void, signal: AbortSignal): Promise<void> {
 		const key = await this.apiKey();
-		if (!key) throw new Error('Nessuna chiave Agnes.');
+		if (!key) throw new Error('Nessuna chiave DeepSeek.');
 		const res = await fetch(AGNES_URL, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
 			body: JSON.stringify({ model: AGNES_MODEL, messages, reasoning_effort: 'none', stream: true }),
 			signal,
 		});
-		if (!res.ok || !res.body) throw new Error(`Agnes ha risposto ${res.status}.`);
+		if (!res.ok || !res.body) throw new Error(`DeepSeek ha risposto ${res.status}.`);
 		await this.readSse(res.body, onDelta);
 	}
 

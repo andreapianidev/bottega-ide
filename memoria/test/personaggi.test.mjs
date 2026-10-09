@@ -176,3 +176,45 @@ test('personaggio resta sotto 1,5 s con qualche migliaio di note', () => {
 	console.log(`# lettura nel processo: ${(performance.now() - t1).toFixed(1)} ms`);
 	s2.close();
 });
+
+test('voce e destinatario mancanti restano incerti, ricercabili ma mai ricordi personali', () => {
+	const store = openStore();
+	assert.equal(saveExternal(store, ev('incerto-speaker', 'krista', undefined, 'Frase senza voce arcobaleno incerto', 1)), 1);
+	assert.equal(saveExternal(store, ev('incerto-recipient', undefined, 'krista', 'Frase senza stanza arcobaleno incerto', 1)), 1);
+	const rows = store.all("SELECT p.*, m.text FROM personaggi_battute p JOIN memories m ON m.id = p.memoryId WHERE m.text LIKE '%arcobaleno incerto%'");
+	assert.equal(rows.length, 2);
+	assert.ok(rows.some(r => r.chi === '' && r.chiave === 'krista' && r.speakerRecorded === 0));
+	assert.ok(rows.some(r => r.chi === 'krista' && r.chiave === ''));
+	const memory = memoriaPersonaggio(store, 'krista', { frase: 'arcobaleno incerto', limite: 50 });
+	assert.ok(![...memory.ultime, ...memory.andrea, ...memory.ricordi].some(r => /arcobaleno incerto/.test(r.testo)));
+	assert.equal(search('arcobaleno incerto', { store }).filter(r => r.sessionId.startsWith('personaggio:')).length, 2);
+});
+
+test('un intervento in un altra stanza non diventa dialogo diretto del personaggio', () => {
+	const store = openStore();
+	saveExternal(store, ev('visita-krista', 'elliot', 'krista', 'Intervento ospite zaffiro nella stanza di Elliot', 0,
+		{ surface: 'avo-mac', recipient: 'elliot', event_id: 'evento-visita' }));
+	saveExternal(store, ev('destinatario-diverso', 'krista', 'krista', 'Intervento zaffiro rivolto a Elliot', 0,
+		{ recipient: 'elliot' }));
+	const memory = memoriaPersonaggio(store, 'krista', { frase: 'zaffiro', limite: 50 });
+	assert.ok(![...memory.ultime, ...memory.andrea, ...memory.ricordi].some(r => /zaffiro/.test(r.testo)));
+	const row = store.get("SELECT * FROM personaggi_battute WHERE eventID = 'evento-visita'");
+	assert.equal(row.chi, 'krista');
+	assert.equal(row.chiave, 'elliot');
+	assert.equal(row.surface, 'avo-mac');
+	assert.equal(row.recipient, 'elliot');
+});
+
+test('migrazione della tabella storica non ricostruisce provenienza o speaker', () => {
+	const store = new Store(path.join(TMP, 'legacy.db'));
+	store.db.exec(`CREATE TABLE personaggi_battute (memoryId INTEGER PRIMARY KEY, chiave TEXT NOT NULL, chi TEXT NOT NULL, at INTEGER NOT NULL)`);
+	const id = store.addMemory({ kind: 'nota', origin: 'personaggio', sessionId: 'personaggio:krista', title: 'Storico', text: 'Storico quarzo senza provenienza', createdAt: ORA });
+	store.run('INSERT INTO personaggi_battute VALUES (?, ?, ?, ?)', id, 'krista', 'krista', ORA);
+	assert.deepEqual(memoriaPersonaggio(store, 'krista', { frase: 'quarzo' }), { ultime: [], andrea: [], ricordi: [] });
+	const old = store.get('SELECT * FROM personaggi_battute WHERE memoryId = ?', id);
+	assert.equal(old.chi, 'krista');
+	assert.equal(old.speakerRecorded, null);
+	assert.equal(old.surface, null);
+	assert.equal(store.get('SELECT text FROM memories WHERE id = ?', id).text, 'Storico quarzo senza provenienza');
+	store.close();
+});

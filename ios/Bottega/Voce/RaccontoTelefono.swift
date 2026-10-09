@@ -1,4 +1,4 @@
-// «Racconta» legge i dati già mostrati sull'iPhone con DeepSeek Flash, poi Agnes se serve.
+// «Racconta» legge i dati già mostrati sull'iPhone con DeepSeek Flash.
 // Il testo e l'audio ElevenLabs arrivano insieme, senza passare dal Mac per la sintesi.
 import Foundation
 
@@ -16,10 +16,9 @@ extension AssistenteTelefono {
             throw ErrorePonte(messaggio: "Manca la voce di Melissa: importa di nuovo la configurazione dal Mac.")
         }
         let fonti: [(nome: String, url: String, modello: String, chiave: String, impegno: String)] = [
-            ("DeepSeek Flash", "https://api.deepseek.com/chat/completions", "deepseek-flash", config.deepseek ?? "", "none"),
-            ("Agnes", "https://apihub.agnes-ai.com/v1/chat/completions", "agnes-3.0-flash", config.agnes ?? "", "none")
+            ("DeepSeek Flash", "https://api.deepseek.com/chat/completions", "deepseek-flash", config.deepseek ?? "", "none")
         ].filter { !$0.chiave.isEmpty }
-        guard !fonti.isEmpty else { throw ErrorePonte(messaggio: "Manca una chiave DeepSeek o Agnes sull'iPhone.") }
+        guard !fonti.isEmpty else { throw ErrorePonte(messaggio: "Manca una chiave DeepSeek sull'iPhone.") }
 
         let system = "Sei Melissa. Racconta in italiano in modo naturale e concreto quello che mostrano i dati. " +
             "Spiega lo stato attuale, i fatti importanti e cosa sta facendo la sessione se si tratta di una sessione. " +

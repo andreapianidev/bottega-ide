@@ -220,7 +220,7 @@ function terminale(passi, env) {
 	await test('il socket: 600, una proposta con contesto e decisione', async () => {
 		assert.ok(sportello.attivo);
 		assert.strictEqual(fs.statSync(SOCK).mode & 0o777, 0o600);
-		risposte = { agnes: 'du -sh * | sort -h' };
+		risposte = { deepseek: 'du -sh * | sort -h' };
 		const r = await chiedi({ azione: 'proponi', tipo: 'comando', origine: 'auto', cartella: progetto, zsh: '5.9', richiesta: 'quanto pesa ogni cartella qui', ultimo: 'ls', codice: '0' });
 		assert.strictEqual(r.esito, 'ok');
 		assert.strictEqual(r.comando, 'du -sh * | sort -h');
@@ -232,40 +232,30 @@ function terminale(passi, env) {
 		assert.ok(/SOLO con il comando/.test(fila[0].sis) && /BSD/.test(fila[0].sis) && /sudo/.test(fila[0].sis));
 	});
 
-	await test('Agnes una richiesta ogni 3 secondi; da riserva si salta', async () => {
+	await test('DeepSeek senza pausa Agnes, riserva solo Apple anche da client legacy', async () => {
 		fila.length = 0;
 		tempo += 1000;
+		risposte = { deepseek: 'git status' };
 		const r = await chiedi({ azione: 'proponi', tipo: 'comando', cartella: progetto, richiesta: 'ancora' });
-		assert.strictEqual(r.esito, 'aspetta');
-		assert.ok(/aspetta un attimo/.test(r.errore));
-		assert.strictEqual(fila.length, 0);
-		// DeepSeek scelto al volo (#! deepseek): niente pausa, e se fallisce Agnes appena usata si salta, poi Apple
+		assert.strictEqual(r.esito, 'ok');
+		assert.deepStrictEqual(fila.map(f => f.c), ['deepseek']);
+		fila.length = 0;
 		risposte = { deepseek: new Error('senza credito'), apple: 'ls -la' };
-		const d = await chiedi({ azione: 'proponi', tipo: 'comando', cervello: 'deepseek', cartella: progetto, richiesta: 'elenca' });
+		const d = await chiedi({ azione: 'proponi', tipo: 'comando', cervello: 'agnes', cartella: progetto, richiesta: 'elenca' });
 		assert.deepStrictEqual(fila.map(f => f.c), ['deepseek', 'apple']);
 		assert.strictEqual(d.comando, 'ls -la');
 		assert.deepStrictEqual(d.note, ['DeepSeek non risponde, ha risposto Apple Intelligence.']);
-	});
-
-	await test('la fila dei cervelli: Agnes, poi DeepSeek, poi Apple, con la riga grigia', async () => {
 		fila.length = 0;
-		tempo += 5000;
-		risposte = { agnes: new Error('risposta 500'), deepseek: 'git status' };
-		const r = await chiedi({ azione: 'proponi', tipo: 'comando', cartella: progetto, richiesta: 'stato' });
-		assert.deepStrictEqual(fila.map(f => f.c), ['agnes', 'deepseek']);
-		assert.deepStrictEqual(r.note, ['Agnes non risponde, ha risposto DeepSeek.']);
-		fila.length = 0;
-		tempo += 5000;
 		risposte = {};
 		const n = await chiedi({ azione: 'proponi', tipo: 'comando', cartella: progetto, richiesta: 'stato' });
 		assert.strictEqual(n.esito, 'errore');
-		assert.ok(/nessun cervello risponde: Agnes \(rete giu'\), DeepSeek/.test(n.errore), n.errore);
+		assert.ok(!n.errore.includes('Agnes'));
 	});
 
 	await test('?? spiega l\'ultimo errore con il codice d\'uscita', async () => {
 		fila.length = 0;
 		tempo += 5000;
-		risposte = { agnes: '# manca la cartella node_modules\n# le dipendenze non sono installate\nnpm install' };
+		risposte = { deepseek: '# manca la cartella node_modules\n# le dipendenze non sono installate\nnpm install' };
 		const r = await chiedi({ azione: 'proponi', tipo: 'perche', cartella: progetto, richiesta: '', ultimo: 'npm test', codice: '127' });
 		assert.deepStrictEqual(r.spiega, ['manca la cartella node_modules', 'le dipendenze non sono installate']);
 		assert.strictEqual(r.comando, 'npm install');
@@ -277,7 +267,7 @@ function terminale(passi, env) {
 	await test('una richiesta alla volta', async () => {
 		tempo += 5000;
 		let libera;
-		risposte = { agnes: () => new Promise(r => (libera = () => r('ls'))) };
+		risposte = { deepseek: () => new Promise(r => (libera = () => r('ls'))) };
 		const prima = chiedi({ azione: 'proponi', tipo: 'comando', cartella: progetto, richiesta: 'uno' });
 		await attendi(50);
 		const seconda = await chiedi({ azione: 'proponi', tipo: 'comando', cervello: 'deepseek', cartella: progetto, richiesta: 'due' });
@@ -296,11 +286,11 @@ function terminale(passi, env) {
 		assert.ok(/non si puo' consentire/.test(no.errore));
 		assert.deepStrictEqual(A.leggiConsentiti(CONS), ['git status', 'npm test']);
 		tempo += 5000;
-		risposte = { agnes: 'npm test' };
+		risposte = { deepseek: 'npm test' };
 		assert.strictEqual((await chiedi({ azione: 'proponi', tipo: 'comando', cartella: progetto, richiesta: 'lancia i test' })).esegui, 'subito');
 		tempo += 5000;
 		modo = 'auto';
-		risposte = { agnes: 'npm test && git push' };
+		risposte = { deepseek: 'npm test && git push' };
 		const p = await chiedi({ azione: 'proponi', tipo: 'comando', cartella: progetto, richiesta: 'test e push' });
 		assert.strictEqual(p.esegui, 'chiedi');
 		assert.ok(p.avvisi.some(a => /git push/.test(a)));
@@ -331,14 +321,14 @@ function terminale(passi, env) {
 		const p = A.pensatore({ cervelli, nucleo: () => nucleo, apple: () => true });
 		const s = new AbortController().signal;
 		assert.strictEqual(await p('agnes', 's', 'u', s), 'ls -la');
-		assert.deepStrictEqual(chiesti[0], { provider: 'agnes', model: 'agnes-3.0-flash', effort: 'rapido' });
+		assert.deepStrictEqual(chiesti[0], { provider: 'deepseek', model: 'deepseek-flash', effort: 'rapido' });
 		await p('deepseek', 's', 'u', s);
 		assert.strictEqual(chiesti[1].provider, 'deepseek');
 		assert.strictEqual(await p('apple', 's', 'u', s), 'pwd');
 		await assert.rejects(A.pensatore({ cervelli, nucleo: () => undefined, apple: () => false })('apple', 's', 'u', s));
 		// la richiesta che arriva davvero ad Agnes (cervelli.ts): reasoning_effort none, niente strumenti
 		const C = require(path.join(OUT, 'cervelli.js'));
-		const body = C.requestBody({ provider: 'agnes', model: 'agnes-3.0-flash', effort: 'rapido' }, [], []);
+		const body = C.requestBody({ provider: 'deepseek', model: 'deepseek-flash', effort: 'rapido' }, [], []);
 		assert.strictEqual(body.reasoning_effort, 'none');
 		assert.strictEqual(body.tools, undefined);
 	});
@@ -461,7 +451,7 @@ function terminale(passi, env) {
 		if (!python) return console.log('      (python3 assente, salto)');
 		modo = 'chiedi';
 		tempo += 5000;
-		risposte = { agnes: 'echo PROPOSTA-$((40+2))' };
+		risposte = { deepseek: 'echo PROPOSTA-$((40+2))' };
 		const out = await terminale([[700, 'trova i file più grandi qui\r'], [1600, 'n'], [1900, 'echo dopo\r']], envTerm);
 		assert.ok(out.includes('Agnes pensa…'), out);
 		assert.ok(/eseguo\? \[invio\] sì, \[n\]o, \[m\]odifica, \[esc\] la tua riga com'era/.test(out), out);
@@ -476,7 +466,7 @@ function terminale(passi, env) {
 	await test('nel terminale: invio esegue la proposta e la scrive nella storia, esc esegue la riga com\'era', async () => {
 		if (!python) return console.log('      (python3 assente, salto)');
 		tempo += 5000;
-		risposte = { agnes: 'echo PROPOSTA-$((40+2))' };
+		risposte = { deepseek: 'echo PROPOSTA-$((40+2))' };
 		const out = await terminale([[700, 'stampa la risposta di prova qui\r'], [2200, '\r'], [2600, 'fc -ln -2\r']], envTerm);
 		assert.ok(/\nPROPOSTA-42\n/.test(out), out);
 		assert.ok(out.includes('stampa la risposta di prova qui') && /echo PROPOSTA-\$\(\(40\+2\)\)\n/.test(out), 'richiesta e comando nella storia');
@@ -491,14 +481,14 @@ function terminale(passi, env) {
 		tempo += 5000;
 		// un programma finto (funzione nel .zshrc finto), consentito a mano
 		A.scriviConsentiti(CONS, [...A.leggiConsentiti(CONS), 'zzprova']);
-		risposte = { agnes: 'zzprova test' };
+		risposte = { deepseek: 'zzprova test' };
 		const env = envTerm;
 		const out = await terminale([[700, 'lancia i test del progetto\r']], env);
 		assert.ok(out.includes("eseguo, e' tra i consentiti") && out.includes('ZZ-FINTO test'), out);
 		assert.ok(!out.includes('eseguo? '), 'nessuna domanda');
 		modo = 'auto';
 		tempo += 5000;
-		risposte = { agnes: 'rm -rf build' };
+		risposte = { deepseek: 'rm -rf build' };
 		const p = await terminale([[700, 'butta via la cartella build\r'], [1600, 'n']], env);
 		assert.ok(p.includes('attenzione: cancella file e cartelle senza chiedere') && p.includes('eseguo? [invio] sì, [n]o'), p);
 		assert.ok(!p.includes('[s]empre'), 'un paletto non si consente');
@@ -509,7 +499,7 @@ function terminale(passi, env) {
 		if (!python) return console.log('      (python3 assente, salto)');
 		tempo += 5000;
 		fila.length = 0;
-		risposte = { agnes: () => attendi(400).then(() => 'echo NON-QUESTO') };
+		risposte = { deepseek: () => attendi(400).then(() => 'echo NON-QUESTO') };
 		const out = await terminale([[700, 'stampa la risposta di prova qui\r\r'], [2200, 'echo normale\r']], envTerm);
 		assert.ok(/doppio invio/.test(out) && /command not found: stampa/.test(out), out);
 		assert.ok(!out.includes('NON-QUESTO\n'), out);
@@ -520,7 +510,7 @@ function terminale(passi, env) {
 		if (!python) return console.log('      (python3 assente, salto)');
 		tempo += 5000;
 		fila.length = 0;
-		risposte = { agnes: 'echo DAL-GESTORE' };
+		risposte = { deepseek: 'echo DAL-GESTORE' };
 		// il socket compare dopo il prompt (la Bottega si apre adesso): il riconoscimento non e' acceso, la riga va a zsh,
 		// zsh non trova il comando e il gestore la passa ad Agnes; al prompt dopo parte la domanda
 		const tardi = path.join(TMP, 'tardi.sock');
@@ -537,7 +527,7 @@ function terminale(passi, env) {
 	fs.rmSync(path.join(TMP, 'tardi.sock'), { force: true });
 	await test('una domanda sui dati va a Melissa, con o senza MELISSA nella risposta del cervello', async () => {
 		tempo += 5000;
-		risposte = { agnes: 'MELISSA' };
+		risposte = { deepseek: 'MELISSA' };
 		const r = await chiedi({ azione: 'proponi', tipo: 'comando', cartella: progetto, richiesta: 'quanto abbiamo guadagnato ieri ?' });
 		assert.strictEqual(r.esito, 'ok');
 		assert.deepStrictEqual(r.risposta, ['Ieri le app hanno reso 14 euro.', 'AdMob 4 euro, Store 10 euro.']);
@@ -545,7 +535,7 @@ function terminale(passi, env) {
 		assert.strictEqual(domandeMelissa.pop(), 'quanto abbiamo guadagnato ieri ?');
 		assert.ok(/MELISSA/.test(fila[fila.length - 1].sis), 'il prompt dice quando passare a Melissa');
 		tempo += 5000;
-		risposte = { agnes: '# richiede dati che non si estraggono con comandi di shell' };
+		risposte = { deepseek: '# richiede dati che non si estraggono con comandi di shell' };
 		const r2 = await chiedi({ azione: 'proponi', tipo: 'comando', cartella: progetto, richiesta: 'quante ore ho fatto oggi' });
 		assert.strictEqual(r2.risposta.length, 2, 'anche una spiegazione senza comando passa a Melissa');
 		tempo += 5000;
@@ -553,7 +543,7 @@ function terminale(passi, env) {
 		assert.strictEqual(r3.esito, 'errore');
 		assert.ok(/Melissa non risponde/.test(r3.errore));
 		tempo += 5000;
-		risposte = { agnes: 'ls -la' };
+		risposte = { deepseek: 'ls -la' };
 		const r4 = await chiedi({ azione: 'proponi', tipo: 'comando', cartella: progetto, richiesta: 'elenca i file' });
 		assert.strictEqual(r4.comando, 'ls -la', 'un comando resta un comando');
 		assert.ok(!r4.risposta || !r4.risposta.length);

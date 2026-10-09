@@ -18,7 +18,7 @@ process.env.BOTTEGA_HOME = require('fs').mkdtempSync(path.join(require('os').tmp
 const OUT = path.join(__dirname, 'test-out');
 
 esbuild.buildSync({
-	entryPoints: ['jobs', 'assistant', 'cervello', 'nucleo', 'memoria', 'claude', 'scan', 'racconto', 'personaggi', 'riempitivi', 'memoria-contesto', 'memoria-personaggi'].map(n => path.join(SRC, n + '.ts')),
+	entryPoints: require('fs').readdirSync(SRC).filter(n => n.endsWith('.ts')).map(n => path.join(SRC, n)),
 	outdir: OUT,
 	format: 'cjs',
 	platform: 'node',
@@ -242,6 +242,7 @@ function makeAssistant(over = {}) {
 		appleStream: over.appleStream,
 		...(over.cervelli ? { cervelli: over.cervelli } : {}),
 		...(over.registraMemoria ? { registraMemoria: over.registraMemoria } : {}),
+		...(over.continuita ? { continuita: over.continuita } : {}),
 	};
 	const a = new asst.Assistant(deps);
 	// di default nessun ospite passa la parola a un altro (il 40%, CONTRATTI 9.11): chi lo prova fissa il suo caso
@@ -708,7 +709,7 @@ function makeAssistant(over = {}) {
 		await a.turn('annota: provare il widget', false);
 		await a.turn('ciao', false);
 		assert.deepStrictEqual(brains, ['agnes', 'agnes']);
-		assert.strictEqual(a.getState().brain, 'agnes');
+		assert.strictEqual(a.getState().brain, 'deepseek');
 	});
 
 	await test('Agnes da 429: lo stesso turno passa al Mac con gli strumenti, lo dice una volta', async () => {
@@ -724,37 +725,34 @@ function makeAssistant(over = {}) {
 		});
 		const out = await a.turn('com\'e\' messo il progetto Peak', false);
 		assert.ok(toolsSeen[0] > 5 && toolsSeen[0] < 20, `Apple riceve il sottoinsieme degli strumenti: ${toolsSeen}`);
-		assert.match(out, /Agnes non risponde, ti rispondo dal Mac\. Peak e' pulito\./);
+		assert.match(out, /DeepSeek non risponde, ti rispondo dal Mac\. Peak e' pulito\./);
 		assert.strictEqual(a.getState().brain, 'apple');
 		assert.ok(a.router.breakerOpen, 'interruttore aperto: i prossimi turni vanno subito al Mac');
 	});
 
 
-	await test('Agnes giu\': prima DeepSeek, poi il Mac; e con l\'interruttore aperto si va diretti a DeepSeek', async () => {
+	await test('DeepSeek primario, al fallimento riserva locale senza chiamare Agnes', async () => {
 		const brains = [];
 		let deepseekVa = true;
 		const cervelli = {
-			choice: () => ({ provider: 'agnes', model: 'agnes-3.0-flash', effort: 'normale' }),
+			choice: () => ({ provider: 'deepseek', model: 'deepseek-flash', effort: 'normale' }),
 			riservaDeepseek: () => ({ provider: 'deepseek', model: 'deepseek-flash', effort: 'normale' }),
-			streamFor: c => (c.provider === 'deepseek' ? async (m, t, onDelta) => {
+			streamFor: () => async (m, t, onDelta) => {
 				brains.push('deepseek');
 				if (!deepseekVa) throw new Error('DeepSeek ha risposto 500.');
 				onDelta({ content: 'Da DeepSeek.' });
-			} : undefined),
-			key: () => undefined, noteAgnes: () => {}, touch: () => {}, endConversation: () => {},
+			},
+			key: () => undefined, touch: () => {}, endConversation: () => {},
 		};
-		const { a } = makeAssistant({
-			apple: true,
-			cervelli,
-			stream: async () => (brains.push('agnes'), Promise.reject(new Error('Rete giu\' verso Agnes.'))),
+		const { a } = makeAssistant({ apple: true, cervelli,
+			stream: async () => { throw new Error('provider legacy non deve essere chiamato'); },
 			appleStream: async (m, t, onDelta) => (brains.push('apple'), onDelta({ content: 'Dal Mac.' })),
 		});
-		assert.match(await a.turn('ciao', false), /Agnes non risponde, ti rispondo con DeepSeek\. Da DeepSeek\./);
-		assert.strictEqual(a.getState().brain, 'deepseek');
-		assert.match(await a.turn('e adesso?', false), /Da DeepSeek\./);
+		assert.match(await a.turn('ciao', false), /Da DeepSeek/);
 		deepseekVa = false;
-		assert.match(await a.turn('e ora?', false), /Neanche DeepSeek risponde, ti rispondo dal Mac\. Dal Mac\./);
-		assert.deepStrictEqual(brains, ['agnes', 'deepseek', 'deepseek', 'deepseek', 'apple']);
+		assert.match(await a.turn('e ora?', false), /DeepSeek non risponde, ti rispondo dal Mac\. Dal Mac/);
+		assert.match(await a.turn('ancora?', false), /Dal Mac/);
+		assert.deepStrictEqual(brains, ['deepseek', 'deepseek', 'apple', 'apple']);
 	});
 
 	await test('guarda_schermo: chiede al Nucleo, a Melissa arriva solo il testo; senza permesso lo dice', async () => {
@@ -915,19 +913,19 @@ function makeAssistant(over = {}) {
 		};
 	}
 
-	await test('cervello scelto che risponde 402: la stessa domanda va ad Agnes, e Melissa lo dice', async () => {
+	await test('402 su DeepSeek non richiama il provider storico', async () => {
+		let legacyCalls = 0;
 		const cv = fakeCervelli({ provider: 'deepseek', model: 'deepseek-flash', effort: 'normale' }, {
-			stream: async () => {
-				throw new Error('senza credito');
-			},
+			stream: async () => { throw new Error('senza credito'); },
 		});
-		const { a } = makeAssistant({ stream: scriptedStream([[{ content: 'Ciao, sono io.' }]]) });
+		const { a } = makeAssistant({ apple: true,
+			stream: async () => { legacyCalls++; },
+			appleStream: async (m, t, cb) => cb({ content: 'Dal Mac.' }),
+		});
 		a.deps.cervelli = cv;
-		const answer = await a.turn('come va', false);
-		assert.strictEqual(answer, 'Ciao, sono io.');
-		assert.ok(a.getState().log.some(l => l.role === 'azione' && l.text === 'DeepSeek V4.1 Flash non risponde (senza credito): torno ad Agnes'));
-		assert.strictEqual(cv.rec.ended, 1, 'si torna ad Agnes');
-		assert.strictEqual(cv.rec.touched, 1);
+		assert.match(await a.turn('come va', false), /Dal Mac/);
+		assert.strictEqual(legacyCalls, 0);
+		assert.strictEqual(a.getState().brain, 'apple');
 	});
 
 	await test('Apple scelto a mano: risponde il Mac CON gli strumenti, senza dire che Agnes e\' a terra', async () => {
@@ -954,7 +952,7 @@ function makeAssistant(over = {}) {
 		});
 		a.deps.cervelli = cv;
 		const answer = await a.turn('dimmi una cosa', false);
-		assert.match(answer, /Apple Intelligence non risponde\. Torno ad Agnes/);
+		assert.match(answer, /Apple Intelligence non risponde\. Torno a DeepSeek/);
 		assert.strictEqual(cv.rec.ended, 1);
 	});
 
@@ -1520,7 +1518,7 @@ function makeAssistant(over = {}) {
 		assert.ok(suaVoce && /cifrate/.test(suaVoce.text), 'Elliot parla con la sua voce');
 		assert.ok(!nucleo.speaks.some(x => /passa_parola/.test(x.text || '')), 'la chiamata non si legge');
 		// la memoria, nello spool della Memoria: l'intervento e la chiusa si ricordano, la lettura lunga no
-		assert.ok(scritte.some(e => e.source === 'personaggio' && e.sid === 'elliot' && e.who === 'elliot' && e.text === 'Che vanno cifrate, subito.'));
+		assert.ok(scritte.some(e => e.source === 'personaggio' && e.sid === 'melissa' && e.who === 'elliot' && e.text === 'Che vanno cifrate, subito.'));
 		assert.ok(scritte.some(e => e.sid === 'melissa' && e.text === 'Hai sentito.'));
 		assert.ok(!scritte.some(e => /salva le password/.test(e.text)), 'la lettura di «racconta» no');
 		// entro un minuto dall'ultimo ospite la fine della lettura non basta: niente invito, e il registro lo dice
@@ -1675,7 +1673,7 @@ function makeAssistant(over = {}) {
 			// nello spool: la frase di Andrea con chi aveva la chiamata, le battute generate
 			assert.deepStrictEqual(scritte.find(e => e.who === 'andrea'), { ...scritte.find(e => e.who === 'andrea'), source: 'personaggio', sid: 'melissa', text: 'regge la build?' });
 			assert.ok(scritte.some(e => e.sid === 'melissa' && e.who === 'melissa' && e.text === 'Regge. Elliot, tu che dici?'));
-			assert.ok(scritte.some(e => e.sid === 'elliot' && e.who === 'elliot' && e.text === 'Regge, ma le chiavi no.'));
+			assert.ok(scritte.some(e => e.sid === 'melissa' && e.who === 'elliot' && e.text === 'Regge, ma le chiavi no.'));
 			assert.ok(scritte.every(e => /^barra-\d+-\d+-\d+$/.test(e.id) && typeof e.at === 'number'));
 			// 30 s di cache per personaggio e frase: la stessa domanda non rilancia il cli, e la battuta appena detta conta gia'
 			await a.turn('regge la build?', true);
@@ -1825,6 +1823,73 @@ function makeAssistant(over = {}) {
 			fs.rmSync(dir, { recursive: true, force: true });
 			p.carica([process.env.BOTTEGA_PERSONAGGI]);
 		}
+	});
+
+	await test('continuità: turno scritto una volta con persona e fonte Mac/iPhone', async () => {
+		const writes = [], reads = [];
+		const { a } = makeAssistant({
+			continuita: { leggi: async persona => { reads.push(persona); return 'Memoria condivisa verificata'; }, scrivi: (...args) => writes.push(args) },
+			stream: async (messages, tools, delta) => {
+				assert.ok(messages.some(m => (m.content || '').includes('Memoria condivisa verificata')));
+				delta({ content: 'Risposta certa.' });
+			},
+		});
+		await a.turn('Domanda uno', false);
+		assert.deepStrictEqual(writes.map(w => [w[0], w[1], w[3]]), [['melissa', 'andrea', 'bottega'], ['melissa', 'melissa', 'bottega']]);
+		writes.length = 0;
+		await a.askRemote('Domanda telefono');
+		assert.deepStrictEqual(writes.map(w => [w[0], w[1], w[3]]), [['melissa', 'andrea', 'bottega-ios'], ['melissa', 'melissa', 'bottega-ios']]);
+		assert.deepStrictEqual(reads, ['melissa', 'melissa']);
+	});
+
+	await test('continuità: cambio personaggio durante lettura non attribuisce risposta al nuovo ospite', async () => {
+		const writes = [];
+		let release;
+		const waiting = new Promise(resolve => { release = resolve; });
+		const { a } = makeAssistant({
+			continuita: { leggi: async () => { await waiting; return ''; }, scrivi: (...args) => writes.push(args) },
+			stream: async (messages, tools, delta) => { delta({ content: 'Risposta di Melissa.' }); },
+		});
+		const answering = a.turn('Domanda prima del cambio', false);
+		await a.setPersonaggio('krista');
+		assert.strictEqual(a.getState().personaggio, 'melissa');
+		release();
+		await answering;
+		assert.deepStrictEqual(writes.map(w => [w[0], w[1]]), [['melissa', 'andrea'], ['melissa', 'melissa']]);
+		assert.strictEqual(a.getState().personaggio, 'krista');
+	});
+
+	await test('continuità: VM lenta non blocca la risposta', async () => {
+		const { a } = makeAssistant({
+			continuita: { leggi: () => new Promise(() => {}), scrivi() {} },
+			stream: async (messages, tools, delta) => { delta({ content: 'Funziona anche senza VM.' }); },
+		});
+		const start = Date.now();
+		assert.strictEqual(await a.turn('Domanda senza VM', false), 'Funziona anche senza VM.');
+		assert.ok(Date.now() - start < 1200, 'il budget VM resta breve');
+	});
+
+	await test('continuità: coro conserva ogni speaker e lo stesso token, senza risposta aggregata duplicata', async () => {
+		const writes = [];
+		const { a } = makeAssistant({
+			nucleo: nucleoCheParla(),
+			continuita: { iniziaTurno: async () => 'chat-snapshot', leggi: async (persona, token) => { assert.strictEqual(token, 'chat-snapshot'); return ''; }, scrivi: (...args) => writes.push(args) },
+			stream: scriptedStream([
+				[{ content: 'Regge. Elliot, tu che dici?' }, PASSA('elliot')],
+				[{ content: 'Le chiavi vanno cifrate.' }],
+				[{ content: 'Hai sentito, Andrea.' }],
+			]),
+		});
+		a.wire(ctxProva());
+		await a.turn('Come va la build?', true);
+		assert.strictEqual(writes.filter(w => w[1] === 'andrea').length, 1);
+		assert.strictEqual(writes.filter(w => w[2] === 'Le chiavi vanno cifrate.').length, 1);
+		const guest = writes.find(w => w[2] === 'Le chiavi vanno cifrate.');
+		assert.strictEqual(guest[0], 'melissa', 'stanza originaria');
+		assert.strictEqual(guest[1], 'elliot', 'speaker reale');
+		assert.strictEqual(guest[5], undefined, 'nessun destinatario inventato per intervento');
+		assert.ok(writes.every(w => w[4] === 'chat-snapshot'));
+		assert.strictEqual(writes.length, 4, 'domanda, risposta host, intervento ospite, chiusa host');
 	});
 
 	// BOTTEGA_TEST_REALE=1 npm test

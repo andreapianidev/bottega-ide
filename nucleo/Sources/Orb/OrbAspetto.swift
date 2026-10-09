@@ -146,10 +146,17 @@ enum OrbAspetto {
     nonisolated(unsafe) static var aspetto = SferaAspetto.melissa
     nonisolated(unsafe) static var agitazione = Umore.neutra
 
-    /// A line by `chi` (the name from ChiParla) starts to sound; with its text (audio tags
-    /// included) the agitation follows its emotion, without it stays as it is.
+    #if os(macOS)
+    /// The desktop resolves names from its character files. iOS shares the appearance
+    /// rules and spring below without depending on desktop paths or ElevenLabsConfig.
     static func parla(chi: String, testo: String? = nil) {
-        let nuovo = ChiParla.aspetto(nome: chi)
+        parla(aspetto: ChiParla.aspetto(nome: chi), testo: testo)
+    }
+    #endif
+
+    /// Platform-independent appearance update; audio tags control the same agitation
+    /// on Mac and iPhone. An omitted text keeps the current agitation.
+    static func parla(aspetto nuovo: SferaAspetto, testo: String? = nil) {
         let ag = testo.map(Umore.agitazione) ?? agitazione
         guard nuovo != aspetto || ag != agitazione else { return }
         aspetto = nuovo

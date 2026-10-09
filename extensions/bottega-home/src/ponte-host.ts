@@ -141,7 +141,7 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 		// il cervello di Melissa (9.8): gli stessi metodi della barra del Mac
 		cervelli: deps.cervelli ? rotteCervelli(deps.cervelli) : undefined,
 		configTelefono: async () => ({
-			agnes: deps.cervelli?.()?.key('agnes') || await ctx.secrets.get('bottega.agnesKey'),
+			// Le credenziali Agnes storiche non vengono piu esportate all'iPhone.
 			deepseek: deps.cervelli?.()?.key('deepseek'),
 			elevenlabs: process.env.ELEVENLABS_API_KEY || segreto('elevenlabs.env', 'ELEVENLABS_API_KEY'),
 			voiceID: process.env.ELEVENLABS_VOICE_ID || segreto('elevenlabs.env', 'ELEVENLABS_VOICE_ID') || 'QITiGyM4owEZrBEf0QV8',

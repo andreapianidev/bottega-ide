@@ -491,28 +491,26 @@
         "bottega.terminale.cervello": {
           "type": "string",
           "enum": [
-            "agnes",
             "deepseek"
           ],
           "enumDescriptions": [
-            "Agnes 3.0 Flash, senza ragionamento: risponde subito, gratis.",
-            "DeepSeek, a consumo."
+            "DeepSeek Flash, con riserva Apple Intelligence."
           ],
-          "default": "agnes",
-          "description": "Il cervello del terminale. Per una richiesta sola: «#! deepseek ...» o «#! agnes ...». Se non risponde si passa all'altro e poi ad Apple Intelligence."
+          "default": "deepseek",
+          "description": "DeepSeek Flash per i comandi del terminale; Apple Intelligence come riserva locale. Le scelte Agnes precedenti migrano a DeepSeek."
         },
         "bottega.memoria.motore": {
           "type": "string",
           "enum": [
             "deepseek",
-            "agnes"
+            "apple"
           ],
           "enumDescriptions": [
-            "DeepSeek V4.1 Flash, a consumo: legge meglio orari, file e cosa non e' stato toccato.",
-            "Agnes 3.0 Flash, gratis."
+            "DeepSeek Flash, con riserva Apple Intelligence.",
+            "Apple Intelligence sul Mac."
           ],
           "default": "deepseek",
-          "description": "Chi scrive i riassunti della Memoria (sessioni, decisioni, fatti). Se DeepSeek non risponde o il credito finisce si passa ad Agnes e poi ad Apple Intelligence. Vale per i riassunti scritti da ora in poi."
+          "description": "Chi scrive i riassunti della Memoria. DeepSeek usa Apple Intelligence come riserva locale."
         },
         "bottega.nucleoPath": {
           "type": "string",
@@ -749,7 +747,7 @@
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=out/extension.js",
     "typecheck": "tsc --noEmit",
-    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/attivita-cline.cjs && node test/attivita-codex.cjs && node test/attivita-terminale.cjs && node test/attivita-sicurezza.cjs && node test/idee.cjs && node test/stato-refresh.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/whatsapp.cjs && node test/strumenti-connettori.cjs && node test/vercel.cjs && node test/vedetta-nativa.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs && node test/ponte-sessioni.cjs && node test/ponte-stanze.cjs && node test/avvisi.cjs && node test/aggiorna.cjs && node test/cline.cjs && node test/terminale.cjs && node test/appstore.cjs && node test/terminale-agnes.cjs && node test/strumenti-stanze.cjs && node test/conti.cjs && node test/occhio.cjs && node test/racconto.cjs && node test/riempitivi.cjs && node test/sessioni.cjs && node test/fonti-integrate.cjs && node test/stack-clienti.cjs"
+    "test": "node test/run.cjs && node test/stats.cjs && node test/regole.cjs && node test/stanze.cjs && node test/plancia.cjs && node test/attivita-cline.cjs && node test/attivita-codex.cjs && node test/attivita-terminale.cjs && node test/attivita-sicurezza.cjs && node test/idee.cjs && node test/stato-refresh.cjs && node test/cruscotto-ui.cjs && node test/connettori.cjs && node test/whatsapp.cjs && node test/strumenti-connettori.cjs && node test/vercel.cjs && node test/vedetta-nativa.cjs && node test/barra.cjs && node test/cervelli.cjs && node test/nativo.cjs && node test/ponte.cjs && node test/ponte-sessioni.cjs && node test/ponte-stanze.cjs && node test/avvisi.cjs && node test/aggiorna.cjs && node test/cline.cjs && node test/terminale.cjs && node test/appstore.cjs && node test/terminale-agnes.cjs && node test/strumenti-stanze.cjs && node test/conti.cjs && node test/occhio.cjs && node test/racconto.cjs && node test/riempitivi.cjs && node test/sessioni.cjs && node test/fonti-integrate.cjs && node test/stack-clienti.cjs && node --test test/continuita.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
