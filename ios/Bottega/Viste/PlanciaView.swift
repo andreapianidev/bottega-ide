@@ -11,6 +11,7 @@ import SwiftUI
 struct PlanciaView: View {
     let ponte: Ponte
     @Bindable var melissa: Melissa
+    @Bindable var worker: MacWorker
     let davanti: Bool
 
     typealias Stanza = Navigazione.Stanza
@@ -18,6 +19,7 @@ struct PlanciaView: View {
     @State private var testo = ""
     @State private var impostazioni = false
     @State private var cervello = false
+    @State private var previousIdleTimerDisabled: Bool?
     @FocusState private var scrivendo: Bool
 
     private var statoVisibile: StatoMac? { ponte.collegato ? ponte.stato ?? StatoMac.ultimo() : nil }
@@ -27,6 +29,7 @@ struct PlanciaView: View {
             Tinte.sfondo.ignoresSafeArea()
             VStack(spacing: 0) {
                 testata
+                aiutaMac
                 sfera
                 Picker("Stanza", selection: $nav.stanza) {
                     ForEach(Stanza.allCases, id: \.self) { s in
@@ -45,9 +48,13 @@ struct PlanciaView: View {
             }
         }
         // sulla scrivania (9.9): attaccato al Mac col cavo e con l'app davanti, lo schermo resta acceso
-        .onChange(of: sullaScrivania, initial: true) { _, si in
-            UIApplication.shared.isIdleTimerDisabled = si
+        .onChange(of: sullaScrivania || worker.keepsDisplayAwake, initial: true) { _, si in
+            if si {
+                if previousIdleTimerDisabled == nil { previousIdleTimerDisabled = UIApplication.shared.isIdleTimerDisabled }
+                UIApplication.shared.isIdleTimerDisabled = true
+            } else { ripristinaSchermo() }
         }
+        .onDisappear { ripristinaSchermo() }
         .onChange(of: nav.ascoltaSubito, initial: true) { _, si in
             // dal Centro di Controllo: la sfera comincia ad ascoltare
             guard si else { return }
@@ -73,6 +80,37 @@ struct PlanciaView: View {
     }
 
     // MARK: - pezzi
+
+    private var aiutaMac: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Toggle("Aiuta il Mac", isOn: $worker.enabled)
+                .font(.subheadline.weight(.semibold))
+                .tint(Tinte.ambra)
+            Text(worker.status)
+                .font(.caption)
+                .foregroundStyle(Tinte.tinta)
+            if worker.completed > 0, let milliseconds = worker.lastComputeMs {
+                Text("\(worker.completed) lavori inviati · ultimo calcolo \(Int(milliseconds.rounded())) ms")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(Tinte.tinta)
+            }
+            if worker.enabled {
+                Text("Memoria e lettura immagini per Bottega e Avo. App aperta e schermo acceso; pausa quando parli con Melissa.")
+                    .font(.caption2)
+                    .foregroundStyle(Tinte.tinta)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+    }
+
+    private func ripristinaSchermo() {
+        if let previousIdleTimerDisabled {
+            UIApplication.shared.isIdleTimerDisabled = previousIdleTimerDisabled
+            self.previousIdleTimerDisabled = nil
+        }
+    }
 
     private var testata: some View {
         HStack(spacing: 10) {

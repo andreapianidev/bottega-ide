@@ -18,6 +18,8 @@ import { fontiStanze } from './strumenti-stanze';
 import { pulisciTesto } from './attivita-sicurezza';
 import type { AgentActivity } from './attivita-tipi';
 import { quadroLavori } from './lavori-quadro';
+import { WorkerQueue } from './worker';
+import { registerWorkerPanel } from './worker-host';
 
 /* Il ponte dentro la Bottega: lo accende con Tailscale, gli passa Melissa e i lavori, e mostra il QR per
    collegare l'iPhone (comando "Collega l'iPhone"). Il protocollo e' in src/ponte.ts e in docs/CONTRATTI.md, 9.
@@ -59,6 +61,14 @@ function segreto(file: string, name: string): string | undefined {
 export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps): { notify(): void } {
 	const out = vscode.window.createOutputChannel('Bottega per iPhone', { log: true });
 	const dir = path.join(os.homedir(), '.bottega');
+	let worker: WorkerQueue | undefined;
+	try {
+		worker = new WorkerQueue({ home: dir });
+		registerWorkerPanel(ctx, worker);
+	} catch {
+		out.error('Calcolo condiviso: coda non disponibile, il ponte resta attivo.');
+		ctx.subscriptions.push(vscode.commands.registerCommand('bottega.openWorker', () => vscode.window.showWarningMessage('La coda del calcolo condiviso non e disponibile. Controlla il registro Bottega per iPhone.')));
+	}
 	const acceso = () => vscode.workspace.getConfiguration('bottega').get<boolean>('ponte.attivo', true);
 
 	// l'iPhone attaccato al Mac col cavo (9.9): lo dice il Nucleo con l'evento usb.iphone, si rilegge quando si riaccende
@@ -133,6 +143,7 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 
 	let impegnata = false;
 	const ponte = new Ponte({
+		worker,
 		dir,
 		versione: String(ctx.extension.packageJSON.version ?? ''),
 		stato: () => stato(deps),

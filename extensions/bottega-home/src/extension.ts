@@ -723,6 +723,8 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 				regiaMetalSignature = JSON.stringify(regiaChart(snapshot, regiaDigest));
 			} catch (e: any) { vscode.window.showWarningMessage(e?.message ?? String(e)); }
 			return;
+		case 'worker.open':
+			return void vscode.commands.executeCommand('bottega.openWorker');
 		case 'refresh':
 			return void fullScan();
 		case 'open':

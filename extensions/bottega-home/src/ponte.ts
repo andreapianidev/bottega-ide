@@ -8,6 +8,7 @@ import * as path from 'path';
 import type { BrainState, Cervelli, Effort, Provider } from './cervelli';
 import { CAMPI_TOKEN, DispositivoParziale, TOKEN_HEX } from './dispositivo';
 import { certificatoPonte } from './ponte-tls';
+import type { WorkerQueue } from './worker';
 
 /* Il ponte verso l'iPhone (docs/CONTRATTI.md, sezione 9). Un server HTTP che ascolta SOLO sull'indirizzo
    Tailscale del Mac: dal Wi-Fi di casa o da internet non si vede, dall'iPhone nella stessa rete Tailscale si'.
@@ -127,6 +128,8 @@ export interface PonteStato {
 }
 
 export interface PonteDeps {
+	/** Coda locale condivisa con Avo: solo elaborazioni finite sul telefono. */
+	worker?: WorkerQueue;
 	/** Cartella dei dati della Bottega (~/.bottega): li' sta il gettone. */
 	dir: string;
 	versione: string;
@@ -419,6 +422,7 @@ export class Ponte {
 					return resolve();
 				}
 				this.server = server;
+				this.scriviConnessioneWorker(ip);
 				this.errore = undefined;
 				this.deps.log(`ponte: in ascolto su ${ip}:${this.porta} (${this.rete?.nome})`);
 				this.pingTimer = setInterval(() => {
@@ -465,7 +469,25 @@ export class Ponte {
 		});
 	}
 
+	private scriviConnessioneWorker(ip: string): void {
+		if (!this.deps.worker) return;
+		const file = path.join(this.deps.dir, 'workerconnection.json');
+		const temp = `${file}.${process.pid}.tmp`;
+		try {
+			fs.writeFileSync(temp, JSON.stringify({ version: 1, url: `http://${ip}:${this.porta}` }), { mode: 0o600 });
+			fs.renameSync(temp, file);
+			fs.chmodSync(file, 0o600);
+		} catch { this.deps.log('worker: configurazione locale non salvata'); }
+	}
+
 	private chiudi(): void {
+		if (this.server && this.deps.worker) {
+			const file = path.join(this.deps.dir, 'workerconnection.json');
+			try {
+				const d = JSON.parse(fs.readFileSync(file, 'utf8'));
+				if (d.url === `http://${this.rete?.ip}:${this.porta}`) fs.unlinkSync(file);
+			} catch { /* configurazione gia tolta */ }
+		}
 		clearInterval(this.pingTimer);
 		this.pingTimer = undefined;
 		for (const r of this.flussi) r.end();
@@ -477,6 +499,54 @@ export class Ponte {
 		this.sicuro?.server.close();
 		this.sicuro?.server.closeAllConnections?.();
 		this.sicuro = undefined;
+	}
+
+	private async gestisciWorker(req: http.IncomingMessage, res: http.ServerResponse, url: string,
+		json: (code: number, body: unknown) => void): Promise<void> {
+		const q = this.deps.worker;
+		if (!q) return json(404, { errore: 'Il calcolo condiviso non e disponibile.' });
+		if (url === '/v1/worker/status' && req.method === 'GET') return json(200, q.status());
+		if (url === '/v1/worker/presence' && req.method === 'POST') {
+			const body = await leggiCorpo(req);
+			return json(200, { worker: q.presence(body.worker) });
+		}
+		if (url === '/v1/worker/jobs' && req.method === 'POST') {
+			return json(200, { job: q.enqueue(await leggiCorpo(req, 6 * 1024 * 1024)) });
+		}
+		const match = /^\/v1\/worker\/jobs\/([a-zA-Z0-9_.:-]{1,128})(\/cancel)?$/.exec(url);
+		if (match && req.method === (match[2] ? 'POST' : 'GET')) {
+			return json(200, { job: match[2] ? q.cancel(match[1]) : q.get(match[1]) });
+		}
+		if (url === '/v1/worker/complete' && req.method === 'POST') {
+			return json(200, q.complete(await leggiCorpo(req, 6 * 1024 * 1024)));
+		}
+		if (url === '/v1/worker/release' && req.method === 'POST') {
+			return json(200, { job: q.release(await leggiCorpo(req)) });
+		}
+		if (url === '/v1/worker/claim' && req.method === 'POST') {
+			const body = await leggiCorpo(req);
+			const deadline = Date.now() + 20_000;
+			while (!res.destroyed) {
+				const lease = q.claim(body);
+				if (lease.job || Date.now() >= deadline || body?.worker?.available === false) return json(200, lease);
+				// Presence writes wake fs.watch too: only changed jobs may restart a claim.
+				const signature = () => JSON.stringify(q.status().active.map(j => [j.id, j.state, j.attempts]));
+				const before = signature();
+				await new Promise<void>(resolve => {
+					let done = false;
+					let unsubscribe = () => {};
+					const finish = () => {
+						if (done) return;
+						done = true; clearTimeout(timer); unsubscribe(); res.off('close', finish); resolve();
+					};
+					const timer = setTimeout(finish, Math.max(1, deadline - Date.now()));
+					unsubscribe = q.onChange(() => { if (signature() !== before) finish(); });
+					res.once('close', finish);
+				});
+			}
+			return;
+		}
+		return json(405, { errore: 'Operazione di calcolo non valida.' });
 	}
 
 	private escluso(addr: string): boolean {
@@ -503,9 +573,10 @@ export class Ponte {
 			return json(401, { errore: 'Gettone non valido: ricollega l\'iPhone dalla Bottega.' });
 		}
 		const da = addr.replace(/^::ffff:/, '');
-		if (da !== '127.0.0.1' && da !== '::1') this.iphone = da; // una richiesta dal Mac stesso non e' l'iPhone
+		if (da !== '127.0.0.1' && da !== '::1' && da !== this.rete?.ip) this.iphone = da; // una richiesta dal Mac stesso non e' l'iPhone
 		const url = (req.url ?? '/').split('?')[0];
 		try {
+			if (url.startsWith('/v1/worker/')) return await this.gestisciWorker(req, res, url, json);
 			if (url === '/v1/assistente/config' && this.deps.configTelefono) {
 				if (req.method !== 'GET') return json(405, { errore: 'La configurazione si legge con GET.' });
 				if (!('encrypted' in req.socket) || !req.socket.encrypted) return json(403, { errore: 'La configurazione richiede HTTPS.' });
@@ -726,21 +797,21 @@ export function rotteCervelli(cervelli: () => CervelliPonte | undefined): RotteC
 	};
 }
 
-function leggiCorpo(req: http.IncomingMessage): Promise<any> {
+function leggiCorpo(req: http.IncomingMessage, max = MAX_CORPO): Promise<any> {
 	return new Promise((resolve, reject) => {
 		let size = 0;
 		const parts: Buffer[] = [];
 		const troppo = () => Object.assign(new Error('Richiesta troppo grande.'), { status: 413 });
-		if (Number(req.headers['content-length'] ?? 0) > MAX_CORPO) {
+		if (Number(req.headers['content-length'] ?? 0) > max) {
 			req.resume(); // si scarta senza tenerlo, cosi' la risposta 413 arriva
 			return reject(troppo());
 		}
 		req.on('data', (c: Buffer) => {
 			size += c.length;
-			if (size <= MAX_CORPO) parts.push(c);
+			if (size <= max) parts.push(c);
 		});
 		req.on('end', () => {
-			if (size > MAX_CORPO) return reject(troppo());
+			if (size > max) return reject(troppo());
 			try {
 				resolve(parts.length ? JSON.parse(Buffer.concat(parts).toString('utf8')) : {});
 			} catch {

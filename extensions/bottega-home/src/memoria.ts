@@ -45,7 +45,7 @@ export function resolveMemoriaDir(extensionPath: string): string | undefined {
 
 let nodeCache: string | undefined;
 /** `node` dell'utente (Node 22), serve `node:sqlite`. NON process.execPath (quello di Electron). */
-function resolveNode(): string {
+export function resolveNode(): string {
 	if (nodeCache) return nodeCache;
 	// Prima da PATH.
 	for (const dir of (process.env.PATH ?? '').split(':')) {
