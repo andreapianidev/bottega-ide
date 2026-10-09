@@ -51,7 +51,7 @@ CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
 	INSERT INTO memories_fts(rowid, title, text, project) VALUES (new.id, new.title, new.text, new.project);
 END;
 CREATE TABLE IF NOT EXISTS vectors (memoryId INTEGER PRIMARY KEY, dim INTEGER NOT NULL, vec BLOB NOT NULL);
-CREATE TABLE IF NOT EXISTS queue (sessionId TEXT PRIMARY KEY, reason TEXT, at INTEGER);
+CREATE TABLE IF NOT EXISTS queue (sessionId TEXT PRIMARY KEY, reason TEXT, at INTEGER, tries INTEGER NOT NULL DEFAULT 0, firstFailAt INTEGER);
 CREATE TABLE IF NOT EXISTS spool_offsets (file TEXT PRIMARY KEY, offset INTEGER NOT NULL, at INTEGER);
 CREATE TABLE IF NOT EXISTS agnes_calls (at INTEGER NOT NULL);
 `;
@@ -70,6 +70,16 @@ export class Store {
 		}
 		this.db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=8000; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=OFF;');
 		this.db.exec(SCHEMA);
+		// Colonne aggiunte dopo: i tentativi falliti per motivi passeggeri di ogni elemento in coda (core.mjs, drain).
+		const queueCols = new Set(this.db.prepare('PRAGMA table_info(queue)').all().map(c => c.name));
+		for (const [name, def] of [['tries', 'INTEGER NOT NULL DEFAULT 0'], ['firstFailAt', 'INTEGER']]) {
+			if (queueCols.has(name)) continue;
+			try {
+				this.db.exec(`ALTER TABLE queue ADD COLUMN ${name} ${def}`);
+			} catch {
+				// aggiunta nel frattempo da un altro processo
+			}
+		}
 		this.cache = new Map();
 	}
 

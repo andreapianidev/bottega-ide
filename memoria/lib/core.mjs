@@ -441,18 +441,53 @@ function alive(pid) {
 	}
 }
 
+// Il lucchetto del worker porta un battito (`beat`): chi lo tiene lo rinnova ogni BEAT_MS e a ogni elemento della
+// coda. Un riassunto puo' durare piu' di 8 minuti (DeepSeek 2 + Apple 2 + attese), quindi l'eta' del lucchetto non
+// dice niente; dice qualcosa il battito fermo. LOCK_STALE_MS sta sopra il blocco sincrono piu' lungo (Apple
+// Intelligence via spawnSync, 120 s, piu' i vettori, 30 s), durante il quale il timer non puo' battere.
+const BEAT_MS = 30_000;
+export const LOCK_STALE_MS = 5 * 60_000;
+const LEGACY_LOCK_STALE_MS = 30 * 60_000; // lucchetto senza battito, scritto da una versione precedente
+let beatTimer;
+
+/** Il lucchetto letto da disco e' abbandonato? Pura: `isAlive(pid)` dice se il processo esiste. */
+export function lockStale(d, now = Date.now(), isAlive = alive) {
+	if (!d || !Number.isFinite(Number(d.pid)) || !isAlive(Number(d.pid))) return true;
+	if (Number.isFinite(Number(d.beat))) return now - Number(d.beat) > LOCK_STALE_MS;
+	return !Number.isFinite(Number(d.at)) || now - Number(d.at) > LEGACY_LOCK_STALE_MS;
+}
+
+function writeLock(at) {
+	const tmp = `${LOCK_PATH}.${process.pid}.tmp`;
+	fs.writeFileSync(tmp, JSON.stringify({ pid: process.pid, at, beat: Date.now() }), { mode: 0o600 });
+	fs.renameSync(tmp, LOCK_PATH); // atomico: chi legge non vede mai un JSON a meta'
+}
+
+/** Rinnova il battito, solo se il lucchetto e' ancora nostro. */
+export function beat() {
+	try {
+		const d = JSON.parse(fs.readFileSync(LOCK_PATH, 'utf8'));
+		if (d.pid === process.pid) writeLock(d.at);
+	} catch {
+		// lucchetto sparito o illeggibile: chi lo prende dopo se ne accorge
+	}
+}
+
 function lock() {
 	for (let i = 0; i < 2; i++) {
 		try {
 			const fd = fs.openSync(LOCK_PATH, 'wx', 0o600);
-			fs.writeSync(fd, JSON.stringify({ pid: process.pid, at: Date.now() }));
+			const now = Date.now();
+			fs.writeSync(fd, JSON.stringify({ pid: process.pid, at: now, beat: now }));
 			fs.closeSync(fd);
+			clearInterval(beatTimer);
+			beatTimer = setInterval(beat, BEAT_MS);
+			beatTimer.unref?.();
 			return true;
 		} catch {
 			try {
 				const d = JSON.parse(fs.readFileSync(LOCK_PATH, 'utf8'));
-				const stale = !alive(d.pid) || Date.now() - d.at > 30 * 60_000;
-				if (!stale) return false;
+				if (!lockStale(d)) return false;
 				fs.unlinkSync(LOCK_PATH);
 			} catch {
 				try {
@@ -467,6 +502,8 @@ function lock() {
 }
 
 function unlock() {
+	clearInterval(beatTimer);
+	beatTimer = undefined;
 	try {
 		const d = JSON.parse(fs.readFileSync(LOCK_PATH, 'utf8'));
 		if (d.pid === process.pid) fs.unlinkSync(LOCK_PATH);
@@ -532,8 +569,50 @@ export async function runWorker({ motivo = 'stop', sessione } = {}) {
 	return { ok: true };
 }
 
+// Codici di errore di Node e di undici che vogliono dire "rete o sistema occupati adesso", non "richiesta sbagliata".
+const TRANSIENT_CODES = new Set([
+	'ECONNRESET', 'ECONNREFUSED', 'ECONNABORTED', 'ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT', 'ENETUNREACH', 'ENETDOWN',
+	'EHOSTUNREACH', 'EHOSTDOWN', 'EPIPE', 'EBUSY', 'EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM',
+	'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET', 'UND_ERR_CLOSED',
+]);
+
+/**
+ * Un riassunto fallito va riprovato ('transitorio': rete assente, tempo scaduto, HTTP 408/429/5xx, provider in pausa,
+ * database occupato) o lasciato andare ('definitivo': richiesta rifiutata, sessione sparita, tutto il resto)? Pura.
+ * Nel dubbio e' definitivo: un elemento rotto non deve restare in coda per sempre.
+ */
+export function classifyFailure(e) {
+	if (!e) return 'definitivo';
+	if (e instanceof RateLimited || e instanceof RetryableGenerationError) return 'transitorio';
+	if (e.name === 'AbortError' || e.name === 'TimeoutError') return 'transitorio';
+	for (const x of [e, e.cause]) {
+		if (x && TRANSIENT_CODES.has(x.code)) return 'transitorio';
+	}
+	// node:sqlite: SQLITE_BUSY (5) e SQLITE_LOCKED (6), anche nelle varianti estese
+	if (e.code === 'ERR_SQLITE_ERROR' && [5, 6].includes(Number(e.errcode) & 0xff)) return 'transitorio';
+	const msg = String(e.message || e);
+	if (/database is (locked|busy)/i.test(msg)) return 'transitorio';
+	if (/\bHTTP (408|429|5\d\d)\b/.test(msg)) return 'transitorio';
+	return 'definitivo';
+}
+
+// Un elemento che fallisce sempre "per motivi passeggeri" si lascia andare quando ha fallito almeno QUEUE_MAX_TRIES
+// volte E il primo fallimento ha piu' di QUEUE_MAX_FAIL_MS. Servono tutte e due: il solo conteggio butterebbe la coda
+// durante un pomeriggio senza rete (ogni Stop e' un giro), la sola eta' la butterebbe al risveglio da un weekend a
+// Mac spento, quando non c'e' stato nessun tentativo.
+export const QUEUE_MAX_TRIES = 12;
+export const QUEUE_MAX_FAIL_MS = 3 * 86_400_000; // un weekend di credito finito o di provider giu' non butta niente
+
+/** Pura: l'elemento in coda (`tries` fallimenti passeggeri, il primo a `firstFailAt`) va abbandonato? */
+export function giveUpTransient(item, now = Date.now()) {
+	const tries = Number(item?.tries) || 0;
+	const first = Number(item?.firstFailAt);
+	return tries >= QUEUE_MAX_TRIES && Number.isFinite(first) && now - first >= QUEUE_MAX_FAIL_MS;
+}
+
 export async function drain(store) {
 	for (let guard = 0; guard < 50; guard++) {
+		beat();
 		ingest(store);
 		const item = store.get('SELECT * FROM queue ORDER BY at ASC LIMIT 1');
 		if (!item) return;
@@ -546,13 +625,25 @@ export async function drain(store) {
 			await summarizeSession(item.sessionId, { store, maxWaitMs: 5 * 60_000 });
 			store.run('DELETE FROM queue WHERE sessionId = ?', item.sessionId);
 		} catch (e) {
-			if (e instanceof RateLimited || e instanceof RetryableGenerationError) {
-				log(`worker: ${e.message}, riprovo piu' tardi`);
-				store.run('UPDATE sessions SET lastError = ? WHERE id = ?', String(e.message).slice(0, 300), item.sessionId);
+			const msg = String(e?.message || e).slice(0, 300);
+			if (classifyFailure(e) === 'transitorio') {
+				const now = Date.now();
+				const tries = (Number(item.tries) || 0) + 1;
+				const firstFailAt = Number(item.firstFailAt) || now;
+				if (!giveUpTransient({ tries, firstFailAt }, now)) {
+					log(`worker: ${msg}, riprovo piu' tardi (tentativo ${tries})`);
+					store.run('UPDATE sessions SET lastError = ? WHERE id = ?', msg, item.sessionId);
+					// in fondo alla coda: un elemento che fallisce da solo non ferma gli altri al giro dopo
+					store.run('UPDATE queue SET tries = ?, firstFailAt = ?, at = ? WHERE sessionId = ?', tries, firstFailAt, now, item.sessionId);
+					return { deferred: true };
+				}
+				log(`worker: riassunto ${item.sessionId.slice(0, 8)} abbandonato dopo ${tries} tentativi: ${msg}`);
+				store.run('UPDATE sessions SET attempts = attempts + 1, lastError = ? WHERE id = ?', `abbandonato dopo ${tries} tentativi: ${msg}`.slice(0, 300), item.sessionId);
+				store.run('DELETE FROM queue WHERE sessionId = ?', item.sessionId);
 				return { deferred: true };
 			}
-			log(`worker: riassunto ${item.sessionId.slice(0, 8)} fallito: ${e?.message || e}`);
-			store.run('UPDATE sessions SET attempts = attempts + 1, lastError = ? WHERE id = ?', String(e?.message || e).slice(0, 300), item.sessionId);
+			log(`worker: riassunto ${item.sessionId.slice(0, 8)} fallito: ${msg}`);
+			store.run('UPDATE sessions SET attempts = attempts + 1, lastError = ? WHERE id = ?', msg, item.sessionId);
 			store.run('DELETE FROM queue WHERE sessionId = ?', item.sessionId);
 		}
 	}

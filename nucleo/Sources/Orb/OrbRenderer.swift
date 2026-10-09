@@ -132,6 +132,18 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
     private var spectrumS = [Float](repeating: 0, count: AudioLevels.bandCount)
     /// This renderer's own way to OrbAspetto (who speaks): about 0.4 s, never a jump.
     private var molla = OrbMolla()
+    /// The spring was still moving after the last frame drawn (true before the first one, so
+    /// the first frame, which jumps there, also tells the panel).
+    private var mollaInMoto = true
+    /// Called (on main, after the frame) when the spring arrives: the panel can stop the frames
+    /// it kept going for the transition (the docked orb at rest goes back to 0% CPU).
+    var onFermo: (@MainActor () -> Void)?
+
+    /// The spring has somewhere to go: the shape, tint or agitation of who speaks differ from
+    /// what the last frame showed. The panel keeps drawing while this is true, even at rest.
+    var inTransito: Bool {
+        !molla.ferma(verso: OrbAspetto.aspetto, agitazione: OrbAspetto.agitazione)
+    }
 
     init?(device: MTLDevice, library lib: MTLLibrary, pixelFormat: MTLPixelFormat) {
         // One command queue for the whole Nucleo (MetalEngine), when we are on its device.
@@ -292,6 +304,13 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
         // first frame they are there at once
         molla.passo(dt: dt, verso: OrbAspetto.aspetto, agitazione: OrbAspetto.agitazione,
                     salta: primo || MetalEngine.shared.reduceMotion)
+        // Arrived: tell the panel once, after this frame, so a view drawing only for the
+        // transition goes back to still (at rest the docked orb must cost 0% CPU).
+        let ancoraInMoto = !molla.ferma(verso: OrbAspetto.aspetto, agitazione: OrbAspetto.agitazione)
+        if mollaInMoto && !ancoraInMoto, let cb = onFermo {
+            DispatchQueue.main.async { MainActor.assumeIsolated { cb() } }
+        }
+        mollaInMoto = ancoraInMoto
 
         if state != lastState { prevState = lastState; lastState = state; stateChangeTime = now; impulseVel += 7.0 }
         let mix = Float(min(1.0, max(0.0, (now - stateChangeTime) / 0.35)))

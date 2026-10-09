@@ -241,19 +241,25 @@ L'estensione la usa con `--json`.
 
 Soglie dei riassunti: al primo `Stop` con almeno 15 osservazioni, poi ogni 25 nuove osservazioni e non
 prima di 20 minuti dall'ultimo; `SessionEnd` riassume sempre se c'e' qualcosa di nuovo; `SessionStart`
-recupera le sessioni ferme da 30 minuti senza `SessionEnd`. Motore (dall'08/10/2026): quello scelto
-nell'impostazione `bottega.memoria.motore`, `deepseek` (predefinito) o `agnes`. L'estensione lo passa alla
-Memoria con `motore <deepseek|agnes>` all'avvio e a ogni cambio; la Memoria lo tiene in `meta.motore_riassunti`.
-Riserva (09/10/2026): quando Agnes e' satura (429, o un'attesa di oltre 15 s nella finestra dei 6 al minuto) o non
-risponde, si passa sempre a DeepSeek Flash, anche con il motore `agnes`; Apple Intelligence solo se DeepSeek manca
-(chiave assente, in pausa dopo un 401/402, o appena fallito come primo motore).
-`motore` senza argomento lo mostra (`--json`: `{motore, deepseekUsabile}`); `status --json` ha `engines.deepseek` e
-`engines.riassunti`. DeepSeek `deepseek-flash` (V4.1 Flash, `reasoning_effort: low`, testo fino a 40.000 caratteri,
-chiave `DEEPSEEK_API_KEY` o `~/.secrets/deepseek-harness.env`): un 401 o 402 lo mette da parte per un'ora
-(`meta.deepseek_blocked_until`), qualsiasi errore passa ad Agnes. Poi Agnes `agnes-3.0-flash` (massimo 6
-richieste al minuto, 12.000 caratteri), riserva Apple Intelligence tramite `nucleo --cli generate` (testo tagliato a
-7000 caratteri) solo se Agnes rifiuta o non risponde. `--solo-agnes` salta DeepSeek. Nella trascrizione ogni
+recupera le sessioni ferme da 30 minuti senza `SessionEnd`. Motore: DeepSeek `deepseek-flash` (V4.1 Flash,
+`reasoning_effort: low`, testo fino a 40.000 caratteri, chiave `DEEPSEEK_API_KEY` o `~/.secrets/deepseek-harness.env`);
+un 401 o 402 lo mette da parte per un'ora (`meta.deepseek_blocked_until`). Riserva Apple Intelligence tramite
+`nucleo --cli generate` (testo tagliato a 7000 caratteri) solo se DeepSeek manca, e' in pausa o fallisce. Agnes e' stato
+ritirato il 9/10/2026: `agnesGenerate` lancia un errore e `--solo-agnes` viene rifiutato. `meta.motore_riassunti` =
+`apple` mette Apple Intelligence per primo; qualsiasi altro valore, compreso il vecchio `agnes`, vale DeepSeek. `motore` senza argomento lo mostra (`--json`: `{motore,
+deepseekUsabile}`); `status --json` ha `engines.deepseek` e `engines.riassunti`. Nella trascrizione ogni
 risposta di Claude entra fino a 1500 caratteri. Nessun modello da scaricare.
+
+Coda dei riassunti (`queue`, `lib/core.mjs` `drain`, 9/10/2026). Un riassunto fallito si classifica con
+`classifyFailure`: **transitorio** (rete assente, tempo scaduto, HTTP 408, 429 o 5xx, provider in pausa, database
+occupato) o **definitivo** (richiesta rifiutata, sessione sparita, tutto il resto). Un transitorio lascia la sessione
+in coda, conta il tentativo (`queue.tries`, primo fallimento in `queue.firstFailAt`), la manda in fondo alla coda e
+ferma il giro; non tocca `sessions.attempts`. Si lascia andare solo quando ha almeno `QUEUE_MAX_TRIES` = 12 tentativi
+**e** il primo fallimento ha piu' di 3 giorni (`giveUpTransient`): allora, come un definitivo, `sessions.attempts`
+sale di uno e la sessione esce dalla coda. Lucchetto del worker (`~/.bottega/memoria/worker.lock`, `{pid, at, beat}`):
+chi lo tiene rinnova `beat` ogni 30 s e a ogni elemento della coda; e' abbandonato se il processo non c'e' piu' o se
+`beat` e' fermo da oltre 5 minuti (`lockStale`), mai per l'eta' del lavoro. Un lucchetto senza `beat` (versione
+precedente) vale ancora per 30 minuti.
 
 Schema JSON di una voce restituita da `search`/`recent`:
 `{"id": 12, "kind": "riassunto|fatto|decisione|nota|prompt", "project": "Peak", "projectPath": "...",
@@ -2478,8 +2484,19 @@ Claude Code, dal terminale e dalla Bottega.
   «...»` (240 caratteri al piu'; la frase appena detta da Andrea non si ripete); se ce ne sono «Ti torna in mente anche:»
   con i ricordi nella stessa forma; la frase del mestiere; e la regola `REGOLA_MEMORIA` (richiamare come chi si ricorda,
   col giorno giusto, una volta e senza forzare; niente ripetizioni, niente ricordi inventati, niente elenchi). La mod e la barra la chiamano con `~/.bottega/bin/node
-  ~/.bottega/memoria-app/cli.mjs` (la copia installata, la stessa degli hook), con cache di 30 s per personaggio.
-  L'iPhone resta con la sua copia in `UserDefaults` finche' il ponte non porta queste letture.
+  ~/.bottega/memoria-app/cli.mjs` (la copia installata, la stessa degli hook), con una cache di 30 s per personaggio
+  **e frase**: la chiave e' `<chiave>\n<frase>` (nella barra, `MemoriaPersonaggi.dati`, la frase con gli spazi compattati
+  e al piu' 300 caratteri; nella mod, `sezioneRicordi`, la frase senza spazi ai bordi), cosi' cambiando argomento entro
+  30 s non tornano i ricordi della domanda di prima. Nella barra una battuta nuova del personaggio o di Andrea aggiorna
+  subito `ultime` o `andrea` in tutte le voci in cache di quel personaggio, senza aspettare che scadano.
+  **L'iPhone** legge la stessa memoria dal Mac, col Mac collegato: `POST /v1/personaggio {chi, frase}` sul ponte
+  (`Ponte.personaggio`, al piu' 1,8 s), a cui il Mac risponde `{memoria, letture}` da `perPersonaggio` della barra,
+  quindi con la stessa cache e lo stesso testo (`fraseMemoria`), piu' la continuita' della VM e le letture degli
+  strumenti di quel personaggio. Lo chiede quando un personaggio interviene (`aTre`) o dice la sua nel giro (`coro`);
+  quando un personaggio ha la chiamata e risponde lui (`rispondi`) arriva solo la memoria di Melissa
+  (`memoriaMelissa`). Senza Mac collegato, o oltre 1,8 s, la lettura vale niente e l'ospite risponde senza. In ogni
+  caso l'iPhone aggiunge al prompt la sua copia locale in `UserDefaults` (`detti-personaggi`, `Detti.prompt`: le ultime
+  5 battute di quel personaggio dette sull'iPhone nelle ultime 12 ore), che serve solo a non ripetersi.
 
 **Provenienza dei personaggi e storico incerto (9 ottobre 2026).** Lo spool conserva i campi
 `sid` (stanza/personaggio destinatario della conversazione), `who` (autore esplicitamente registrato) e,

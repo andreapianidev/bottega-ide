@@ -494,7 +494,14 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
     // of glyphs with a light head (CONTRATTI 9.11, «La sfera di chi parla»)
     if (code > 0.001) {
         float3 green = u.p7.xyz * u.p8.y;
-        float2 m = p / (R * 2.3) + 0.5;
+        // the grid (columns, rows, glyph size) hangs on the base radius, not on the live R that beats
+        // with the heart, the breath and the voice: on R the columns trembled at every beat. Only the
+        // disc below follows the living sphere.
+        const float gridR = 0.46;
+        float2 m = p / (gridR * 2.3) + 0.5;
+        // the clock of the rain wrapped at 4096 s: after hours of a running renderer the product
+        // time x rate went past float precision and the glyphs stopped changing
+        float tRain = fmod(time, 4096.0);
         const float cols = 26.0;
         float cw = 1.0 / cols, ch = cw * 1.45;
         float colId = floor(m.x / cw);
@@ -502,10 +509,10 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
         float speed = (0.25 + 0.75 * hc) * (1.0 + 1.6 * loud + 0.8 * agit);
         float yDown = 1.0 - m.y;
         float len = 0.35 + 0.45 * orb_hash21(float2(colId, 3.1));
-        float head = fract(time * speed * 0.45 + hc * 7.0);
+        float head = fract(tRain * speed * 0.45 + hc * 7.0);
         float behind = fract(head - yDown + 1.0);
         float trail = behind < len ? exp(-behind / len * 3.2) : 0.0;
-        float head2 = fract(time * speed * 0.27 + hc * 13.0);
+        float head2 = fract(tRain * speed * 0.27 + hc * 13.0);
         float behind2 = fract(head2 - yDown + 1.0);
         trail = max(trail, behind2 < len * 0.6 ? 0.45 * exp(-behind2 / (len * 0.6) * 3.2) : 0.0);
         float rowId = floor(yDown / ch);
@@ -514,7 +521,7 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
         float glyph = 0.0;
         if (all(inside >= 0.0) && all(inside < 1.0)) {
             float2 sub = floor(inside * float2(3.0, 5.0));
-            float tick = floor(time * (1.5 + 5.0 * orb_hash21(float2(colId, rowId))));
+            float tick = fmod(floor(tRain * (1.5 + 5.0 * orb_hash21(float2(colId, rowId)))), 1024.0);
             float bit = orb_hash21(float2(colId * 7.0 + sub.x + tick * 0.37, rowId * 11.0 + sub.y * 3.0));
             glyph = bit > 0.42 ? 1.0 : 0.0;
         }

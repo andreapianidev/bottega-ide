@@ -198,8 +198,18 @@ struct OrbMolla {
         tinta += (tintaVuole - tinta) * k
         agit += (agitazione - agit) * k
         angolo += dt * (0.15 + 0.6 * agit)
+        // close enough: land exactly on the target, so a sphere that stops drawing (docked, at rest)
+        // stays on the shape and tint it was going to, not on a 99% that never ends
+        if ferma(verso: a, agitazione: agitazione) {
+            pesi = a.pesi
+            if let c = a.colore { colore = c }
+            tinta = tintaVuole
+            agit = agitazione
+        }
     }
 
+    /// True when the spring has arrived: a renderer that draws only on change (the docked orb
+    /// at rest) keeps drawing until this is true, then stops.
     func ferma(verso a: SferaAspetto, agitazione: Float) -> Bool {
         let d = abs(pesi - a.pesi)
         return d.x + d.y + d.z < 0.01 && abs(tinta - (a.colore == nil ? 0 : 0.85)) < 0.005 && abs(agit - agitazione) < 0.005

@@ -314,6 +314,8 @@ final class OrbPanel: NSObject, NSWindowDelegate {
                     return
                 }
                 r.state = me.state.rawValue
+                // the spring of who speaks has arrived: the frames kept for it can stop
+                r.onFermo = { OrbPanel.shared.updateRendering() }
                 v.delegate = r
                 v.onClick = { Out.event("orb.clicked", ["mode": OrbPanel.shared.presentation.rawValue]) }
                 v.onMoved = { OrbPanel.shared.saveOrigin(for: OrbPanel.shared.presentation) }
@@ -340,8 +342,10 @@ final class OrbPanel: NSObject, NSWindowDelegate {
     /// The rhythm comes from the shared engine: 60 fps when the orb reacts to a voice,
     /// 30 when it only breathes, 0 when nobody can see it. Docked and at rest it stays
     /// still on its last frame (the Nucleo at rest must stay at 0% CPU): it moves while it
-    /// listens, speaks, thinks or shows an error. With Reduce motion a resting orb draws
-    /// one frame when something changes.
+    /// listens, speaks, thinks or shows an error, and while the spring of who speaks is still
+    /// on its way (about 0.6 s after the voice ends: back to Melissa's shape and colour, then
+    /// still; the renderer calls back here when it arrives). With Reduce motion a resting orb
+    /// draws one frame when something changes (and the spring jumps there at once).
     private func updateRendering() {
         guard let v = orbView else { return }
         let engine = MetalEngine.shared
@@ -349,7 +353,11 @@ final class OrbPanel: NSObject, NSWindowDelegate {
         let lively = state == .listening || state == .speaking
         let client: MetalEngine.Client = presentation == .docked ? .orbDocked : .orb
         // In the dock "lively" is anything but idle (thinking and error move too).
-        let moving = presentation == .docked ? state != .idle : lively
+        // Who speaks changed (a voice ended, or began): the docked orb keeps drawing until the
+        // spring arrives, or a single frame would leave it for ever a third of the way there.
+        // The big one already breathes at 30 fps and gets there on its own.
+        let inTransito = renderer?.inTransito ?? false
+        let moving = presentation == .docked ? state != .idle || inTransito : lively
         let fps = engine.fps(for: client, visible: onScreen, lively: moving)
         engine.noteRhythm(client, fps: fps, visible: onScreen)
         if fps > 0 {

@@ -820,7 +820,11 @@ struct VF { @builtin(position) pos: vec4f };
 	// testa chiara (CONTRATTI 9.11, «La sfera di chi parla»); uguale al Nucleo e ad Avo
 	if (codice > 0.001) {
 		let verde = u.p8.xyz * u.p9.y;
-		let m = p / (R * 2.3) + 0.5;
+		// la griglia (colonne, righe, misura dei glifi) sta sul raggio di base, non su R vivo che batte col cuore, il
+		// respiro e la voce: su R le colonne tremavano a ogni battito. Solo il disco qui sotto segue la sfera viva
+		let m = p / (0.46 * 2.3) + 0.5;
+		// l'orologio della pioggia gira a 4096 s: dopo ore tempo x frequenza supera la precisione del f32 e i glifi si fermano
+		let tPioggia = tempo % 4096.0;
 		let cw = 1.0 / 26.0;
 		let ch = cw * 1.45;
 		let colId = floor(m.x / cw);
@@ -828,10 +832,10 @@ struct VF { @builtin(position) pos: vec4f };
 		let velocita = (0.25 + 0.75 * hc) * (1.0 + 1.6 * forte + 0.8 * agitazione);
 		let yGiu = 1.0 - m.y;
 		let lungo = 0.35 + 0.45 * hash21(vec2f(colId, 3.1));
-		let testa1 = fract(tempo * velocita * 0.45 + hc * 7.0);
+		let testa1 = fract(tPioggia * velocita * 0.45 + hc * 7.0);
 		let dietro = fract(testa1 - yGiu + 1.0);
 		var scia = select(0.0, exp(-dietro / lungo * 3.2), dietro < lungo);
-		let testa2 = fract(tempo * velocita * 0.27 + hc * 13.0);
+		let testa2 = fract(tPioggia * velocita * 0.27 + hc * 13.0);
 		let dietro2 = fract(testa2 - yGiu + 1.0);
 		scia = max(scia, select(0.0, 0.45 * exp(-dietro2 / (lungo * 0.6) * 3.2), dietro2 < lungo * 0.6));
 		let riga = floor(yGiu / ch);
@@ -840,7 +844,7 @@ struct VF { @builtin(position) pos: vec4f };
 		var glifo = 0.0;
 		if (all(dentro >= vec2f(0.0)) && all(dentro < vec2f(1.0))) {
 			let pezzo = floor(dentro * vec2f(3.0, 5.0));
-			let scatto = floor(tempo * (1.5 + 5.0 * hash21(vec2f(colId, riga))));
+			let scatto = floor(tPioggia * (1.5 + 5.0 * hash21(vec2f(colId, riga)))) % 1024.0;
 			let bit = hash21(vec2f(colId * 7.0 + pezzo.x + scatto * 0.37, riga * 11.0 + pezzo.y * 3.0));
 			glifo = select(0.0, 1.0, bit > 0.42);
 		}
