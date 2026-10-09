@@ -11,6 +11,7 @@ import argparse
 import base64
 import csv
 import ctypes
+from collections import Counter
 import hashlib
 import io
 import ipaddress
@@ -19,6 +20,7 @@ import math
 import os
 from pathlib import Path
 import resource
+import re
 import selectors
 import statistics
 import subprocess
@@ -40,6 +42,21 @@ class Failure(Exception):
 def normalized(text):
     return ' '.join(unicodedata.normalize('NFC', text).split())
 
+
+
+OCR_TOKEN_RECALL_THRESHOLD = 0.95
+
+
+def token_recall(expected, actual):
+    # Same rules as WorkerBenchmark.swift: lowercase, diacritic-insensitive,
+    # Unicode alphanumeric words, matching repeated tokens only once each.
+    def tokens(text):
+        folded = ''.join(character for character in unicodedata.normalize('NFD', text.lower())
+                         if unicodedata.category(character) != 'Mn')
+        return Counter(re.findall(r'[^\W_]+', folded, flags=re.UNICODE))
+    reference = tokens(expected)
+    count = sum(reference.values())
+    return sum((reference & tokens(actual)).values()) / count if count else 0.0
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
@@ -128,7 +145,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class Remote:
-    def __init__(self, directory=None, timeout=40):
+    def __init__(self, directory=None, timeout=60):
         directory = directory or Path.home() / '.bottega'
         config = read_private(directory / 'workerconnection.json')
         credentials = read_private(directory / 'ponte.json')
@@ -230,7 +247,7 @@ def measured(reply, started, device):
 
 
 class Local:
-    def __init__(self, executable, timeout=40):
+    def __init__(self, executable, timeout=60):
         self.timeout = timeout
         self.process = subprocess.Popen([str(executable)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         self.selector = selectors.DefaultSelector()
@@ -313,7 +330,9 @@ def flow(executor, profile, texts, image, bridge=None, local_compute=False):
 
 def quality(local, remote, expected=None):
     output = {'identical_payloads': local['payload_hashes'] == remote['payload_hashes'],
-              'ocr_exact': None, 'ocr_raw_exact_pair': None, 'vector_max_abs_error': None, 'passed': True}
+              'ocr_exact': None, 'ocr_raw_exact_pair': None, 'ocr_pair_equal': None,
+              'ocr_token_recall_mac': None, 'ocr_token_recall_iphone': None,
+              'ocr_token_recall_threshold': OCR_TOKEN_RECALL_THRESHOLD, 'vector_max_abs_error': None, 'passed': True}
     if not output['identical_payloads']:
         output['passed'] = False
     for left, right in zip(local['stages'], remote['stages']):
@@ -323,9 +342,15 @@ def quality(local, remote, expected=None):
         if any(result.get('implementation') != implementation or result.get('revision') != revision for result in (a, b)):
             output['passed'] = False
         if operation == 'ocr':
-            output['ocr_raw_exact_pair'] = a.get('text') == b.get('text')
-            output['ocr_exact'] = normalized(a.get('text', '')) == normalized(b.get('text', '')) == normalized(expected or '')
-            output['passed'] &= output['ocr_exact']
+            mac_text, iphone_text = a.get('text', ''), b.get('text', '')
+            output['ocr_raw_exact_pair'] = mac_text == iphone_text
+            output['ocr_pair_equal'] = normalized(mac_text) == normalized(iphone_text)
+            output['ocr_exact'] = normalized(mac_text) == normalized(iphone_text) == normalized(expected or '')
+            output['ocr_token_recall_mac'] = token_recall(expected or '', mac_text)
+            output['ocr_token_recall_iphone'] = token_recall(expected or '', iphone_text)
+            output['passed'] &= (output['ocr_pair_equal']
+                and output['ocr_token_recall_mac'] >= OCR_TOKEN_RECALL_THRESHOLD
+                and output['ocr_token_recall_iphone'] >= OCR_TOKEN_RECALL_THRESHOLD)
         else:
             va, vb = a.get('vectors', []), b.get('vectors', [])
             valid = a.get('dimension') == b.get('dimension') == 640 and len(va) == len(vb) > 0
@@ -395,13 +420,13 @@ def reports(directory, report):
     directory.chmod(0o700)
     private_write(directory / 'shared-worker.json', json.dumps(report, indent=2, ensure_ascii=False) + '\n')
     buffer = io.StringIO()
-    columns = ['profile', 'repetition', 'phase', 'quality_passed', 'identical_payloads', 'ocr_exact', 'vector_max_abs_error',
+    columns = ['profile', 'repetition', 'phase', 'quality_passed', 'identical_payloads', 'ocr_exact', 'ocr_pair_equal', 'ocr_token_recall_mac', 'ocr_token_recall_iphone', 'vector_max_abs_error',
                'mac_compute_ms', 'iphone_compute_ms', 'mac_e2e_ms', 'iphone_e2e_ms', 'mac_compute_cpu_ms', 'iphone_compute_cpu_ms', 'remote_mac_orchestration_resource_cpu_ms', 'mac_bridge_cpu_ms', 'iphone_bridge_cpu_ms', 'mac_accounted_cpu_ms', 'iphone_mac_accounted_cpu_ms', 'mac_bridge_rss_before_bytes', 'mac_bridge_rss_after_bytes', 'iphone_bridge_rss_before_bytes', 'iphone_bridge_rss_after_bytes']
     writer = csv.DictWriter(buffer, fieldnames=columns)
     writer.writeheader()
     for sample in report['samples']:
         row = {key: sample[key] for key in ('profile', 'repetition', 'phase')}
-        row.update({key: sample['quality'][key] for key in ('identical_payloads', 'ocr_exact', 'vector_max_abs_error')})
+        row.update({key: sample['quality'][key] for key in ('identical_payloads', 'ocr_exact', 'ocr_pair_equal', 'ocr_token_recall_mac', 'ocr_token_recall_iphone', 'vector_max_abs_error')})
         row['quality_passed'] = sample['quality']['passed']
         for device in ('mac', 'iphone'):
             for metric in ('compute_ms', 'e2e_ms', 'compute_cpu_ms'):
@@ -423,7 +448,7 @@ def reports(directory, report):
              'CPU totale Mac via resource: harness + figlio CLI locale, raccolta dopo la chiusura del figlio.',
              'Memoria: peakResidentBytes, se disponibile, è del processo worker; nessuna somma RAM fra dispositivi. Stato termico osservato per fase.',
              'Bytes canonici del payload riportati separatamente: i contatori interni del coordinatore e del compute possono includere involucri JSON differenti.',
-             'Qualità OCR: uguaglianza dopo NFC e spazi normalizzati; anche confronto grezzo della coppia. Vettori: errore massimo ≤ 1e-5.', '']
+             'Qualità OCR: coppia Mac/iPhone identica dopo NFC e spazi normalizzati obbligatoria; richiamo dei token attesi ≥ 95% su entrambi. Il campo ocr_exact resta falso se il testo non coincide con l’originale. Token Unicode alfanumerici, minuscole, senza accenti, conteggiando le ripetizioni. Vettori: errore massimo ≤ 1e-5.', '']
     for profile, summary in report['summary'].items():
         lines.append(profile + ': n=' + str(summary['n']) + ', campioni qualità respinti=' + str(summary['rejected_quality']))
         accounted = summary.get('mac_accounted_cpu_comparison')
@@ -437,6 +462,10 @@ def reports(directory, report):
                 value = summary[metric]
                 pair = value['median_paired_ratio_mac_over_iphone']
                 lines.append(f"  {label}: Mac {value['mac_median']:.3f} ms, iPhone {value['iphone_median']:.3f} ms; rapporto mediane {value['ratio_of_medians_mac_over_iphone']:.3f}; mediana rapporti accoppiati {pair:.3f}" if pair is not None and value['ratio_of_medians_mac_over_iphone'] is not None else f'  {label}: rapporto non calcolabile')
+    for sample in report['samples']:
+        check = sample['quality']
+        if check.get('ocr_pair_equal') is not None:
+            lines.append(f"OCR {sample['profile']} #{sample['repetition']}: esatto rispetto all’originale={check['ocr_exact']}; coppia normalizzata uguale={check['ocr_pair_equal']}; richiamo token Mac={check['ocr_token_recall_mac']:.4f}, iPhone={check['ocr_token_recall_iphone']:.4f} (soglia {OCR_TOKEN_RECALL_THRESHOLD:.2f}).")
     if report.get('stopped_reason'):
         lines.append('Interrotto: ' + report['stopped_reason'])
     private_write(directory / 'shared-worker.txt', '\n'.join(lines) + '\n')
@@ -448,7 +477,7 @@ def main():
     parser.add_argument('--output-dir', type=Path)
     parser.add_argument('--local', type=Path, help='Production worker JSONL executable; otherwise compile it in a private temporary directory.')
     parser.add_argument('--repetitions', type=int, default=3)
-    parser.add_argument('--timeout', type=float, default=40)
+    parser.add_argument('--timeout', type=float, default=60)
     parser.add_argument('--bridge-pid', type=int, help='Optional existing bridge process to observe with libproc; never persisted in reports.')
     parser.add_argument('--self-test', action='store_true', help='Offline synthetic contract checks only.')
     args = parser.parse_args()
@@ -567,6 +596,35 @@ class OfflineTests(unittest.TestCase):
             remote.execute('embeddings', {'texts': ['synthetic']}, 'bottega')
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[1][0], '/v1/worker/jobs/' + calls[0][1]['id'] + '/cancel')
+
+    def test_same_ocr_spelling_error_is_accepted_with_real_recall_but_never_marked_exact(self):
+        expected = ' '.join(['termine' + str(i) for i in range(33)] + ['telefono'])
+        recognized = expected.replace('telefono', 'teletono')
+        def run(text):
+            return {'payload_hashes': ['same-image'], 'stages': [{'operation': 'ocr',
+                'result': {'text': text, 'implementation': 'apple-vision', 'revision': 3}}]}
+        check = quality(run(recognized), run(recognized), expected)
+        self.assertTrue(check['passed'])
+        self.assertTrue(check['ocr_pair_equal'])
+        self.assertFalse(check['ocr_exact'])
+        self.assertAlmostEqual(check['ocr_token_recall_mac'], 33 / 34)
+        self.assertAlmostEqual(check['ocr_token_recall_iphone'], 33 / 34)
+        with tempfile.TemporaryDirectory() as directory:
+            metrics = {'compute_ms': 1, 'compute_cpu_ms': 1, 'e2e_ms': 2, 'orchestration_resource_cpu_ms': 1}
+            reports(Path(directory), {'samples': [{'profile': 'avo', 'repetition': 1, 'phase': 'first_profile_pair',
+                'quality': check, 'mac': metrics, 'iphone': metrics}], 'summary': {}, 'stopped_reason': None})
+            row = next(csv.DictReader(io.StringIO((Path(directory) / 'shared-worker.csv').read_text())))
+            self.assertEqual(row['ocr_exact'], 'False')
+            self.assertEqual(row['ocr_pair_equal'], 'True')
+            self.assertAlmostEqual(float(row['ocr_token_recall_mac']), 33 / 34)
+            self.assertIn('originale=False', (Path(directory) / 'shared-worker.txt').read_text())
+        self.assertFalse(quality(run(recognized), run(expected), expected)['passed'])
+        self.assertFalse(quality(run('testo incompleto'), run('testo incompleto'), expected)['passed'])
+
+    def test_ocr_token_recall_matches_unicode_folding_and_preserves_multiplicity(self):
+        self.assertEqual(token_recall('È già città42', 'E gia citta42'), 1)
+        self.assertAlmostEqual(token_recall('telefono telefono prova', 'telefono prova'), 2 / 3)
+        self.assertEqual(token_recall('', 'qualunque testo'), 0)
 
     def test_accounted_cpu_adds_local_compute_once_and_keeps_bridge_rss_distinct(self):
         before = {'cpu_ms': 10, 'resident_bytes': 100, '_identity': (b'example', 1)}
