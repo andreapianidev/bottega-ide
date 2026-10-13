@@ -2365,10 +2365,26 @@ mai nella voce:
   va col firewall?") niente saluto: la chiamata passa e risponde lui alla frase, con riempitivi e memoria come sempre.
   La regola e' `chiedeAltro` (personaggi.ts, `Personaggi.chiedeAltro` sull'iPhone): tolto il comando, le parole di
   cortesia e i nomi, servono due parole o una con il punto di domanda. La mod la riceve da `frase` come `domanda`.
-- **Tag audio nei saluti.** Un saluto puo' avere tag di ElevenLabs (`[laughs]`, `[whispers]`, `[sighs]`): `eleven_v4_turbo`
-  li recita, la sfera ne prende l'emozione. Nel testo che si legge non compaiono mai: li tolgono `senzaTag` nella barra
-  (registro e storia), nella mod (storia della chiacchierata) e sull'iPhone (conversazione), e il Nucleo sull'isola. La
-  riserva REST `eleven_multilingual_v2` non li conosce: il Nucleo li toglie prima di mandarle il testo.
+- **Tag di voce (build 156, mod 0.24).** I tag di regia di ElevenLabs (`[playful]`, `[whispers]`, `[sighs]`) danno vita
+  alla voce: `eleven_v4_turbo` li recita (stabilita' 0,5, il livello «Natural», che li segue; «Robust» li attenuerebbe),
+  la sfera ne prende l'emozione. Una fonte sola per Bottega, mod, iPhone e Avo, nei file dei personaggi:
+  - `toni` in ogni file (e in melissa.json per Melissa): i tag di quel carattere, minuscoli, da una a tre parole inglesi,
+    senza virgole (il Nucleo spezza le frasi alle virgole). Darlene graffia (`playful`, `snappy`, `bitter`), Elliot
+    trattiene (`hushed`, `distant`, `anxious`), Krista accoglie (`softly`, `thoughtful`, `content`);
+  - `regola_toni` in melissa.json: la frase del prompt, con `{toni}` al posto dei tag di chi parla; `toni_massimo` quanti
+    ne tiene al piu' una battuta (2). Senza regola nessuno usa tag;
+  - la regola va nel prompt di chi parla, nella chiacchierata, negli ospiti, nel giro e negli ospiti della cronaca
+    (`regoleDi`/`regolaToni` nella barra e nella regia per la mod, `toniPer` nella mod, `Personaggi.regolaToni` sull'iPhone,
+    solo a voce). La cronaca e i riassunti di Melissa restano senza: sono informazione;
+  - la guardia `filtraToni` su ogni battuta generata, prima della voce: restano solo i tag di chi parla, al piu'
+    `toni_massimo` nel turno, mai lo stesso due volte ne' l'ultimo che quella voce ha usato nella battuta prima (niente
+    tic); ogni altra parentesi quadra sparisce, cosi' la voce non legge mai un tag sbagliato;
+  - nel testo che si legge o si ricorda non compaiono mai: `senzaTag` nel registro, nella storia e nella memoria della
+    barra, nel pannello, nel registro, nella storia e nella memoria della mod, nella conversazione e nel testo parziale
+    dell'iPhone; il Nucleo li toglie sull'isola e prima della riserva REST `eleven_multilingual_v2`, che li leggerebbe;
+  - i saluti fissi hanno tag in circa uno su tre, presi dai `toni` del personaggio, a volte due che cambiano tono a meta'.
+  - I riempitivi restano senza: si preparano una volta e suonano sempre uguali dalla cache, e una risata identica a ogni
+    attesa sarebbe proprio la recita da evitare.
 
 Risponde solo un personaggio con una voce. Dopo la chiusa di Melissa la parola torna ad Andrea.
 

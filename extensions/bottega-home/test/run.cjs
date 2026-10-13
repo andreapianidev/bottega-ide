@@ -1776,6 +1776,17 @@ function makeAssistant(over = {}) {
 		assert.strictEqual(p.chiedeAltro('passami Elliot cosa ne pensi'), true);
 		assert.strictEqual(p.chiedeAltro('passami Krista, stai bene?'), true);
 		assert.strictEqual(p.senzaTag('[laughs] Ciao. Hai rotto qualcosa? [chuckles]'), 'Ciao. Hai rotto qualcosa?');
+		// tag di voce: solo quelli di chi parla, al piu' due, mai l'ultimo di prima, mai una parentesi estranea
+		const toni = ['playful', 'sighs', 'laughs'];
+		assert.deepStrictEqual(p.filtraToni('[playful] Ciao. [shouts] Dai! [sighs] Ok. [laughs] Basta.', toni, 2), { testo: '[playful] Ciao. Dai! [sighs] Ok. Basta.', usati: ['playful', 'sighs'] });
+		assert.strictEqual(p.filtraToni('[playful] Ciao.', toni, 2, 'playful').testo, 'Ciao.');
+		assert.strictEqual(p.filtraToni('[sighs] uno.', toni, 2, '', 2).testo, 'uno.');
+		assert.deepStrictEqual(p.leggiToni(['Playful', 'half laughing', 'a, b', 'x y z w', 3, 'playful']), ['playful', 'half laughing']);
+		// dai file veri: la regola comune in melissa.json e i tag di ciascuno
+		assert.ok(p.TONI.massimo >= 1 && p.TONI.regola.includes('{toni}'));
+		assert.ok(p.regolaToni('darlene').includes('[playful]'));
+		assert.ok(p.regolaToni('melissa').includes('[sarcastic]'));
+		assert.ok(p.regoleDi('elliot').startsWith(p.REGOLE));
 		assert.strictEqual(p.ospiteDellaFrase('ho messo la password nel README', '', 0), 'elliot');
 		assert.strictEqual(p.ospiteDellaFrase('lo faccio domani', '', 0), 'krista');
 		assert.strictEqual(p.ospiteDellaFrase('un film?', 'darlene', 0), 'elliot');

@@ -8,7 +8,7 @@ import type { Cervelli } from './cervelli';
 import { BrainName, BrainRouter, OpenAiStreamFn, appleInstructions, appleOpenAiStream, appleToolSpecs } from './cervello';
 import { SystemStats } from './nucleo';
 import { ATTESA_MS, eFallito, fraseAttesa, fraseFine, fraseInizio } from './racconto';
-import { CHI_VUOLE_MS, NON_RIPETERE, ORDINE, PASSA_PAROLA, PERSONAGGI, REGOLE, RIEMPITIVI_MELISSA, RUOLI, chiChiede, chiamaCon, cuore, daChiacchiera, dallaRiga, elenco, esiste, frenoOspite, invito, invitoRacconto, leggiChiVuole, nomeDi, occasione, giroDiVoci, insieme, istruzioneGiro, ospiteDellaFrase, passaParolaA, perArgomento, perSfogo, promptChiVuole, REGOLA_REGIA, regia, rigaChiVuole, senzaTag, chiedeAltro, strumentoPassaParola } from './personaggi';
+import { CHI_VUOLE_MS, NON_RIPETERE, ORDINE, PASSA_PAROLA, PERSONAGGI, REGOLE, RIEMPITIVI_MELISSA, RUOLI, chiChiede, chiamaCon, cuore, daChiacchiera, dallaRiga, elenco, esiste, frenoOspite, invito, invitoRacconto, leggiChiVuole, nomeDi, occasione, giroDiVoci, insieme, istruzioneGiro, ospiteDellaFrase, passaParolaA, perArgomento, perSfogo, promptChiVuole, REGOLA_REGIA, regia, rigaChiVuole, senzaTag, chiedeAltro, strumentoPassaParola, regoleDi, regolaToni, toniDi, filtraToni, TONI } from './personaggi';
 import { MemoriaPersonaggi, type RegistraMemoria } from './memoria-personaggi';
 import { Impegni } from './impegni';
 import { GIRI_STRUMENTI, StrumentiPersonaggi } from './strumenti-personaggi';
@@ -296,6 +296,12 @@ export const MELISSA_CORE = [
 	NON_RIPETERE,
 	COME_PARLI,
 ].join(' ');
+
+/** La regola dei tag di voce per Melissa, dai file (CONTRATTI 9.11, «Tag di voce»), da aggiungere a MELISSA_CORE. */
+function toniMelissa(): string {
+	const t = regolaToni('melissa');
+	return t ? ` ${t}` : '';
+}
 
 export const TRUTH_RULE = [
 	'VERITA\' ASSOLUTA, MAI INVENTARE: non sai niente dello stato reale dei progetti, delle sessioni, dei lavori o del sistema finche\' non chiami il tool giusto, e riporti solo cio\' che torna.',
@@ -641,6 +647,9 @@ export class Assistant {
 	private raccontoAudio = false;
 	private history: Detto[] = [];
 	private personaTurno?: string;
+	/** I tag di voce gia' detti nel turno di voce aperto, e l'ultimo di ciascuno (filtraToni, CONTRATTI 9.11). */
+	private toniTurno: string[] = [];
+	private ultimoTono: Record<string, string> = {};
 	private tokenTurno?: string;
 	private fonteTurno?: string;
 	private personaggioDopo?: string;
@@ -764,7 +773,7 @@ export class Assistant {
 	getState(): AssistantState {
 		return { ...this.state,
 			answerPartial: (this.state.state === 'thinking' || this.state.state === 'speaking') && this.turnText.trim()
-				? cleanForVoice(this.turnText).slice(0, 12_000) || undefined : undefined,
+				? senzaTag(cleanForVoice(this.turnText)).slice(0, 12_000) || undefined : undefined,
 			personaggi: elenco(),
 			log: this.state.log.slice(-30), attivita: (this.state.attivita ?? []).slice(-40), raccontando: !!this.racconto || this.raccontoAudio };
 	}
@@ -854,7 +863,7 @@ export class Assistant {
 	/** La persona di chi risponde, senza le regole di verita'. */
 	private persona(): string {
 		const p = PERSONAGGI[this.chi()];
-		return p ? cuore(p, COME_PARLI) : MELISSA_CORE;
+		return p ? cuore(p, COME_PARLI) : MELISSA_CORE + toniMelissa();
 	}
 
 	/** Andrea sceglie nella barra con chi parlare: chi prende la chiamata saluta con la sua voce. */
@@ -1341,7 +1350,8 @@ export class Assistant {
 			this.tokenTurno = await this.deps.continuita?.iniziaTurno?.().catch(() => undefined);
 			this.deps.continuita?.scrivi(persona, 'andrea', userText, source, this.tokenTurno, persona);
 			// Each actual speaker is recorded by registra(); a chorus return value is never a new turn.
-			return await this.turnInternal(userText, speak, opts);
+			// la risposta torna a chi la mostra (la barra, l'iPhone): senza i tag di voce
+			return senzaTag(await this.turnInternal(userText, speak, opts));
 		} finally {
 			this.personaTurno = undefined;
 			this.tokenTurno = undefined;
@@ -1667,7 +1677,7 @@ export class Assistant {
 			let detta = '';
 			if (cosa) {
 				const grezza = await this.breve(
-					`${MELISSA_CORE}\n\n${TRUTH_RULE}\n\nAdesso e' ${nowLine()} (fuso ${TZ}).`,
+					`${MELISSA_CORE}${toniMelissa()}\n\n${TRUTH_RULE}\n\nAdesso e' ${nowLine()} (fuso ${TZ}).`,
 					`La chiacchierata finora:\n${this.ultimeRighe()}\n\n${cosa}`,
 					ac.signal,
 					brain,
@@ -1740,7 +1750,7 @@ export class Assistant {
 				const perche = chi === nuovo ? "Melissa ti ha appena passato la chiamata, e Andrea vuole sentire anche gli altri" : "Andrea vuole sentire tutti, uno alla volta, e tocca a te";
 				const mem = await this.memoria.leggi(chi, this.dettoTurno);
 				const { testo: battuta } = await this.breveConPassa(
-					`${p.carattere} Sei nella Bottega, l'IDE di Andrea, in una chiacchierata a voce con lui, Melissa e gli altri di Mr. Robot. ${perche}. Sai solo quello che c'e' nella chiacchierata e nella memoria qui sotto: non inventare stati di progetti, lavori o sessioni. ${ora} ${REGOLE}${mem ? `\n\n${mem}` : ''}`,
+					`${p.carattere} Sei nella Bottega, l'IDE di Andrea, in una chiacchierata a voce con lui, Melissa e gli altri di Mr. Robot. ${perche}. Sai solo quello che c'e' nella chiacchierata e nella memoria qui sotto: non inventare stati di progetti, lavori o sessioni. ${ora} ${regoleDi(chi)}${mem ? `\n\n${mem}` : ''}`,
 					`La chiacchierata finora:\n${finora()}${this.memoriaTurno}\n\n${istruzioneGiro(chi, i === 0)}`,
 					signal,
 					brain,
@@ -1756,7 +1766,7 @@ export class Assistant {
 			if (chiude && dette.length) {
 				const mem = await this.memoria.leggi('melissa', this.dettoTurno);
 				const somme = await this.breve(
-					`${MELISSA_CORE}\n\n${TRUTH_RULE}\n\n${ora}${mem ? `\n\n${mem}` : ''}`,
+					`${MELISSA_CORE}${toniMelissa()}\n\n${TRUTH_RULE}\n\n${ora}${mem ? `\n\n${mem}` : ''}`,
 					`La chiacchierata finora:\n${finora()}${this.memoriaTurno}\n\nHanno detto la loro ${insieme(dette)}. Tira le somme tu in una o due frasi, rivolta ad Andrea: cosa ne esce, senza ripetere le loro parole e senza fare domande agli altri. Solo le parole che diresti.`,
 					signal,
 					brain,
@@ -1834,7 +1844,7 @@ export class Assistant {
 		const rispondi = daChi ? `Rispondi a ${nomeDi(daChi)}, davanti ad Andrea` : 'Rispondi alla domanda di Melissa, rivolto a lei (se dici un nome e\' Melissa), mentre Andrea ascolta,';
 		try {
 			const { testo: battuta, a: chiamato, conStrumento } = await this.breveConPassa(
-				`${p.carattere} Sei nella Bottega, l'IDE di Andrea, in una chiacchierata a voce con lui, Melissa e gli altri di Mr. Robot. ${chiede}. Sai solo quello che c'e' nella chiacchierata e nella memoria qui sotto: non inventare stati di progetti, lavori o sessioni. ${ora} ${REGOLE}${await detti(chi)}`,
+				`${p.carattere} Sei nella Bottega, l'IDE di Andrea, in una chiacchierata a voce con lui, Melissa e gli altri di Mr. Robot. ${chiede}. Sai solo quello che c'e' nella chiacchierata e nella memoria qui sotto: non inventare stati di progetti, lavori o sessioni. ${ora} ${regoleDi(chi)}${await detti(chi)}`,
 				`La chiacchierata:\n${finora()}${this.memoriaTurno}\n\n${rispondi} in una o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero; puoi punzecchiare Melissa, ma da amici.${passa ? ` Poi chiedi a ${nomeDi(passa)} cosa ne pensa. ${chiamaCon(passa)}` : ''} Solo le parole che diresti.`,
 				signal,
 				brain,
@@ -1850,7 +1860,7 @@ export class Assistant {
 			if (ultima) return true;
 			if (passato) await this.aTre(passato, '', signal, fatte, brain, delGiro(), true, chi);
 			const { testo: chiusa } = await this.breveConPassa(
-				`${MELISSA_CORE}\n\n${TRUTH_RULE}\n\n${ora}${await detti('melissa')}`,
+				`${MELISSA_CORE}${toniMelissa()}\n\n${TRUTH_RULE}\n\n${ora}${await detti('melissa')}`,
 				`La chiacchierata:\n${finora()}${this.memoriaTurno}\n\nHanno appena detto la loro. Chiudi tu in una o due frasi, rivolta ad Andrea, riprendendo il filo o rispondendo a modo tuo, senza fare domande a ${p.nome} ne' agli altri. Solo le parole che diresti.`,
 				signal,
 				brain,
@@ -1948,15 +1958,18 @@ export class Assistant {
 
 	/** Una battuta intera con la voce di chi la dice: chiude il turno di voce aperto e ne apre uno con quella voce
 	 *  (Nucleo build 120, `voice.speak {voice}`). Senza voce, quella di Melissa. */
-	private direCon(testo: string, voce?: string, chi = 'melissa'): void {
+	private direCon(grezzo: string, voce?: string, chi = 'melissa'): void {
+		// una battuta intera: i suoi tag si contano da soli, con l'ultimo tag di chi parla
+		const testo = this.conToni(grezzo, chi, []);
+		if (!senzaTag(testo)) return;
 		this.parla(chi);
 		this.umore(testo, true);
 		this.vocePartita = false;
 		this.voceFinita = false;
-		this.saidClauses.add(normClause(testo));
+		this.saidClauses.add(normClause(senzaTag(testo)));
 		const now = Date.now();
-		this.recentSpeech = [...this.recentSpeech.filter(x => now - x.at < 20_000), { text: testo, at: now }];
-		this.passo(testo, 'voce');
+		this.recentSpeech = [...this.recentSpeech.filter(x => now - x.at < 20_000), { text: senzaTag(testo), at: now }];
+		this.passo(senzaTag(testo), 'voce');
 		const args: any = { text: testo + ' ', append: false, final: true, chi: nomeDi(chi) };
 		if (voce) args.voice = voce;
 		void this.deps.nucleo.request('voice.speak', args, 8000).catch((e: any) => {
@@ -1964,8 +1977,20 @@ export class Assistant {
 		});
 	}
 
-	/** Una riga detta nel registro (col nome davanti, se non e' Melissa) e nella storia, con chi l'ha detta. */
-	private registra(chi: string, testo: string, interrotta = false): void {
+	/** Il testo per la voce con i soli tag di voce buoni di `chi` (filtraToni), contando quelli gia' detti in `turno`. */
+	private conToni(testo: string, chi: string, turno: string[]): string {
+		const f = filtraToni(testo, toniDi(chi), TONI.massimo, this.ultimoTono[chi] ?? '', turno.length);
+		if (f.usati.length) {
+			turno.push(...f.usati);
+			this.ultimoTono[chi] = f.usati[f.usati.length - 1]!;
+		}
+		return f.testo;
+	}
+
+	/** Una riga detta nel registro (col nome davanti, se non e' Melissa) e nella storia, con chi l'ha detta. I tag di
+	 *  voce no: si sentono, non si leggono e non si ricordano. */
+	private registra(chi: string, grezzo: string, interrotta = false): void {
+		const testo = senzaTag(grezzo);
 		if (!testo && !interrotta) return;
 		const riga = chi !== 'melissa' ? `${nomeDi(chi)}: ${testo}` : testo;
 		if (testo) this.pushLog('melissa', interrotta ? `${riga} (interrotta)` : riga);
@@ -1981,14 +2006,14 @@ export class Assistant {
 		altre.forEach((r, i) => {
 			this.registra(r.chi, r.testo, interrotta && i === altre.length - 1);
 			// An intervention belongs to this room, not an invented direct conversation with its speaker.
-			this.memoria.scrivi(this.personaTurno ?? this.chi(), r.chi, r.testo);
+			this.memoria.scrivi(this.personaTurno ?? this.chi(), r.chi, senzaTag(r.testo));
 		});
 		if (altre.length) this.trimHistory();
 	}
 
 	/** Una battuta generata nella memoria di chi l'ha detta, nella Memoria della Bottega (CONTRATTI 9.11). Mai un errore. */
 	private ricorda(chi: string, testo: string): void {
-		this.memoria.scrivi(chi, chi, testo);
+		this.memoria.scrivi(chi, chi, senzaTag(testo));
 	}
 
 	/** Messaggi per il cervello: le righe di chi ha la chiamata sono sue, quelle degli altri "(Nome ha detto: ...)". */
@@ -2118,6 +2143,7 @@ export class Assistant {
 		this.voceFinita = false;
 		clearTimeout(this.attesaVoceTimer);
 		this.saidClauses.clear();
+		this.toniTurno = [];
 		this.chunker = new ClauseChunker();
 		this.firstSpeakChunk = true;
 	}
@@ -2130,6 +2156,9 @@ export class Assistant {
 	private emitClause(frase: string, riempitivo = false): void {
 		let clause = frase.trim();
 		if (!clause) return;
+		// la voce riceve solo i tag buoni di chi parla; un pezzo fatto solo di tag non si dice
+		if (!riempitivo) clause = this.conToni(clause, this.personaTurno ?? this.chi(), this.toniTurno);
+		if (!senzaTag(clause)) return;
 		if (!riempitivo) {
 			// la risposta comincia a parlare: i riempitivi ancora in attesa non servono piu'
 			this.fermaRiempitivi();
@@ -2145,20 +2174,20 @@ export class Assistant {
 			}
 			this.rispostaPartita = true;
 		}
-		const k = normClause(clause);
+		const k = normClause(senzaTag(clause));
 		if (k && this.saidClauses.has(k)) {
 			this.out.info(`frase gia' detta in questo turno, non la ripeto: "${clause}"`);
 			return;
 		}
 		if (k) this.saidClauses.add(k);
-		this.passo(clause, 'voce');
+		this.passo(senzaTag(clause), 'voce');
 		if (this.remote) {
 			if (this.state.state !== 'speaking') this.setState('speaking');
 			this.remote.frase(clause);
 			return;
 		}
 		const now = Date.now();
-		this.recentSpeech = [...this.recentSpeech.filter(x => now - x.at < 20_000), { text: clause, at: now }];
+		this.recentSpeech = [...this.recentSpeech.filter(x => now - x.at < 20_000), { text: senzaTag(clause), at: now }];
 		if (this.state.state !== 'speaking') {
 			this.setState('speaking');
 			this.deps.nucleo.fireAndForget('orb.state', { state: 'speaking' });

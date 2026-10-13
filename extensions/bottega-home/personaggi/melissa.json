@@ -1,6 +1,20 @@
 {
   "chiave": "melissa",
-  "nota": "Il file di Melissa: non e' un personaggio, porta solo le frasi che dice mentre pensa. La sua voce e il suo carattere stanno altrove (docs/CONTRATTI.md, 9.11).",
+  "nota": "Il file di Melissa: non e' un personaggio. Porta le frasi che dice mentre pensa, i suoi tag di voce (`toni`) e la regola dei tag di voce comune a tutti (`regola_toni`, `toni_massimo`). La sua voce e il suo carattere stanno altrove (docs/CONTRATTI.md, 9.11).",
+  "toni": [
+    "playful",
+    "sarcastic",
+    "mischievously",
+    "snappy",
+    "curious",
+    "thoughtful",
+    "excited",
+    "laughs",
+    "sighs",
+    "whispers"
+  ],
+  "regola_toni": "La tua voce e' ElevenLabs e capisce i tag di regia in inglese tra parentesi quadre, messi subito prima delle parole su cui agiscono. I tuoi: {toni}. Usali come un attore, non come una recita: in molte risposte nessuno, di solito al massimo uno, due solo se il tono cambia davvero a meta'; mai lo stesso due volte di fila, mai altri tag, mai parentesi quadre per altro. Il tag non si legge e non si nomina.",
+  "toni_massimo": 2,
   "riempitivi": {
     "domanda": [
       "Mmh, vediamo.",

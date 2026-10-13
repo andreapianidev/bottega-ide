@@ -33,8 +33,14 @@ file si salta e la Bottega lo scrive nel registro. Gli altri sono facoltativi: `
 si compila vale come vuota, con un avviso. Senza `riempitivi`, o con un gruppo vuoto, il personaggio usa i suoi
 `chiacchiera` e poi quelli di Melissa.
 
-`melissa.json` non e' un personaggio: e' il file di Melissa, con `chiave: "melissa"` e solo i suoi `riempitivi`. Non
-entra nell'elenco, non ha pulsante e non si chiama; la sua voce e il suo carattere stanno altrove.
+`toni` (facoltativo): i tag di voce di ElevenLabs di quel carattere, senza parentesi, minuscoli, da una a tre parole
+inglesi, senza virgole (`["playful", "snappy", "laughs"]`). Il modello puo' metterne nelle battute, e una guardia tiene
+solo questi (docs/CONTRATTI.md, 9.11, «Tag di voce»). Senza, il personaggio parla senza tag.
+
+`melissa.json` non e' un personaggio: e' il file di Melissa, con `chiave: "melissa"`, i suoi `riempitivi`, i suoi `toni`
+e la regola dei tag comune a tutti: `regola_toni` (la frase del prompt, con `{toni}` al posto dei tag di chi parla) e
+`toni_massimo` (quanti tag tiene al piu' una battuta). La leggono la barra, la mod, l'iPhone e Avo. Non entra
+nell'elenco, non ha pulsante e non si chiama; la sua voce e il suo carattere stanno altrove.
 
 Un file tolto da qui sparisce anche da `~/.bottega/personaggi/` al prossimo
 avvio della Bottega, e la barra di Melissa mostra un pulsante per ogni personaggio caricato.

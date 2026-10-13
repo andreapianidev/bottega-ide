@@ -29,9 +29,11 @@ struct Personaggio: Equatable, Decodable {
     /// in quali fatti entra da solo (docs/CONTRATTI.md, 9.11, «Ospiti dai fatti»); [] se il file non lo dice.
     /// Sull'iPhone c'e' solo la chiacchierata: contano `chiacchiera` e `umore` (Personaggi.adatto).
     let occasioni: [String]
+    /// I suoi tag di voce di ElevenLabs, senza parentesi (docs/CONTRATTI.md, 9.11, «Tag di voce»); senza, non ne usa.
+    let toni: [String]
 
     private enum CodingKeys: String, CodingKey {
-        case chiave, nome, ordine, voce, carattere, saluti, ruolo, parole, riempitivi, occasioni
+        case chiave, nome, ordine, voce, carattere, saluti, ruolo, parole, riempitivi, occasioni, toni
         case ruoloCronaca = "ruolo_cronaca"
     }
 
@@ -53,6 +55,7 @@ struct Personaggio: Equatable, Decodable {
         // facoltativo: senza, o con un gruppo vuoto, si usano i suoi `chiacchiera` e poi le frasi di Melissa
         riempitivi = try? c.decodeIfPresent(FrasiRiempitivo.self, forKey: .riempitivi)
         occasioni = (try? c.decodeIfPresent([String].self, forKey: .occasioni)) ?? []
+        toni = Personaggi.leggiToni((try? c.decodeIfPresent([String].self, forKey: .toni)) ?? nil)
     }
 }
 
@@ -166,6 +169,16 @@ struct ChiVuole: Equatable {
 private struct FileMelissa: Decodable {
     let chiave: String
     let riempitivi: FrasiRiempitivo?
+    /// i tag di voce di Melissa e la regola comune a tutti (docs/CONTRATTI.md, 9.11, «Tag di voce»)
+    let toni: [String]?
+    let regolaToni: String?
+    let toniMassimo: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case chiave, riempitivi, toni
+        case regolaToni = "regola_toni"
+        case toniMassimo = "toni_massimo"
+    }
 }
 
 enum Personaggi {
@@ -175,8 +188,19 @@ enum Personaggi {
     /// In ordine, come li elenca Melissa.
     static let ordine: [String] = tutti.values.sorted { $0.ordine < $1.ordine }.map(\.chiave)
 
-    /// I riempitivi di Melissa, da personaggi/melissa.json: letti a parte, mai dentro `tutti`.
-    static let riempitiviMelissa: FrasiRiempitivo? = caricaMelissa()
+    /// Il file di Melissa, personaggi/melissa.json: letto a parte, mai dentro `tutti`.
+    private static let fileMelissa: FileMelissa? = caricaMelissa()
+
+    /// I riempitivi di Melissa.
+    static let riempitiviMelissa: FrasiRiempitivo? = fileMelissa?.riempitivi
+
+    /// La regola dei tag di voce comune a tutti e quanti tag tiene al piu' una battuta: senza regola nessuno li usa.
+    /// La stessa fonte della Bottega, della mod e di Avo.
+    static let toniMassimo: Int = {
+        guard let r = fileMelissa?.regolaToni, r.contains("{toni}"), let m = fileMelissa?.toniMassimo, m > 0 else { return 0 }
+        return min(3, m)
+    }()
+    static let regolaToniTesto: String = toniMassimo > 0 ? (fileMelissa?.regolaToni ?? "") : ""
 
     /// La cartella dei file: nei test BOTTEGA_PERSONAGGI, altrimenti quella inclusa nell'app.
     private static var cartella: URL? {
@@ -198,10 +222,63 @@ enum Personaggi {
         return tutti
     }
 
-    private static func caricaMelissa() -> FrasiRiempitivo? {
+    private static func caricaMelissa() -> FileMelissa? {
         guard let url = cartella?.appendingPathComponent("melissa.json"), let data = try? Data(contentsOf: url),
               let f = try? JSONDecoder().decode(FileMelissa.self, from: data), f.chiave == "melissa" else { return nil }
-        return f.riempitivi
+        return f
+    }
+
+    /// I tag di un file: minuscoli, da una a tre parole inglesi, senza virgole (la voce spezza le frasi alle virgole).
+    static func leggiToni(_ x: [String]?) -> [String] {
+        var visti: [String] = []
+        for t in (x ?? []).map({ $0.trimmingCharacters(in: .whitespaces).lowercased() })
+        where t.range(of: "^[a-z]+( [a-z]+){0,2}$", options: .regularExpression) != nil && !visti.contains(t) {
+            visti.append(t)
+        }
+        return visti
+    }
+
+    /// I tag di voce di chi parla: "melissa" o la chiave di un personaggio.
+    static func toniDi(_ chi: String) -> [String] {
+        chi == "melissa" ? leggiToni(fileMelissa?.toni) : tutti[chi]?.toni ?? []
+    }
+
+    /// La frase del prompt sui tag di voce per `chi`, con i suoi tag; "" senza regola o senza tag. Come `regolaToni` della
+    /// Bottega (personaggi.ts) e della mod.
+    static func regolaToni(_ chi: String) -> String {
+        let t = toniDi(chi)
+        guard !regolaToniTesto.isEmpty, !t.isEmpty else { return "" }
+        return regolaToniTesto.replacingOccurrences(of: "{toni}", with: t.map { "[\($0)]" }.joined(separator: ", "))
+    }
+
+    /// L'ultimo tag di voce di ciascuno, perche' la battuta dopo non lo ripeta.
+    @MainActor static var ultimoTono: [String: String] = [:]
+
+    /// La guardia sui tag che il modello scrive: restano solo quelli di `toni`, al piu' `massimo` in tutto (contando i
+    /// `gia` tenuti prima nello stesso turno), mai `ultimo` ne' lo stesso due volte; ogni altra parentesi quadra sparisce.
+    /// Come `filtraToni` della Bottega (personaggi.ts).
+    static func filtraToni(_ testo: String, toni: [String], massimo: Int, ultimo: String = "", gia: Int = 0) -> (testo: String, usati: [String]) {
+        guard let re = try? NSRegularExpression(pattern: #"\[([^\]\n]{1,40})\]"#) else { return (senzaTag(testo), []) }
+        var usati: [String] = []
+        var out = ""
+        var da = testo.startIndex
+        for m in re.matches(in: testo, range: NSRange(testo.startIndex..., in: testo)) {
+            guard let r = Range(m.range, in: testo), let d = Range(m.range(at: 1), in: testo) else { continue }
+            out += testo[da..<r.lowerBound]
+            let k = testo[d].trimmingCharacters(in: .whitespaces).lowercased()
+            if toni.contains(k), k != ultimo, !usati.contains(k), gia + usati.count < massimo {
+                usati.append(k)
+                out += "[\(k)]"
+            } else {
+                out += " "
+            }
+            da = r.upperBound
+        }
+        out += testo[da...]
+        let pulito = out.replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+([,.!?…;:])"#, with: "$1", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (pulito, usati)
     }
 
     /// Le frasi di attesa di chi parla: "melissa" o la chiave di un personaggio.

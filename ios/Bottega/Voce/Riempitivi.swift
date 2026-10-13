@@ -157,11 +157,14 @@ enum Riempitivi {
     /// Dopo un riempitivo, la risposta senza il suo «Allora,» o «Mh.» iniziale: sarebbe detto due volte. Fino a due
     /// volte, poi la maiuscola; se non resta niente, la risposta com'era.
     static func senzaAttacco(_ testo: String) -> String {
-        var t = testo.trimmingCharacters(in: .whitespacesAndNewlines)
+        // i tag di voce in testa («[playful] Allora, ...») restano dove sono: l'intercalare si cerca dopo
+        let intero = testo.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tag = intero.range(of: #"^(?:\[[^\]\n]{1,40}\]\s*)+"#, options: .regularExpression).map { String(intero[$0]) } ?? ""
+        var t = String(intero.dropFirst(tag.count))
         for _ in 0..<2 {
             t = attacco.stringByReplacingMatches(in: t, range: NSRange(t.startIndex..., in: t), withTemplate: "")
         }
         guard t.range(of: "[\\p{L}\\p{N}]", options: .regularExpression) != nil, let prima = t.first else { return testo }
-        return prima.uppercased() + t.dropFirst()
+        return tag + prima.uppercased() + t.dropFirst()
     }
 }

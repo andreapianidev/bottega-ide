@@ -115,18 +115,23 @@ export function scegliRiempitivo(
 
 const ATTACCO = /^(?:mh+|m+h|uhm+|ehm+|allora|dunque|vediamo|ok|okay|beh|be'|bah|ah|eh|oh|ecco|si|sì)\s*[,.!…:]+\s*/iu;
 
+/** I tag di voce in testa a una frase («[playful] Allora, ...»): restano dove sono, l'intercalare si cerca dopo. */
+const TAG_IN_TESTA = /^(?:\[[^\]\n]{1,40}\]\s*)+/;
+
 /** Dopo un riempitivo, la risposta senza il suo «Allora,» o «Mh.» iniziale: sarebbe detto due volte. */
 export function senzaAttacco(testo: string): string {
-	let t = testo.trim();
+	const tag = testo.trim().match(TAG_IN_TESTA)?.[0] ?? '';
+	let t = testo.trim().slice(tag.length);
 	for (let i = 0; i < 2; i++) t = t.replace(ATTACCO, '');
 	if (!/[\p{L}\p{N}]/u.test(t)) return testo;
-	return t.charAt(0).toUpperCase() + t.slice(1);
+	return tag + t.charAt(0).toUpperCase() + t.slice(1);
 }
 
 /** Vero per una frase fatta solo di intercalare («Mh.», «Allora, vediamo.»): nella voce, che va a frasi, dopo un
  *  riempitivo si salta e l'intercalare si toglie dalla frase dopo. */
 export function soloAttacco(testo: string): boolean {
-	let t = testo.trim();
+	const prima = testo.trim().replace(TAG_IN_TESTA, '');
+	let t = prima;
 	for (let i = 0; i < 2; i++) t = t.replace(ATTACCO, '');
-	return t !== testo.trim() && !/[\p{L}\p{N}]/u.test(t);
+	return t !== prima && !/[\p{L}\p{N}]/u.test(t);
 }

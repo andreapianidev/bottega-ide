@@ -578,7 +578,7 @@ final class Melissa {
                 case .voce(let ok): vocePonte = ok
                 case .frase(let f):
                     if sfera == .pensa { parziale = "" }
-                    parziale = f
+                    parziale = Personaggi.senzaTag(f)
                 case .audio(let pcm):
                     if sfera != .parla { sfera = .parla }
                     flusso.accoda(pcm)

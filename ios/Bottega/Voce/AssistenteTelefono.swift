@@ -151,7 +151,8 @@ final class AssistenteTelefono {
     }
 
     private func registra(_ chi: String, _ testo: String) {
-        turni.append(TurnoTelefono(id: UUID(), chi: chi, testo: testo, alle: Date().timeIntervalSince1970 * 1000, sincronizzato: false))
+        // i tag di voce si sentono, non si leggono e non si ricordano
+        turni.append(TurnoTelefono(id: UUID(), chi: chi, testo: Personaggi.senzaTag(testo), alle: Date().timeIntervalSince1970 * 1000, sincronizzato: false))
         if turni.count > 80 { turni.removeFirst(turni.count - 80) }
         salva()
     }
@@ -326,6 +327,9 @@ final class AssistenteTelefono {
         // un prompt importato dal Mac prima che lo dicesse
         let melissa = [Personaggi.regolaRegia, Personaggi.nonRipetere].filter { !prompt.contains($0) }.reduce(prompt) { $0 + "\n\n" + $1 }
         var system = (personaggio.map(Personaggi.sistema) ?? melissa) + "\n\nAdesso è \(now), fuso \(TimeZone.current.identifier)."
+        // i tag di voce di chi parla, solo a voce: col testo scritto non servono (docs/CONTRATTI.md, 9.11)
+        let regolaToni = voce ? Personaggi.regolaToni(chi) : ""
+        if !regolaToni.isEmpty { system += "\n\n" + regolaToni }
         // l'invito ha senso solo con lo strumento per dare la parola
         if personaggio == nil, !invito.isEmpty, !passaA.isEmpty { system += "\n\n" + invito }
         if personaggio == nil, let contestoMac {
@@ -379,7 +383,14 @@ final class AssistenteTelefono {
             // contesto resta quello che ha scritto e il Mac riceve la stessa battuta. Si decide quando la prima frase
             // parte: un riempitivo arrivato dopo non la cambia piu'.
             var prima = true
-            let daLeggere = { (frase: String) -> String in
+            // la voce riceve solo i tag buoni di chi parla, al piu' `toniMassimo` nel turno, mai l'ultimo di prima
+            var toniDetti = 0
+            let daLeggere = { (grezza: String) -> String in
+                let f = Personaggi.filtraToni(grezza, toni: Personaggi.toniDi(chi), massimo: Personaggi.toniMassimo,
+                                              ultimo: Personaggi.ultimoTono[chi] ?? "", gia: toniDetti)
+                toniDetti += f.usati.count
+                if let u = f.usati.last { Personaggi.ultimoTono[chi] = u }
+                let frase = f.testo
                 defer { prima = false }
                 return prima && riempito() ? Riempitivi.senzaAttacco(frase) : frase
             }
@@ -402,23 +413,24 @@ final class AssistenteTelefono {
                 }
                 guard let piece = delta["content"] as? String, !piece.isEmpty else { continue }
                 grezza += piece
-                rispostaParziale = grezza
+                rispostaParziale = Personaggi.senzaTag(grezza)
                 daDire += piece
                 if let end = daDire.lastIndex(where: { ".!?\n".contains($0) }), daDire.distance(from: daDire.startIndex, to: end) > 25 {
                     let frase = String(daDire[...end]).trimmingCharacters(in: .whitespacesAndNewlines)
                     daDire = String(daDire[daDire.index(after: end)...])
-                    if !frase.isEmpty { try await tts?.invia(daLeggere(frase)) }
+                    if !frase.isEmpty { let d = daLeggere(frase); if !Personaggi.senzaTag(d).isEmpty { try await tts?.invia(d) } }
                 }
             }
             let resto = daDire.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !resto.isEmpty { try await tts?.invia(daLeggere(resto)) }
+            if !resto.isEmpty { let d = daLeggere(resto); if !Personaggi.senzaTag(d).isEmpty { try await tts?.invia(d) } }
             // a chi la battuta da' la parola: quello di passa_parola, o senza la chiamata quello deciso dal codice.
             // Chi ha la chiamata non chiama nessuno: lo toglie `rispondi`.
             let passa = chiamate.values.first { $0.nome == Personaggi.passaParola }
             let chiamato = passa.flatMap { Personaggi.passaParolaA($0.argomenti, offerte: passaA) }
                 ?? (passaA.isEmpty ? nil : deciso.flatMap { passaA.contains($0) ? $0 : nil })
             if passa != nil { Log.info("passa la parola: \(chiamato ?? "niente, argomenti non validi")") }
-            let answer = grezza.trimmingCharacters(in: .whitespacesAndNewlines)
+            // la battuta torna a chi la mostra e la ricorda: senza i tag di voce
+            let answer = Personaggi.senzaTag(grezza)
             // solo la chiamata, senza testo: Melissa non dice niente e risponde chi ha ricevuto la parola
             if answer.isEmpty, let chiamato {
                 tts?.ferma()

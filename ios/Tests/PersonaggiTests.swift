@@ -23,6 +23,17 @@ final class PersonaggiTests: XCTestCase {
         XCTAssertEqual(Personaggi.senzaTag("[laughs] Ciao. Hai rotto qualcosa? [chuckles]"), "Ciao. Hai rotto qualcosa?")
     }
 
+    /// I tag di voce: solo quelli di chi parla, al piu' due, mai l'ultimo di prima. Come la Bottega e la mod.
+    func testFiltraToni() {
+        let toni = ["playful", "sighs", "laughs"]
+        let f = Personaggi.filtraToni("[playful] Ciao. [shouts] Dai! [sighs] Ok. [laughs] Basta.", toni: toni, massimo: 2)
+        XCTAssertEqual(f.testo, "[playful] Ciao. Dai! [sighs] Ok. Basta.")
+        XCTAssertEqual(f.usati, ["playful", "sighs"])
+        XCTAssertEqual(Personaggi.filtraToni("[playful] Ciao.", toni: toni, massimo: 2, ultimo: "playful").testo, "Ciao.")
+        XCTAssertEqual(Personaggi.leggiToni(["Playful", "half laughing", "a, b", "x y z w", "playful"]), ["playful", "half laughing"])
+        XCTAssertEqual(Riempitivi.senzaAttacco("[playful] Allora, il punto è questo."), "[playful] Il punto è questo.")
+    }
+
     /// Chi risponde lo dice lo strumento passa_parola, mai un nome nel testo (docs/CONTRATTI.md, 9.11): la stessa forma
     /// della Bottega.
     func testPassaParola() throws {

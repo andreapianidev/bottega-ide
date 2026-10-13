@@ -40,6 +40,19 @@ export interface Personaggio {
 	strumenti?: ('vedetta_leggi' | 'mestiere_leggi' | 'bacheca_leggi')[];
 	/** forma e colore della sfera quando parla (src/sfera-aspetto.ts, CONTRATTI 9.11); senza campo, dalla chiave */
 	sfera: AspettoSfera;
+	/** i suoi tag di voce di ElevenLabs, senza parentesi (CONTRATTI 9.11, «Tag di voce»); senza, non ne usa */
+	toni: string[];
+}
+
+/** La regola dei tag di voce comune a tutti e i tag di Melissa, da melissa.json (CONTRATTI 9.11, «Tag di voce»): senza
+ *  `regola_toni` nessuno li usa. La stessa fonte per la barra, la mod, l'iPhone e Avo. */
+export const TONI: { melissa: string[]; regola: string; massimo: number } = { melissa: [], regola: '', massimo: 0 };
+
+/** I tag di un file: minuscoli, da una a tre parole inglesi, senza virgole (il Nucleo spezza le frasi alle virgole). */
+export function leggiToni(x: unknown): string[] {
+	if (!Array.isArray(x)) return [];
+	const t = x.filter((v): v is string => typeof v === 'string').map(v => v.trim().toLowerCase());
+	return [...new Set(t.filter(v => /^[a-z]+(?: [a-z]+){0,2}$/.test(v)))];
 }
 
 /** I mestieri che la Memoria della Bottega conta per un personaggio (memoria/lib/mestiere.mjs). */
@@ -111,6 +124,7 @@ function leggi(x: any, n: string, avvisa: (msg: string) => void): Personaggio {
 		...(Array.isArray(x.strumenti) ? { strumenti: (['vedetta_leggi', 'mestiere_leggi', 'bacheca_leggi'] as const).filter(t => x.strumenti.includes(t)) } : {}),
 		...(riempitivi ? { riempitivi } : {}),
 		sfera: leggiSfera(x.sfera, chiave),
+		toni: leggiToni(x.toni),
 	};
 }
 
@@ -126,11 +140,15 @@ export function carica(dirs = cartelle(), avvisa: (msg: string) => void = () => 
 		}
 		const letti: Personaggio[] = [];
 		let diMelissa: Riempitivi | undefined;
+		let toni: typeof TONI = { melissa: [], regola: '', massimo: 0 };
 		for (const n of nomi) {
 			try {
 				const x = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
 				if (typeof x?.chiave === 'string' && x.chiave.trim() === 'melissa') {
 					diMelissa = leggiRiempitivi(x.riempitivi);
+					const regola = typeof x.regola_toni === 'string' && x.regola_toni.includes('{toni}') ? x.regola_toni.trim() : '';
+					const massimo = typeof x.toni_massimo === 'number' && x.toni_massimo > 0 ? Math.min(3, Math.floor(x.toni_massimo)) : 0;
+					toni = { melissa: leggiToni(x.toni), regola: massimo ? regola : '', massimo: regola ? massimo : 0 };
 					continue;
 				}
 				const p = leggi(x, n, avvisa);
@@ -146,6 +164,7 @@ export function carica(dirs = cartelle(), avvisa: (msg: string) => void = () => 
 		ORDINE.length = 0;
 		for (const k of Object.keys(RIEMPITIVI_MELISSA)) delete RIEMPITIVI_MELISSA[k as keyof Riempitivi];
 		Object.assign(RIEMPITIVI_MELISSA, diMelissa ?? {});
+		Object.assign(TONI, toni);
 		letti.sort((x, y) => x.ordine - y.ordine);
 		for (const p of letti) {
 			PERSONAGGI[p.chiave] = p;
@@ -242,6 +261,43 @@ export function chiedeAltro(t: string): boolean {
  *  regola di `SpokenText.strippingAudioTags` nel Nucleo. */
 export function senzaTag(t: string): string {
 	return t.replace(/\[[^\]\n]{1,40}\]/g, ' ').replace(/\s{2,}/g, ' ').trim();
+}
+
+/** I tag di voce di chi parla: "melissa" o la chiave di un personaggio. */
+export function toniDi(chi: string): string[] {
+	return chi === 'melissa' ? TONI.melissa : PERSONAGGI[chi]?.toni ?? [];
+}
+
+/** La frase del prompt sui tag di voce per `chi`, con i suoi tag; '' senza regola o senza tag. */
+export function regolaToni(chi: string): string {
+	const t = toniDi(chi);
+	return TONI.regola && TONI.massimo > 0 && t.length ? TONI.regola.replace('{toni}', t.map(x => `[${x}]`).join(', ')) : '';
+}
+
+/** Le regole di ogni personaggio (REGOLE) con i suoi tag di voce. */
+export function regoleDi(chi: string): string {
+	const t = regolaToni(chi);
+	return t ? `${REGOLE} ${t}` : REGOLE;
+}
+
+/**
+ * La guardia sui tag che il modello scrive: restano solo quelli di `toni`, al piu' `massimo` in tutto (contando i
+ * `gia` tenuti prima nello stesso turno), mai `ultimo` (l'ultimo tag di chi parla, nella battuta prima) ne' lo stesso
+ * due volte; ogni altra parentesi quadra sparisce, cosi' la voce non legge mai un tag sbagliato. `usati`: i tenuti.
+ */
+export function filtraToni(testo: string, toni: readonly string[], massimo: number, ultimo = '', gia = 0): { testo: string; usati: string[] } {
+	const usati: string[] = [];
+	const t = testo
+		.replace(/\[([^\]\n]{1,40})\]/g, (_m, dentro: string) => {
+			const k = dentro.trim().toLowerCase();
+			if (!toni.includes(k) || k === ultimo || usati.includes(k) || gia + usati.length >= massimo) return ' ';
+			usati.push(k);
+			return `[${k}]`;
+		})
+		.replace(/\s{2,}/g, ' ')
+		.replace(/\s+([,.!?…;:])/g, '$1')
+		.trim();
+	return { testo: t, usati };
 }
 
 /** chiVuole aspetta il modello al piu' 2,5 s: oltre, come se non avesse capito nessuno. */
@@ -593,7 +649,7 @@ export function cuore(p: Personaggio, come: string): string {
 	return [
 		p.carattere,
 		"Adesso sei nella Bottega, l'IDE di Andrea: Melissa ti ha passato la chiamata e hai i suoi stessi strumenti per seguire i progetti, git, le build e le sessioni di Claude Code, Cline, Codex e dei terminali integrati. Li usi a modo tuo, con il tuo carattere.",
-		`Andrea torna da Melissa quando dice "ridammi Melissa" o la sceglie nella barra. ${REGOLE}`,
+		`Andrea torna da Melissa quando dice "ridammi Melissa" o la sceglie nella barra. ${regoleDi(p.chiave)}`,
 		come,
 	].join(' ');
 }
