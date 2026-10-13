@@ -272,8 +272,14 @@ final class Melissa {
         }
         let task = Task { @MainActor in
             if let chiesto = Personaggi.chiChiede(testo), chiesto != self.chiParla {
-                try await self.passaA(chiesto, dopo: testo, voce: voce, audio: suona)
-                return
+                // con qualcosa da dirgli dopo il nome ("passami Darlene, come va col firewall?") niente saluto: la
+                // chiamata passa e risponde lui, qui sotto
+                if Personaggi.chiedeAltro(testo), chiesto == "melissa" || Personaggi.tutti[chiesto] != nil {
+                    self.chiParla = chiesto
+                } else {
+                    try await self.passaA(chiesto, dopo: testo, voce: voce, audio: suona)
+                    return
+                }
             }
             let p = Personaggi.tutti[self.chiParla]
             // chi Andrea vuole sentire ("chiedi a Elliot", "Vabbe' Krista, e tu?") lo capisce ChiVuole, qui sotto: niente

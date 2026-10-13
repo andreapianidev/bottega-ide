@@ -301,6 +301,33 @@ enum Personaggi {
         return chi.hasPrefix("mr") ? chiaveDi("elliot") : chiaveDi(chi)
     }
 
+    /// Le parole che dopo "passami Darlene" non chiedono niente: "passami Darlene per favore" resta un passaggio col saluto.
+    private static let soloPassaggio: Set<String> = ["ciao", "ehi", "eh", "ehm", "dai", "allora", "ok", "okay", "va", "bene", "per",
+        "favore", "piacere", "grazie", "un", "una", "attimo", "momento", "secondo", "subito", "adesso", "ora", "pure", "please", "mi",
+        "me", "la", "lo", "le", "e", "anche", "che", "al", "telefono", "cosi", "così", "si", "sì", "no", "però", "senti", "ascolta",
+        "vai", "mr", "robot", "melissa"]
+
+    /// Dopo il passaggio c'e' qualcosa da dire a chi prende la chiamata ("passami Darlene, come va col firewall?"): risponde
+    /// a quello invece di salutare. Basta una parola vera con il punto di domanda, o due senza. Come `chiedeAltro` della
+    /// Bottega (personaggi.ts).
+    static func chiedeAltro(_ testo: String) -> Bool {
+        let schema = "\\b(?:passami|passa|fammi parlare con|voglio parlare con|ridammi|torna|chiama)\\s+(?:a\\s+)?(?:melissa|\(nomi)|mr\\.?\\s*robot)\\b"
+        guard let re = try? NSRegularExpression(pattern: schema, options: .caseInsensitive) else { return false }
+        let resto = re.stringByReplacingMatches(in: testo, range: NSRange(testo.startIndex..., in: testo), withTemplate: " ")
+        let noti = Set(ordine.compactMap { tutti[$0]?.nome.lowercased() })
+        let vere = resto.lowercased().split { !$0.isLetter }.map(String.init)
+            .filter { !soloPassaggio.contains($0) && !noti.contains($0) }
+        return vere.count >= 2 || (vere.count >= 1 && resto.contains("?"))
+    }
+
+    /// Il testo senza i tag audio di ElevenLabs ([laughs], [whispers]): la voce li usa, chi legge non li vede. La stessa
+    /// regola di `SpokenText.strippingAudioTags` nel Nucleo.
+    static func senzaTag(_ testo: String) -> String {
+        testo.replacingOccurrences(of: #"\[[^\]\n]{1,40}\]"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Lo strumento con cui chi parla da' la parola a un personaggio (docs/CONTRATTI.md, 9.11, «Chi parla lo decide il
     /// modello»): la decisione viaggia nella chiamata, strutturata, e non finisce mai nel testo detto. Stesso nome e
     /// stessa forma della Bottega (`strumentoPassaParola` in personaggi.ts). `a`: le chiavi di chi puo' rispondere adesso.

@@ -223,6 +223,27 @@ export function chiChiede(t: string): string | null {
 	return chiaveDi(m[1]) ?? (m[1].startsWith('mr') ? chiaveDi('elliot') : null);
 }
 
+/** Le parole che dopo «passami Darlene» non chiedono niente: «passami Darlene per favore» resta un passaggio col saluto. */
+const SOLO_PASSAGGIO = new Set(['ciao', 'ehi', 'eh', 'ehm', 'dai', 'allora', 'ok', 'okay', 'va', 'bene', 'per', 'favore', 'piacere',
+	'grazie', 'un', 'una', 'attimo', 'momento', 'secondo', 'subito', 'adesso', 'ora', 'pure', 'please', 'mi', 'me', 'la', 'lo', 'le',
+	'e', 'anche', 'che', 'al', 'telefono', 'cosi', 'così', 'si', 'sì', 'no', 'però', 'senti', 'ascolta', 'vai', 'mr', 'robot', 'melissa']);
+
+/** Dopo il passaggio c'e' qualcosa da dire a chi prende la chiamata («passami Darlene, come va col firewall?»): risponde
+ *  a quello invece di salutare. Basta una parola vera con il punto di domanda, o due senza (CONTRATTI 9.11). */
+export function chiedeAltro(t: string): boolean {
+	const comando = new RegExp(`\\b(?:passami|passa|fammi parlare con|voglio parlare con|ridammi|torna|chiama)\\s+(?:a\\s+)?(?:melissa|${nomi()}|mr\\.?\\s*robot)\\b`, 'i');
+	const resto = t.replace(comando, ' ');
+	const nomiNoti = new Set(ORDINE.map(k => PERSONAGGI[k]!.nome.toLowerCase()));
+	const vere = (resto.toLowerCase().match(/[\p{L}]+/gu) ?? []).filter(x => !SOLO_PASSAGGIO.has(x) && !nomiNoti.has(x));
+	return vere.length >= 2 || (vere.length >= 1 && resto.includes('?'));
+}
+
+/** Il testo senza i tag audio di ElevenLabs (`[laughs]`, `[whispers]`): la voce li usa, chi legge non li vede. La stessa
+ *  regola di `SpokenText.strippingAudioTags` nel Nucleo. */
+export function senzaTag(t: string): string {
+	return t.replace(/\[[^\]\n]{1,40}\]/g, ' ').replace(/\s{2,}/g, ' ').trim();
+}
+
 /** chiVuole aspetta il modello al piu' 2,5 s: oltre, come se non avesse capito nessuno. */
 export const CHI_VUOLE_MS = 2500;
 

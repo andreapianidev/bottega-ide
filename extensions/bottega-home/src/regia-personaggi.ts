@@ -102,7 +102,7 @@ export class RegiaPersonaggi {
 
 	/**
 	 * Andrea ha detto `frase` nella chiacchierata della mod, con `chi` al telefono. Il nome esatto dopo "passami" passa
-	 * subito (`passa`); altrimenti, con Melissa, l'eventuale invito a tirare dentro un personaggio, deciso o facoltativo,
+	 * subito (`passa`, con `domanda` vero se dopo il nome c'e' qualcosa a cui rispondere invece del saluto); altrimenti, con Melissa, l'eventuale invito a tirare dentro un personaggio, deciso o facoltativo,
 	 * con lo strumento per dare la parola. Niente modello: risponde subito.
 	 */
 	private frase(s: Sessione, x: any): Record<string, unknown> {
@@ -110,7 +110,7 @@ export class RegiaPersonaggi {
 		const chi = P.esiste(x?.chi) ? x.chi : 'melissa';
 		this.d.ascolta?.(frase);
 		const passa = P.chiChiede(frase);
-		if (passa && passa !== chi && (passa === 'melissa' || this.conVoce().includes(passa))) return { passa };
+		if (passa && passa !== chi && (passa === 'melissa' || this.conVoce().includes(passa))) return { passa, domanda: P.chiedeAltro(frase) };
 		if (chi !== 'melissa') return { passa: null, invito: '', offerte: [], strumento: null, deciso: null };
 		// la prima frase di una conversazione: si riparte da 1, come nella barra all'apertura
 		if (x?.prima === true) s.dallUltimoOspite = 1;

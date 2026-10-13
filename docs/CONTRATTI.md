@@ -2297,7 +2297,7 @@ messaggio dell'utente, dopo la chiacchierata.
 
 | `azione` | Cosa manda la mod | Cosa risponde la barra |
 |---|---|---|
-| `frase` | `frase`, `chi` (chi ha la chiamata), `prima` (prima frase della conversazione) | `{passa}` se c'e' il nome esatto dopo "passami" (`chiChiede`); altrimenti `{invito, offerte, strumento, deciso}` per la risposta di Melissa (lo strumento sempre, l'invito quando c'e' uno scelto). Subito, senza modello |
+| `frase` | `frase`, `chi` (chi ha la chiamata), `prima` (prima frase della conversazione) | `{passa, domanda}` se c'e' il nome esatto dopo "passami" (`chiChiede`; `domanda` vero se dopo il nome c'e' qualcosa a cui rispondere, `chiedeAltro`, build 155); altrimenti `{invito, offerte, strumento, deciso}` per la risposta di Melissa (lo strumento sempre, l'invito quando c'e' uno scelto). Subito, senza modello |
 | `chivuole` | `frase`, `chi` | `chiVuole` della barra (DeepSeek Flash, al piu' 2,5 s): `{riga, passa, chiede, regia, voci: OspiteRegia[], chiude, somme, ospite}`; `regia` e' l'istruzione della battuta di Melissa al posto della risposta, `voci` i prompt del giro a piu' voci, `somme` quella delle somme, `ospite` chi risponde al parere chiesto |
 | `parola` | `da` (chi ha appena parlato), `argomenti` della sua chiamata a `passa_parola`, `offerte`, `deciso`, `conStrumento`, `ultima`, `cronaca`, `poi` | `{chi, ospite}`: chi risponde (quello della chiamata, o senza la chiamata il `deciso`, mai se il cervello non aveva lo strumento) e il suo prompt; dopo un personaggio chi risponde non passa piu' la parola. Nella chiacchierata il 40% dei passaggi fra ospiti lo decide qui |
 | `chiusa` | `dopo` (l'ospite) | `{istruzione}` della chiusa di Melissa, senza domande e senza strumento |
@@ -2360,6 +2360,15 @@ mai nella voce:
   Elliot", "Vabbe' Krista, e tu?" danno `chiede`, e Melissa glielo chiede (regia) prima che risponda. Resta nel codice,
   immediato, solo il comando col nome esatto dopo "passami", "fammi parlare con", "ridammi" (`chiChiede`). Via
   `ospiteChiesto` e il ramo "anche Andrea puo' chiamare" per vocativo.
+- **Saluto o risposta (build 155, mod 0.23).** Col solo comando ("passami Darlene", anche "per favore", "dai", "un
+  attimo") chi prende la chiamata dice uno dei suoi `saluti`, a caso. Se dopo il nome c'e' altro ("passami Darlene, come
+  va col firewall?") niente saluto: la chiamata passa e risponde lui alla frase, con riempitivi e memoria come sempre.
+  La regola e' `chiedeAltro` (personaggi.ts, `Personaggi.chiedeAltro` sull'iPhone): tolto il comando, le parole di
+  cortesia e i nomi, servono due parole o una con il punto di domanda. La mod la riceve da `frase` come `domanda`.
+- **Tag audio nei saluti.** Un saluto puo' avere tag di ElevenLabs (`[laughs]`, `[whispers]`, `[sighs]`): `eleven_v4_turbo`
+  li recita, la sfera ne prende l'emozione. Nel testo che si legge non compaiono mai: li tolgono `senzaTag` nella barra
+  (registro e storia), nella mod (storia della chiacchierata) e sull'iPhone (conversazione), e il Nucleo sull'isola. La
+  riserva REST `eleven_multilingual_v2` non li conosce: il Nucleo li toglie prima di mandarle il testo.
 
 Risponde solo un personaggio con una voce. Dopo la chiusa di Melissa la parola torna ad Andrea.
 

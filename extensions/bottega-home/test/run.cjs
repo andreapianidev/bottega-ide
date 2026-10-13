@@ -1769,6 +1769,13 @@ function makeAssistant(over = {}) {
 		assert.strictEqual(p.chiChiede('voglio parlare con mr robot'), 'elliot');
 		assert.strictEqual(p.chiChiede('passami il sale'), null);
 		assert.strictEqual(p.chiChiede('ridammi Melissa'), 'melissa');
+		// saluto col solo comando, risposta se dopo il nome c'e' altro
+		assert.strictEqual(p.chiedeAltro('Passami Darlene'), false);
+		assert.strictEqual(p.chiedeAltro('Melissa, passami Darlene per favore, grazie'), false);
+		assert.strictEqual(p.chiedeAltro('passami Darlene, come va col firewall?'), true);
+		assert.strictEqual(p.chiedeAltro('passami Elliot cosa ne pensi'), true);
+		assert.strictEqual(p.chiedeAltro('passami Krista, stai bene?'), true);
+		assert.strictEqual(p.senzaTag('[laughs] Ciao. Hai rotto qualcosa? [chuckles]'), 'Ciao. Hai rotto qualcosa?');
 		assert.strictEqual(p.ospiteDellaFrase('ho messo la password nel README', '', 0), 'elliot');
 		assert.strictEqual(p.ospiteDellaFrase('lo faccio domani', '', 0), 'krista');
 		assert.strictEqual(p.ospiteDellaFrase('un film?', 'darlene', 0), 'elliot');

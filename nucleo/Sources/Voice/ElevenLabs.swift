@@ -472,8 +472,9 @@ enum ElevenLabsREST {
         do {
             return try await request(text, voiceID: voiceID, model: model)
         } catch ElevenLabsError.http(400) where model != ElevenLabsConfig.restFallbackModel {
-            // The newest models are socket-only: REST answers 400 unsupported_model.
-            return try await request(text, voiceID: voiceID, model: ElevenLabsConfig.restFallbackModel)
+            // The newest models are socket-only: REST answers 400 unsupported_model. The fallback model
+            // does not know audio tags and would read "[laughs]" aloud: they go.
+            return try await request(SpokenText.strippingAudioTags(text), voiceID: voiceID, model: ElevenLabsConfig.restFallbackModel)
         }
     }
 

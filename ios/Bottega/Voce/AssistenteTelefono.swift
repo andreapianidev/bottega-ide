@@ -270,7 +270,8 @@ final class AssistenteTelefono {
                 throw error
             }
         }
-        registra(chi, testo)
+        // i tag audio ([laughs]) sono per la voce: nella conversazione e nella storia no
+        registra(chi, Personaggi.senzaTag(testo))
     }
 
     private func configurazione(voce: Bool) throws -> ConfigurazioneTelefono {

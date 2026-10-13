@@ -8,7 +8,7 @@ import type { Cervelli } from './cervelli';
 import { BrainName, BrainRouter, OpenAiStreamFn, appleInstructions, appleOpenAiStream, appleToolSpecs } from './cervello';
 import { SystemStats } from './nucleo';
 import { ATTESA_MS, eFallito, fraseAttesa, fraseFine, fraseInizio } from './racconto';
-import { CHI_VUOLE_MS, NON_RIPETERE, ORDINE, PASSA_PAROLA, PERSONAGGI, REGOLE, RIEMPITIVI_MELISSA, RUOLI, chiChiede, chiamaCon, cuore, daChiacchiera, dallaRiga, elenco, esiste, frenoOspite, invito, invitoRacconto, leggiChiVuole, nomeDi, occasione, giroDiVoci, insieme, istruzioneGiro, ospiteDellaFrase, passaParolaA, perArgomento, perSfogo, promptChiVuole, REGOLA_REGIA, regia, rigaChiVuole, strumentoPassaParola } from './personaggi';
+import { CHI_VUOLE_MS, NON_RIPETERE, ORDINE, PASSA_PAROLA, PERSONAGGI, REGOLE, RIEMPITIVI_MELISSA, RUOLI, chiChiede, chiamaCon, cuore, daChiacchiera, dallaRiga, elenco, esiste, frenoOspite, invito, invitoRacconto, leggiChiVuole, nomeDi, occasione, giroDiVoci, insieme, istruzioneGiro, ospiteDellaFrase, passaParolaA, perArgomento, perSfogo, promptChiVuole, REGOLA_REGIA, regia, rigaChiVuole, senzaTag, chiedeAltro, strumentoPassaParola } from './personaggi';
 import { MemoriaPersonaggi, type RegistraMemoria } from './memoria-personaggi';
 import { Impegni } from './impegni';
 import { GIRI_STRUMENTI, StrumentiPersonaggi } from './strumenti-personaggi';
@@ -1382,9 +1382,13 @@ export class Assistant {
 			return this.sayFull(answer, speak);
 		}
 
-		// «passami Darlene», «ridammi Melissa»: passa la chiamata, e chi la prende saluta con la sua voce
+		// «passami Darlene», «ridammi Melissa»: passa la chiamata, e chi la prende saluta con la sua voce. Con qualcosa da
+		// dirgli dopo il nome («passami Darlene, come va col firewall?») niente saluto: risponde lui, qui sotto
 		const chiesto = this.remote ? null : chiChiede(userText);
-		if (chiesto && chiesto !== this.chi()) {
+		if (chiesto && chiesto !== this.chi() && chiedeAltro(userText)) {
+			this.state.personaggio = chiesto;
+			this.emit();
+		} else if (chiesto && chiesto !== this.chi()) {
 			if (this.state.conversing) this.memoria.scrivi(chiesto, 'andrea', userText);
 			const prima = this.chi();
 			this.state.personaggio = chiesto;
@@ -1995,7 +1999,8 @@ export class Assistant {
 	}
 
 	private recordAnswer(answer: string): void {
-		const clean = cleanForVoice(answer).trim();
+		// i tag audio ([laughs]) sono per la voce: nel registro e nella storia no
+		const clean = senzaTag(cleanForVoice(answer));
 		clearTimeout(this.partialStateTimer);
 		this.partialStateTimer = undefined;
 		this.turnText = '';
@@ -2313,7 +2318,7 @@ export class Assistant {
 		} else {
 			this.setState('idle');
 		}
-		return cleanForVoice(text);
+		return senzaTag(cleanForVoice(text));
 	}
 
 	// ----- il giro dei tool con Agnes in streaming (max 8 passi) -----

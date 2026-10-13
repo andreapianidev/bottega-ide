@@ -14,6 +14,15 @@ final class PersonaggiTests: XCTestCase {
         XCTAssertNil(Personaggi.chiChiede("passami il sale"))
     }
 
+    /// Saluto col solo comando, risposta se dopo il nome c'e' altro; i tag audio non si leggono. Come la Bottega.
+    func testSalutoORisposta() {
+        XCTAssertFalse(Personaggi.chiedeAltro("Passami Darlene"))
+        XCTAssertFalse(Personaggi.chiedeAltro("Melissa, passami Darlene per favore, grazie"))
+        XCTAssertTrue(Personaggi.chiedeAltro("passami Darlene, come va col firewall?"))
+        XCTAssertTrue(Personaggi.chiedeAltro("passami Krista, stai bene?"))
+        XCTAssertEqual(Personaggi.senzaTag("[laughs] Ciao. Hai rotto qualcosa? [chuckles]"), "Ciao. Hai rotto qualcosa?")
+    }
+
     /// Chi risponde lo dice lo strumento passa_parola, mai un nome nel testo (docs/CONTRATTI.md, 9.11): la stessa forma
     /// della Bottega.
     func testPassaParola() throws {
