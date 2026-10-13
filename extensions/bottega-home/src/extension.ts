@@ -49,6 +49,7 @@ import { RegiaPersonaggi } from './regia-personaggi';
 import { avviaRegiaPersonaggi } from './regia-personaggi-host';
 import { forzatureDalleRegole } from './forzature-regole';
 import { IsolaAttivita, isolaVera } from './isola-attivita';
+import { fileCondiviso, fraseAvviso, InterruttoreAvviso, pensaDeepseek } from './avviso-fine';
 
 // Melissa usa i connettori di Claude Code in sola lettura (docs/CONTRATTI.md, 5 e 6): prima che nasca l'assistente.
 Object.assign(TOOLS, STRUMENTI_CONNETTORI satisfies typeof TOOLS);
@@ -147,6 +148,8 @@ let osservatorio: Osservatorio | undefined;
 let vedettaNativa: VedettaNativa | undefined;
 /** L'isola segue anche Cline, Codex e i terminali integrati (src/isola-attivita.ts). */
 let isolaAttivita: IsolaAttivita | undefined;
+/** L'avviso di fine a voce: lo stesso interruttore della mod melissa (avviso-fine.ts, CONTRATTI 1). */
+let avvisoFine: InterruttoreAvviso | undefined;
 let aggiornamenti: Aggiornamenti | undefined;
 let ponte: { notify(): void } | undefined;
 let categorieCache: { at: number; value: CategorieMinuti | null } = { at: 0, value: null };
@@ -971,7 +974,23 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 	const regiaMod = avviaRegiaPersonaggi(new RegiaPersonaggi({ chiVuole: f => melissa.chiVuole(f), ascolta: f => melissa.impegni.ascolta(f), strumenti: melissa.strumenti, log: r => melissa.scriviRegistro(r) }), r => melissa.scriviRegistro(r));
 	ctx.subscriptions.push({ dispose: () => regiaMod.chiudi() });
 	// l'isola nella tacca segue anche Cline, Codex e i terminali integrati, sempre (CONTRATTI 1, Andrea 6/10/2026)
-	isolaAttivita = new IsolaAttivita({ ...isolaVera(), log: r => melissa.scriviRegistro(r) });
+	// con l'avviso di fine acceso la fine di Cline, Codex e dei comandi lunghi la dice Melissa a voce (avviso-fine.ts)
+	avvisoFine = new InterruttoreAvviso(fileCondiviso(), acceso => {
+		melissa.scriviRegistro(`avviso di fine ${acceso ? 'acceso' : 'spento'} (dal file condiviso con la mod)`);
+		barraView?.update();
+	});
+	ctx.subscriptions.push({ dispose: () => avvisoFine?.dispose() });
+	isolaAttivita = new IsolaAttivita({
+		...isolaVera(),
+		log: r => melissa.scriviRegistro(r),
+		avvisoAcceso: () => avvisoFine?.acceso === true,
+		// Andrea parla con Melissa: nella barra (la voce del servizio) o in una chiacchierata della mod
+		occupata: () => {
+			const st = melissa.getState();
+			return st.conversing || st.state === 'listening' || st.state === 'speaking' || avvisoFine?.conversaAltrove() === true;
+		},
+		frase: a => fraseAvviso(a, (sistema, prompt) => pensaDeepseek(cervelli?.key('deepseek'), sistema, prompt)),
+	});
 	ctx.subscriptions.push({ dispose: () => isolaAttivita?.dispose() });
 	const savedRegia = ctx.globalState.get<RegiaDigest>('regia.digest');
 	if (savedRegia?.text && Number.isFinite(savedRegia.at)) regiaDigest = savedRegia;
@@ -1197,11 +1216,13 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 			workCounts: () => snapshot.workCounts,
 			board: async () => (memoria ? memoria.bacheca(undefined, 180) : []),
 			brain: async () => cervelli!.state(),
+			avviso: () => avvisoFine?.acceso === true,
 		},
 		{
 			converse: () => assistant?.toggleConversation(),
 			ask: text => void assistant?.ask(text),
 			toggleVoice: () => void assistant?.toggle(),
+			toggleAvviso: () => vscode.commands.executeCommand('bottega.avviso.toggle'),
 			setPersonaggio: chi => void assistant?.setPersonaggio(chi),
 			setBrain: async (p, m, sempre) => void (await cervelli!.set(p, m, sempre)),
 			setEffort: async e => void (await cervelli!.setEffort(e)),
@@ -1280,6 +1301,19 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 			void assistant?.racconta(r ? { tipo: 'codice', ...r } : undefined);
 		}),
 		vscode.commands.registerCommand('bottega.raccontaFerma', () => assistant?.fermaRacconto()),
+		// l'avviso di fine: un interruttore per tutto il Mac, lo stesso del pulsante della mod melissa
+		vscode.commands.registerCommand('bottega.avviso.toggle', async () => {
+			if (!avvisoFine) return;
+			const acceso = !avvisoFine.acceso;
+			try {
+				await avvisoFine.imposta(acceso);
+				assistant?.scriviRegistro(`avviso di fine ${acceso ? 'acceso' : 'spento'} dalla Bottega`);
+				barraView?.update();
+				void vscode.window.setStatusBarMessage(acceso ? 'Avviso di fine acceso: Melissa ti dice quando un lavoro finisce' : 'Avviso di fine spento', 4000);
+			} catch (e: any) {
+				void vscode.window.showWarningMessage(e?.message ?? String(e));
+			}
+		}),
 		// i conti dei servizi: il Cruscotto, sulla sezione «Servizi» (dalla barra di Melissa e dagli avvisi di ricarica)
 		vscode.commands.registerCommand('bottega.apriConti', () => {
 			showPlancia('cruscotto');

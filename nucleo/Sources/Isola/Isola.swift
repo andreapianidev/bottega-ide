@@ -10,15 +10,19 @@
 //  It serves HTTP/1.1 on a Unix socket, ~/.bottega/nucleo/isola.sock, which the mod reaches
 //  with $.http.fetch(url, { socketPath }). Every answer is JSON:
 //
-//    GET  /ping                              -> {ok, versione, parla, ascolta}  parla: something of
-//                                             Melissa's voice is still to be heard (Speaker.isSounding,
-//                                             not an open turn); ascolta: the microphone is open
+//    GET  /ping[?sessione=X]                 -> {ok, versione, parla, ascolta, inCoda}  parla: something
+//                                             of Melissa's voice is still to be heard (Speaker.isSounding,
+//                                             not an open turn), or another session's lines wait for
+//                                             the voice ahead of X; ascolta: the microphone is open
 //    POST /detta     {sessione, progetto}     -> {ok}  opens the microphone (Apple recognizer)
 //    POST /detta/fine                         -> {ok}  closes it; the text arrives as an event
 //    POST /stato     {stato, testo?}          -> {ok}  the island: pensa | pronto | riposo
-//    POST /parla     {sessione, testo, append?, final?, voce?} -> {ok}  Melissa says it (ElevenLabs, Apple as
-//                                             fallback); append streams pieces of one text in order
-//    POST /zitta                              -> {ok}  silence now
+//    POST /parla     {sessione, testo, append?, final?, voce?} -> {ok, inCoda?}  Melissa says it (ElevenLabs,
+//                                             Apple as fallback); append streams pieces of one text in
+//                                             order. One session at a time holds the voice (CodaVoci):
+//                                             another's lines wait and go out after it, whole
+//    POST /zitta     {sessione?}              -> {ok}  silence for that session (its voice, its waiting
+//                                             lines); without a session, everything
 //    POST /scalda    {voci: [{voce, testi}]}  -> {ok, mancanti, inCoda}  renders the fillers not yet in
 //                                             VoceCache (VoceScalda.swift): a /parla piece whose text is
 //                                             there plays at once, without waiting for ElevenLabs
@@ -80,6 +84,11 @@ final class Isola {
     private var ultimoUso = Date()
     /// The island is showing a line of the service's voice (/mostra): its end may put it away.
     private var mostraServizio = false
+    /// Who holds the voice and the lines of the other sessions waiting for it.
+    private var codaVoci = CodaVoci()
+    /// The queue is being looked at again shortly (only while something waits: idle, no timer).
+    private var codaArmata = false
+    private static let passoCoda: TimeInterval = 0.3
     /// A microphone closed for an old /detta still sends its voice.final: until this moment,
     /// a final that comes with no word heard in the new dictation is that one, not this.
     private var ignoraFinaleFinoA = Date.distantPast
@@ -152,7 +161,7 @@ final class Isola {
     private func forseEsci() {
         riposaSeFerma()
         let occupata = dettaPer != nil || Speaker.shared.isSpeaking || Listener.shared.isCapturing
-            || VoceScalda.shared.occupata
+            || VoceScalda.shared.occupata || !codaVoci.attesa.isEmpty
         guard !occupata, Date().timeIntervalSince(ultimoUso) > Self.idleQuit else { return }
         Log.info("isola: \(Int(Self.idleQuit / 60)) minuti senza richieste, esco")
         server?.stop()
@@ -184,7 +193,10 @@ final class Isola {
         let sessione = (corpo["sessione"] as? String) ?? req.query["sessione"] ?? ""
         switch (req.method, req.path) {
         case ("GET", "/ping"):
-            res.ok(["versione": Nucleo.version, "parla": Speaker.shared.isSounding, "ascolta": dettaPer != nil])
+            // the queue counts for whoever does not hold the voice: a session opening its microphone
+            // or switching voice waits for the lines queued ahead of it, the holder never does
+            let parla = Speaker.shared.isSounding || codaVoci.altriInAttesa(per: sessione)
+            res.ok(["versione": Nucleo.version, "parla": parla, "ascolta": dettaPer != nil, "inCoda": codaVoci.attesa.count])
 
         case ("POST", "/detta"):
             guard !sessione.isEmpty else { return res.errore(400, "Manca la sessione.") }
@@ -245,17 +257,19 @@ final class Isola {
             let voce = (corpo["voce"] as? String).flatMap { VoceCache.idVoceValido($0) ? $0 : nil }
             guard !testo.isEmpty || final else { return res.errore(400, "Niente da dire.") }
             guard dettaPer == nil else { return res.errore(409, "Melissa sta ascoltando.") }
-            if !sessione.isEmpty { narraPer = sessione }
-            Log.info("isola: parla da \(sessione.prefix(8)), \(testo.count) caratteri\(append ? ", in coda" : "")\(final ? ", fine" : "")\(voce.map { ", voce \($0.prefix(6))" } ?? "")")
-            // the name changes when a line really starts to sound (segmentoIniziato); with
-            // nothing ahead of it in the voice, this one starts now: its name goes up already
-            if !testo.isEmpty {
-                IsolaPanel.shared.mostra(.parla, testo: testo,
-                                         chi: Speaker.shared.isSounding ? nil : ChiParla.nome(voce: voce))
+            let ora = Date()
+            // whoever was waiting for a voice now free goes first: this line comes after them
+            giraCoda()
+            let b = Battuta(sessione: sessione, testo: testo, append: append, final: final, voce: voce, at: ora)
+            switch codaVoci.arriva(b, suona: Speaker.shared.isSounding, ascolta: false, ora: ora) {
+            case .subito:
+                dici(b)
+                res.ok(["voce": Speaker.shared.currentEngine.rawValue])
+            case .inCoda(let dietro):
+                Log.info("isola: parla da \(sessione.prefix(8)) in attesa dietro \(dietro.prefix(8)), \(testo.count) caratteri\(final ? ", fine" : "")")
+                armaCoda()
+                res.ok(["voce": Speaker.shared.currentEngine.rawValue, "inCoda": true])
             }
-            // a voice of its own opens its own turn: sent whole (append false), it closes the one open
-            Speaker.shared.speak(text: testo.isEmpty ? "" : testo + " ", append: append, final: final, model: nil, voice: voce)
-            res.ok(["voce": Speaker.shared.currentEngine.rawValue])
 
         case ("POST", "/mostra"):
             // the service's voice (the bar, IsolaAvviso): shown like a line of ours, never over
@@ -286,10 +300,17 @@ final class Isola {
             }
 
         case ("POST", "/zitta"):
-            Log.info("isola: zitta da \(sessione.isEmpty ? "?" : String(sessione.prefix(8)))")
-            Speaker.shared.stopSpeaking()
-            // the voice stops; the island stays while the microphone is open
-            if dettaPer == nil { IsolaPanel.shared.riposa(dopo: 0.3) }
+            // a session silences its own voice and its waiting lines, never another's; a client
+            // that says no session (and a voice nobody holds) silences everything, as before
+            let libera = codaVoci.di == nil
+            let ferma = codaVoci.zitta(sessione: sessione) || libera
+            Log.info("isola: zitta da \(sessione.isEmpty ? "?" : String(sessione.prefix(8)))\(ferma ? "" : ", la voce e' di un'altra sessione: continua")")
+            if ferma {
+                Speaker.shared.stopSpeaking()
+                // the voice stops; the island stays while the microphone is open
+                if dettaPer == nil { IsolaPanel.shared.riposa(dopo: 0.3) }
+            }
+            if !codaVoci.attesa.isEmpty { armaCoda() }
             res.ok()
 
         case ("GET", "/eventi"):
@@ -338,6 +359,49 @@ final class Isola {
         code[sessione] = Array(q.suffix(50))
     }
 
+    // MARK: - One voice at a time
+
+    /// Says one line: the island shows it and the Speaker voices it.
+    private func dici(_ b: Battuta) {
+        if !b.sessione.isEmpty { narraPer = b.sessione }
+        Log.info("isola: parla da \(b.sessione.prefix(8)), \(b.testo.count) caratteri\(b.append ? ", in coda" : "")\(b.final ? ", fine" : "")\(b.voce.map { ", voce \($0.prefix(6))" } ?? "")")
+        // the name changes when a line really starts to sound (segmentoIniziato); with
+        // nothing ahead of it in the voice, this one starts now: its name goes up already
+        if !b.testo.isEmpty {
+            IsolaPanel.shared.mostra(.parla, testo: b.testo,
+                                     chi: Speaker.shared.isSounding ? nil : ChiParla.nome(voce: b.voce))
+        }
+        // a voice of its own opens its own turn: sent whole (append false), it closes the one open
+        Speaker.shared.speak(text: b.testo.isEmpty ? "" : b.testo + " ", append: b.append, final: b.final, model: nil, voice: b.voce)
+    }
+
+    /// The voice is free and the microphone closed: the next waiting session speaks, all its lines.
+    private func giraCoda() {
+        let esito = codaVoci.prossime(suona: Speaker.shared.isSounding, ascolta: dettaPer != nil, ora: Date())
+        for b in esito.scartate {
+            Log.info("isola: scarto una battuta di \(b.sessione.prefix(8)) rimasta in attesa per \(Int(CodaVoci.scadenza / 60)) minuti")
+        }
+        if let primo = esito.dire.first {
+            Log.info("isola: la voce passa a \(primo.sessione.prefix(8)), \(esito.dire.count) battute in attesa")
+            for b in esito.dire { dici(b) }
+        }
+    }
+
+    /// Looks at the queue again in a moment, and again while something waits; with nothing
+    /// waiting no timer runs (the Nucleo at rest stays at 0% CPU).
+    private func armaCoda() {
+        guard !codaArmata else { return }
+        codaArmata = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.passoCoda) {
+            MainActor.assumeIsolated {
+                let isola = Isola.shared
+                isola.codaArmata = false
+                isola.giraCoda()
+                if !isola.codaVoci.attesa.isEmpty { isola.armaCoda() }
+            }
+        }
+    }
+
     // MARK: - Dictation
 
     private func armaSilenzio(vuoto: Bool) {
@@ -365,6 +429,8 @@ final class Isola {
         guard let sessione = dettaPer else { return }
         dettaPer = nil
         dettaParziale = ""
+        // lines that waited for the microphone to close
+        if !codaVoci.attesa.isEmpty { armaCoda() }
         if let errore {
             manda(["tipo": "errore", "messaggio": errore], a: sessione)
             IsolaPanel.shared.mostra(.errore, testo: errore)
@@ -435,6 +501,10 @@ final class Isola {
             chiudiDettatura()
             return
         }
+        // a click is "enough": what was waiting for the voice is not said after it either
+        let inAttesa = codaVoci.attesa.count
+        codaVoci.svuota()
+        if inAttesa > 0 { Log.info("isola: clic, tolgo \(inAttesa) battute in attesa") }
         // only while her voice can really be heard: a click on an island that is just
         // fading out puts it away, it does not stop Claude
         if let sessione = narraPer, Speaker.shared.isSounding {

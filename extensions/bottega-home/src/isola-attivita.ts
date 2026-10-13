@@ -4,6 +4,8 @@
 // di stato, lo dice all'isola sul suo socket (`POST /stato`): al lavoro = `pensa` con il titolo, finito, in attesa o
 // errore = `pronto` (si ritira da sola). Se l'isola non c'e' la si accende come fa la mod (LaunchServices, `--isola`).
 // Mai mentre l'isola parla o ascolta: la voce e il microfono di Melissa vengono prima.
+// Con l'avviso di fine acceso (avviso-fine.ts) la fine di una sessione che ha lavorato almeno 15 s non si scrive soltanto:
+// Melissa la dice a voce (`POST /parla`, sessione `bottega-avvisi`), e l'isola la mette in fila dietro le altre voci.
 
 import { execFile } from 'child_process';
 import * as fs from 'fs';
@@ -11,9 +13,12 @@ import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import type { AgentActivity } from './attivita-tipi';
+import { AVVISO_ATTESA_MS, daAvvisare, NOMI_FONTI } from './avviso-fine';
 
 export const FONTI_ISOLA = ['cline', 'codex', 'terminale'] as const;
-const NOMI: Record<string, string> = { cline: 'Cline', codex: 'Codex', terminale: 'Il terminale' };
+const NOMI = NOMI_FONTI;
+/** La sessione con cui la Bottega parla sull'isola: le sue battute stanno in fila come quelle di un terminale. */
+export const SESSIONE_AVVISI = 'bottega-avvisi';
 
 /** Cosa dire all'isola per un cambio di stato, o null se non c'e' niente da dire. */
 export type StatoIsola = { stato: 'pensa' | 'pronto' | 'riposo'; testo: string };
@@ -38,6 +43,14 @@ export interface IsolaDeps {
 	/** accende l'isola, se si puo' */
 	accendi(): Promise<void>;
 	log?(riga: string): void;
+	/** l'avviso di fine e' acceso (il campo `avviso` del file condiviso con la mod) */
+	avvisoAcceso?(): boolean;
+	/** Andrea parla con Melissa adesso, nella barra o nella mod: l'avviso aspetta */
+	occupata?(): boolean;
+	/** la frase dell'avviso per questa sessione */
+	frase?(a: AgentActivity): Promise<string>;
+	/** l'attesa tra due controlli (le prove la accorciano) */
+	pausa?(ms: number): Promise<void>;
 }
 
 /** Da quanto deve lavorare una sessione prima che l'isola la annunci: un `ls` nel terminale non accende niente. */
@@ -51,6 +64,11 @@ export class IsolaAttivita {
 	private ultime: readonly AgentActivity[] = [];
 	private coda: Promise<void> = Promise.resolve();
 	private ripresa?: ReturnType<typeof setTimeout>;
+	/** quando ogni sessione e' passata a «in corso»: la durata del lavoro di cui si avvisa la fine */
+	private inizio = new Map<string, number>();
+	/** gli avvisi a voce, uno dopo l'altro e a parte: chi aspetta una chiacchierata non ferma l'isola scritta */
+	private codaAvvisi: Promise<void> = Promise.resolve();
+	private chiusa = false;
 	/** l'isola esce dopo 15 minuti senza richieste: ogni 5 minuti si ricorda chi lavora ancora */
 	private richiamo = setInterval(() => {
 		const ancora = this.ultime.filter(x => this.annunciate.has(x.key) && x.status === 'in corso').sort((x, y) => y.updatedAt - x.updatedAt)[0];
@@ -67,6 +85,7 @@ export class IsolaAttivita {
 			const s = statoPerIsola(a, prima);
 			this.prima.set(a.key, a.status);
 			if (!s) continue;
+			if (a.status === 'in corso') this.inizio.set(a.key, Date.now());
 			if (s.stato === 'pensa') {
 				// si annuncia solo se lavora ancora dopo l'attesa della sua fonte
 				clearTimeout(this.inAttesa.get(a.key));
@@ -81,8 +100,12 @@ export class IsolaAttivita {
 			}
 			clearTimeout(this.inAttesa.get(a.key));
 			this.inAttesa.delete(a.key);
+			const iniziata = this.inizio.get(a.key);
+			this.inizio.delete(a.key);
 			if (!this.annunciate.delete(a.key)) continue;
-			this.manda(s);
+			const durata = iniziata === undefined ? 0 : Date.now() - iniziata;
+			if (this.d.avvisoAcceso?.() && daAvvisare(a, durata)) this.avvisa(a, s);
+			else this.manda(s);
 			// finito uno, se altri annunciati lavorano ancora l'isola torna su di loro dopo il «pronto»
 			const ancora = this.ultime.filter(x => this.annunciate.has(x.key) && x.status === 'in corso').sort((x, y) => y.updatedAt - x.updatedAt)[0];
 			clearTimeout(this.ripresa);
@@ -92,6 +115,38 @@ export class IsolaAttivita {
 
 	private manda(s: StatoIsola): void {
 		this.coda = this.coda.then(() => this.mostra(s)).catch(() => undefined);
+	}
+
+	private avvisa(a: AgentActivity, s: StatoIsola): void {
+		this.codaAvvisi = this.codaAvvisi.then(() => this.diAvviso(a, s)).catch(() => undefined);
+	}
+
+	/**
+	 * La fine detta a voce: la frase (il cervello ci mette qualche secondo), poi si aspetta che Andrea non stia parlando con
+	 * Melissa e che il microfono dell'isola sia chiuso, fino a AVVISO_ATTESA_MS; oltre, o se l'isola non parla, resta lo
+	 * stato scritto di sempre. La fila con le voci delle altre sessioni la tiene l'isola (CodaVoci, build 152).
+	 */
+	private async diAvviso(a: AgentActivity, s: StatoIsola): Promise<void> {
+		const pausa = this.d.pausa ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)));
+		const testo = (await this.d.frase?.(a).catch(() => '')) || s.testo;
+		const libera = async () => {
+			if (this.d.occupata?.()) return false;
+			const p = await this.d.manda('/ping');
+			return !p || p.ascolta !== true;
+		};
+		for (let t = 0; t < AVVISO_ATTESA_MS && !this.chiusa && !(await libera()); t += 2000) await pausa(2000);
+		if (this.chiusa) return;
+		if (!(await libera())) {
+			this.d.log?.(`isola: avviso non detto, Melissa era occupata: ${testo}`);
+			return this.mostra(s);
+		}
+		if (!(await this.d.manda('/ping'))) {
+			await this.d.accendi();
+			if (!(await this.d.manda('/ping'))) return;
+		}
+		const r = await this.d.manda('/parla', { sessione: SESSIONE_AVVISI, testo, final: true });
+		if (!r) return this.mostra(s);
+		this.d.log?.(`isola: avviso a voce${r.inCoda === true ? ', in fila dietro un\'altra voce' : ''}: ${testo}`);
 	}
 
 	private async mostra(s: StatoIsola): Promise<void> {
@@ -109,6 +164,7 @@ export class IsolaAttivita {
 	}
 
 	dispose(): void {
+		this.chiusa = true;
 		clearInterval(this.richiamo);
 		clearTimeout(this.ripresa);
 		for (const t of this.inAttesa.values()) clearTimeout(t);

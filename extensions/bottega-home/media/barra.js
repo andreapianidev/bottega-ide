@@ -117,6 +117,7 @@
 				</fieldset>
 				<label class="sempre" title="Il cervello scelto resta anche dopo questa conversazione, come dall'iPhone; tolto, si torna a DeepSeek"><input type="checkbox" id="sempre"><span>sempre</span></label>
 				<button type="button" class="racconta" id="racconta" title="Melissa legge quello che hai davanti (il file di codice o la stanza della Home), lo fa analizzare a DeepSeek e te lo racconta a voce">racconta</button>
+				<button type="button" class="racconta avviso" id="avviso" aria-pressed="false" title="Melissa ti dice a voce quando Claude Code, Codex, Cline o un comando lungo del terminale hanno finito, e se aspettano qualcosa da te. È lo stesso interruttore del pulsante «avviso fine» nella mod di Claude Code">avviso fine</button>
 			</div>
 			<details class="conti" id="conti" hidden>
 				<summary><i class="conto-punto" id="conti-punto" aria-hidden="true"></i><span id="conti-riassunto"></span></summary>
@@ -627,6 +628,8 @@
 	});
 	// «racconta»: quello che hai davanti, analizzato e raccontato a voce; durante il racconto diventa «ferma»
 	$('racconta').addEventListener('click', () => post({ type: 'comando', id: S.assistant && S.assistant.raccontando ? 'racconta.ferma' : 'racconta' }));
+	// «avviso fine»: acceso e' pieno, come «racconta» durante il racconto; vale per tutto il Mac (avviso-fine.ts)
+	$('avviso').addEventListener('click', () => post({ type: 'avviso.toggle' }));
 	// «sempre»: il cervello di adesso diventa il predefinito; tolto, si torna a DeepSeek (CONTRATTI 9.8)
 	$('sempre').addEventListener('change', ev => {
 		const cur = (S.brain && S.brain.current) || {};
@@ -1232,6 +1235,12 @@
 			if ('board' in m) {
 				S.board = m.board || {};
 				dirty.work = true;
+			}
+			if ('avviso' in m) {
+				const a = $('avviso');
+				const on = m.avviso === true;
+				a.classList.toggle('attiva', on);
+				a.setAttribute('aria-pressed', String(on));
 			}
 			disegna();
 		} else if (m.type === 'assistant') {

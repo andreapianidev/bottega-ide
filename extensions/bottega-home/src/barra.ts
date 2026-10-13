@@ -23,12 +23,15 @@ export interface BarraSource {
 	/** Bacheca delle ultime 3 ore: puo' essere lenta (CLI della Memoria), si chiede ogni 20 s a vista aperta. */
 	board(): Promise<(BoardEntry & { sessionId?: string })[]>;
 	brain(): Promise<BrainState>;
+	/** L'avviso di fine a voce (avviso-fine.ts): lo stesso interruttore della mod melissa. */
+	avviso(): boolean;
 }
 
 export interface BarraActions {
 	converse(): void;
 	ask(text: string): void;
 	toggleVoice(): void;
+	toggleAvviso(): void;
 	/** Con chi parla Andrea: 'melissa' o la chiave di un personaggio caricato da personaggi/ (src/personaggi.ts). */
 	setPersonaggio(chi: string): void;
 	/** `sempre`: diventa il predefinito (CONTRATTI 9.8), altrimenti vale per questa conversazione */
@@ -118,6 +121,8 @@ export class BarraView implements vscode.WebviewViewProvider {
 				return s(m.text).trim() ? this.act.ask(s(m.text).trim()) : undefined;
 			case 'voice.toggle':
 				return this.act.toggleVoice();
+			case 'avviso.toggle':
+				return this.act.toggleAvviso();
 			case 'personaggio.set':
 				return m.chi === 'melissa' || esiste(m.chi) ? this.act.setPersonaggio(m.chi) : undefined;
 			case 'brain.set':
@@ -223,6 +228,7 @@ export class BarraView implements vscode.WebviewViewProvider {
 			activity: this.src.activity(),
 			board: this.board,
 			brain: this.brain,
+			avviso: this.src.avviso(),
 		};
 		const sig = JSON.stringify(msg);
 		if (!force && sig === this.lastSent) return;

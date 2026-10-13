@@ -291,6 +291,25 @@ function lineette(d) {
 		assert.strictEqual(b.posted.length, prima);
 	});
 
+	await test('avviso fine: il pulsante segue lo stato e manda avviso.toggle', () => {
+		const b = mount();
+		const a = b.$('#avviso');
+		assert.ok(a, 'il pulsante c\'e\'');
+		assert.strictEqual(a.getAttribute('aria-pressed'), 'false');
+		b.send(stato({ avviso: true }));
+		assert.strictEqual(a.getAttribute('aria-pressed'), 'true');
+		assert.ok(a.classList.contains('attiva'), 'acceso e\' pieno');
+		// uno stato che non parla dell'avviso non lo cambia
+		b.send({ type: 'stato', assistant: assistant() });
+		assert.strictEqual(a.getAttribute('aria-pressed'), 'true');
+		b.send(stato({ avviso: false }));
+		assert.ok(!a.classList.contains('attiva'));
+		b.click(a);
+		assert.deepStrictEqual(b.last('avviso.toggle'), { type: 'avviso.toggle' });
+		assert.ok(!/[\u2013\u2014]/.test(a.title), 'niente lineette nel titolo');
+		assert.deepStrictEqual(b.errors, []);
+	});
+
 	await test('impegno: cambiare posizione manda effort.set', () => {
 		const b = mount();
 		b.send(stato());
