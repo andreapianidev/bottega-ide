@@ -14,7 +14,7 @@ Andrea: senza la sua chiave non serve a niente), `voce_nota`, `carattere`, `salu
 `parole_cronaca` (lo stesso sulle azioni di Claude: solo parole che indicano un problema vero, non quelle di ogni
 build, come "firma" o "token"), `errori_ripetuti` (quanti errori di Claude di fila lo fanno entrare nella cronaca, 0
 mai), `occasioni` (in quali fatti entra: `sicurezza`, `rischio`, `errore`, `scelta`, `umore`, `attesa`, `fine`, e `chiacchiera` per la chiacchierata; tutti presenti, a ognuno si chiede dal suo `ruolo_cronaca`; le regole sono
-in `docs/CONTRATTI.md`, 9.11, "Ospiti dai fatti"), `riempitivi` (le frasi che dice mentre pensa, divise per gruppo: `domanda`, `ordine`, `sfogo`,
+in `docs/CONTRATTI.md`, 9.11, "Ospiti dai fatti"), `saluti` (la prima frase quando Melissa passa la chiamata, una a caso: ne servono tante, oggi 55 a testa, perche' con poche si sente sempre la stessa), `riempitivi` (le frasi che dice mentre pensa, divise per gruppo: `domanda`, `ordine`, `sfogo`,
 `battuta`, `chiacchiera`, `lunga`, `eco`; le regole sono in `docs/CONTRATTI.md`, 9.11). A parita' vince chi ha
 `ordine` piu' basso.
 
