@@ -60,10 +60,11 @@ struct CodaVoci {
     }
 
     /// A /parla: said now if this session holds the voice or the voice is free with nobody
-    /// waiting and no microphone open; otherwise queued.
+    /// waiting; otherwise queued. With the microphone open nobody speaks, not even the holder:
+    /// the line would end up in what is being dictated.
     mutating func arriva(_ b: Battuta, suona: Bool, ascolta: Bool, ora: Date) -> Esito {
         libera(suona: suona, ora: ora)
-        if di == b.sessione || (di == nil && attesa.isEmpty && !ascolta) {
+        if !ascolta, di == b.sessione || (di == nil && attesa.isEmpty) {
             prendi(b, ora: ora)
             return .subito
         }

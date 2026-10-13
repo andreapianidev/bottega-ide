@@ -256,12 +256,14 @@ final class Isola {
             // to). Only an id is taken: "apple" and com.apple.* would switch the engine.
             let voce = (corpo["voce"] as? String).flatMap { VoceCache.idVoceValido($0) ? $0 : nil }
             guard !testo.isEmpty || final else { return res.errore(400, "Niente da dire.") }
-            guard dettaPer == nil else { return res.errore(409, "Melissa sta ascoltando.") }
             let ora = Date()
+            // with the microphone open the line waits in the queue and goes out when it closes (build 153:
+            // before, a 409, and another session's notice was lost while Andrea dictated)
+            let ascolta = dettaPer != nil
             // whoever was waiting for a voice now free goes first: this line comes after them
             giraCoda()
             let b = Battuta(sessione: sessione, testo: testo, append: append, final: final, voce: voce, at: ora)
-            switch codaVoci.arriva(b, suona: Speaker.shared.isSounding, ascolta: false, ora: ora) {
+            switch codaVoci.arriva(b, suona: Speaker.shared.isSounding, ascolta: ascolta, ora: ora) {
             case .subito:
                 dici(b)
                 res.ok(["voce": Speaker.shared.currentEngine.rawValue])

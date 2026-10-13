@@ -43,18 +43,42 @@ export function leggiCondiviso(file: string): Record<string, unknown> | null {
 
 const pausa = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
-/** Cambia solo `avviso`, lasciando com'e' il resto (la cronaca e la chiacchierata della mod). Scrittura atomica, 600. */
-export async function scriviAvviso(file: string, acceso: boolean): Promise<void> {
-	let c = leggiCondiviso(file);
-	for (let i = 0; c === null && i < 5; i++) {
-		await pausa(40);
-		c = leggiCondiviso(file);
+/** Il testo del file com'e' adesso, '' se non c'e'. */
+function testoAdesso(file: string): string {
+	try {
+		return fs.readFileSync(file, 'utf8');
+	} catch {
+		return '';
 	}
-	if (c === null) throw new Error('Il file condiviso con la mod melissa non si legge: riprova tra un attimo.');
+}
+
+/**
+ * Cambia solo `avviso`, lasciando com'e' il resto (la cronaca e la chiacchierata della mod). Scrittura atomica, 600, e
+ * solo se nel frattempo nessuno ha cambiato il file: la mod lo riscrive a ogni frase di una chiacchierata, e senza questo
+ * controllo una delle due scritture cancellerebbe l'altra (il clic sull'interruttore perso).
+ */
+export async function scriviAvviso(file: string, acceso: boolean): Promise<void> {
 	fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-	const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-	fs.writeFileSync(tmp, `${JSON.stringify({ ...c, avviso: acceso }, null, 2)}\n`, { mode: 0o600 });
-	fs.renameSync(tmp, file);
+	for (let tentativo = 0; tentativo < 8; tentativo++) {
+		const prima = testoAdesso(file);
+		// un file che non c'e' e' {}; uno vuoto e' a meta' scrittura (leggiCondiviso da' null)
+		const c = fs.existsSync(file) ? leggiCondiviso(file) : {};
+		// a meta' scrittura (o rotto): si riprova tra un attimo, mai sopra un file che non si legge
+		if (c === null || testoAdesso(file) !== prima) {
+			await pausa(40);
+			continue;
+		}
+		const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+		fs.writeFileSync(tmp, `${JSON.stringify({ ...c, avviso: acceso }, null, 2)}\n`, { mode: 0o600 });
+		if (testoAdesso(file) !== prima) {
+			fs.rmSync(tmp, { force: true });
+			await pausa(20 + Math.random() * 60);
+			continue;
+		}
+		fs.renameSync(tmp, file);
+		return;
+	}
+	throw new Error('Il file condiviso con la mod melissa non si legge o cambia di continuo: riprova tra un attimo.');
 }
 
 /**

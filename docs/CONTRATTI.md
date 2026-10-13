@@ -158,7 +158,7 @@ gli errori hanno `ok: false` ed `errore`.
 | `POST /detta` | `{sessione, progetto}` | `{ok}`: apre il microfono (riconoscimento di Apple, `it-IT`, modo push). 409 se ascolta gia' un'altra sessione |
 | `POST /detta/fine` | | `{ok}`: chiude la frase; il testo arriva come evento |
 | `POST /stato` | `{stato: pensa\|pronto\|riposo, testo?}` | `{ok}`: l'isola mostra lo stato (`pronto` si ritira da sola dopo 1,8 s) |
-| `POST /parla` | `{sessione, testo, append?, final?, voce?}` | `{ok, voce, inCoda?}`: Melissa lo dice (o lo mette in fila, `inCoda: true`: vedi «Una voce alla volta») (ElevenLabs `eleven_v4_turbo` sul socket caldo, voce di sistema se non risponde). Con `append: true` i pezzi di uno stesso testo (la risposta di Claude letta mentre arriva) si accodano nello stesso turno di voce; `final: true` lo chiude, anche con testo vuoto. `voce` e' l'id di un'altra voce ElevenLabs dell'account (un personaggio a cui Melissa passa la chiamata, dalla build 120): si manda la frase intera (`append: false`), che chiude il turno aperto e ne apre uno con quella voce; un valore che non e' un id si ignora. 409 mentre ascolta |
+| `POST /parla` | `{sessione, testo, append?, final?, voce?}` | `{ok, voce, inCoda?}`: Melissa lo dice (o lo mette in fila, `inCoda: true`: vedi «Una voce alla volta») (ElevenLabs `eleven_v4_turbo` sul socket caldo, voce di sistema se non risponde). Con `append: true` i pezzi di uno stesso testo (la risposta di Claude letta mentre arriva) si accodano nello stesso turno di voce; `final: true` lo chiude, anche con testo vuoto. `voce` e' l'id di un'altra voce ElevenLabs dell'account (un personaggio a cui Melissa passa la chiamata, dalla build 120): si manda la frase intera (`append: false`), che chiude il turno aperto e ne apre uno con quella voce; un valore che non e' un id si ignora. Mentre il microfono e' aperto la battuta aspetta in fila e parte quando si chiude (dalla build 153; prima era un 409) |
 | `POST /zitta` | `{sessione?}` | `{ok}`: silenzio subito per quella sessione: la sua voce, se e' lei a tenerla, e le sue battute in fila. La voce di un'altra sessione continua. Senza `sessione` (o con la voce di nessuno) silenzio per tutti, come prima della build 152 |
 | `POST /scalda` | `{voci: [{voce, testi}]}` | `{ok, mancanti, inCoda}`: prepara l'audio dei riempitivi (9.11), come `voice.scalda` del servizio e con la stessa cache. `voce` e' l'id ElevenLabs (stessa regola di `/parla`, un id non valido si salta), `""` per Melissa. Risponde subito, la generazione va dopo, un pezzo alla volta; 503 senza chiave ElevenLabs. Non serve niente su `/parla`: un pezzo il cui testo e' gia' pronto parte dal disco. Corpo fino a 256 KB |
 | `GET /eventi?sessione=X` | | trattenuta fino a 15 s: `{ok, eventi: [...]}`, vuota se non succede niente |
@@ -174,7 +174,7 @@ voce la tiene una sessione: quella la cui battuta suona. La tiene finche' il suo
 non c'e' piu' niente da sentire, oppure per 25 s al piu' con un turno aperto e muto (una sessione chiusa a meta' frase).
 Intanto le `/parla` delle altre sessioni aspettano in fila, nell'ordine in cui arrivano, e partono intere, una sessione
 dopo l'altra (tutte le battute in fila della prima). Il titolare non aspetta mai chi e' in fila dietro di lui. Col
-microfono aperto non parte nessuno. Una battuta in fila da 5 minuti si scarta. Un clic sull'isola toglie anche tutto
+microfono aperto non parte nessuno, nemmeno chi lo ha aperto: le battute aspettano che si chiuda. Una battuta in fila da 5 minuti si scarta. Un clic sull'isola toglie anche tutto
 quello che era in fila. Senza la fila la cronaca di un terminale e l'avviso di fine di un altro si sovrapponevano, e i
 pezzi `append` di una sessione potevano finire nel turno aperto da un'altra. Il controllo della fila gira solo mentre
 qualcosa aspetta (ogni 0,3 s): da fermo nessun timer.
@@ -214,7 +214,8 @@ L'avviso di fine (build 152, `src/avviso-fine.ts`; mod `melissa` 0.20). Un inter
 `avviso` di `~/.bottega/nucleo/cronaca.json`, lo stesso file in cui la mod tiene `sessione` (chi ha la cronaca) e
 `conversa` (chi chiacchiera con Melissa). Lo cambiano il pulsante «avviso fine» della barra di Melissa, il comando
 `bottega.avviso.toggle`, il pulsante «avviso fine» e `/avviso` della mod: ognuno cambia solo `avviso` e lascia il resto,
-con una scrittura atomica (file temporaneo e `rename`), e non riscrive un file che non riesce a leggere. La Bottega
+con una scrittura atomica (file temporaneo e `rename`), non riscrive un file che non riesce a leggere, e scrive solo se nel frattempo nessuno l'ha cambiato
+(altrimenti rilegge e riapplica il cambio: la mod lo riscrive a ogni frase di una chiacchierata). La Bottega
 segue il file con un watcher sulla cartella e una rilettura ogni 10 s; la mod lo rilegge ogni 3 s in ogni sessione.
 Acceso, quando un lavoro durato almeno 15 s finisce, Melissa lo dice a voce e dice se aspetta qualcosa da Andrea
 (cosa) o cosa ha fatto. Le sessioni di Claude Code le avvisa la mod (con la cronaca accesa lo dice il suo riassunto

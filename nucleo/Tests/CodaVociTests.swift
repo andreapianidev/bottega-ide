@@ -46,6 +46,8 @@ struct CodaVociTests {
         expect(c.arriva(b("B", "avviso"), suona: false, ascolta: true, ora: t0) == .inCoda(dietro: "B"), "col microfono aperto si aspetta")
         expect(c.prossime(suona: false, ascolta: true, ora: t0).dire.isEmpty, "microfono ancora aperto")
         expect(c.prossime(suona: false, ascolta: false, ora: t0).dire.count == 1, "microfono chiuso: parte")
+        // not even the holder speaks into an open microphone
+        expect(c.arriva(b("B", "ancora"), suona: false, ascolta: true, ora: t0) == .inCoda(dietro: "B"), "il titolare aspetta il microfono")
 
         // A line that waited past scadenza is dropped, not said late.
         c = CodaVoci()
