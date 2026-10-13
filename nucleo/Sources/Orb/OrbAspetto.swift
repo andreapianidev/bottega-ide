@@ -3,11 +3,13 @@
 //  Bottega Nucleo
 //
 //  Who is speaking, at a glance (CONTRATTI 9.11, «La sfera di chi parla»). Melissa is a sphere
-//  with her own palette; every character has a shape (cube, rhombus, star) and a colour of
-//  their own (Elliot's `codice` is a dark glass sphere with falling green code), from the `sfera` field of their file in ~/.bottega/personaggi (ChiParla reads it),
-//  or chosen from the key when the field is missing (never the sphere: that is Melissa's).
-//  The emotion of the line gives an agitation 0..1 that spins the shape, lengthens the star's
-//  spikes, deforms more and changes the light of the colour. Melissa changes agitation, never
+//  with her own palette; every character has a figure and a colour of their own, from the `sfera`
+//  field of their file in ~/.bottega/personaggi (ChiParla reads it), or chosen from the key when the
+//  field is missing (never the sphere: that is Melissa's). The figures are Avo's (10/10/2026), the
+//  names stay the file keys: `codice` (Elliot) a dark glass sphere with falling green code,
+//  `stella` (Darlene) a dark glass core with three neon rings and a glitch, `rombo` (Krista) an
+//  amber Rorschach blot. The emotion of the line gives an agitation 0..1 that moves the figure
+//  more, deforms more and changes the light of the colour. Melissa changes agitation, never
 //  shape or colour.
 //
 //  Same rules as the views (extensions/bottega-home/src/sfera-aspetto.ts and
@@ -137,8 +139,6 @@ enum Umore {
     /// The light of the colour: +15% from 0.75 up, -25% from 0.1 down, 1 at 0.3.
     static func luce(_ a: Float) -> Float { 1 + 0.15 * liscio(0.5, 0.75, a) - 0.25 * (1 - liscio(0.1, 0.3, a)) }
 
-    /// The star's spike length in radii: 0.42, up to 1.5 times with the agitation.
-    static func punta(_ a: Float) -> Float { 0.42 * (1 + 0.5 * liscio(0.3, 0.85, a)) }
 }
 
 /// What the sphere shows now (written and read on main).
@@ -173,14 +173,12 @@ enum OrbAspetto {
     }
 }
 
-/// One renderer's own motion towards OrbAspetto: about 0.4 s to 95%, never a jump; the
-/// angle of the shape turns with the agitation (0.15 + 0.6 x agitation rad/s).
+/// One renderer's own motion towards OrbAspetto: about 0.4 s to 95%, never a jump.
 struct OrbMolla {
     var pesi = SIMD3<Float>(repeating: 0)
     var tinta: Float = 0
     var colore = SIMD3<Float>(repeating: 1)
     var agit = Umore.neutra
-    var angolo: Float = 0.6
 
     mutating func passo(dt: Float, verso a: SferaAspetto, agitazione: Float, salta: Bool) {
         let tintaVuole: Float = a.colore == nil ? 0 : 0.85
@@ -197,7 +195,6 @@ struct OrbMolla {
         if let c = a.colore { colore = tinta < 0.01 ? c : colore + (c - colore) * k }
         tinta += (tintaVuole - tinta) * k
         agit += (agitazione - agit) * k
-        angolo += dt * (0.15 + 0.6 * agit)
         // close enough: land exactly on the target, so a sphere that stops drawing (docked, at rest)
         // stays on the shape and tint it was going to, not on a 99% that never ends
         if ferma(verso: a, agitazione: agitazione) {

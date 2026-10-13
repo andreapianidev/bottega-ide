@@ -3,7 +3,8 @@
 //  Bottega per iPhone
 //
 //  La sfera di Melissa: la stessa del Nucleo (OrbRenderer, shader Metal), in una MTKView a 30 fotogrammi
-//  al secondo, ferma quando l'app non si vede.
+//  al secondo, ferma quando l'app non si vede. Prende la figura e il colore di chi parla (AspettoPersonaggi):
+//  il passaggio e' quello del Nucleo, circa 0,4 s, subito con Riduci movimento.
 //
 
 import MetalKit
@@ -16,6 +17,8 @@ enum StatoSfera: Int32 {
 struct SferaView: UIViewRepresentable {
     var stato: StatoSfera
     var attiva: Bool
+    /// chi si vede: Melissa, o un personaggio con la sua figura e il suo colore
+    var aspetto: SferaAspetto = .melissa
 
     final class Coordinator {
         var renderer: OrbRenderer?
@@ -43,12 +46,14 @@ struct SferaView: UIViewRepresentable {
             v.delegate = r
             context.coordinator.renderer = r
         }
+        OrbAspetto.parla(aspetto: aspetto)
         v.isPaused = !attiva
         return v
     }
 
     func updateUIView(_ v: MTKView, context: Context) {
         context.coordinator.renderer?.state = stato.rawValue
+        OrbAspetto.parla(aspetto: aspetto)
         v.isPaused = !attiva
     }
 }

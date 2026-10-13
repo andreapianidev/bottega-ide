@@ -20,10 +20,11 @@
 //         the sphere fills ~78% of the view; the breath phase comes from MetalEngine (it
 //         speeds up with the Claude sessions at work)
 //    spectrum[4] = 16 audio bands (0..1), low to high
-//    p6 = (code, rhombus, star weights, tint)           who speaks (OrbAspetto.swift): the sphere
-//    p7 = (character colour rgb, agitation)             is 1 - rhombus - star (code keeps the sphere
-//    p8 = (shape angle, colour light, spike length, 0)  and adds the falling code); tint 0.85 for a
-//                                                       character, 0 for Melissa
+//    p6 = (code, rhombus, star weights, tint)           who speaks (OrbAspetto.swift): code = Elliot's
+//    p7 = (character colour rgb, agitation)             falling code, rhombus = Krista's Rorschach blot,
+//    p8 = (0, colour light, 0, 0)                       star = Darlene's neon core and rings (the names
+//                                                       are the file keys); tint 0.85 for a character,
+//                                                       0 for Melissa
 //  Output is LINEAR EXTENDED for an EDR rgba16Float target, premultiplied alpha.
 //
 
@@ -43,7 +44,7 @@ struct OrbUniforms {
     float4 spectrum[4];
     float4 p6;            // (code, rhombus, star, tint)
     float4 p7;            // (colour rgb, agitation)
-    float4 p8;            // (angle, light, spike length, 0)
+    float4 p8;            // (0, light, 0, 0)
 };
 
 struct OrbVSOut { float4 pos [[position]]; float2 uv; };
@@ -80,23 +81,6 @@ static inline float3 orb_rotY(float3 p, float a) {
     return float3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
 }
 
-static inline float3 orb_rotX(float3 p, float a) {
-    float s = sin(a), c = cos(a);
-    return float3(p.x, c * p.y - s * p.z, s * p.y + c * p.z);
-}
-
-// the star's spikes: the 12 vertices of the icosahedron, six axes and their opposites
-static inline float orb_spikes(float3 dir) {
-    const float a = 0.5257311, b = 0.8506508;
-    float m = abs(dot(dir, float3(a, b, 0.0)));
-    m = max(m, abs(dot(dir, float3(a, -b, 0.0))));
-    m = max(m, abs(dot(dir, float3(0.0, a, b))));
-    m = max(m, abs(dot(dir, float3(0.0, a, -b))));
-    m = max(m, abs(dot(dir, float3(b, 0.0, a))));
-    m = max(m, abs(dot(dir, float3(-b, 0.0, a))));
-    return pow(m, 28.0);
-}
-
 struct OrbDrive {
     float time;
     float baseR;
@@ -106,11 +90,9 @@ struct OrbDrive {
     float mid;
     float flowSign;
     float reveal;
-    // the characters' shapes (the sphere is what is left; the code is a sphere), the shape's angle, the spike length
+    // the characters' weights (the sphere is what is left; the code is a sphere): rhombus = Krista, star = Darlene
     float romb;
     float star;
-    float angle;
-    float spike;
 };
 
 static inline float orb_displacement(float3 dir, OrbDrive d, texture3d<float> tex, sampler s) {
@@ -131,15 +113,15 @@ static inline float orb_map(float3 pos, OrbDrive d, texture3d<float> tex, sample
     float3 dir = normalize(pos + float3(1e-5));
     float disp = orb_displacement(dir, d, tex, s);
     float ball = length(pos) - (d.baseR + disp);
-    float others = d.romb + d.star;
-    if (others < 0.001) return ball;
-    // the characters' shapes turn slowly, tilted, so the rhombus reads in 3D
-    float3 q = orb_rotX(orb_rotY(pos, d.angle), 0.45);
+    // Avo (VoiceOrbShaders.metal, orb_map): Elliot stays a sphere with the code drawn on top. Krista has no body:
+    // the sphere shrinks almost to nothing and the Rorschach blot is drawn over it. Darlene is a smooth core at
+    // 0.60R, with no displacement, so the neon rim drawn over it sits right on its edge.
+    float w = d.romb + d.star;
+    if (w < 0.002) return ball;                      // Melissa (and Elliot): the usual sphere, same cost
     float R = d.baseR;
-    float dist = ball * (1.0 - others);
-    if (d.romb > 0.001) dist += ((abs(q.x) + abs(q.y) + abs(q.z) - 1.32 * R) * 0.57735 - 0.06 * R - disp * 0.6) * d.romb;
-    if (d.star > 0.001) dist += (length(pos) - (0.86 * R + 0.5 * disp + d.spike * R * orb_spikes(normalize(q + float3(1e-5))))) * d.star;
-    return dist;
+    float shrunk = length(pos) - R * 0.02;
+    float core = length(pos) - R * 0.60;
+    return ball * (1.0 - w) + shrunk * d.romb + core * d.star;
 }
 
 static inline float3 orb_normal(float3 pos, OrbDrive d, texture3d<float> tex, sampler s) {
@@ -262,7 +244,32 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
     float2 p  = in.uv * 2.0 - 1.0;
     p.x *= asp;
     float zoom = (u.p5.x > 0.0) ? u.p5.x : 1.0;
+    // the docked orb (zoom < 1) frames the sphere; Darlene's rings reach 1.5R and Krista's blot about 1.3R, so with
+    // them the view opens up (0.9 and 0.8), weighted like the morph
+    zoom += (max(zoom, 0.9) - zoom) * clamp(u.p6.z, 0.0, 1.0) + (max(zoom, 0.8) - zoom) * clamp(u.p6.y, 0.0, 1.0);
     p *= zoom;
+    float  agit = clamp(u.p7.w, 0.0, 1.0);
+
+    // DARLENE, the glitch (Avo, 10/10/2026): horizontal strips torn sideways. The point we look from moves, so the
+    // whole figure (core, rings, halo, rays) is sliced without a second raymarch. It JUMPS, in bursts, and grows
+    // with the voice, the onsets and the agitation. Colours and scanlines further down.
+    float darlene = clamp(u.p6.z, 0.0, 1.0);
+    float tGlitch = fmod(time, 4096.0);                  // like Elliot's rain: float precision
+    float snap    = floor(tGlitch * (7.0 + 9.0 * agit));
+    float energyG = clamp(0.25 * agit + 0.9 * loud + 1.3 * onset, 0.0, 1.0);
+    float torn = 0.0;                                    // 1 in the torn strips (for the colour)
+    if (darlene > 0.002) {
+        float burst  = step(0.55, orb_hash21(float2(floor(tGlitch * 1.7), 9.7)));
+        float rowId  = floor(p.y * 9.0 + orb_hash21(float2(snap, 2.3)) * 3.0);    // wide strips
+        float thresh = 0.97 - 0.12 * burst - 0.34 * energyG;
+        torn = orb_hash21(float2(rowId, snap)) > thresh ? 1.0 : 0.0;
+        float push  = (orb_hash21(float2(rowId * 3.1, snap + 0.5)) - 0.5) * (0.10 + 0.26 * energyG);
+        float fineId = floor(p.y * 64.0);                                           // thin strips
+        float fine   = orb_hash21(float2(fineId, snap * 1.3)) > (0.985 - 0.03 * energyG) ? 1.0 : 0.0;
+        float pushF  = (orb_hash21(float2(fineId, snap + 4.1)) - 0.5) * 0.05;
+        p.x += (push * torn + pushF * fine) * darlene;
+        torn = max(torn, fine * 0.6);
+    }
 
     // slow organic drift of the whole orb (more when calm)
     float wanderAmt = (state == 0 ? 0.030 : 0.014);
@@ -288,8 +295,6 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
     d.reveal = reveal;
     d.romb = u.p6.y; d.star = u.p6.z;
     float code = clamp(u.p6.x, 0.0, 1.0);
-    d.angle = u.p8.x; d.spike = u.p8.z;
-    float agit = clamp(u.p7.w, 0.0, 1.0);
     float coreGain = 1.0, glowGain = 1.0;
     float flow = 0.0;
 
@@ -361,12 +366,14 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
     float3 ro = float3(p, 2.5);
     float3 rd = float3(0.0, 0.0, -1.0);
     float  R  = d.baseR;
-    // the star's spikes and the rhombus's vertices leave the sphere: the search sphere grows with them
-    float  maxR = R + 0.24 + R * (0.4 * d.star + 0.1 * d.romb);
+    float  maxR = R + 0.24;
+    // the edge that shows: Darlene's core is at 0.60R, Krista's blot grows from the centre; halo, corona and the
+    // shockwave start from there (Avo)
+    float  krista = clamp(d.romb, 0.0, 1.0);
+    float  Rvis = R * (1.0 - 0.40 * clamp(d.star, 0.0, 1.0) - 0.50 * krista);
     float  pxWorld = 2.0 * zoom / res.y;
-    // the spikes are not Lipschitz: with the star a more careful step, and more steps
-    float  stepK = mix(0.72, 0.45, d.star);
-    int    outSteps = d.star > 0.01 ? 120 : 80;
+    const float stepK = 0.72;
+    const int outSteps = 80;
 
     float3 col   = float3(0.0);
     float  alpha = 0.0;
@@ -535,7 +542,7 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
 
     // soft outer halo
     {
-        float halo = orb_halo(pr, R, glowGain * (1.0 - 0.25 * night), loud);
+        float halo = orb_halo(pr, Rvis, glowGain * (1.0 - 0.25 * night) * (1.0 - 0.55 * krista), loud);
         col   += baseCol * halo;
         alpha  = max(alpha, halo);
     }
@@ -543,7 +550,7 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
     // corona + long rays, gated per angle by the matching spectrum band
     {
         float cang = atan2(p.y, p.x);
-        float outR = max(pr - R, 0.0);
+        float outR = max(pr - Rvis, 0.0);
         int   cbi = int((cang / (2.0 * M_PI_F) + 0.5) * float(ORB_BANDS)) & (ORB_BANDS - 1);
         float cEq = orb_band(u, cbi);
         float cn1 = orb_fbm3(float3(cang * 2.5, pr * 3.0,  time * 0.25), noiseTex, noiseSamp);
@@ -551,12 +558,14 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
         float s1  = pow(0.5 + 0.5 * sin(cang * 18.0 + time * 0.80 + cn1 * 6.2831853), 3.0);
         float s2  = pow(0.5 + 0.5 * sin(cang * 41.0 - time * 0.55 + cn2 * 6.2831853), 5.0);
         float corona = (s1 + 0.6 * s2) * exp(-outR * 4.0) * (0.05 + 0.10 * loud + 0.18 * onset);
+        corona *= 1.0 - 0.85 * krista;                   // Krista is calm: no sizzling corona
         col   += orb_starEmission(0.7, baseCol) * corona;
         alpha  = max(alpha, corona * 0.6);
         float rayN = pow(0.5 + 0.5 * sin(cang * 9.0 + cn1 * 4.0 + time * 0.22), 6.0);
         float rays = rayN * exp(-outR * 1.05)
                    * (0.020 + 0.075 * cEq + 0.26 * onset + 0.10 * loud)
                    * smoothstep(0.0, 0.05, outR);
+        rays  *= 1.0 - 0.85 * krista;
         col   += orb_starEmission(0.80, baseCol) * rays * reveal;
         alpha  = max(alpha, rays * 0.5);
     }
@@ -564,12 +573,99 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
     // shockwave ring on each speech onset
     if (onset > 0.01) {
         float age  = 1.0 - onset;
-        float rad  = R + age * 0.95;
+        float rad  = Rvis + age * 0.95;
         float wid  = 0.020 + 0.055 * age;
         float ring = exp(-pow((pr - rad) / wid, 2.0));
         float fade = onset * onset;
         col   += orb_starEmission(0.95, baseCol) * ring * fade * 0.85;
         alpha  = max(alpha, ring * fade * 0.5);
+    }
+
+    // DARLENE, cyberpunk (Avo, 10/10/2026): a dark glass core with pink plasma and a neon rim, and around it three
+    // neon rings (pink, cyan, violet) turning like a gyroscope, with flashes of light running along them; the back
+    // half of each ring passes behind the core. Over it the torn strips lose a channel and turn cyan, monitor
+    // scanlines pass and, when she speaks, blocks of pixels pop out. All in screen space: no raymarch cost.
+    if (darlene > 0.002) {
+        float3 pink   = max(u.p7.xyz * u.p8.y, float3(0.0));
+        float3 cyan   = float3(0.10, 0.95, 1.00);
+        float3 violet = float3(0.62, 0.30, 1.00);
+        float  rN     = R * 0.60;                                           // the core of orb_map
+        float  luma   = dot(col, float3(0.2126, 0.7152, 0.0722));
+        float  inCore = smoothstep(rN * 1.03, rN * 0.97, pr);
+        col = mix(col, pink * luma * 0.55, inCore * darlene);               // dark glass, pink plasma
+        float  rimX = (pr - rN) / 0.010;                                     // squared by hand: pow of a negative is undefined
+        float  rim = exp(-rimX * rimX);
+        col   += pink * rim * (1.4 + 1.2 * loud + 1.0 * onset) * darlene;
+        alpha  = max(alpha, rim * darlene);
+
+        for (int k = 0; k < 3; k++) {
+            float fk   = float(k);
+            float way  = k == 1 ? -1.0 : 1.0;
+            float a    = R * (1.00 + 0.22 * fk) * (1.0 + 0.05 * loud);
+            float tilt = 1.15 + 0.25 * sin(tGlitch * (0.21 + 0.07 * fk) + fk * 2.1);   // how edge-on it is
+            float roll = fk * 2.094 + way * tGlitch * (0.12 + 0.05 * fk) + 0.6 * agit * sin(tGlitch * 0.8 + fk);
+            float2 q   = float2(cos(roll) * p.x + sin(roll) * p.y, -sin(roll) * p.x + cos(roll) * p.y);
+            float2 ab  = float2(a, a * cos(tilt));
+            float  kq  = length(q / ab);
+            float  dist = abs(kq - 1.0) * kq / max(length(q / (ab * ab)), 1e-4);    // distance from the ellipse
+            float  theta = atan2(q.y / ab.y, q.x / ab.x);
+            float  front = smoothstep(-0.15, 0.15, sin(theta));                    // the half towards us
+            float  hidden = (1.0 - front) * smoothstep(rN * 1.02, rN * 0.95, pr);  // behind the core
+            float  w    = 0.0045 + 0.004 * loud;
+            float  line = exp(-pow(dist / w, 2.0));
+            float  glow = exp(-dist / (w * 7.0)) * 0.35;
+            float  run  = pow(0.5 + 0.5 * cos(theta - way * tGlitch * (1.4 + 0.6 * fk) * (1.0 + 1.5 * energyG)), 12.0);
+            float3 tint = k == 0 ? pink : (k == 1 ? cyan : violet);
+            float  light = (line * (1.6 + 2.2 * run) + glow * (0.6 + run))
+                         * (0.55 + 0.45 * front) * (1.0 - 0.9 * hidden) * (1.0 + 0.8 * loud + 1.2 * onset);
+            col   += mix(tint, float3(1.0), 0.35 * line * run) * light * darlene;
+            alpha  = max(alpha, clamp(light, 0.0, 1.0) * darlene);
+        }
+
+        float  near = smoothstep(R * 2.0, R * 1.3, pr);
+        col = mix(col, cyan * dot(col, float3(0.2126, 0.7152, 0.0722)) * 1.25, 0.80 * torn * darlene * near);
+        float scan = 0.5 + 0.5 * sin(in.uv.y * res.y * 1.5707963);         // a line every 4 pixels
+        col *= 1.0 - 0.22 * scan * darlene * near;
+        float2 block = floor(in.uv * res / 7.0);
+        float  bk    = orb_hash21(block + float2(snap * 13.0, snap * 7.0));
+        float  data  = bk > (0.997 - 0.025 * energyG) ? 1.0 : 0.0;
+        float3 pixel = bk > 0.9995 ? float3(1.6) : mix(cyan, pink, step(0.5, fract(bk * 977.0))) * 1.6;
+        col   += pixel * data * near * darlene;
+        alpha  = max(alpha, data * near * darlene);
+    }
+
+    // KRISTA, the Rorschach blot (Avo, 10/10/2026): an amber ink blot, mirrored on the vertical axis like the test,
+    // that changes shape slowly and breathes on six seconds. Warm light on the edge, level lines inside: while
+    // Andrea speaks they flow to the centre and slow waves come in with his voice; when she speaks they flow out
+    // and the blot widens with her words. All in screen space; the sphere under it has shrunk (orb_map).
+    if (krista > 0.002) {
+        float3 amber  = max(u.p7.xyz * u.p8.y, float3(0.0));
+        float  tK     = fmod(time, 4096.0);
+        float  breathK = 0.5 + 0.5 * sin(tK * 1.0471976);                  // six seconds
+        float  listen = state == 1 ? 1.0 : 0.0;
+        float  speak  = state == 3 ? 1.0 : 0.0;
+        float2 m  = p / 0.46;                                               // in base radii: it does not beat with the heart
+        float2 sm = float2(abs(m.x), m.y);                                  // the mirror of the test
+        float  field = orb_fbm3(float3(sm * 1.35, tK * 0.045), noiseTex, noiseSamp);
+        float  fine  = orb_fbm3(float3(sm * 3.8 + 7.0, tK * 0.07), noiseTex, noiseSamp);
+        float  rad   = length(sm * float2(0.78, 1.05));
+        float  wide  = 0.06 * breathK + speak * (0.30 * pow(loud, 0.7) + 0.25 * onset) - 0.06 * listen;
+        float  v = (field - 0.5) * 1.7 + (fine - 0.5) * 0.55 + (1.0 - rad) * 0.95 - 0.25 + wide;
+        float  full  = smoothstep(0.0, 0.06, v);
+        float  edgeX = v / 0.03;
+        float  edgeK = exp(-edgeX * edgeX);
+        float  out_  = exp(-max(-v, 0.0) / 0.10) * (1.0 - full);
+        float  way   = listen > 0.5 ? 1.0 : -1.0;                           // listening: the lines go to the centre
+        float  levels = pow(0.5 + 0.5 * sin(v * 38.0 + way * tK * 0.9), 6.0);
+        float3 ink   = amber * (0.16 + 0.22 * fine) + amber * levels * 0.30 * full;
+        float3 lightK = mix(amber, float3(1.0, 0.92, 0.78), 0.45) * edgeK * (1.2 + 0.6 * breathK + 1.2 * speak * loud)
+                      + amber * out_ * (0.22 + 0.10 * breathK);
+        float  waves = pow(0.5 + 0.5 * sin(pr * 22.0 + tK * 2.2), 8.0)      // listening: waves to the centre
+                     * smoothstep(0.30, 0.70, pr) * exp(-max(pr - 0.70, 0.0) * 3.0)
+                     * listen * (0.10 + 0.55 * loud) * (1.0 - full);
+        float3 figure = ink * full + lightK + amber * waves;
+        col   = mix(col, col * (1.0 - full) + figure, krista);
+        alpha = max(alpha, clamp(max(full, max(edgeK, max(out_ * 0.6, waves))), 0.0, 1.0) * krista);
     }
 
     if (cine > 0.5) {

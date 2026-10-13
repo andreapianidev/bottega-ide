@@ -103,7 +103,7 @@ struct PlanciaView: View {
 
     private var sfera: some View {
         VStack(spacing: 6) {
-            SferaView(stato: melissa.sfera, attiva: davanti)
+            SferaView(stato: melissa.sfera, attiva: davanti, aspetto: AspettoPersonaggi.di(melissa))
                 .frame(width: 250, height: 250)
                 // la maschera radiale della barra sul Mac (sfera-gpu.js, VoiceOrbIndicator di Avo): piena fino al
                 // 62% del raggio, zero sul bordo, cosi' particelle e bagliore non disegnano mai un quadrato

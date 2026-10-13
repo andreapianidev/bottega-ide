@@ -25,8 +25,8 @@ struct OrbUniforms {
     var p4: SIMD4<Float>
     var p5: SIMD4<Float>
     var spectrum: (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>)
-    /// Who speaks (OrbAspetto.swift): (cube, rhombus, star, tint), (colour, agitation),
-    /// (angle, light, spike length, 0).
+    /// Who speaks (OrbAspetto.swift): (code, rhombus, star, tint), (colour, agitation),
+    /// (0, light, 0, 0).
     var p6: SIMD4<Float>
     var p7: SIMD4<Float>
     var p8: SIMD4<Float>
@@ -356,7 +356,7 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
             spectrum: (vec(0), vec(1), vec(2), vec(3)),
             p6: SIMD4(molla.pesi.x, molla.pesi.y, molla.pesi.z, molla.tinta),
             p7: SIMD4(molla.colore.x, molla.colore.y, molla.colore.z, molla.agit),
-            p8: SIMD4(molla.angolo, Umore.luce(molla.agit), Umore.punta(molla.agit), 0))
+            p8: SIMD4(0, Umore.luce(molla.agit), 0, 0))
         let lc = molla.colore * Umore.luce(molla.agit)
         var pu = ParticleUniforms(q0: SIMD4(dt, tSec, Float(state), loud),
                                   q1: SIMD4(1, Float(Self.particleCount), pulse, 0),
@@ -663,9 +663,27 @@ enum OrbSelfTest {
         for px in [344, 516, 688] {
             bySize["\(px)"] = r.selfTest(width: px, height: px, frames: 20, state: 3).map { ($0 * 100).rounded() / 100 }
         }
+        // Each character's figure (a new renderer each: its first frame lands on the figure at once), at the
+        // panel's size while speaking and idle, and docked idle. OrbAspetto goes back to what it was.
+        let prima = (OrbAspetto.aspetto, OrbAspetto.agitazione)
+        var perFigure: [String: Any] = [:]
+        for (nome, forma) in [("melissa", SferaAspetto.Forma.sfera), ("elliot", .codice), ("darlene", .stella), ("krista", .rombo)] {
+            OrbAspetto.aspetto = forma == .sfera ? .melissa : SferaAspetto(forma: forma, colore: SIMD3(1, 0.7, 0.3))
+            OrbAspetto.agitazione = Umore.neutra
+            guard let f = OrbRenderer(device: device, library: lib, pixelFormat: .rgba16Float) else { continue }
+            let t2 = CACurrentMediaTime()
+            while !f.hasRichNoise, CACurrentMediaTime() - t2 < 10 { try? await Task.sleep(for: .milliseconds(20)) }
+            let ms = { (v: Double?) in v.map { ($0 * 100).rounded() / 100 } }
+            let parla = ms(f.selfTest(width: side, height: side, frames: 20, state: 3))
+            let riposo = ms(f.selfTest(width: side, height: side, frames: 20, state: 0))
+            f.docked = true
+            let agganciata = f.selfTest(width: dockPx, height: dockPx, frames: 20, state: 0).map { ($0 * 1000).rounded() / 1000 }
+            perFigure[nome] = ["speaking": parla, "idle": riposo, "dockedIdle": agganciata]
+        }
+        (OrbAspetto.aspetto, OrbAspetto.agitazione) = prima
         return ["ok": true, "device": device.name, "precompiled": Nucleo.bundle.url(forResource: "default", withExtension: "metallib") != nil,
                 "libraryMs": Int(tLib * 1000), "richNoiseMs": Int(tNoise * 1000), "pixels": side,
                 "gpuMsPerFrame": perState, "cpuMicrosPerFrame": (bigCPU * 10).rounded() / 10,
-                "speakingMsBySize": bySize, "docked": docked]
+                "speakingMsBySize": bySize, "docked": docked, "gpuMsPerFigure": perFigure]
     }
 }

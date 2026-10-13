@@ -249,7 +249,13 @@
 			if (!ctx) return;
 			fit();
 			const S = size, c = S / 2, R = S * 0.3;
-			const C = mixC(col, GREY, dim * 0.7);
+			// spenta va verso il grigio, ma il colore di chi ha la chiamata resta (Krista spenta e' ambra smorzata)
+			const C = mixC(col, GREY, dim * 0.7 * (1 - (mol ? mol.tinta : 0)));
+			// il bordo che si vede: il nucleo di Darlene e' a 0,60R, la macchia di Krista nasce dal centro, e Krista e' calma
+			const Rv = R * (mol ? A.visto(mol.pesi) : 1);
+			const calma = 1 - 0.55 * (mol ? mol.pesi[1] : 0);
+			// il raggio del corpo che resta, per le sue sfumature
+			const Rc = R * (mol ? A.corpo(mol.pesi) : 1);
 			const E = e * (1 - dim * 0.6);
 			const speaking = target === 'speaking' && dim < 0.5;
 			const voice = speaking ? 0.16 * Math.max(0, Math.sin(phase * 6.1)) * (0.6 + 0.4 * Math.sin(phase * 2.3)) : 0;
@@ -261,16 +267,16 @@
 
 			// alone additivo
 			ctx.globalCompositeOperation = 'lighter';
-			let g = ctx.createRadialGradient(c, c, R * 0.7, c, c, S / 2);
-			g.addColorStop(0, rgba(C, 0.3 + 0.25 * pulse));
-			g.addColorStop(0.4, rgba(C, 0.08 + 0.06 * pulse));
+			let g = ctx.createRadialGradient(c, c, Rv * 0.7, c, c, S / 2);
+			g.addColorStop(0, rgba(C, (0.3 + 0.25 * pulse) * calma));
+			g.addColorStop(0.4, rgba(C, (0.08 + 0.06 * pulse) * calma));
 			g.addColorStop(1, rgba(C, 0));
 			ctx.fillStyle = g;
 			ctx.fillRect(0, 0, S, S);
 
 			ctx.save();
-			// la sagoma di chi parla: la sfera di Melissa, o la forma del personaggio (cubo, rombo, stella)
-			if (mol) A.traccia(ctx, c, c, R, mol.pesi, mol.angolo, mol.agit);
+			// il corpo: la sfera di Melissa e di Elliot, il nucleo di Darlene, quasi niente per Krista
+			if (mol) A.traccia(ctx, c, c, R, mol.pesi);
 			else {
 				ctx.beginPath();
 				ctx.arc(c, c, R, 0, Math.PI * 2);
@@ -279,7 +285,7 @@
 
 			// corpo: profondo al centro, quasi spento sul bordo
 			ctx.globalCompositeOperation = 'source-over';
-			g = ctx.createRadialGradient(c - R * 0.18, c - R * 0.22, 0, c, c, R);
+			g = ctx.createRadialGradient(c - Rc * 0.18, c - Rc * 0.22, 0, c, c, Rc);
 			g.addColorStop(0, rgba(scale(C, 0.5), 1));
 			g.addColorStop(1, rgba(scale(C, 0.06), 1));
 			ctx.fillStyle = g;
@@ -289,10 +295,10 @@
 			ctx.globalCompositeOperation = 'lighter';
 			for (let i = 0; i < 5; i++) {
 				const a = phase * (0.55 + i * 0.19) + i * 1.9;
-				const rr = R * (0.3 + 0.14 * Math.sin(phase * 0.7 + i));
+				const rr = Rc * (0.3 + 0.14 * Math.sin(phase * 0.7 + i));
 				const x = c + Math.cos(a) * rr;
 				const y = c + Math.sin(a * 1.3 + i) * rr * 0.85;
-				const br = R * (0.5 + 0.16 * Math.sin(phase * 1.1 + i * 2));
+				const br = Rc * (0.5 + 0.16 * Math.sin(phase * 1.1 + i * 2));
 				const hue = i % 2 ? C : mixC(C, [1, 1, 1], 0.3);
 				g = ctx.createRadialGradient(x, y, 0, x, y, br);
 				g.addColorStop(0, rgba(hue, 0.1 + 0.42 * E));
@@ -302,9 +308,9 @@
 			}
 
 			// nucleo caldo, quasi bianco
-			const cx = c + Math.sin(phase * 0.9) * R * 0.05;
-			const cy = c + Math.cos(phase * 0.7) * R * 0.05;
-			const cr = R * (0.38 + 0.2 * pulse);
+			const cx = c + Math.sin(phase * 0.9) * Rc * 0.05;
+			const cy = c + Math.cos(phase * 0.7) * Rc * 0.05;
+			const cr = Rc * (0.38 + 0.2 * pulse);
 			g = ctx.createRadialGradient(cx, cy, 0, cx, cy, cr);
 			g.addColorStop(0, `rgba(255,255,255,${(0.55 + 0.4 * (1 - dim)).toFixed(3)})`);
 			g.addColorStop(0.35, rgba(mixC(C, [1, 1, 1], 0.55), 0.6));
@@ -314,13 +320,13 @@
 
 			// bordo scuro, poi un filo di luce radente
 			ctx.globalCompositeOperation = 'source-over';
-			g = ctx.createRadialGradient(c, c, R * 0.6, c, c, R);
+			g = ctx.createRadialGradient(c, c, Rc * 0.6, c, c, Rc);
 			g.addColorStop(0, 'rgba(3,6,16,0)');
 			g.addColorStop(1, 'rgba(3,6,16,0.62)');
 			ctx.fillStyle = g;
 			ctx.fillRect(0, 0, S, S);
 			ctx.globalCompositeOperation = 'lighter';
-			g = ctx.createRadialGradient(c, c, R * 0.88, c, c, R);
+			g = ctx.createRadialGradient(c, c, Rc * 0.88, c, c, Rc);
 			g.addColorStop(0, rgba(C, 0));
 			g.addColorStop(1, rgba(C, 0.3));
 			ctx.fillStyle = g;
@@ -328,6 +334,12 @@
 			// Elliot: il codice che scende dentro la sfera, piu' veloce con la voce e l'emozione
 			if (mol && mol.pesi[0] > 0.001) A.pioggia2D(ctx, c, c, R, mol.pesi[0], performance.now() / 1000, level, mol.agit, mol.colore);
 			ctx.restore();
+			// Darlene (nucleo e anelli al neon, glitch) e Krista (la macchia di Rorschach), fuori dal ritaglio
+			if (mol && A.darlene2D) {
+				const t = performance.now() / 1000;
+				A.darlene2D(ctx, c, c, R, mol.pesi[2], t, level, mol.agit, mol.colore, dim);
+				A.krista2D(ctx, c, c, R, mol.pesi[1], t, level, mol.agit, mol.colore, dim, target);
+			}
 		}
 
 		/** il colore voluto: quello dello stato, e con un personaggio l'85% del suo, con la luce della sua emozione */

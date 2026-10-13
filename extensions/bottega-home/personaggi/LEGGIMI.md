@@ -20,11 +20,12 @@ in `docs/CONTRATTI.md`, 9.11, "Ospiti dai fatti"), `saluti` (la prima frase quan
 
 `sfera` (facoltativo): `{"forma": "...", "colore": "#RRGGBB"}`, come appare la sfera quando parla lui, cosi' Andrea
 riconosce chi parla a occhio (nella barra, nella pagina di Melissa e sull'isola del Nucleo). Forme: `sfera`, `codice`,
-`rombo`, `stella` (`cubo` si accetta ancora e vale `codice`). Oggi Darlene e' una stella magenta (`#FF2E9A`), Elliot una
-sfera di vetro scuro con il codice verde terminale che scende come in Matrix (`codice`, `#38F27A`), Krista un rombo ambra
-(`#FFB547`). Senza il campo, o con un valore non valido, forma e colore si scelgono dalla chiave, sempre
+`rombo`, `stella` (`cubo` si accetta ancora e vale `codice`). I nomi restano questi, ma si disegnano come le figure di
+Avo: oggi Darlene (`stella`, `#FF2E9A`) e' un nucleo di vetro scuro con tre anelli al neon e un glitch, Elliot una sfera di
+vetro scuro con il codice verde terminale che scende come in Matrix (`codice`, `#38F27A`), Krista (`rombo`, `#FFB547`)
+una macchia di Rorschach ambrata che respira. Senza il campo, o con un valore non valido, forma e colore si scelgono dalla chiave, sempre
 uguali per la stessa chiave e mai la sfera (che e' di Melissa): la regola e' in `docs/CONTRATTI.md`, 9.11, «La sfera di
-chi parla». L'emozione della battuta (tag audio come `[laughs]` o `[sighs]`, o le parole) fa girare la forma piu' o meno
+chi parla». L'emozione della battuta (tag audio come `[laughs]` o `[sighs]`, o le parole) muove la figura piu' o meno
 in fretta e cambia la luce del colore. `melissa.json` non lo ha: Melissa resta la sfera con i suoi colori.
 
 Essenziali: `chiave` (non `melissa`, e una sola per file), `nome`, `voce`, `carattere`, `saluti`. Senza uno di questi il

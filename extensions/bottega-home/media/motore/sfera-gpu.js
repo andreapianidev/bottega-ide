@@ -38,12 +38,16 @@
      aspetto (facoltativo, 9/10/2026): { forma: 'sfera' | 'codice' | 'rombo' | 'stella', colore?: '#RRGGBB',
      agitazione?: 0..1 } di chi parla (CONTRATTI 9.11, «La sfera di chi parla»). Senza, la sfera di Melissa, calma.
      Forma, colore e agitazione vanno al valore nuovo in circa 0,4 s, mai a scatti. Con un colore la sfera ne prende
-     l'85%; 'codice' (Elliot; 'cubo' vale lo stesso) e' una sfera di vetro scuro con il codice verde che scende come in
-     Matrix, piu' veloce con la voce e l'agitazione; l'agitazione fa girare la forma (0,15 + 0,6 x agitazione rad/s), allunga le punte della stella fino a 1,5
-     volte, alza la deformazione fino al 60% e cambia la luce del colore (+15% sopra 0,75, -25% sotto 0,1).
+     l'85%, anche spenta. Le figure sono quelle di Avo (dal 13/10/2026 anche qui), i nomi restano le chiavi dei file:
+     'codice' (Elliot; 'cubo' vale lo stesso) e' una sfera di vetro scuro con il codice verde che scende come in Matrix;
+     'stella' (Darlene) un nucleo di vetro scuro col bordo al neon, tre anelli al neon che girano e un glitch che la
+     taglia a strisce; 'rombo' (Krista) una macchia di Rorschach ambrata che respira, la sfera sotto si ritira.
+     L'agitazione muove di piu' la figura, alza la deformazione fino al 60% e cambia la luce del colore (+15% sopra
+     0,75, -25% sotto 0,1).
    window.BottegaSferaGPU.aspetto: le stesse regole per le viste e per la sfera Canvas 2D di ripiego:
      daStato(assistant) -> aspetto (chi parla o ha la chiamata, dallo stato dell'assistente), rgb(colore), luce(agitazione),
-     punta(agitazione), traccia(ctx, cx, cy, R, aspetto, angolo) (la sagoma piatta della forma, come percorso).
+     traccia(ctx, cx, cy, R, pesi) (il cerchio del corpo che resta, come percorso), corpo(pesi) (il suo raggio, in
+     raggi), visto(pesi) (il bordo che si vede, in raggi), pioggia2D, darlene2D e krista2D (le figure in Canvas 2D).
      riposa(si): con si (il predefinito) la sfera in 'idle' o spenta, finiti i movimenti, si ferma su un
      fotogramma e riparte al primo cambio di stato; con no gira sempre, anche spenta.
    `mount` lancia subito se WebGPU qui non c'e' (manca motore/gpu.js o navigator.gpu): la vista usa
@@ -82,8 +86,6 @@
 		};
 		/** la luce del colore: +15% dall'agitazione 0,75 in su, -25% da 0,1 in giu', uguale a 0,3 */
 		const luce = a => 1 + 0.15 * liscio(0.5, 0.75, a) - 0.25 * (1 - liscio(0.1, 0.3, a));
-		/** la lunghezza delle punte della stella, in raggi: 0,42, fino a 1,5 volte con l'agitazione */
-		const punta = a => 0.42 * (1 + 0.5 * liscio(0.3, 0.85, a));
 		const agitazione = x => {
 			const n = Number(x);
 			return x !== null && x !== undefined && x !== '' && Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : NEUTRA;
@@ -105,7 +107,7 @@
 			if (!sf || typeof sf !== 'object' || !Object.hasOwn(INDICE, sf.forma)) return { forma: 'sfera', agitazione: ag };
 			return { forma: sf.forma === 'cubo' ? 'codice' : sf.forma, colore: sf.colore, agitazione: ag };
 		}
-		/** l'aspetto che si muove: va al valore chiesto in circa 0,4 s (95%), mai a scatti; l'angolo gira con l'agitazione */
+		/** l'aspetto che si muove: va al valore chiesto in circa 0,4 s (95%), mai a scatti */
 		function molla() {
 			const firma = x => `${x.pesi.join(',')}|${x.tinta}|${x.colore ? x.colore.join(',') : ''}|${x.agitazione}`;
 			const m = {
@@ -113,7 +115,6 @@
 				tinta: 0,
 				colore: [1, 1, 1],
 				agit: NEUTRA,
-				angolo: 0.6,
 				vuole: leggi(null),
 				/** un aspetto nuovo; vero se e' diverso da quello di prima */
 				vai(a) {
@@ -133,7 +134,6 @@
 					}
 					m.tinta += (v.tinta - m.tinta) * k;
 					m.agit += (v.agitazione - m.agit) * k;
-					m.angolo += dt * (0.15 + 0.6 * m.agit);
 				},
 				salta() {
 					const v = m.vuole;
@@ -150,77 +150,211 @@
 			};
 			return m;
 		}
-		// la sagoma piatta, per la sfera Canvas 2D di ripiego: la forma ruotata come nello shader (rotY, poi rotX 0,45), vista
-		// di fronte, come raggio per angolo; le forme si mescolano con i loro pesi, cosi' anche il passaggio e' continuo
-		const proietta = (v, ang) => {
-			const s = Math.sin(ang), c = Math.cos(ang);
-			const x = c * v[0] + s * v[2];
-			const z = -s * v[0] + c * v[2];
-			const y = Math.cos(0.45) * v[1] - Math.sin(0.45) * z;
-			return [x, -y];
-		};
-		const ICO = [];
-		for (const u of [1, -1]) for (const w of [1, -1]) ICO.push([u * 0.5257311, w * 0.8506508, 0], [0, u * 0.5257311, w * 0.8506508], [w * 0.8506508, 0, u * 0.5257311]);
-		const ROMBO = [[1.22, 0, 0], [-1.22, 0, 0], [0, 1.22, 0], [0, -1.22, 0], [0, 0, 1.22], [0, 0, -1.22]];
-		function inviluppo(pt) {
-			pt.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
-			const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
-			const giu = [], su = [];
-			for (const p of pt) {
-				while (giu.length >= 2 && cr(giu[giu.length - 2], giu[giu.length - 1], p) <= 0) giu.pop();
-				giu.push(p);
-			}
-			for (let i = pt.length - 1; i >= 0; i--) {
-				const p = pt[i];
-				while (su.length >= 2 && cr(su[su.length - 2], su[su.length - 1], p) <= 0) su.pop();
-				su.push(p);
-			}
-			return giu.slice(0, -1).concat(su.slice(0, -1));
-		}
-		/** il raggio di un poligono convesso attorno all'origine nella direzione (dx, dy) */
-		function raggioPoligono(h, dx, dy) {
-			let r = Infinity;
-			for (let i = 0; i < h.length; i++) {
-				const p = h[i], q = h[(i + 1) % h.length];
-				let nx = q[1] - p[1], ny = p[0] - q[0];
-				if (nx * p[0] + ny * p[1] < 0) {
-					nx = -nx;
-					ny = -ny;
-				}
-				const den = nx * dx + ny * dy;
-				if (den > 1e-9) r = Math.min(r, (nx * p[0] + ny * p[1]) / den);
-			}
-			return Number.isFinite(r) ? r : 1;
-		}
-		/** il percorso della sagoma (beginPath compreso): pesi (codice, rombo, stella); il resto, e il codice, e' la sfera di
-		 *  raggio R */
-		function traccia(ctx, cx, cy, R, pesi, angolo, agit) {
+		const peso = (pesi, i) => (Array.isArray(pesi) ? Math.min(1, Math.max(0, Number(pesi[i]) || 0)) : 0);
+		/** il corpo che resta, in raggi, come la mappa dello shader: Krista (rombo) si ritira a 0,02, Darlene (stella) e' un
+		 *  nucleo a 0,60; Melissa ed Elliot sono la sfera intera */
+		const corpo = pesi => 1 - 0.98 * peso(pesi, 1) - 0.40 * peso(pesi, 2);
+		/** il bordo che si vede, in raggi, da cui partono alone e corona: 1 - 0,40 stella - 0,50 rombo (come lo shader) */
+		const visto = pesi => 1 - 0.40 * peso(pesi, 2) - 0.50 * peso(pesi, 1);
+		/** il percorso del corpo (beginPath compreso), un cerchio: pesi (codice, rombo, stella) */
+		function traccia(ctx, cx, cy, R, pesi) {
 			ctx.beginPath();
-			const w = Array.isArray(pesi) ? pesi : [0, 0, 0];
-			const altre = w[1] + w[2];
-			if (altre < 0.001) {
-				ctx.arc(cx, cy, R, 0, Math.PI * 2);
-				return;
-			}
-			const ang = Number(angolo) || 0;
-			const rombo = w[1] > 0.001 ? inviluppo(ROMBO.map(v => proietta(v, ang))) : null;
-			const punte = w[2] > 0.001 ? ICO.map(v => proietta(v, ang)) : null;
-			const L = punta(agitazione(agit));
-			const N = 96;
-			for (let k = 0; k < N; k++) {
-				const f = (k / N) * Math.PI * 2;
-				const dx = Math.cos(f), dy = Math.sin(f);
-				let r = 1 - altre;
-				if (rombo) r += w[1] * raggioPoligono(rombo, dx, dy);
-				if (punte) {
-					let m = 0;
-					for (const t of punte) m = Math.max(m, Math.pow(Math.max(0, t[0] * dx + t[1] * dy), 28));
-					r += w[2] * (0.86 + L * m);
+			ctx.arc(cx, cy, Math.max(0.5, R * corpo(pesi)), 0, Math.PI * 2);
+		}
+		/** da luce lineare 0..1 al byte sRGB, per i colori delle figure */
+		const s8 = c => {
+			c = Math.min(1, Math.max(0, c));
+			return Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055));
+		};
+		const rgbaL = (c, a) => `rgba(${s8(c[0])},${s8(c[1])},${s8(c[2])},${Math.max(0, Math.min(1, a)).toFixed(3)})`;
+		/** una tela d'appoggio per spostare le strisce del glitch (drawImage della tela su se stessa non e' sicuro) */
+		let appoggio = null;
+		/** DARLENE in Canvas 2D, dopo il corpo (fuori dal ritaglio): il nucleo di vetro scuro a 0,60R col bordo al neon, tre
+		 *  anelli al neon (rosa, ciano, viola) che girano come un giroscopio con un lampo che corre lungo ciascuno (la meta'
+		 *  dietro passa dietro al nucleo), poi le strisce strappate di lato a scatti e le righe da monitor. Stessi tempi
+		 *  dello shader. peso 0..1, t in secondi, voce 0..1, spenta 0..1 */
+		function darlene2D(ctx, cx, cy, R, w, t, voce, agit, colore, spenta) {
+			if (!(w > 0.001)) return;
+			const ag = agitazione(agit), v = Math.max(0, Number(voce) || 0), sp = Math.min(1, Math.max(0, Number(spenta) || 0));
+			const L = luce(ag) * (1 - 0.5 * sp);
+			const base = colore || [1, 0.18, 0.6];
+			const rosa = [base[0] * L, base[1] * L, base[2] * L];
+			const ciano = [0.10 * L, 0.95 * L, 1.0 * L], viola = [0.62 * L, 0.30 * L, 1.0 * L];
+			const tG = (Number(t) || 0) % 4096;
+			const energia = Math.min(1, 0.25 * ag + 0.9 * v);
+			const rN = R * 0.6;
+			const anello = (k, fronte) => {
+				const verso = k === 1 ? -1 : 1;
+				const a = R * (1 + 0.22 * k) * (1 + 0.05 * v);
+				const incl = 1.15 + 0.25 * Math.sin(tG * (0.21 + 0.07 * k) + k * 2.1);
+				const giro = k * 2.094 + verso * tG * (0.12 + 0.05 * k) + 0.6 * ag * Math.sin(tG * 0.8 + k);
+				const corsa = verso * tG * (1.4 + 0.6 * k) * (1 + 1.5 * energia);
+				const tinta = k === 0 ? rosa : k === 1 ? ciano : viola;
+				const ellisse = (da, a2) => {
+					ctx.save();
+					ctx.translate(cx, cy);
+					ctx.rotate(-giro);
+					ctx.scale(1, Math.max(0.05, Math.abs(Math.cos(incl))));
+					ctx.beginPath();
+					ctx.arc(0, 0, a, da, a2);
+					ctx.restore();
+				};
+				const da = fronte ? Math.PI : 0;
+				ctx.shadowColor = rgbaL(tinta, 1);
+				ctx.shadowBlur = R * 0.12;
+				ctx.lineWidth = Math.max(1, R * (0.02 + 0.017 * v));
+				ellisse(da, da + Math.PI);
+				ctx.strokeStyle = rgbaL(tinta, (fronte ? 0.9 : 0.4) * w * (1 + 0.8 * v));
+				ctx.stroke();
+				// il lampo che corre: un tratto chiaro attorno all'angolo della corsa, se cade in questa meta'
+				const f = ((-corsa % (2 * Math.PI)) + 4 * Math.PI) % (2 * Math.PI);
+				if (fronte === f >= Math.PI) {
+					ellisse(f - 0.35, f + 0.35);
+					ctx.strokeStyle = rgbaL([0.65 + 0.35 * tinta[0], 0.65 + 0.35 * tinta[1], 0.65 + 0.35 * tinta[2]], (fronte ? 1 : 0.35) * w);
+					ctx.lineWidth = Math.max(1.5, R * 0.035);
+					ctx.stroke();
 				}
-				if (k) ctx.lineTo(cx + dx * r * R, cy + dy * r * R);
-				else ctx.moveTo(cx + dx * r * R, cy + dy * r * R);
+			};
+			ctx.save();
+			ctx.globalCompositeOperation = 'lighter';
+			for (let k = 0; k < 3; k++) anello(k, false);
+			// il nucleo: vetro scuro sopra le meta' dietro, plasma rosa tenue, il bordo al neon
+			ctx.globalCompositeOperation = 'source-over';
+			ctx.shadowBlur = 0;
+			const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rN);
+			g.addColorStop(0, rgbaL([rosa[0] * 0.35, rosa[1] * 0.35, rosa[2] * 0.35], w));
+			g.addColorStop(1, rgbaL([rosa[0] * 0.08, rosa[1] * 0.08, rosa[2] * 0.08], w));
+			ctx.fillStyle = g;
+			ctx.beginPath();
+			ctx.arc(cx, cy, rN, 0, Math.PI * 2);
+			ctx.fill();
+			ctx.globalCompositeOperation = 'lighter';
+			ctx.shadowColor = rgbaL(rosa, 1);
+			ctx.shadowBlur = R * 0.15;
+			ctx.lineWidth = Math.max(1, R * 0.03);
+			ctx.strokeStyle = rgbaL(rosa, w * (0.9 + 0.6 * v));
+			ctx.stroke();
+			for (let k = 0; k < 3; k++) anello(k, true);
+			ctx.restore();
+			// il glitch: strisce larghe e sottili spostate di lato, a scatti e a raffiche, come lo shader
+			const scatto = Math.floor(tG * (7 + 9 * ag));
+			const raffica = h21(Math.floor(tG * 1.7), 9.7) > 0.55 ? 1 : 0;
+			const soglia = 0.97 - 0.12 * raffica - 0.34 * energia;
+			const S = ctx.canvas.width, H = ctx.canvas.height, unita = R / 0.46;
+			if (typeof document !== 'undefined') {
+				if (!appoggio) appoggio = document.createElement('canvas');
+				if (appoggio.width !== S || appoggio.height !== H) {
+					appoggio.width = S;
+					appoggio.height = H;
+				}
+				const a2 = appoggio.getContext('2d');
+				const sposta = (y0, h, dx, tinta) => {
+					if (!a2 || h < 1) return;
+					a2.clearRect(0, y0, S, h);
+					a2.drawImage(ctx.canvas, 0, y0, S, h, 0, y0, S, h);
+					ctx.clearRect(0, y0, S, h);
+					ctx.drawImage(appoggio, 0, y0, S, h, dx, y0, S, h);
+					if (tinta) {
+						ctx.save();
+						ctx.globalCompositeOperation = 'source-atop';
+						ctx.fillStyle = rgbaL(ciano, 0.45 * w);
+						ctx.fillRect(0, y0, S, h);
+						ctx.restore();
+					}
+				};
+				const alto = 2 * unita / 9;
+				const off = h21(scatto, 2.3) * 3, fr0 = off - Math.floor(off);
+				for (let r = -6; r <= 6; r++) {
+					const id = r + Math.floor(off);
+					if (h21(id, scatto) <= soglia) continue;
+					const dx = (h21(id * 3.1, scatto + 0.5) - 0.5) * (0.10 + 0.26 * energia) * unita * w;
+					sposta(Math.round(cy + (r - fr0) * alto), Math.round(alto), Math.round(dx), true);
+				}
 			}
-			ctx.closePath();
+			// le righe da monitor, una ogni 4 pixel, solo vicino alla figura
+			ctx.save();
+			ctx.globalCompositeOperation = 'destination-out';
+			ctx.fillStyle = `rgba(0,0,0,${(0.2 * w).toFixed(3)})`;
+			for (let y = Math.max(0, Math.floor(cy - 2 * R)); y < Math.min(H, cy + 2 * R); y += 4) ctx.fillRect(Math.max(0, cx - 2 * R), y, 4 * R, 2);
+			ctx.restore();
+		}
+		/** KRISTA in Canvas 2D, dopo il corpo (che si e' ritirato): la macchia di Rorschach ambrata, simmetrica sull'asse
+		 *  verticale, che cambia forma piano e respira su sei secondi; bordo di luce calda, linee di livello che in ascolto
+		 *  vanno verso il centro e mentre parla verso fuori, onde lente verso il centro con la voce di Andrea; parlando si
+		 *  allarga con la voce. stato: 'listening', 'speaking' o altro */
+		function krista2D(ctx, cx, cy, R, w, t, voce, agit, colore, spenta, stato) {
+			if (!(w > 0.001)) return;
+			const v = Math.max(0, Number(voce) || 0), sp = Math.min(1, Math.max(0, Number(spenta) || 0));
+			const L = luce(agitazione(agit)) * (1 - 0.5 * sp);
+			const base = colore || [1, 0.71, 0.28];
+			const ambra = [base[0] * L, base[1] * L, base[2] * L];
+			const tK = (Number(t) || 0) % 4096;
+			const respiro = 0.5 + 0.5 * Math.sin(tK * 1.0471976);
+			const ascolta = stato === 'listening' ? 1 : 0, parla = stato === 'speaking' ? 1 : 0;
+			const largo = 0.06 * respiro + parla * 0.30 * Math.pow(v, 0.7) - 0.06 * ascolta;
+			const unita = R / 0.46;
+			// il raggio per angolo, specchiato: u = 0 in alto, PI in basso, uguale a destra e a sinistra
+			const raggio = u => {
+				const ell = 1 / Math.hypot(0.78 * Math.sin(u), 1.05 * Math.cos(u));
+				const n = 0.20 * Math.sin(2 * u + 1.3 + 0.9 * Math.sin(tK * 0.045 * 2.4)) +
+					0.13 * Math.sin(5 * u + 2 + 0.8 * Math.sin(tK * 0.07 * 2.1)) +
+					0.07 * Math.sin(9 * u - 0.6 + 1.2 * Math.sin(tK * 0.05 * 1.7));
+				return Math.max(0.12, (0.74 + n + largo / 0.95) * ell) * 0.46 * unita;
+			};
+			const percorso = k => {
+				ctx.beginPath();
+				const N = 72;
+				for (let i = 0; i <= N; i++) {
+					const f = (i / N) * Math.PI * 2;
+					const u = f <= Math.PI ? f : 2 * Math.PI - f;
+					const r = raggio(u) * k;
+					const x = cx + Math.sin(f) * r, y = cy - Math.cos(u) * r;
+					if (i) ctx.lineTo(x, y);
+					else ctx.moveTo(x, y);
+				}
+				ctx.closePath();
+			};
+			ctx.save();
+			// l'inchiostro
+			ctx.globalCompositeOperation = 'source-over';
+			percorso(1);
+			const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 1.3);
+			g.addColorStop(0, rgbaL([ambra[0] * 0.34, ambra[1] * 0.34, ambra[2] * 0.34], w));
+			g.addColorStop(1, rgbaL([ambra[0] * 0.18, ambra[1] * 0.18, ambra[2] * 0.18], w));
+			ctx.fillStyle = g;
+			ctx.fill();
+			// le linee di livello: in ascolto scorrono verso il centro, se no verso fuori
+			ctx.globalCompositeOperation = 'lighter';
+			ctx.lineWidth = Math.max(1, R * 0.015);
+			const verso = ascolta ? -1 : 1;
+			for (let i = 0; i < 4; i++) {
+				const k = (((i / 4 + verso * tK * 0.04) % 1) + 1) % 1;
+				percorso(0.2 + 0.75 * k);
+				ctx.strokeStyle = rgbaL(ambra, 0.28 * w * Math.sin(Math.PI * k));
+				ctx.stroke();
+			}
+			// il bordo di luce calda
+			const caldo = [ambra[0] * 0.55 + 0.45, ambra[1] * 0.55 + 0.414, ambra[2] * 0.55 + 0.351];
+			percorso(1);
+			ctx.shadowColor = rgbaL(ambra, 1);
+			ctx.shadowBlur = R * 0.25;
+			ctx.lineWidth = Math.max(1, R * 0.03);
+			ctx.strokeStyle = rgbaL(caldo, w * Math.min(1, 0.6 + 0.3 * respiro + 0.6 * parla * v));
+			ctx.stroke();
+			// l'ascolto: onde lente verso il centro, dal fuori della macchia, con la voce di Andrea
+			if (ascolta) {
+				ctx.shadowBlur = 0;
+				ctx.lineWidth = Math.max(1, R * 0.02);
+				for (let i = 0; i < 2; i++) {
+					const k = (((i / 2 - tK * 0.25) % 1) + 1) % 1;
+					const rr = (0.30 + 0.40 * k) * unita;
+					ctx.beginPath();
+					ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+					ctx.strokeStyle = rgbaL(ambra, w * (0.10 + 0.55 * v) * Math.sin(Math.PI * k));
+					ctx.stroke();
+				}
+			}
+			ctx.restore();
 		}
 		// il codice che scende, per la sfera Canvas 2D: la stessa logica dello shader (26 colonne, velocita' con la voce e
 		// l'agitazione, due scie, testa chiara), con caratteri veri (katakana e cifre) al posto dei glifi a blocchi
@@ -274,7 +408,7 @@
 			}
 			ctx.restore();
 		}
-		return { NEUTRA, rgb, luce, punta, leggi, daStato, molla, traccia, pioggia2D };
+		return { NEUTRA, rgb, luce, leggi, daStato, molla, traccia, corpo, visto, pioggia2D, darlene2D, krista2D };
 	})();
 	/** Lato del volume di rumore, come in Avo. */
 	const DIM = 96;
@@ -375,7 +509,8 @@ struct U {
 	p5: vec4f,
 	spettro: array<vec4f, 4>,
 	p6: vec4f,
-	// chi parla: p7 = (codice, rombo, stella, tinta), p8 = (colore, agitazione), p9 = (angolo, luce, punta, 0)
+	// chi parla: p7 = (codice, rombo, stella, tinta), p8 = (colore, agitazione), p9 = (0, luce, 0, 0); codice e' Elliot,
+	// rombo Krista (la macchia di Rorschach), stella Darlene (nucleo e anelli al neon): i nomi sono le chiavi dei file
 	p7: vec4f,
 	p8: vec4f,
 	p9: vec4f,
@@ -417,25 +552,6 @@ fn rotY(p: vec3f, a: f32) -> vec3f {
 	return vec3f(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
 }
 
-fn rotX(p: vec3f, a: f32) -> vec3f {
-	let s = sin(a);
-	let c = cos(a);
-	return vec3f(p.x, c * p.y - s * p.z, s * p.y + c * p.z);
-}
-
-// le punte della stella: i 12 vertici dell'icosaedro, sei assi con il loro opposto
-fn punte(dir: vec3f) -> f32 {
-	let a = 0.5257311;
-	let b = 0.8506508;
-	var m = abs(dot(dir, vec3f(a, b, 0.0)));
-	m = max(m, abs(dot(dir, vec3f(a, -b, 0.0))));
-	m = max(m, abs(dot(dir, vec3f(0.0, a, b))));
-	m = max(m, abs(dot(dir, vec3f(0.0, a, -b))));
-	m = max(m, abs(dot(dir, vec3f(b, 0.0, a))));
-	m = max(m, abs(dot(dir, vec3f(-b, 0.0, a))));
-	return pow(m, 28.0);
-}
-
 struct Spinta {
 	tempo: f32,
 	baseR: f32,
@@ -445,11 +561,9 @@ struct Spinta {
 	medi: f32,
 	verso: f32,
 	rivela: f32,
-	// i pesi delle forme dei personaggi (la sfera e' il resto; il codice resta una sfera), l'angolo e le punte
+	// i pesi dei personaggi (la sfera e' il resto; il codice resta una sfera): rombo = Krista, stella = Darlene
 	rombo: f32,
 	stella: f32,
-	angolo: f32,
-	punta: f32,
 };
 
 fn spostamento(dir: vec3f, d: Spinta) -> f32 {
@@ -470,15 +584,12 @@ fn mappa(pos: vec3f, d: Spinta) -> f32 {
 	let dir = normalize(pos + vec3f(1e-5));
 	let sp = spostamento(dir, d);
 	let palla = length(pos) - (d.baseR + sp);
-	let altre = d.rombo + d.stella;
-	if (altre < 0.001) { return palla; }
-	// le forme dei personaggi girano piano, inclinate, cosi' il rombo si legge in 3D
-	let q = rotX(rotY(pos, d.angolo), 0.45);
+	// come Avo (orb_map) e il Nucleo: Krista non ha corpo, la sfera si ritira quasi a sparire e sopra si disegna la
+	// macchia; Darlene e' un nucleo liscio a 0,60R, senza spostamenti, cosi' il bordo al neon gli sta addosso
+	let w = d.rombo + d.stella;
+	if (w < 0.002) { return palla; }
 	let R = d.baseR;
-	var dist = palla * (1.0 - altre);
-	if (d.rombo > 0.001) { dist += ((abs(q.x) + abs(q.y) + abs(q.z) - 1.32 * R) * 0.57735 - 0.06 * R - sp * 0.6) * d.rombo; }
-	if (d.stella > 0.001) { dist += (length(pos) - (0.86 * R + 0.5 * sp + d.punta * R * punte(normalize(q + vec3f(1e-5))))) * d.stella; }
-	return dist;
+	return palla * (1.0 - w) + (length(pos) - R * 0.02) * d.rombo + (length(pos) - R * 0.60) * d.stella;
 }
 
 fn normale(pos: vec3f, d: Spinta) -> vec3f {
@@ -590,8 +701,33 @@ struct VF { @builtin(position) pos: vec4f };
 
 	var p = uv * 2.0 - 1.0;
 	p.x *= res.x / res.y;
-	let zoom = select(1.0, u.p5.x, u.p5.x > 0.0);
+	var zoom = select(1.0, u.p5.x, u.p5.x > 0.0);
+	// la sfera che riempie la tela (zoom < 1): gli anelli di Darlene arrivano a 1,5R e la macchia di Krista a circa 1,3R,
+	// quindi con loro la vista si apre (0,9 e 0,8), pesata come il passaggio
+	zoom += (max(zoom, 0.9) - zoom) * clamp(u.p7.z, 0.0, 1.0) + (max(zoom, 0.8) - zoom) * clamp(u.p7.y, 0.0, 1.0);
 	p *= zoom;
+	let agitazione = clamp(u.p8.w, 0.0, 1.0);
+
+	// DARLENE, il glitch (Avo, 10/10/2026): strisce orizzontali strappate di lato. Si sposta il punto da cui si guarda,
+	// cosi' tutta la figura (nucleo, anelli, alone, raggi) si taglia a fette senza un secondo raymarch. Salta a scatti,
+	// arriva a raffiche, cresce con la voce, gli attacchi e l'agitazione. Colori e righe piu' sotto
+	let darlene = clamp(u.p7.z, 0.0, 1.0);
+	let tGlitch = tempo % 4096.0;
+	let scattoG = floor(tGlitch * (7.0 + 9.0 * agitazione));
+	let energiaG = clamp(0.25 * agitazione + 0.9 * forte + 1.3 * attacco, 0.0, 1.0);
+	var strappo = 0.0;
+	if (darlene > 0.002) {
+		let raffica = step(0.55, hash21(vec2f(floor(tGlitch * 1.7), 9.7)));
+		let rigaId = floor(p.y * 9.0 + hash21(vec2f(scattoG, 2.3)) * 3.0);
+		let soglia = 0.97 - 0.12 * raffica - 0.34 * energiaG;
+		strappo = select(0.0, 1.0, hash21(vec2f(rigaId, scattoG)) > soglia);
+		let spinta = (hash21(vec2f(rigaId * 3.1, scattoG + 0.5)) - 0.5) * (0.10 + 0.26 * energiaG);
+		let fineId = floor(p.y * 64.0);
+		let fine = select(0.0, 1.0, hash21(vec2f(fineId, scattoG * 1.3)) > (0.985 - 0.03 * energiaG));
+		let spintaF = (hash21(vec2f(fineId, scattoG + 4.1)) - 0.5) * 0.05;
+		p.x += (spinta * strappo + spintaF * fine) * darlene;
+		strappo = max(strappo, fine * 0.6);
+	}
 
 	// la sfera vaga piano (di piu' quando e' calma)
 	let vaga = select(0.014, 0.030, st == 0);
@@ -624,9 +760,6 @@ struct VF { @builtin(position) pos: vec4f };
 	let codice = clamp(u.p7.x, 0.0, 1.0);
 	d.rombo = u.p7.y;
 	d.stella = u.p7.z;
-	d.angolo = u.p9.x;
-	d.punta = u.p9.z;
-	let agitazione = clamp(u.p8.w, 0.0, 1.0);
 	var nucleo = 1.0;
 	var guadagno = 1.0;
 	var flusso = 0.0;
@@ -687,20 +820,23 @@ struct VF { @builtin(position) pos: vec4f };
 	}
 	// il colore di chi parla, con la luce della sua emozione: la deriva della tavolozza ne resta solo un filo
 	base = mix(base, u.p8.xyz * u.p9.y, clamp(u.p7.w, 0.0, 1.0));
-	// spenta: il colore va verso il grigio della notte, la luce cala
-	base = mix(base, vec3f(0.16, 0.18, 0.24), spenta * 0.7);
+	// spenta: il colore va verso il grigio della notte, la luce cala; il colore di chi ha la chiamata resta (Krista spenta
+	// e' ambra smorzata, non un rombo grigio: segnalato da Andrea il 13/10/2026)
+	base = mix(base, vec3f(0.16, 0.18, 0.24), spenta * 0.7 * (1.0 - clamp(u.p7.w, 0.0, 1.0)));
 	guadagno *= 1.0 - 0.6 * spenta;
 	nucleo *= 1.0 - 0.6 * spenta;
 
 	let ro = vec3f(p, 2.5);
 	let rd = vec3f(0.0, 0.0, -1.0);
 	let R = d.baseR;
-	// le punte della stella e i vertici del rombo escono dalla sfera: la sfera di ricerca si allarga con loro
-	let maxR = R + 0.24 + R * (0.4 * d.stella + 0.1 * d.rombo);
+	let maxR = R + 0.24;
+	// il bordo che si vede: il nucleo di Darlene e' a 0,60R, la macchia di Krista nasce dal centro; alone, corona e onda
+	// partono da li' (Avo)
+	let krista = clamp(d.rombo, 0.0, 1.0);
+	let Rvis = R * (1.0 - 0.40 * clamp(d.stella, 0.0, 1.0) - 0.50 * krista);
 	let pxMondo = 2.0 * zoom / res.y;
-	// le punte non sono lipschitziane: con la stella il passo e' piu' prudente, e i passi di piu'
-	let prudenza = mix(0.72, 0.45, d.stella);
-	let passiFuori = select(PASSI_FUORI, 120, d.stella > 0.01);
+	let prudenza = 0.72;
+	let passiFuori = PASSI_FUORI;
 
 	var col = vec3f(0.0);
 	var alfa = 0.0;
@@ -857,37 +993,121 @@ struct VF { @builtin(position) pos: vec4f };
 	}
 
 	// alone morbido
-	let h = alone(pr, R, guadagno * (1.0 - 0.25 * notte), forte);
+	let h = alone(pr, Rvis, guadagno * (1.0 - 0.25 * notte) * (1.0 - 0.55 * krista), forte);
 	col += base * h;
 	alfa = max(alfa, h);
 
 	// corona e raggi lunghi, accesi per angolo dalla banda della voce
 	let cang = atan2(p.y, p.x);
-	let fuori = max(pr - R, 0.0);
+	let fuori = max(pr - Rvis, 0.0);
 	let cbi = i32((cang / (2.0 * PI) + 0.5) * f32(BANDE)) & (BANDE - 1);
 	let ceq = banda(cbi);
 	let cn1 = fbm3(vec3f(cang * 2.5, pr * 3.0, tempo * 0.25));
 	let cn2 = fbm3(vec3f(cang * 5.0, pr * 1.5, -tempo * 0.17));
 	let s1 = pow(0.5 + 0.5 * sin(cang * 18.0 + tempo * 0.80 + cn1 * 6.2831853), 3.0);
 	let s2 = pow(0.5 + 0.5 * sin(cang * 41.0 - tempo * 0.55 + cn2 * 6.2831853), 5.0);
-	let corona = (s1 + 0.6 * s2) * exp(-fuori * 4.0) * (0.05 + 0.10 * forte + 0.18 * attacco) * (1.0 - 0.6 * spenta);
+	// Krista e' calma: niente corona che sfrigola, raggi quasi spenti
+	let corona = (s1 + 0.6 * s2) * exp(-fuori * 4.0) * (0.05 + 0.10 * forte + 0.18 * attacco) * (1.0 - 0.6 * spenta) * (1.0 - 0.85 * krista);
 	col += emissione(0.7, base) * corona;
 	alfa = max(alfa, corona * 0.6);
 	let rN = pow(0.5 + 0.5 * sin(cang * 9.0 + cn1 * 4.0 + tempo * 0.22), 6.0);
-	let raggi = rN * exp(-fuori * 1.05) * (0.020 + 0.075 * ceq + 0.26 * attacco + 0.10 * forte) * smoothstep(0.0, 0.05, fuori);
+	let raggi = rN * exp(-fuori * 1.05) * (0.020 + 0.075 * ceq + 0.26 * attacco + 0.10 * forte) * smoothstep(0.0, 0.05, fuori) * (1.0 - 0.85 * krista);
 	col += emissione(0.80, base) * raggi * rivela;
 	alfa = max(alfa, raggi * 0.5);
 
 	// l'onda d'urto a ogni attacco della voce
 	if (attacco > 0.01) {
 		let eta = 1.0 - attacco;
-		let rad = R + eta * 0.95;
+		let rad = Rvis + eta * 0.95;
 		let largo = 0.020 + 0.055 * eta;
 		let x = (pr - rad) / largo;
 		let anello = exp(-x * x);
 		let svan = attacco * attacco;
 		col += emissione(0.95, base) * anello * svan * 0.85;
 		alfa = max(alfa, anello * svan * 0.5);
+	}
+
+	// DARLENE, cyberpunk (Avo, 10/10/2026): un nucleo di vetro scuro col plasma rosa e il bordo al neon, e intorno tre
+	// anelli al neon (rosa, ciano, viola) che girano come un giroscopio, con lampi che corrono lungo di loro; la meta'
+	// dietro di ogni anello passa dietro al nucleo. Sopra, le strisce strappate perdono il canale e virano al ciano,
+	// passano le righe di un monitor e, quando parla, saltano fuori blocchi di pixel. Tutto in spazio schermo
+	if (darlene > 0.002) {
+		let rosa = max(u.p8.xyz * u.p9.y, vec3f(0.0));
+		let ciano = vec3f(0.10, 0.95, 1.00);
+		let viola = vec3f(0.62, 0.30, 1.00);
+		let rNu = R * 0.60;
+		let lumaD = dot(col, vec3f(0.2126, 0.7152, 0.0722));
+		let dentroN = smoothstep(rNu * 1.03, rNu * 0.97, pr);
+		col = mix(col, rosa * lumaD * 0.55, dentroN * darlene);
+		let bx = (pr - rNu) / 0.010;
+		let bordoN = exp(-bx * bx);
+		col += rosa * bordoN * (1.4 + 1.2 * forte + 1.0 * attacco) * darlene;
+		alfa = max(alfa, bordoN * darlene);
+		for (var k = 0; k < 3; k++) {
+			let fk = f32(k);
+			let verso = select(1.0, -1.0, k == 1);
+			let a = R * (1.00 + 0.22 * fk) * (1.0 + 0.05 * forte);
+			let incl = 1.15 + 0.25 * sin(tGlitch * (0.21 + 0.07 * fk) + fk * 2.1);
+			let giro = fk * 2.094 + verso * tGlitch * (0.12 + 0.05 * fk) + 0.6 * agitazione * sin(tGlitch * 0.8 + fk);
+			let q = vec2f(cos(giro) * p.x + sin(giro) * p.y, -sin(giro) * p.x + cos(giro) * p.y);
+			let ab = vec2f(a, a * cos(incl));
+			let kq = length(q / ab);
+			let dist = abs(kq - 1.0) * kq / max(length(q / (ab * ab)), 1e-4);
+			let theta = atan2(q.y / ab.y, q.x / ab.x);
+			let fronte = smoothstep(-0.15, 0.15, sin(theta));
+			let coperto = (1.0 - fronte) * smoothstep(rNu * 1.02, rNu * 0.95, pr);
+			let w = 0.0045 + 0.004 * forte;
+			let lx = dist / w;
+			let linea = exp(-lx * lx);
+			let aloneA = exp(-dist / (w * 7.0)) * 0.35;
+			let corsa = pow(0.5 + 0.5 * cos(theta - verso * tGlitch * (1.4 + 0.6 * fk) * (1.0 + 1.5 * energiaG)), 12.0);
+			var tintaA = viola;
+			if (k == 0) { tintaA = rosa; } else if (k == 1) { tintaA = ciano; }
+			let luceA = (linea * (1.6 + 2.2 * corsa) + aloneA * (0.6 + corsa)) * (0.55 + 0.45 * fronte) * (1.0 - 0.9 * coperto) * (1.0 + 0.8 * forte + 1.2 * attacco);
+			col += mix(tintaA, vec3f(1.0), 0.35 * linea * corsa) * luceA * darlene;
+			alfa = max(alfa, clamp(luceA, 0.0, 1.0) * darlene);
+		}
+		let vicino = smoothstep(R * 2.0, R * 1.3, pr);
+		col = mix(col, ciano * dot(col, vec3f(0.2126, 0.7152, 0.0722)) * 1.25, 0.80 * strappo * darlene * vicino);
+		let rigaM = 0.5 + 0.5 * sin(uv.y * res.y * 1.5707963);
+		col *= 1.0 - 0.22 * rigaM * darlene * vicino;
+		let blocco = floor(uv * res / 7.0);
+		let bk = hash21(blocco + vec2f(scattoG * 13.0, scattoG * 7.0));
+		let dati = select(0.0, 1.0, bk > (0.997 - 0.025 * energiaG));
+		let pixel = select(mix(ciano, rosa, step(0.5, fract(bk * 977.0))) * 1.6, vec3f(1.6), bk > 0.9995);
+		col += pixel * dati * vicino * darlene;
+		alfa = max(alfa, dati * vicino * darlene);
+	}
+
+	// KRISTA, la macchia di Rorschach (Avo, 10/10/2026): una macchia d'inchiostro ambrato, simmetrica come il test (si
+	// specchia sull'asse verticale), che cambia forma piano e respira su sei secondi. Bordo di luce calda, dentro linee di
+	// livello: mentre Andrea parla scorrono verso il centro e scendono onde lente con la sua voce; quando parla lei
+	// scorrono verso fuori e la macchia si allarga. Tutto in spazio schermo; la sfera sotto si e' ritirata (mappa)
+	if (krista > 0.002) {
+		let ambra = max(u.p8.xyz * u.p9.y, vec3f(0.0));
+		let tK = tempo % 4096.0;
+		let respiroK = 0.5 + 0.5 * sin(tK * 1.0471976);
+		let ascolta = select(0.0, 1.0, st == 1);
+		let parla = select(0.0, 1.0, st == 3);
+		let m = p / 0.46;
+		let sm = vec2f(abs(m.x), m.y);
+		let campoK = fbm3(vec3f(sm * 1.35, tK * 0.045));
+		let fineK = fbm3(vec3f(sm * 3.8 + 7.0, tK * 0.07));
+		let raggio = length(sm * vec2f(0.78, 1.05));
+		let largoK = 0.06 * respiroK + parla * (0.30 * pow(forte, 0.7) + 0.25 * attacco) - 0.06 * ascolta;
+		let vK = (campoK - 0.5) * 1.7 + (fineK - 0.5) * 0.55 + (1.0 - raggio) * 0.95 - 0.25 + largoK;
+		let pieno = smoothstep(0.0, 0.06, vK);
+		let vx = vK / 0.03;
+		let bordoK = exp(-vx * vx);
+		let fuoriK = exp(-max(-vK, 0.0) / 0.10) * (1.0 - pieno);
+		let versoK = select(-1.0, 1.0, ascolta > 0.5);
+		let livelli = pow(0.5 + 0.5 * sin(vK * 38.0 + versoK * tK * 0.9), 6.0);
+		let inchiostro = ambra * (0.16 + 0.22 * fineK) + ambra * livelli * 0.30 * pieno;
+		let luceK = mix(ambra, vec3f(1.0, 0.92, 0.78), 0.45) * bordoK * (1.2 + 0.6 * respiroK + 1.2 * parla * forte) + ambra * fuoriK * (0.22 + 0.10 * respiroK);
+		let onde = pow(0.5 + 0.5 * sin(pr * 22.0 + tK * 2.2), 8.0) * smoothstep(0.30, 0.70, pr) * exp(-max(pr - 0.70, 0.0) * 3.0) * ascolta * (0.10 + 0.55 * forte) * (1.0 - pieno);
+		let figura = inchiostro * pieno + luceK + ambra * onde;
+		col = mix(col, col * (1.0 - pieno) + figura, krista);
+		alfa = max(alfa, clamp(max(pieno, max(bordoK, max(fuoriK * 0.6, onde))), 0.0, 1.0) * krista);
 	}
 
 	// Reinhard esteso sulla luminanza con il bianco a 2,6, come Avo: il resto oltre 1 e' margine EDR
@@ -1202,7 +1422,7 @@ fn codifica(x: f32) -> f32 {
 		let costoGpu = 0;
 		const spettro = new Float32Array(16);
 		// l'aspetto di chi parla (set, quarto argomento): pesi delle forme (codice, rombo, stella), tinta, colore, agitazione;
-		// i valori vogliono andare ai *Vuole in circa 0,4 s, l'angolo della forma gira con l'agitazione
+		// i valori vogliono andare ai *Vuole in circa 0,4 s
 		const mol = ASPETTO.molla();
 		// p0..p5 (24) + spettro (16) + p6..p9 (16): 224 byte
 		const U = new Float32Array(56);
@@ -1553,7 +1773,7 @@ fn codifica(x: f32) -> f32 {
 			U.set([spenta, 0, 0, 0], 40);
 			U.set([mol.pesi[0], mol.pesi[1], mol.pesi[2], mol.tinta], 44);
 			U.set([mol.colore[0], mol.colore[1], mol.colore[2], mol.agit], 48);
-			U.set([mol.angolo, ASPETTO.luce(mol.agit), ASPETTO.punta(mol.agit), 0], 52);
+			U.set([0, ASPETTO.luce(mol.agit), 0, 0], 52);
 			dev.queue.writeBuffer(r.ubuf, 0, U.buffer, 0, U.byteLength);
 			// le particelle: i punti di Avo sono in pixel, qui il quadrato va diviso per la tela
 			const lc = ASPETTO.luce(mol.agit);

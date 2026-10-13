@@ -1,8 +1,9 @@
 // L'aspetto della sfera per chi parla (CONTRATTI 9.11, «La sfera di chi parla»). Melissa e' una sfera con i colori di
-// sempre; ogni personaggio ha una forma (rombo, stella, o `codice`: una sfera di vetro scuro con il codice che scende
-// come in Matrix) e un colore suoi, dal campo `sfera` del suo file in personaggi/, o, se manca,
-// scelti dalla chiave in modo deterministico (mai la sfera, che e' di Melissa). L'emozione della battuta da' un valore
-// di agitazione da 0 a 1: forma, rotazione e luce lo seguono.
+// sempre; ogni personaggio ha una figura e un colore suoi, dal campo `sfera` del suo file in personaggi/, o, se manca,
+// scelti dalla chiave in modo deterministico (mai la sfera, che e' di Melissa). Le figure sono quelle di Avo, i nomi
+// restano le chiavi dei file: `codice` una sfera di vetro scuro con il codice che scende come in Matrix (Elliot),
+// `stella` un nucleo scuro con tre anelli al neon e un glitch (Darlene), `rombo` una macchia di Rorschach (Krista).
+// L'emozione della battuta da' un valore di agitazione da 0 a 1: movimento della figura e luce lo seguono.
 // Le stesse regole stanno nel Nucleo (nucleo/Sources/Voice/ChiParla.swift, SferaAspetto) e in Avo Agency AI: chi le
 // cambia qui le cambia anche li'.
 

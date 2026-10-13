@@ -193,7 +193,7 @@ L'isola segue la voce del proprio processo con `Out.tap` (gli stessi eventi `voi
 stdout non porta niente, `Out.enabled` e' spento.
 Sopra il testo l'isola scrive chi parla: Melissa, o il personaggio la cui voce (`/parla {voce}`) e' nei file
 `~/.bottega/personaggi/*.json` (`voce` -> `nome`, riletti al massimo una volta al minuto). Dalla stessa risoluzione la
-sfera dell'isola prende forma e colore di chi parla e l'agitazione della sua battuta (9.11, «La sfera di chi parla»). Nome e testo cambiano quando
+sfera dell'isola prende figura e colore di chi parla e l'agitazione della sua battuta (9.11, «La sfera di chi parla»). Nome e testo cambiano quando
 quel pezzo comincia davvero a suonare, non quando arriva la `/parla`: le battute di voci diverse stanno nella stessa
 coda. Se davanti non c'e' niente, il nome sale gia' alla `/parla`.
 
@@ -2694,27 +2694,57 @@ i suoi riempitivi: non e' un personaggio, non entra nell'elenco e non si chiama.
 #### La sfera di chi parla (9 ottobre 2026)
 
 Andrea, 9 ottobre: chi parla si riconosce a occhio. Melissa resta una sfera con i colori di sempre; ogni personaggio ha
-una forma e un colore suoi, e la sfera cambia anche con l'emozione della battuta. Vale per tutte le sfere della Bottega:
-quella del Nucleo in Metal (isola e sfera sullo schermo, `nucleo/Sources/Orb/`) e quella delle viste in WebGPU
-(`media/motore/sfera-gpu.js`, barra e pagina di Melissa) con il ripiego Canvas 2D. E' lo stesso aspetto della sfera di
-Avo Agency AI: chi cambia una regola qui la cambia anche li'.
+una figura e un colore suoi, e la sfera cambia anche con l'emozione della battuta. Vale per tutte le sfere della Bottega:
+quella del Nucleo in Metal (isola e sfera sullo schermo, `nucleo/Sources/Orb/`), la stessa sull'iPhone (gli stessi file,
+`ios/Bottega/Sfera/`), e quella delle viste in WebGPU (`media/motore/sfera-gpu.js`, barra e pagina di Melissa) con il
+ripiego Canvas 2D. E' lo stesso aspetto della sfera di Avo Agency AI (`VoiceOrbShaders.metal`): chi cambia una regola qui
+la cambia anche li'. Dal 13 ottobre (build 158) Darlene e Krista hanno le figure di Avo del 10 ottobre: prima qui erano
+ancora una stella e un rombo.
 
 - **Fonte unica**: il campo facoltativo `"sfera": {"forma": "...", "colore": "#RRGGBB"}` nel file del personaggio
   (`personaggi/LEGGIMI.md`). Forme valide: `sfera`, `codice`, `rombo`, `stella`; `cubo` si accetta ancora e vale
   `codice` (il cubo non si disegna piu', Andrea il 9 ottobre: per Elliot "codice che scende tipo Matrix, piu' a tema").
+  I nomi `stella` e `rombo` restano quelli dei file (sono la chiave che legge anche Avo), ma si disegnano come figure:
+  `stella` e' il nucleo con gli anelli al neon (Darlene), `rombo` la macchia di Rorschach (Krista).
   Oggi: Darlene `stella` `#FF2E9A`, Elliot `codice` `#38F27A`, Krista `rombo` `#FFB547`; `melissa.json` non lo ha (sfera,
   tavolozza di sempre, niente tinta). Senza campo, o per la parte non valida, decide la chiave: h = FNV-1a a 32 bit dei
   suoi byte UTF-8, forma = [stella, codice, rombo][h % 3], colore HSV con tonalita' (h >> 8) % 360, saturazione 0,75, valore 1. Mai la sfera, che e' di Melissa.
   Stesse funzioni in `src/sfera-aspetto.ts` (estensione) e `nucleo/Sources/Orb/OrbAspetto.swift` (Nucleo).
-- **Forme**, distanze in raymarching uguali in Metal (`OrbShaders.metal`) e WGSL (`sfera-gpu.js`). R e' il raggio base,
-  q = rotX(rotY(p, angolo), 0,45), disp lo spostamento organico di sempre. Sfera `length(p) - (R + disp)`; il codice
-  non deforma: e' una sfera; rombo `(|q.x| + |q.y| + |q.z| - 1,32R) x 0,57735 - 0,06R - 0,6 disp`; stella
-  `length(p) - (0,86R + 0,5 disp + punta x R x spikes(normalize(q)))`, con spikes = pow del massimo dei prodotti scalari
-  con i 12 vertici dell'icosaedro (a = 0,5257311, b = 0,8506508), esponente 28. Distanza finale: sfera x (1 - somma dei
-  pesi di rombo e stella) + rombo x w2 + stella x w3 (il peso del codice, w1, non entra nella distanza). Pesi, tinta, colore e agitazione vanno al valore nuovo in circa 0,4 s
-  (esponenziale con costante 0,13 s), mai a scatti; con il Riduci movimento ci vanno subito. Con la stella il passo del
-  raymarch e' 0,45 invece di 0,72 e i passi fuori 120 invece di 80 (le punte non sono lipschitziane), e la sfera di
-  ricerca si allarga di R x (0,4 stella + 0,1 rombo).
+- **Corpi**, distanze in raymarching uguali in Metal (`OrbShaders.metal`) e WGSL (`sfera-gpu.js`), come `orb_map` di
+  Avo. R e' il raggio base, disp lo spostamento organico di sempre. Sfera `length(p) - (R + disp)`; il codice non
+  deforma: e' una sfera. Con w = w2 (rombo) + w3 (stella) sotto 0,002 resta la sfera, allo stesso costo; se no la
+  distanza e' sfera x (1 - w) + (`length(p) - 0,02R`) x w2 (Krista: la sfera si ritira quasi a sparire) + (`length(p) -
+  0,60R`) x w3 (Darlene: un nucleo liscio, senza spostamenti). Il peso del codice, w1, non entra nella distanza. Passo
+  0,72, 80 passi fuori, sfera di ricerca R + 0,24 per tutti. Il bordo che si vede, Rvis = R x (1 - 0,40 w3 - 0,50 w2), e'
+  quello da cui partono alone, corona, raggi e onda d'urto; con Krista l'alone scende del 55% e corona e raggi dell'85%.
+  Pesi, tinta, colore e agitazione vanno al valore nuovo in circa 0,4 s (esponenziale con costante 0,13 s), mai a
+  scatti; con il Riduci movimento ci vanno subito. La sfera che riempie la tela (zoom sotto 1, la sfera agganciata del
+  Nucleo e la barra) si apre per le figure: zoom += (max(zoom, 0,9) - zoom) w3 + (max(zoom, 0,8) - zoom) w2, perche' gli
+  anelli arrivano a 1,5R e la macchia a circa 1,3R.
+- **Darlene, cyberpunk** (Avo, 10 ottobre), in spazio schermo, pesata da w3, senza un secondo raymarch. tG = t mod
+  4096, energia = clamp(0,25 agitazione + 0,9 loud + 1,3 onset). Il glitch, prima di tutto il resto: scatto = floor(tG x
+  (7 + 9 agitazione)); strisce larghe con id = floor(9 p.y + 3 hash21(scatto, 2,3)), strappate se hash21(id, scatto) >
+  0,97 - 0,12 raffica - 0,34 energia (raffica = hash21(floor(1,7 tG), 9,7) > 0,55), spinta (hash21(3,1 id, scatto +
+  0,5) - 0,5) x (0,10 + 0,26 energia); strisce sottili floor(64 p.y) oltre 0,985 - 0,03 energia, spinta
+  (hash21(id, scatto + 4,1) - 0,5) x 0,05; p.x si sposta di quelle spinte per w3. Il nucleo a rN = 0,60R diventa vetro
+  scuro (rosa x luma x 0,55) con il bordo al neon exp(-((pr - rN) / 0,010)^2) x (1,4 + 1,2 loud + onset). Tre anelli k
+  = 0, 1, 2 (rosa = colore x luce, ciano (0,10, 0,95, 1), viola (0,62, 0,30, 1)), verso -1 per k = 1: ellisse di semiasse
+  a = R (1 + 0,22k)(1 + 0,05 loud) e b = a cos(incl), incl = 1,15 + 0,25 sin(tG (0,21 + 0,07k) + 2,1k), ruotata di
+  2,094k + verso tG (0,12 + 0,05k) + 0,6 agitazione sin(0,8 tG + k); linea larga 0,0045 + 0,004 loud con alone, un
+  lampo che corre pow(0,5 + 0,5 cos(theta - verso tG (1,4 + 0,6k)(1 + 1,5 energia)), 12); la meta' dietro (sin theta <
+  0) al 55% e coperta al 90% dentro il nucleo. Vicino alla figura (pr sotto 2R) le strisce strappate virano al ciano
+  (80%), una riga da monitor ogni 4 pixel scurisce del 22%, e blocchi di 7 pixel accesi se hash21 > 0,997 - 0,025
+  energia (ciano o rosa, bianchi sopra 0,9995).
+- **Krista, la macchia di Rorschach** (Avo, 10 ottobre), in spazio schermo, pesata da w2. tK = t mod 4096, respiro =
+  0,5 + 0,5 sin(tK x 1,0471976) (sei secondi), m = p / 0,46, sm = (|m.x|, m.y) (lo specchio del test); campo =
+  fbm3(1,35 sm, 0,045 tK), fine = fbm3(3,8 sm + 7, 0,07 tK), raggio = length(sm x (0,78, 1,05)), largo = 0,06 respiro +
+  parla x (0,30 loud^0,7 + 0,25 onset) - 0,06 ascolta; v = 1,7 (campo - 0,5) + 0,55 (fine - 0,5) + 0,95 (1 - raggio) -
+  0,25 + largo. Pieno = smoothstep(0, 0,06, v), bordo exp(-(v / 0,03)^2), fuori exp(-max(-v, 0) / 0,10) x (1 - pieno);
+  linee di livello pow(0,5 + 0,5 sin(38 v + verso x 0,9 tK), 6) (verso 1 in ascolto, verso il centro; -1 altrimenti);
+  inchiostro = ambra (0,16 + 0,22 fine) + 0,30 ambra x livelli x pieno; luce del bordo mix(ambra, (1, 0,92, 0,78),
+  0,45) x bordo x (1,2 + 0,6 respiro + 1,2 parla loud) + ambra x fuori x (0,22 + 0,10 respiro); in ascolto onde
+  pow(0,5 + 0,5 sin(22 pr + 2,2 tK), 8) fra 0,30 e 0,70 con la voce di Andrea. col = mix(col, col (1 - pieno) +
+  figura, w2).
 - **Il codice che scende** (Elliot), in spazio schermo dentro il disco, dopo il raymarch, pesato da w1 (che segue il
   passaggio come gli altri pesi). p sono le coordinate centrate con l'aspetto, pr = length(p), loud il volume della voce,
   verde = colore x luce. m = p / (2,3R) + 0,5; 26 colonne, cw = 1/26, ch = 1,45 cw; colId = floor(m.x / cw), hc =
@@ -2731,14 +2761,16 @@ Avo Agency AI: chi cambia una regola qui la cambia anche li'.
   chiara, dentro il cerchio scurito.
 - **Colore**: base = mix(tavolozza di stato con la sua deriva di tonalita', colore x luce, tinta), con tinta 0,85 per un
   personaggio e 0 per Melissa: della deriva viva all'ospite resta solo un filo. Anche particelle e scie prendono la tinta.
+  La sfera spenta delle viste va verso il grigio della notte per 0,7 x spenta x (1 - tinta): Melissa diventa grigia, un
+  personaggio resta del suo colore, smorzato (fino alla build 157 Krista spenta era un rombo grigio).
 - **Emozione**: un'agitazione da 0 a 1, neutra 0,3. Decide il primo tag audio che dice un'emozione: alti `[laughs]`,
   `[excited]`, `[cheerful]`, `[happy]`, `[surprised]` da 0,8 a 0,85, `[gasps]` 0,9, `[shouts]`, `[angry]` 0,95; bassi
   `[sad]`, `[crying]` 0,05, `[sighs]`, `[exhales]`, `[whispers]` 0,1. Senza tag, le parole, conta la prima che compare:
   "ahah", "evviva", "fantastico", "wow", "aiuto", "attenzione", "allarme", "cazzo", "!!" danno 0,75; "purtroppo", "mi
-  dispiace", "che peccato", "triste", "uff" danno 0,1. Effetti: la forma gira a 0,15 + 0,6 x agitazione rad/s; la
-  deformazione si moltiplica per 1 + 0,6 x agitazione; le punte della stella sono 0,42R e si allungano fino a 1,5 volte
-  (smoothstep da 0,3 a 0,85); la luce del colore sale del 15% da 0,75 in su e scende del 25% da 0,1 in giu' (smoothstep,
-  1 a 0,3). Vale anche per Melissa, che cambia agitazione ma non forma ne' colore.
+  dispiace", "che peccato", "triste", "uff" danno 0,1. Effetti: la deformazione si moltiplica per 1 + 0,6 x
+  agitazione; il codice di Elliot scende piu' in fretta, il glitch di Darlene scatta piu' spesso e i suoi anelli
+  oscillano di piu'; la luce del colore sale del 15% da 0,75 in su e scende del 25% da 0,1 in giu' (smoothstep, 1 a
+  0,3). Vale anche per Melissa, che cambia agitazione ma non forma ne' colore.
 - **Chi parla, nel Nucleo**: `ChiParla` legge anche `chiave` e `sfera` dai file di `~/.bottega/personaggi` (stessa
   rilettura, al piu' una volta al minuto) e da' l'aspetto per nome (`ChiParla.aspetto(nome:)`). Quando un pezzo comincia
   davvero a suonare (`Speaker.segmentStarted`, lo stesso istante in cui l'isola cambia nome) `OrbAspetto.parla(chi,
@@ -2751,11 +2783,17 @@ Avo Agency AI: chi cambia una regola qui la cambia anche li'.
   torna 0,3 a ogni stato che non e' `speaking`. `window.BottegaSferaGPU.aspetto.daStato(assistant)` sceglie chi si vede:
   mentre parla chi parla (`parla`), se no chi ha la chiamata (`personaggio`), e ne fa il quarto argomento di
   `set(stato, spenta, livello, {forma, colore, agitazione})`. Senza quarto argomento la sfera e' di Melissa, calma: chi
-  chiamava `set` con tre argomenti non cambia. La sfera Canvas 2D di ripiego segue le stesse regole (`aspetto.molla` per
-  il passaggio, `aspetto.traccia` per la sagoma piatta della forma ruotata, con i pesi mescolati, `aspetto.pioggia2D` per il codice, e
-  il colore).
-- **Fuori**: la Bottega per iPhone e la mod melissa non hanno ancora la sfera per personaggio; il campo nei file per loro
-  e' in piu' e lo ignorano.
+  chiamava `set` con tre argomenti non cambia. La sfera Canvas 2D di ripiego segue le stesse regole, piu' semplici
+  (`aspetto.molla` per il passaggio, `aspetto.traccia` per il cerchio del corpo che resta, `aspetto.visto` per il bordo
+  da cui parte l'alone, `aspetto.pioggia2D` per il codice, `aspetto.darlene2D` per nucleo, anelli, strisce strappate e
+  righe, `aspetto.krista2D` per la macchia specchiata con le linee di livello, e il colore).
+- **Chi parla, sull'iPhone** (dalla build 158): `AspettoPersonaggi` legge il campo `sfera` dei file inclusi nell'app con
+  `SferaAspetto.leggi`; la sfera mostra mentre parla chi parla (il nome sotto la sfera), se no chi ha la chiamata, e lo
+  passa a `OrbAspetto.parla(aspetto:)`. Senza tag, l'agitazione resta neutra.
+- **Costo** (M2, `nucleo --cli orb-selftest`, 516 px, ms di GPU per fotogramma, 13/10/2026 con il Mac carico): Melissa
+  2,4 a riposo e 3,6 mentre parla, Elliot 2,6 e 3,3, Darlene 2,4 e 1,9, Krista 0,8 e 1,2; agganciata a riposo da 0,1 a
+  0,6. Le figure non cambiano i ritmi: ferma a riposo, 12 fotogrammi mentre pensa, 30 in ascolto o mentre parla.
+- **Fuori**: la mod melissa non ha ancora la sfera per personaggio; il campo nei file per lei e' in piu' e lo ignora.
 
 ## 10. Gli aggiornamenti: VS Code solo quando serve, Claude Code sempre
 
