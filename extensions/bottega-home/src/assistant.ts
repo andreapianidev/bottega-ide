@@ -8,7 +8,7 @@ import type { Cervelli } from './cervelli';
 import { BrainName, BrainRouter, OpenAiStreamFn, appleInstructions, appleOpenAiStream, appleToolSpecs } from './cervello';
 import { SystemStats } from './nucleo';
 import { ATTESA_MS, eFallito, fraseAttesa, fraseFine, fraseInizio } from './racconto';
-import { CHI_VUOLE_MS, NON_RIPETERE, ORDINE, PASSA_PAROLA, PERSONAGGI, REGOLE, RIEMPITIVI_MELISSA, RUOLI, chiChiede, chiamaCon, cuore, daChiacchiera, dallaRiga, elenco, esiste, frenoOspite, invito, invitoRacconto, leggiChiVuole, nomeDi, occasione, giroDiVoci, insieme, istruzioneGiro, ospiteDellaFrase, passaParolaA, perArgomento, perSfogo, promptChiVuole, REGOLA_REGIA, regia, rigaChiVuole, senzaTag, chiedeAltro, strumentoPassaParola, regoleDi, regolaToni, toniDi, filtraToni, TONI } from './personaggi';
+import { CHI_VUOLE_MS, NON_RIPETERE, ORDINE, PASSA_PAROLA, PERSONAGGI, REGOLE, RIEMPITIVI_MELISSA, RUOLI, chiChiede, chiamaCon, cuore, daChiacchiera, dallaRiga, elenco, esiste, frenoOspite, invito, invitoRacconto, leggiChiVuole, nomeDi, occasione, giroDiVoci, insieme, istruzioneGiro, ospiteDellaFrase, passaParolaA, perArgomento, perSfogo, promptChiVuole, REGOLA_REGIA, regia, rigaChiVuole, senzaTag, chiedeAltro, strumentoPassaParola, regoleDi, regolaToni, toniDi, filtraToni, TONI, ritorno } from './personaggi';
 import { MemoriaPersonaggi, type RegistraMemoria } from './memoria-personaggi';
 import { Impegni } from './impegni';
 import { GIRI_STRUMENTI, StrumentiPersonaggi } from './strumenti-personaggi';
@@ -650,6 +650,8 @@ export class Assistant {
 	/** I tag di voce gia' detti nel turno di voce aperto, e l'ultimo di ciascuno (filtraToni, CONTRATTI 9.11). */
 	private toniTurno: string[] = [];
 	private ultimoTono: Record<string, string> = {};
+	/** L'ultima frase di ritorno di Melissa (il modello con {nome}), perche' la prossima sia un'altra. */
+	private ultimoRitorno = '';
 	private tokenTurno?: string;
 	private fonteTurno?: string;
 	private personaggioDopo?: string;
@@ -885,7 +887,11 @@ export class Assistant {
 	private saluto(chi: string, prima: string): string {
 		const p = PERSONAGGI[chi];
 		if (p) return p.saluti[Math.floor(Math.random() * p.saluti.length)] ?? p.nome;
-		return prima !== 'melissa' ? `Eccomi, ${nomeDi(prima)} mi ha ripassato la chiamata.` : 'Sono qui.';
+		if (prima === 'melissa') return 'Sono qui.';
+		// Melissa riprende: una delle sue frasi di ritorno, mai quella dell'ultima volta (melissa.json, `ritorni`)
+		const r = ritorno(nomeDi(prima), this.ultimoRitorno);
+		this.ultimoRitorno = r.modello;
+		return r.frase;
 	}
 
 	private model(): string {
@@ -2261,11 +2267,12 @@ export class Assistant {
 	 * frasi gia' dette del turno; non nel testo della risposta, ne' nel registro, ne' nella storia.
 	 */
 	private diciRiempitivo(frase: string): void {
-		const k = normClause(frase);
+		// un riempitivo puo' avere un tag di voce: lo sente la voce, non il registro ne' il filtro dell'eco
+		const k = normClause(senzaTag(frase));
 		if (k) this.saidClauses.add(k);
-		this.passo(frase, 'voce');
+		this.passo(senzaTag(frase), 'voce');
 		const now = Date.now();
-		this.recentSpeech = [...this.recentSpeech.filter(x => now - x.at < 20_000), { text: frase, at: now }];
+		this.recentSpeech = [...this.recentSpeech.filter(x => now - x.at < 20_000), { text: senzaTag(frase), at: now }];
 		if (this.voceFinita) {
 			this.vocePartita = false;
 			this.voceFinita = false;
@@ -2291,13 +2298,16 @@ export class Assistant {
 		].filter(v => v.testi.length);
 		if (!voci.length) return;
 		this.scaldato = true;
-		void this.deps.nucleo.request('voice.scalda', { voci }, 15_000).then(
-			(r: any) => this.out.info(`voce: riempitivi chiesti al Nucleo, ${r?.mancanti ?? '?'} pezzi da preparare`),
-			(e: any) => {
-				this.scaldato = false;
-				this.out.info(`voce: voice.scalda non riuscita (${e?.message ?? e})`);
-			},
-		);
+		// una richiesta per voce: il Nucleo ne prende al piu' 300 frasi per richiesta, e le voci insieme sono di piu'
+		for (const v of voci) {
+			void this.deps.nucleo.request('voice.scalda', { voci: [v] }, 15_000).then(
+				(r: any) => this.out.info(`voce: riempitivi di ${v.voce || 'Melissa'} chiesti al Nucleo, ${r?.mancanti ?? '?'} pezzi da preparare`),
+				(e: any) => {
+					this.scaldato = false;
+					this.out.info(`voce: voice.scalda non riuscita (${e?.message ?? e})`);
+				},
+			);
+		}
 	}
 
 	private finalizeSpeech(sendFinal: boolean): void {

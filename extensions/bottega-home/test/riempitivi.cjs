@@ -109,6 +109,15 @@ test('scelta: gruppo della voce, poi il suo chiacchiera, poi quello di Melissa; 
 		assert.ok(!recenti.slice(-3).includes(s.modello), `giro ${i}`);
 		recenti = [...recenti, s.modello].slice(-R.RIEMPI_MEMORIA);
 	}
+	// liste lunghe: fuori le ultime 8 della stessa lista, quelle degli altri gruppi non contano
+	assert.deepStrictEqual([1, 2, 3, 5, 9, 10, 20, 30].map(R.quanteFuori), [0, 1, 2, 3, 3, 4, 8, 8]);
+	const lunga = { domanda: Array.from({ length: 20 }, (_, i) => `F${i}.`) };
+	const giro = [];
+	for (let i = 0; i < 60; i++) {
+		const s = R.scegliRiempitivo(lunga, melissa, 'domanda', [...giro, 'altro gruppo.'], { caso: (i * 0.61) % 1, caso2: 1 });
+		assert.ok(!giro.slice(-8).includes(s.modello), `giro lungo ${i}`);
+		giro.push(s.modello);
+	}
 });
 
 test('eco: con un tema, per domanda, ordine e chiacchiera, e caso2 sotto 0.25; conta il modello', () => {

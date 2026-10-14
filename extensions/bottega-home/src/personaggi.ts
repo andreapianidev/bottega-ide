@@ -48,6 +48,20 @@ export interface Personaggio {
  *  `regola_toni` nessuno li usa. La stessa fonte per la barra, la mod, l'iPhone e Avo. */
 export const TONI: { melissa: string[]; regola: string; massimo: number } = { melissa: [], regola: '', massimo: 0 };
 
+/** Cosa dice Melissa quando riprende la chiamata, da melissa.json (`ritorni`, con {nome} di chi gliela ripassa): la
+ *  stessa lista per la barra, la mod, l'iPhone e Avo. Vuota, la frase di sempre. */
+export const RITORNI: string[] = [];
+const RITORNO_FISSO = 'Eccomi, {nome} mi ha ripassato la chiamata.';
+
+/** La frase di ritorno di Melissa dopo `nome`, a caso fra i `RITORNI`, mai `ultimo` (il modello detto l'ultima volta).
+ *  `modello`: la frase con {nome}, da ricordare come `ultimo`. */
+export function ritorno(nome: string, ultimo = '', caso = Math.random()): { frase: string; modello: string } {
+	const tutti = RITORNI.length ? RITORNI : [RITORNO_FISSO];
+	const da = tutti.length > 1 ? tutti.filter(r => r !== ultimo) : tutti;
+	const modello = da[Math.min(da.length - 1, Math.floor(caso * da.length))]!;
+	return { frase: modello.replace(/\{nome\}/g, nome), modello };
+}
+
 /** I tag di un file: minuscoli, da una a tre parole inglesi, senza virgole (il Nucleo spezza le frasi alle virgole). */
 export function leggiToni(x: unknown): string[] {
 	if (!Array.isArray(x)) return [];
@@ -141,6 +155,7 @@ export function carica(dirs = cartelle(), avvisa: (msg: string) => void = () => 
 		const letti: Personaggio[] = [];
 		let diMelissa: Riempitivi | undefined;
 		let toni: typeof TONI = { melissa: [], regola: '', massimo: 0 };
+		let ritorni: string[] = [];
 		for (const n of nomi) {
 			try {
 				const x = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
@@ -149,6 +164,9 @@ export function carica(dirs = cartelle(), avvisa: (msg: string) => void = () => 
 					const regola = typeof x.regola_toni === 'string' && x.regola_toni.includes('{toni}') ? x.regola_toni.trim() : '';
 					const massimo = typeof x.toni_massimo === 'number' && x.toni_massimo > 0 ? Math.min(3, Math.floor(x.toni_massimo)) : 0;
 					toni = { melissa: leggiToni(x.toni), regola: massimo ? regola : '', massimo: regola ? massimo : 0 };
+					ritorni = Array.isArray(x.ritorni)
+						? x.ritorni.filter((r: unknown): r is string => typeof r === 'string' && r.includes('{nome}') && r.trim().length <= 160).map((r: string) => r.trim())
+						: [];
 					continue;
 				}
 				const p = leggi(x, n, avvisa);
@@ -165,6 +183,8 @@ export function carica(dirs = cartelle(), avvisa: (msg: string) => void = () => 
 		for (const k of Object.keys(RIEMPITIVI_MELISSA)) delete RIEMPITIVI_MELISSA[k as keyof Riempitivi];
 		Object.assign(RIEMPITIVI_MELISSA, diMelissa ?? {});
 		Object.assign(TONI, toni);
+		RITORNI.length = 0;
+		RITORNI.push(...ritorni);
 		letti.sort((x, y) => x.ordine - y.ordine);
 		for (const p of letti) {
 			PERSONAGGI[p.chiave] = p;
@@ -257,10 +277,13 @@ export function chiedeAltro(t: string): boolean {
 	return vere.length >= 2 || (vere.length >= 1 && resto.includes('?'));
 }
 
-/** Il testo senza i tag audio di ElevenLabs (`[laughs]`, `[whispers]`): la voce li usa, chi legge non li vede. La stessa
- *  regola di `SpokenText.strippingAudioTags` nel Nucleo. */
+/** Un tag di voce nel testo: da una a quattro parole di sole lettere fra quadre, non seguito da «(». Un link
+ *  markdown (`[testo](url)`), un indice (`argv[2]`) o una parentesi con numeri o punti non lo sono e restano. */
+export const TAG_VOCE = /\[([A-Za-z]+(?: [A-Za-z]+){0,3})\](?!\()/g;
+
+/** Il testo senza i tag di voce di ElevenLabs (`[laughs]`, `[whispers]`): la voce li usa, chi legge non li vede. */
 export function senzaTag(t: string): string {
-	return t.replace(/\[[^\]\n]{1,40}\]/g, ' ').replace(/\s{2,}/g, ' ').trim();
+	return t.replace(TAG_VOCE, ' ').replace(/[ \t]{2,}/g, ' ').trim();
 }
 
 /** I tag di voce di chi parla: "melissa" o la chiave di un personaggio. */
@@ -283,12 +306,12 @@ export function regoleDi(chi: string): string {
 /**
  * La guardia sui tag che il modello scrive: restano solo quelli di `toni`, al piu' `massimo` in tutto (contando i
  * `gia` tenuti prima nello stesso turno), mai `ultimo` (l'ultimo tag di chi parla, nella battuta prima) ne' lo stesso
- * due volte; ogni altra parentesi quadra sparisce, cosi' la voce non legge mai un tag sbagliato. `usati`: i tenuti.
+ * due volte; ogni altro tag sparisce, cosi' la voce non legge mai un tag sbagliato; link e indici restano. `usati`: i tenuti.
  */
 export function filtraToni(testo: string, toni: readonly string[], massimo: number, ultimo = '', gia = 0): { testo: string; usati: string[] } {
 	const usati: string[] = [];
 	const t = testo
-		.replace(/\[([^\]\n]{1,40})\]/g, (_m, dentro: string) => {
+		.replace(TAG_VOCE, (_m, dentro: string) => {
 			const k = dentro.trim().toLowerCase();
 			if (!toni.includes(k) || k === ultimo || usati.includes(k) || gia + usati.length >= massimo) return ' ';
 			usati.push(k);

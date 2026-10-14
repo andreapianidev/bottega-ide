@@ -415,7 +415,8 @@ final class Melissa {
         if chi == "melissa" {
             let prima = Personaggi.tutti[chiParla]?.nome
             chiParla = "melissa"
-            try await telefono.dici(prima.map { "Eccomi, \($0) mi ha ripassato la chiamata." } ?? "Sono qui.",
+            // una delle frasi di ritorno di Melissa (melissa.json, `ritorni`), mai quella dell'ultima volta
+            try await telefono.dici(prima.map { Personaggi.ritorno(nome: $0) } ?? "Sono qui.",
                                     chi: "melissa", domanda: testo, voce: voce, audio: self.audio(di: "melissa", voce: voce, audio))
             return
         }
@@ -507,7 +508,7 @@ final class Melissa {
                 }
                 // pronta tardi: se intanto la risposta ha cominciato a parlare, non si dice piu'
                 guard let pcm, self.riempitivoServe(g) else { continue }
-                self.recentiRiempitivi[chi] = Array(((self.recentiRiempitivi[chi] ?? []) + [s.modello]).suffix(6))
+                self.recentiRiempitivi[chi] = Array(((self.recentiRiempitivi[chi] ?? []) + [s.modello]).suffix(Riempitivi.memoria))
                 self.riempito = true
                 Log.info("riempitivo a \(i == 0 ? "900 ms" : "\(quando)") (\(Personaggi.nome(chi))): \(s.frase)")
                 // il nome di chi lo dice quando comincia a suonare

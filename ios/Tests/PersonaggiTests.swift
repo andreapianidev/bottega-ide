@@ -21,6 +21,9 @@ final class PersonaggiTests: XCTestCase {
         XCTAssertTrue(Personaggi.chiedeAltro("passami Darlene, come va col firewall?"))
         XCTAssertTrue(Personaggi.chiedeAltro("passami Krista, stai bene?"))
         XCTAssertEqual(Personaggi.senzaTag("[laughs] Ciao. Hai rotto qualcosa? [chuckles]"), "Ciao. Hai rotto qualcosa?")
+        // link, indici e parentesi con numeri non sono tag: restano
+        XCTAssertEqual(Personaggi.senzaTag("Vedi [la guida](https://x.y) e argv[2], poi [v1.2]."),
+                       "Vedi [la guida](https://x.y) e argv[2], poi [v1.2].")
     }
 
     /// I tag di voce: solo quelli di chi parla, al piu' due, mai l'ultimo di prima. Come la Bottega e la mod.

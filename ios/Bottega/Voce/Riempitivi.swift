@@ -116,7 +116,8 @@ enum Riempitivi {
 
     /// La frase da dire adesso con la voce di chi ha la chiamata: il suo gruppo `gruppo`, se e' vuoto il suo
     /// `chiacchiera`, poi lo stesso gruppo di Melissa e il suo `chiacchiera`. Si lasciano fuori le ultime
-    /// min(3, n - 1) dette da quella voce (`recenti`: per un'eco, il modello). `caso` sceglie; con un tema in `testo`
+    /// `quanteFuori(n)` di questa lista dette da quella voce (`recenti`: per un'eco, il modello; quelle di altri gruppi
+    /// non contano). `caso` sceglie; con un tema in `testo`
     /// (solo per domanda, ordine e chiacchiera) e `caso2` < 0.25 e' un'eco. nil se non c'e' niente da dire.
     static func scegli(_ propri: FrasiRiempitivo?, melissa: FrasiRiempitivo?, gruppo: Gruppo, recenti: [String],
                        testo: String = "", esclusi: [String] = [],
@@ -127,14 +128,24 @@ enum Riempitivi {
         let ecoScelta = x != nil && !eco.isEmpty && caso2 < 0.25
         let lista = ecoScelta ? eco : Self.lista(gruppo, propri, melissa)
         guard !lista.isEmpty else { return nil }
-        let k = min(3, lista.count - 1)
-        let fuori = k > 0 ? Array(recenti.suffix(k)) : []
+        let k = quanteFuori(lista.count)
+        let fuori = k > 0 ? Array(recenti.filter { lista.contains($0) }.suffix(k)) : []
         let candidati = lista.filter { !fuori.contains($0) }
         let da = candidati.isEmpty ? lista : candidati
         let modello = da[min(da.count - 1, Int((caso * Double(da.count)).rounded(.down)))]
         let frase = x.map { modello.replacingOccurrences(of: "{x}", with: $0) } ?? modello
         return (frase, modello, ecoScelta)
     }
+
+    /// Quante frasi di una lista restano fuori perche' dette di recente: min(8, n - 1, max(3, 40% di n)). Con le liste
+    /// corte e' la regola di prima (le ultime 3, o n - 1); con quelle lunghe si allarga fino a 8. Come `quanteFuori`
+    /// della Bottega (riempitivi.ts) e della mod.
+    static func quanteFuori(_ n: Int) -> Int {
+        max(0, min(8, n - 1, max(3, Int(Double(n) * 0.4))))
+    }
+
+    /// Quante frasi recenti si ricordano per ogni voce: abbastanza per tenere fuori le ultime di ogni gruppo.
+    static let memoria = 30
 
     /// Le frasi fisse che una voce puo' dire, con gli stessi ripieghi di `scegli` (il suo `chiacchiera`, poi le frasi di
     /// Melissa): quelle da preparare prima nella cache. L'eco no, cambia ogni volta.
@@ -159,7 +170,7 @@ enum Riempitivi {
     static func senzaAttacco(_ testo: String) -> String {
         // i tag di voce in testa («[playful] Allora, ...») restano dove sono: l'intercalare si cerca dopo
         let intero = testo.trimmingCharacters(in: .whitespacesAndNewlines)
-        let tag = intero.range(of: #"^(?:\[[^\]\n]{1,40}\]\s*)+"#, options: .regularExpression).map { String(intero[$0]) } ?? ""
+        let tag = intero.range(of: #"^(?:\[[A-Za-z]+(?: [A-Za-z]+){0,3}\]\s*)+"#, options: .regularExpression).map { String(intero[$0]) } ?? ""
         var t = String(intero.dropFirst(tag.count))
         for _ in 0..<2 {
             t = attacco.stringByReplacingMatches(in: t, range: NSRange(t.startIndex..., in: t), withTemplate: "")

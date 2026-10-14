@@ -2360,6 +2360,10 @@ mai nella voce:
   Elliot", "Vabbe' Krista, e tu?" danno `chiede`, e Melissa glielo chiede (regia) prima che risponda. Resta nel codice,
   immediato, solo il comando col nome esatto dopo "passami", "fammi parlare con", "ridammi" (`chiChiede`). Via
   `ospiteChiesto` e il ramo "anche Andrea puo' chiamare" per vocativo.
+- **Il ritorno di Melissa (build 157, mod 0.25).** Quando la chiamata torna a lei, Melissa dice una delle sue frasi
+  `ritorni` di melissa.json (una trentina, con `{nome}` di chi gliela ripassa, scritte senza accordi di genere perche'
+  valgano per Darlene, Elliot e Krista), a caso e mai quella dell'ultima volta (`ritorno` nella barra e nella mod,
+  `Personaggi.ritorno` sull'iPhone). Senza lista, la frase di sempre: «Eccomi, {nome} mi ha ripassato la chiamata.»
 - **Saluto o risposta (build 155, mod 0.23).** Col solo comando ("passami Darlene", anche "per favore", "dai", "un
   attimo") chi prende la chiamata dice uno dei suoi `saluti`, a caso. Se dopo il nome c'e' altro ("passami Darlene, come
   va col firewall?") niente saluto: la chiamata passa e risponde lui alla frase, con riempitivi e memoria come sempre.
@@ -2378,7 +2382,9 @@ mai nella voce:
     solo a voce). La cronaca e i riassunti di Melissa restano senza: sono informazione;
   - la guardia `filtraToni` su ogni battuta generata, prima della voce: restano solo i tag di chi parla, al piu'
     `toni_massimo` nel turno, mai lo stesso due volte ne' l'ultimo che quella voce ha usato nella battuta prima (niente
-    tic); ogni altra parentesi quadra sparisce, cosi' la voce non legge mai un tag sbagliato;
+    tic); ogni altro tag sparisce, cosi' la voce non legge mai un tag sbagliato. Un tag e' da una a quattro parole di
+    sole lettere fra quadre non seguito da «(» (`TAG_VOCE`): link markdown, indici come `argv[2]` e parentesi con numeri o
+    punti non lo sono e restano, nel testo e nella voce;
   - nel testo che si legge o si ricorda non compaiono mai: `senzaTag` nel registro, nella storia e nella memoria della
     barra, nel pannello, nel registro, nella storia e nella memoria della mod, nella conversazione e nel testo parziale
     dell'iPhone; il Nucleo li toglie sull'isola e prima della riserva REST `eleven_multilingual_v2`, che li leggerebbe;
@@ -2679,8 +2685,14 @@ i suoi riempitivi: non e' un personaggio, non entra nell'elenco e non si chiama.
   maiuscola). Con un tema, intenzione `domanda`, `ordine` o `chiacchiera` e `caso2 < 0.25`, si usa un modello di `eco`
   con `{x}` sostituito.
 - Scelta: il gruppo dell'intenzione della voce che parla; se e' vuoto, il suo `chiacchiera`; se manca anche quello,
-  lo stesso gruppo di Melissa. Si escludono le ultime `min(3, n - 1)` frasi dette da quella voce (per l'eco conta il
-  modello, non la frase finita), poi `candidati[floor(caso * candidati.length)]`.
+  lo stesso gruppo di Melissa. Si escludono le ultime `quanteFuori(n) = min(8, n - 1, max(3, floor(0,4 n)))` frasi di
+  quella lista dette da quella voce (per l'eco conta il modello, non la frase finita; le frasi di altri gruppi non
+  contano), poi `candidati[floor(caso * candidati.length)]`. Ogni voce ricorda le sue ultime 30 (build 157): con le
+  liste corte e' la regola di prima (le ultime 3), con quelle di 20 e piu' frasi ne restano fuori 8.
+- Quante (build 157, mod 0.25): per ogni voce circa 120 frasi da preparare (domanda 22, ordine 20, sfogo 18, battuta 18,
+  chiacchiera 24, lunga 18) e 10 modelli di eco, nel carattere di ciascuno: piu' parole che versi, i versi («Mh.»,
+  «Allora.») restano una minoranza. Circa una su dieci ha un tag di voce dai `toni` di chi la dice (`[sighs] Ok, ci
+  penso.`), che si sente ma non si legge: si prepara una volta e suona sempre uguale, ma fra tante frasi non stanca.
 - Tempi, da quando la domanda parte verso il modello: a 900 ms la prima frase (intenzione), a 5 s e a 10 s una frase
   di `lunga`, poi piu' niente. Ognuna solo se la risposta non ha ancora cominciato a parlare. Nella barra, uno
   strumento che dura piu' di 1,5 s dopo che la risposta e' gia' partita dice una frase di `lunga`, una volta per turno.
@@ -2688,7 +2700,9 @@ i suoi riempitivi: non e' un personaggio, non entra nell'elenco e non si chiama.
   volte `^(mh+|m+h|uhm+|ehm+|allora|dunque|vediamo|ok|okay|beh|be'|bah|ah|eh|oh|ecco|si|sì)\s*[,.!…:]+\s*` (senza
   distinguere maiuscole) e si rimette la maiuscola; se non resta niente, la risposta resta com'era.
 - Voce: un riempitivo e' un turno di voce intero, con la voce di chi parla (`final: true`). Il Nucleo ne tiene l'audio
-  gia' pronto (modalita' isola, `POST /scalda`; servizio, `voice.scalda`), cosi' parte senza aspettare ElevenLabs.
+  gia' pronto (modalita' isola, `POST /scalda`; servizio, `voice.scalda`), cosi' parte senza aspettare ElevenLabs. La
+  barra chiede `voice.scalda` una voce per richiesta: il Nucleo ne prende al piu' 300 testi a richiesta, e le quattro
+  voci insieme sono quasi 500.
   L'iPhone ha una sua copia in `Caches/riempitivi/`. Le frasi di `eco` cambiano ogni volta e vanno dal vivo.
 
 #### La sfera di chi parla (9 ottobre 2026)

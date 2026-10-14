@@ -40,7 +40,9 @@ solo questi (docs/CONTRATTI.md, 9.11, «Tag di voce»). Senza, il personaggio pa
 
 `melissa.json` non e' un personaggio: e' il file di Melissa, con `chiave: "melissa"`, i suoi `riempitivi`, i suoi `toni`
 e la regola dei tag comune a tutti: `regola_toni` (la frase del prompt, con `{toni}` al posto dei tag di chi parla) e
-`toni_massimo` (quanti tag tiene al piu' una battuta). La leggono la barra, la mod, l'iPhone e Avo. Non entra
+`toni_massimo` (quanti tag tiene al piu' una battuta), e `ritorni`: le frasi di Melissa quando riprende la chiamata,
+con `{nome}` di chi gliela ripassa, senza accordi di genere («Rieccomi. Com'e' andata con {nome}?»). La leggono la
+barra, la mod, l'iPhone e Avo. Non entra
 nell'elenco, non ha pulsante e non si chiama; la sua voce e il suo carattere stanno altrove.
 
 Un file tolto da qui sparisce anche da `~/.bottega/personaggi/` al prossimo

@@ -14,8 +14,17 @@ export const GRUPPI: readonly Gruppo[] = ['domanda', 'ordine', 'sfogo', 'battuta
 export const RIEMPI_TEMPI = [900, 5000, 10000] as const;
 /** Uno strumento che dura di piu', a risposta gia' partita, dice una frase di `lunga` (una volta per turno). */
 export const RIEMPI_STRUMENTO_MS = 1500;
-/** Quante frasi recenti si ricordano per ogni voce (ne bastano 3 per l'anti-ripetizione). */
-export const RIEMPI_MEMORIA = 6;
+/** Quante frasi recenti si ricordano per ogni voce: abbastanza per tenere fuori le ultime di ogni gruppo. */
+export const RIEMPI_MEMORIA = 30;
+
+/**
+ * Quante frasi di una lista restano fuori perche' dette di recente: min(8, n - 1, max(3, 40% di n)). Fino a 8 frasi e'
+ * la regola di prima (le ultime 3, o n - 1); con le liste lunghe si allarga fino a 8, cosi' un gruppo di 20 non gira
+ * fra le stesse poche frasi. Uguale nella mod (hooks/melissa.ts) e sull'iPhone (Riempitivi.fuori).
+ */
+export function quanteFuori(n: number): number {
+	return Math.max(0, Math.min(8, n - 1, Math.max(3, Math.floor(n * 0.4))));
+}
 /** Il Nucleo non tiene pronte le frasi piu' lunghe di cosi' (VoceCache.maxCaratteri). */
 export const RIEMPI_MAX_CARATTERI = 120;
 
@@ -83,7 +92,8 @@ export function tema(testo: string, esclusi: readonly string[] = []): string | n
 /**
  * Il riempitivo da dire adesso, con la voce di chi ha la chiamata: il suo gruppo dell'intenzione (o `lunga`), se e'
  * vuoto il suo `chiacchiera`, poi lo stesso gruppo di Melissa e il suo `chiacchiera`. Si escludono le ultime
- * min(3, n - 1) dette da quella voce (`recenti`: per l'eco, il modello). `caso` sceglie; con un nome in quello che
+ * `quanteFuori(n)` di questa lista dette da quella voce (`recenti`: per l'eco, il modello; quelle di altri gruppi non
+ * contano). `caso` sceglie; con un nome in quello che
  * Andrea ha detto (solo per domanda, ordine e chiacchiera) e `caso2` < 0.25 e' un'eco. null se non c'e' niente da dire.
  */
 export function scegliRiempitivo(
@@ -105,8 +115,8 @@ export function scegliRiempitivo(
 		if (!lista.length) lista = piena(diMelissa.chiacchiera);
 	}
 	if (!lista.length) return null;
-	const k = Math.min(3, lista.length - 1);
-	const fuori = k > 0 ? recenti.slice(-k) : [];
+	const k = quanteFuori(lista.length);
+	const fuori = k > 0 ? recenti.filter(r => lista.includes(r)).slice(-k) : [];
 	const candidati = lista.filter(f => !fuori.includes(f));
 	const da = candidati.length ? candidati : lista;
 	const modello = da[Math.min(da.length - 1, Math.floor((o.caso ?? Math.random()) * da.length))]!;
@@ -116,7 +126,7 @@ export function scegliRiempitivo(
 const ATTACCO = /^(?:mh+|m+h|uhm+|ehm+|allora|dunque|vediamo|ok|okay|beh|be'|bah|ah|eh|oh|ecco|si|sì)\s*[,.!…:]+\s*/iu;
 
 /** I tag di voce in testa a una frase («[playful] Allora, ...»): restano dove sono, l'intercalare si cerca dopo. */
-const TAG_IN_TESTA = /^(?:\[[^\]\n]{1,40}\]\s*)+/;
+const TAG_IN_TESTA = /^(?:\[[A-Za-z]+(?: [A-Za-z]+){0,3}\]\s*)+/;
 
 /** Dopo un riempitivo, la risposta senza il suo «Allora,» o «Mh.» iniziale: sarebbe detto due volte. */
 export function senzaAttacco(testo: string): string {

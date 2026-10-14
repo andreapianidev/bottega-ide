@@ -1776,6 +1776,8 @@ function makeAssistant(over = {}) {
 		assert.strictEqual(p.chiedeAltro('passami Elliot cosa ne pensi'), true);
 		assert.strictEqual(p.chiedeAltro('passami Krista, stai bene?'), true);
 		assert.strictEqual(p.senzaTag('[laughs] Ciao. Hai rotto qualcosa? [chuckles]'), 'Ciao. Hai rotto qualcosa?');
+		// link, indici e parentesi con numeri non sono tag: restano
+		assert.strictEqual(p.senzaTag('Vedi [la guida](https://x.y) e argv[2], poi [v1.2].'), 'Vedi [la guida](https://x.y) e argv[2], poi [v1.2].');
 		// tag di voce: solo quelli di chi parla, al piu' due, mai l'ultimo di prima, mai una parentesi estranea
 		const toni = ['playful', 'sighs', 'laughs'];
 		assert.deepStrictEqual(p.filtraToni('[playful] Ciao. [shouts] Dai! [sighs] Ok. [laughs] Basta.', toni, 2), { testo: '[playful] Ciao. Dai! [sighs] Ok. Basta.', usati: ['playful', 'sighs'] });
@@ -1787,6 +1789,14 @@ function makeAssistant(over = {}) {
 		assert.ok(p.regolaToni('darlene').includes('[playful]'));
 		assert.ok(p.regolaToni('melissa').includes('[sarcastic]'));
 		assert.ok(p.regoleDi('elliot').startsWith(p.REGOLE));
+		// il ritorno di Melissa: dai file, mai lo stesso due volte di fila, il nome al suo posto
+		assert.ok(p.RITORNI.length >= 20 && p.RITORNI.every(r => r.includes('{nome}')));
+		let ultimo = '';
+		for (let i = 0; i < 20; i++) {
+			const r = p.ritorno('Darlene', ultimo, (i * 0.37) % 1);
+			assert.ok(r.modello !== ultimo && r.frase.includes('Darlene') && !r.frase.includes('{'));
+			ultimo = r.modello;
+		}
 		assert.strictEqual(p.ospiteDellaFrase('ho messo la password nel README', '', 0), 'elliot');
 		assert.strictEqual(p.ospiteDellaFrase('lo faccio domani', '', 0), 'krista');
 		assert.strictEqual(p.ospiteDellaFrase('un film?', 'darlene', 0), 'elliot');

@@ -173,9 +173,11 @@ private struct FileMelissa: Decodable {
     let toni: [String]?
     let regolaToni: String?
     let toniMassimo: Int?
+    /// cosa dice Melissa quando riprende la chiamata, con {nome} di chi gliela ripassa
+    let ritorni: [String]?
 
     enum CodingKeys: String, CodingKey {
-        case chiave, riempitivi, toni
+        case chiave, riempitivi, toni, ritorni
         case regolaToni = "regola_toni"
         case toniMassimo = "toni_massimo"
     }
@@ -228,6 +230,20 @@ enum Personaggi {
         return f
     }
 
+    /// Le frasi di ritorno di Melissa, con {nome}; vuota, la frase di sempre.
+    static let ritorni: [String] = (fileMelissa?.ritorni ?? []).map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { $0.contains("{nome}") && $0.count <= 160 }
+    @MainActor private static var ultimoRitorno = ""
+
+    /// La frase di ritorno di Melissa dopo `nome`, a caso, mai quella dell'ultima volta. Come `ritorno` della Bottega.
+    @MainActor static func ritorno(nome: String, caso: Double = Double.random(in: 0..<1)) -> String {
+        let tutti = ritorni.isEmpty ? ["Eccomi, {nome} mi ha ripassato la chiamata."] : ritorni
+        let da = tutti.count > 1 ? tutti.filter { $0 != ultimoRitorno } : tutti
+        let modello = da[min(da.count - 1, Int((caso * Double(da.count)).rounded(.down)))]
+        ultimoRitorno = modello
+        return modello.replacingOccurrences(of: "{nome}", with: nome)
+    }
+
     /// I tag di un file: minuscoli, da una a tre parole inglesi, senza virgole (la voce spezza le frasi alle virgole).
     static func leggiToni(_ x: [String]?) -> [String] {
         var visti: [String] = []
@@ -258,7 +274,7 @@ enum Personaggi {
     /// `gia` tenuti prima nello stesso turno), mai `ultimo` ne' lo stesso due volte; ogni altra parentesi quadra sparisce.
     /// Come `filtraToni` della Bottega (personaggi.ts).
     static func filtraToni(_ testo: String, toni: [String], massimo: Int, ultimo: String = "", gia: Int = 0) -> (testo: String, usati: [String]) {
-        guard let re = try? NSRegularExpression(pattern: #"\[([^\]\n]{1,40})\]"#) else { return (senzaTag(testo), []) }
+        guard let re = try? NSRegularExpression(pattern: tagVoce) else { return (senzaTag(testo), []) }
         var usati: [String] = []
         var out = ""
         var da = testo.startIndex
@@ -400,10 +416,15 @@ enum Personaggi {
     /// Il testo senza i tag audio di ElevenLabs ([laughs], [whispers]): la voce li usa, chi legge non li vede. La stessa
     /// regola di `SpokenText.strippingAudioTags` nel Nucleo.
     static func senzaTag(_ testo: String) -> String {
-        testo.replacingOccurrences(of: #"\[[^\]\n]{1,40}\]"#, with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
+        testo.replacingOccurrences(of: tagVoce, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"[ \t]{2,}"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    /// Un tag di voce nel testo: da una a quattro parole di sole lettere fra quadre, non seguito da «(». Un link
+    /// markdown, un indice (`argv[2]`) o una parentesi con numeri o punti non lo sono e restano. Come `TAG_VOCE` della
+    /// Bottega e della mod.
+    static let tagVoce = #"\[([A-Za-z]+(?: [A-Za-z]+){0,3})\](?!\()"#
 
     /// Lo strumento con cui chi parla da' la parola a un personaggio (docs/CONTRATTI.md, 9.11, «Chi parla lo decide il
     /// modello»): la decisione viaggia nella chiamata, strutturata, e non finisce mai nel testo detto. Stesso nome e

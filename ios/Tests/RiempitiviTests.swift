@@ -69,6 +69,19 @@ final class RiempitiviTests: XCTestCase {
         XCTAssertEqual(Riempitivi.scegli(propri, melissa: melissa, gruppo: .lunga, recenti: ["L1"], caso: 0, caso2: 1)?.frase, "L1")
     }
 
+    /// Liste lunghe: fuori le ultime 8 della stessa lista, quelle degli altri gruppi non contano. Come la Bottega.
+    func testListeLunghe() {
+        XCTAssertEqual([1, 2, 3, 5, 9, 10, 20, 30].map(Riempitivi.quanteFuori), [0, 1, 2, 3, 3, 4, 8, 8])
+        let lunga = FrasiRiempitivo(domanda: (0..<20).map { "F\($0)." })
+        var giro: [String] = []
+        for i in 0..<60 {
+            let s = Riempitivi.scegli(lunga, melissa: melissa, gruppo: .domanda, recenti: giro + ["altro gruppo."],
+                                      caso: Double(i) * 0.61 - (Double(i) * 0.61).rounded(.down), caso2: 1)!
+            XCTAssertFalse(giro.suffix(8).contains(s.modello))
+            giro.append(s.modello)
+        }
+    }
+
     func testRipieghi() {
         // gruppo vuoto: il suo chiacchiera
         XCTAssertEqual(Riempitivi.scegli(propri, melissa: melissa, gruppo: .ordine, recenti: [], caso: 0, caso2: 1)?.frase, "C1")
