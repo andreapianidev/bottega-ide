@@ -15,13 +15,13 @@ import SwiftUI
 enum VersioneApp {
     static var versione: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?" }
     static var build: String { Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?" }
-    /// La beta di Moony AI che questa build porta all'iPhone. I numeri sono unici fra Mac e iPhone: la 6 e la 9 sono
-    /// dell'iPhone, le altre del Mac (AvoFase, nel repository di Moony AI). Si alza a mano, d'accordo con il Mac.
-    static let fase = "4.0 beta 9"
-    /// «4.0 beta 6 (172)»
-    static var testo: String { "\(fase) (\(build))" }
-    /// «4.0 beta 6, build 172»
-    static var esteso: String { "\(fase), build \(build)" }
+    /// La fase, come AvoFase su Moony AI per Mac: vuota per una versione stabile, «beta 3» per una beta. Dal 16/10/2026
+    /// la versione (CFBundleShortVersionString) e' quella di Moony AI per Mac, scritta da scripts/bump-build.sh --moony.
+    static let fase = ""
+    /// «4.0.1 (176)»
+    static var testo: String { "\(versione) (\(build))" }
+    /// «v4.0.1 stabile · build 176», come la schermata d'avvio del Mac
+    static var esteso: String { "v\(versione) \(fase.isEmpty ? "stabile" : fase) · build \(build)" }
 }
 
 struct AvvioView: View {

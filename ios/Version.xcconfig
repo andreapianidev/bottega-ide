@@ -1,3 +1,4 @@
-// Scritto da scripts/bump-build.sh: la Bottega per iPhone ha sempre la versione e la build della Bottega.
-MARKETING_VERSION = 0.2.0
-CURRENT_PROJECT_VERSION = 175
+// Scritto da scripts/bump-build.sh: Moony AI per iPhone ha la versione di Moony AI per Mac (moonyAI in
+// bottega.json) e la build della Bottega.
+MARKETING_VERSION = 4.0.1
+CURRENT_PROJECT_VERSION = 176

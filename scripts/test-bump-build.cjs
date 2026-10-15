@@ -25,5 +25,17 @@ try {
       assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'extensions', extension, 'package.json'))).version, '0.1.1');
     }
   }
-  console.log('Build versions: mobile ahead, Mac ahead, same build, marketing version PASS');
+  // Moony AI per iPhone ha la sua versione (quella di Moony AI per Mac), la build resta in comune
+  fs.writeFileSync(path.join(root, 'bottega.json'), JSON.stringify({ version: '0.2.0', build: 170 }));
+  let r = spawnSync('/bin/zsh', [path.join(root, 'scripts/bump-build.sh'), '--moony', '4.0.1'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  let d = JSON.parse(fs.readFileSync(path.join(root, 'bottega.json')));
+  assert.equal(d.version, '0.2.0');
+  assert.equal(d.moonyAI, '4.0.1');
+  assert.match(fs.readFileSync(path.join(root, 'ios/Version.xcconfig'), 'utf8'), /MARKETING_VERSION = 4\.0\.1\nCURRENT_PROJECT_VERSION = 171\n/);
+  // un bump normale la conserva
+  r = spawnSync('/bin/zsh', [path.join(root, 'scripts/bump-build.sh')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(fs.readFileSync(path.join(root, 'ios/Version.xcconfig'), 'utf8'), /MARKETING_VERSION = 4\.0\.1\nCURRENT_PROJECT_VERSION = 172\n/);
+  console.log('Build versions: mobile ahead, Mac ahead, same build, marketing version, Moony AI per iPhone PASS');
 } finally { fs.rmSync(root, { recursive: true, force: true }); }
