@@ -34,7 +34,7 @@ struct BottegaApp: App {
                         .allowsHitTesting(false)
                         .transition(.opacity)
                         .task {
-                            try? await Task.sleep(for: .seconds(1.2))
+                            try? await Task.sleep(for: .seconds(1.6))
                             withAnimation(.easeOut(duration: 0.5)) { avvio = false }
                         }
                 }

@@ -2,9 +2,10 @@
 //  AvvioView.swift
 //  Bottega per iPhone
 //
-//  La schermata d'avvio di Moony AI: luna, nome, versione e build. La schermata di lancio di iOS e' statica
-//  (Info.plist, solo il colore Notte) e non puo' leggere il bundle: questa ne prende il posto al primo
-//  fotogramma, sullo stesso fondo, e sfuma da sola. Non blocca niente: sotto l'app parte subito.
+//  La schermata d'avvio di Moony AI: la luna vera di stasera che si accende (LunaAvvioView), nome, versione e
+//  build. La schermata di lancio di iOS e' statica (Info.plist, solo il colore Notte) e non puo' leggere il
+//  bundle: questa ne prende il posto al primo fotogramma, sullo stesso fondo, e sfuma da sola. Non blocca
+//  niente: sotto l'app parte subito.
 //
 
 import SwiftUI
@@ -25,11 +26,17 @@ struct AvvioView: View {
         ZStack {
             Color("Notte").ignoresSafeArea()
             VStack(spacing: 18) {
-                Image("Luna")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 150, height: 150)
-                    .shadow(color: .white.opacity(0.18), radius: 30)
+                // la luna vera di stasera, che si accende mentre l'app si prepara (LunaAvvioView); senza Metal l'icona
+                if LunaAvvioView.disponibile {
+                    LunaAvvioView(durata: 1.4)
+                        .frame(width: 190, height: 190)
+                } else {
+                    Image("Luna")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 150, height: 150)
+                        .shadow(color: .white.opacity(0.18), radius: 30)
+                }
                 Text("Moony AI")
                     .font(.largeTitle.weight(.semibold))
                     .foregroundStyle(Tinte.testo)

@@ -3,7 +3,7 @@
 //  Bottega per iPhone, estensione dei widget
 //
 //  Il widget «Moony AI»: la luna dell'icona, con l'ombra della fase di oggi (crescente, piena, calante), calcolata
-//  in locale come MoonPhase dell'app Mac (mese sinodico medio dalla luna nuova del 6/1/2000 18:14 UTC). La
+//  in locale da LunaVera (Condiviso: Sole e Luna veri, lo stesso calcolo della luna d'avvio e dell'app Mac). La
 //  timeline ha una voce ogni 3 ore, ogni ora vicino ai quarti; fra una voce e l'altra l'ombra scivola invece di
 //  saltare. Toccando la luna l'alone si accende un momento e si apre l'app con Moony in ascolto. Nessun dato e
 //  nessun collegamento al Mac, nessuna animazione continua.
@@ -13,16 +13,20 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
-/// La fase della luna, in locale. Stessi numeri di MoonPhase in Avo Agency AI (Core/DesignSystem/MoonyTheme.swift).
+/// La fase per il widget: quella vera di LunaVera, contata in lunazioni.
 enum FaseLuna {
-    private static let riferimento = Date(timeIntervalSince1970: 947_182_440)
+    private static let riferimento = Date(timeIntervalSince1970: 947_182_440)  // luna nuova del 6/1/2000, 18:14 UTC
     static let sinodico: TimeInterval = 29.530588853 * 86_400
 
     /// Lunazioni dalla luna nuova di riferimento, senza tagliare: cresce sempre, cosi' l'animazione fra due voci
-    /// va avanti anche quando passa per la luna nuova. La parte decimale e' la fase: 0 nuova, 0,5 piena.
-    static func cicli(_ d: Date) -> Double { d.timeIntervalSince(riferimento) / sinodico }
+    /// va avanti anche quando passa per la luna nuova. La parte intera viene dal mese medio, la parte decimale e'
+    /// la fase vera (0 nuova, 0,5 piena).
+    static func cicli(_ d: Date) -> Double {
+        let medio = d.timeIntervalSince(riferimento) / sinodico, vera = frazione(d)
+        return (medio - vera).rounded() + vera
+    }
 
-    static func frazione(_ d: Date) -> Double { let c = cicli(d); return c - c.rounded(.down) }
+    static func frazione(_ d: Date) -> Double { LunaVera.stato(at: d).fase }
 
     static func nome(_ d: Date) -> String {
         let nomi = ["Luna nuova", "Luna crescente", "Primo quarto", "Gibbosa crescente",
