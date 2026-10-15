@@ -19,14 +19,14 @@ struct BenvenutoView: View {
             Tinte.sfondo.ignoresSafeArea()
             ScrollView {
                 VStack(spacing: 22) {
-                    Image("Lampada")
+                    Image("Luna")
                         .resizable()
                         .scaledToFit()
                         .frame(width: 132, height: 132)
-                        .shadow(color: Tinte.ambra.opacity(0.25), radius: 30)
+                        .shadow(color: .white.opacity(0.18), radius: 30)
                         .padding(.top, 48)
                     VStack(spacing: 8) {
-                        Text("La Bottega in tasca")
+                        Text("Moony in tasca")
                             .font(.largeTitle.weight(.semibold))
                             .foregroundStyle(Tinte.testo)
                         Text("Moony e i lavori del tuo Mac, da dove vuoi.")
@@ -36,9 +36,9 @@ struct BenvenutoView: View {
                     .multilineTextAlignment(.center)
 
                     VStack(alignment: .leading, spacing: 16) {
-                        passo(1, "Sul Mac, nella Bottega, apri la palette dei comandi e scegli «Collega l'iPhone».")
-                        passo(2, "Inquadra il codice con la Fotocamera dell'iPhone e tocca il collegamento: la Bottega si apre già collegata.")
-                        passo(3, "Tailscale acceso sull'iPhone e sul Mac, il Mac acceso con la Bottega aperta. Funziona anche fuori casa.")
+                        passo(1, "Sul Mac, in Moony IDE, apri la palette dei comandi e scegli «Collega l'iPhone».")
+                        passo(2, "Inquadra il codice con la Fotocamera dell'iPhone e tocca il collegamento: Moony AI si apre già collegata.")
+                        passo(3, "Tailscale acceso sull'iPhone e sul Mac, il Mac acceso con Moony IDE aperto. Funziona anche fuori casa.")
                     }
                     .padding(20)
                     .background(RoundedRectangle(cornerRadius: 20).fill(Tinte.notteFonda.opacity(0.7)))
@@ -62,6 +62,10 @@ struct BenvenutoView: View {
                             .foregroundStyle(Tinte.rosso)
                             .multilineTextAlignment(.center)
                     }
+
+                    Text("Moony AI \(VersioneApp.esteso)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(Tinte.tinta)
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 40)
@@ -91,7 +95,7 @@ struct BenvenutoView: View {
     private func incolla() {
         guard let s = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines),
               let url = URL(string: s), ponte.collega(url) else {
-            avviso = "Negli appunti non c'è un collegamento della Bottega. Sul Mac usa «Copia il collegamento»."
+            avviso = "Negli appunti non c'è un collegamento di Moony IDE. Sul Mac usa «Copia il collegamento»."
             return
         }
         avviso = nil

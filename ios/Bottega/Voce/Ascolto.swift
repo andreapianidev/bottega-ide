@@ -34,10 +34,10 @@ final class Ascolto {
             SFSpeechRecognizer.requestAuthorization { k.resume(returning: $0) }
         }
         guard parlato == .authorized else {
-            return "Il riconoscimento vocale non è autorizzato: accendilo in Impostazioni, Bottega."
+            return "Il riconoscimento vocale non è autorizzato: accendilo in Impostazioni, Moony AI."
         }
         let mic = await AVAudioApplication.requestRecordPermission()
-        return mic ? nil : "Il microfono non è autorizzato: accendilo in Impostazioni, Bottega."
+        return mic ? nil : "Il microfono non è autorizzato: accendilo in Impostazioni, Moony AI."
     }
 
     /// Ascolta una frase; `fine` arriva una volta sola, con il testo (vuoto se non hai detto niente o se l'ascolto
@@ -58,7 +58,7 @@ final class Ascolto {
             r.addsPunctuation = true
             r.taskHint = .dictation
             // i nomi che Apple preferisce quando il suono ci somiglia: "Krista", non "Cristal" (docs/CONTRATTI.md, 9.11)
-            r.contextualStrings = Personaggi.ordine.compactMap { Personaggi.tutti[$0]?.nome } + ["Moony", "Melissa", "Claude", "Claude Code", "Bottega"]
+            r.contextualStrings = Personaggi.ordine.compactMap { Personaggi.tutti[$0]?.nome } + ["Moony", "Melissa", "Claude", "Claude Code", "Bottega", "Moony AI", "Moony IDE"]
             richiesta = r
             ultimo = ""
 

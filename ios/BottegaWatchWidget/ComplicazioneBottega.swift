@@ -55,7 +55,7 @@ private struct Faccia: View {
                 }
             case .accessoryRectangular:
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Bottega")
+                    Text("Moony AI")
                         .font(.system(size: 10, weight: .bold, design: .rounded))
                         .tracking(1)
                         .widgetAccentable()
@@ -76,7 +76,7 @@ private struct Faccia: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             case .accessoryInline:
-                Label(valida ? "Bottega: \(numero) \(etichetta.lowercased())" : "Bottega: \(etichetta.lowercased())", systemImage: "hammer.fill")
+                Label(valida ? "Moony AI: \(numero) \(etichetta.lowercased())" : "Moony AI: \(etichetta.lowercased())", systemImage: "moon.fill")
             case .accessoryCorner:
                 Text(cifra)
                     .font(.system(size: 24, weight: .bold, design: .rounded))
@@ -97,7 +97,7 @@ struct ComplicazioneBottega: Widget {
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: Fornitore()) { Faccia(voce: $0) }
-            .configurationDisplayName("Bottega")
+            .configurationDisplayName("Moony AI")
             .description("Lavori in corso e in attesa sul Mac.")
             .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryInline, .accessoryCorner])
     }

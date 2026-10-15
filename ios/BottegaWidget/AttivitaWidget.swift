@@ -25,7 +25,7 @@ struct AttivitaWidget: Widget {
                 DynamicIslandExpandedRegion(.leading) {
                     HStack(spacing: 7) {
                         SferaFoto(aspetta: aspetta, lavora: s.inCorso > 0, diametro: 22)
-                        Text("Bottega")
+                        Text("Moony AI")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Tinte.testo)
                             .lineLimit(1)
@@ -230,7 +230,7 @@ private struct SchermataDiBlocco: View {
             HStack(spacing: 9) {
                 SferaFoto(aspetta: aspetta, lavora: stato.inCorso > 0, diametro: 26)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("Bottega")
+                    Text("Moony AI")
                         .font(.headline)
                         .foregroundStyle(Tinte.testo)
                     Text(vecchia ? "\(mac), il Mac non aggiorna da un po'" : mac)

@@ -40,7 +40,7 @@ private struct PlanciaWatch: View {
                 VStack(alignment: .leading, spacing: 13) {
                     HStack(spacing: 5) {
                         Circle().fill(istantanea == nil ? .gray : colore).frame(width: 6, height: 6)
-                        Text("Bottega")
+                        Text("Moony AI")
                             .font(.system(size: 12, weight: .bold, design: .rounded))
                             .tracking(1)
                         Spacer(minLength: 2)
@@ -132,7 +132,7 @@ private struct PlanciaWatch: View {
                             Image(systemName: "iphone.gen3")
                                 .font(.system(size: 25, weight: .light))
                                 .foregroundStyle(ColoriWatch.ambra)
-                            Text("Apri Bottega su iPhone")
+                            Text("Apri Moony AI su iPhone")
                                 .font(.system(size: 17, weight: .bold, design: .rounded))
                                 .fixedSize(horizontal: false, vertical: true)
                             Text("Collega il Mac dall'app.")

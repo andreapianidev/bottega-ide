@@ -30,7 +30,7 @@ enum ScorriConsigli {
 
 struct ProssimoConsiglio: AppIntent {
     static let title: LocalizedStringResource = "Prossimo consiglio"
-    static let description = IntentDescription("Passa al consiglio dopo nel widget della Bottega.")
+    static let description = IntentDescription("Passa al consiglio dopo nel widget di Moony AI.")
     static let isDiscoverable = false
 
     init() {}

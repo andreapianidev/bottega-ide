@@ -28,7 +28,7 @@ final class CollegamentoWatch: NSObject, ObservableObject, WCSessionDelegate {
                 Task { @MainActor in self?.messaggio = "iPhone non raggiungibile. Riprova." }
             })
         } else {
-            messaggio = "Apri Bottega su iPhone per aggiornare."
+            messaggio = "Apri Moony AI su iPhone per aggiornare."
         }
     }
 

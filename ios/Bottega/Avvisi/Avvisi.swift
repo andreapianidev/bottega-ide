@@ -340,7 +340,7 @@ final class Avvisi {
                 c.body = e.messaggio
             } else {
                 // Il Mac non ha risposto (Tailscale spento sull'iPhone?): lo si dice con una notifica locale.
-                c.title = "Bottega"
+                c.title = "Moony AI"
                 c.body = "Non sono riuscita a raggiungere il Mac: \(error.localizedDescription)"
             }
             try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))

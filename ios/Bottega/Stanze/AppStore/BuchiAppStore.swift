@@ -41,7 +41,7 @@ final class AzioniAppStore {
             esito = Esito(testo: r.messaggio, errore: !r.ok)
             return r.ok
         } catch is DecodingError {
-            esito = Esito(testo: "La risposta del Mac non si legge: aggiorna la Bottega.", errore: true)
+            esito = Esito(testo: "La risposta del Mac non si legge: aggiorna Moony IDE.", errore: true)
         } catch {
             esito = Esito(testo: error.localizedDescription, errore: true)
         }
@@ -79,7 +79,7 @@ struct BannerEsito: View {
 }
 
 /// La frase per i tasti spenti.
-let fraseMacSpento = "Serve il Mac acceso, con la Bottega aperta."
+let fraseMacSpento = "Serve il Mac acceso, con Moony IDE aperto."
 
 // MARK: - la sezione
 
@@ -304,7 +304,7 @@ struct ComposizioneLavoro: View {
                 } header: {
                     Text("Il compito per Claude")
                 } footer: {
-                    Text("Correggilo se vuoi, poi «Avvia». Il lavoro si apre nella Bottega sul Mac, nel progetto dell'app, e lo segui da Lavori. In fondo il Mac aggiunge: non fare git push, non pubblicare e non mandare niente in revisione.")
+                    Text("Correggilo se vuoi, poi «Avvia». Il lavoro si apre in Moony IDE sul Mac, nel progetto dell'app, e lo segui da Lavori. In fondo il Mac aggiunge: non fare git push, non pubblicare e non mandare niente in revisione.")
                 }
                 if !attivo {
                     Section { Text(fraseMacSpento).foregroundStyle(Tinte.ambra) }

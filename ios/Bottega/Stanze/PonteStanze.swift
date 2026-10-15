@@ -183,7 +183,7 @@ final class PonteStanze {
         case .notConnectedToInternet?, .networkConnectionLost?:
             return "Niente rete sull'iPhone."
         case .cannotConnectToHost?, .timedOut?, .cannotFindHost?, .dnsLookupFailed?:
-            return "Il Mac non risponde: controlla che sia acceso, con la Bottega aperta e Tailscale attivo."
+            return "Il Mac non risponde: controlla che sia acceso, con Moony IDE aperto e Tailscale attivo."
         case .cancelled?:
             return "Interrotto."
         default:
@@ -237,7 +237,7 @@ final class LetturaStanza<T: Decodable> {
             vecchio = false
         } catch is DecodingError {
             guard mio == giro, !Task.isCancelled else { return }
-            errore = "La risposta del Mac non si legge: aggiorna l'app o la Bottega."
+            errore = "La risposta del Mac non si legge: aggiorna l'app o Moony IDE."
         } catch {
             if mio != giro || Task.isCancelled || (error as? ErrorePonte)?.messaggio == "Interrotto." { return }
             errore = error.localizedDescription

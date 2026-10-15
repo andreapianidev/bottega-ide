@@ -70,7 +70,7 @@ struct StanzeView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            Text("Le stanze si leggono dal Mac, con la Bottega aperta. Senza il Mac vedi l'ultimo dato, con la sua età.")
+            Text("Le stanze si leggono dal Mac, con Moony IDE aperto. Senza il Mac vedi l'ultimo dato, con la sua età.")
                 .font(.caption)
                 .foregroundStyle(Tinte.tinta)
                 .multilineTextAlignment(.center)

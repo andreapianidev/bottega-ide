@@ -53,13 +53,13 @@ struct ImpostazioniView: View {
                 } footer: {
                     Text(permessoLive
                          ? "Mentre una sessione Claude lavora sul Mac, la vedi sulla schermata di blocco e nella Dynamic Island."
-                         : "Sono spente nelle impostazioni di iOS: accendile in Impostazioni, Bottega, Live Activity.")
+                         : "Sono spente nelle impostazioni di iOS: accendile in Impostazioni, Moony AI, Live Activity.")
                 }
                 Section {
                     LabeledContent("Mac", value: ponte.collegamento?.nomeMac ?? "nessuno")
                     LabeledContent("Indirizzo", value: ponte.collegamento.map { "\($0.host):\($0.porta)" } ?? "n/d")
-                    if let v = ponte.stato?.versione { LabeledContent("Bottega sul Mac", value: v) }
-                    LabeledContent("Questa app", value: versioneApp)
+                    if let v = ponte.stato?.versione { LabeledContent("Moony IDE sul Mac", value: v) }
+                    LabeledContent("Moony AI su iPhone", value: VersioneApp.testo)
                 } header: {
                     Text("Collegamento")
                 } footer: {
@@ -85,10 +85,5 @@ struct ImpostazioniView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Fatto") { chiudi() } }
             }
         }
-    }
-
-    private var versioneApp: String {
-        let i = Bundle.main.infoDictionary
-        return "\(i?["CFBundleShortVersionString"] as? String ?? "?") (\(i?["CFBundleVersion"] as? String ?? "?"))"
     }
 }

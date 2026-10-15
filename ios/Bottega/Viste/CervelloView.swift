@@ -174,7 +174,7 @@ struct CervelloModulo: View {
                     Label("Serve il Mac acceso", systemImage: "desktopcomputer")
                         .foregroundStyle(Tinte.tinta)
                 } footer: {
-                    Text("Il cervello lo sceglie Moony sul Mac: accendilo, con la Bottega aperta e Tailscale attivo.")
+                    Text("Il cervello lo sceglie Moony sul Mac: accendilo, con Moony IDE aperto e Tailscale attivo.")
                 }
             }
             Section {

@@ -32,8 +32,8 @@ struct IconaWidget: Widget {
         StaticConfiguration(kind: Self.kind, provider: FornitoreIcona()) { _ in
             VistaIcona()
         }
-        .configurationDisplayName("Bottega")
-        .description("L'icona della Bottega: toccala e si apre l'app.")
+        .configurationDisplayName("Moony AI")
+        .description("L'icona di Moony AI: toccala e si apre l'app.")
         .supportedFamilies([.systemSmall])
         .contentMarginsDisabled()
     }
@@ -47,7 +47,7 @@ struct VistaIcona: View {
             .resizable()
             .widgetAccentedRenderingMode(.fullColor)
             .scaledToFill()
-            .accessibilityLabel("Bottega")
+            .accessibilityLabel("Moony AI")
             .containerBackground(for: .widget) { Tinte.sfondo }
     }
 }

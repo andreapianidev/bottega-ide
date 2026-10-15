@@ -1808,7 +1808,8 @@ iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
 
 - Progetto XcodeGen (`ios/project.yml`, `cd ios && xcodegen`), bundle `com.andreapiani.bottega.ios`, iOS 27+, solo
   iPhone, schema `bottega://` per il collegamento. Versione e build in `ios/Version.xcconfig`, scritte da
-  `scripts/bump-build.sh`: sempre uguali a quelle della Bottega. Icona: `swift brand/icon.swift <out> --ios`.
+  `scripts/bump-build.sh`: sempre uguali a quelle della Bottega. Nome visibile Moony AI (app, widget, Watch);
+  icona: `scripts/icona-moony-ios.sh` (la luna del generatore dell'app Mac Moony AI, ritagliata a tutta pagina).
 - Sfera: `nucleo/Sources/Orb/OrbRenderer.swift`, `OrbShaders.metal` e `nucleo/Sources/Voice/AudioLevels.swift` sono
   compilati anche nell'app, non copiati; `ios/Bottega/Sfera/NucleoSuIPhone.swift` rifa' quel poco del Nucleo che
   chiamano (`MetalEngine`, `Log`, `Out`, `Nucleo.bundle`, `OrbPanel`). Chi cambia l'interfaccia di quei tre file

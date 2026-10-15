@@ -32,7 +32,7 @@ final class Navigazione {
         guard url.scheme == "bottega" else { return nil }
         switch url.host {
         case "collega":
-            return ponte.collega(url) ? nil : "Quel collegamento non è valido: rifallo dalla Bottega sul Mac."
+            return ponte.collega(url) ? nil : "Quel collegamento non è valido: rifallo da Moony IDE sul Mac."
         case "lavori":
             stanza = .lavori
         case "melissa":

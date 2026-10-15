@@ -1,0 +1,49 @@
+#!/bin/sh
+# pre-commit: la build della Bottega (Mac e iPhone, bottega.json e ios/Version.xcconfig) sale DA SOLA a ogni
+# commit che cambia l'app, nello stesso commit (regola di Andrea: «a ogni modifica la versione sale, sempre»).
+#
+# - Vale se il commit tocca l'app: extensions/, ios/, nucleo/, memoria/, brand/, patches/, scripts/,
+#   product.bottega.json. Documenti (.md, docs/) da soli non la alzano.
+# - Se nel commit la build e' gia' piu' alta di HEAD (scripts/bump-build.sh lanciato a mano), non fa niente.
+# - Lavora sull'INDICE, non sui file: chi ha altre modifiche non ancora aggiunte a bottega.json non se le
+#   ritrova nel commit. I file nella cartella vengono allineati solo se avevano ancora il numero vecchio.
+# - La versione commerciale (MARKETING_VERSION, "version") si alza a mano: scripts/bump-build.sh 0.2.0.
+#
+# Attivo con: git config core.hooksPath scripts/git-hooks
+
+git diff --cached --name-only | grep -v '\.md$' | grep -qE '^(extensions|ios|nucleo|memoria|brand|patches|scripts)/|^product\.bottega\.json$' || exit 0
+git cat-file -e HEAD:bottega.json 2>/dev/null || exit 0
+
+python3 - <<'PY' || exit 1
+import json, re, subprocess
+def show(ref):
+    r = subprocess.run(["git", "show", ref], capture_output=True, text=True)
+    return r.stdout if r.returncode == 0 else ""
+def build_x(t):
+    m = re.search(r"^CURRENT_PROJECT_VERSION\s*=\s*(\d+)\s*$", t, re.M)
+    return int(m.group(1)) if m else 0
+X = "ios/Version.xcconfig"
+vecchia = max(json.loads(show("HEAD:bottega.json"))["build"], build_x(show("HEAD:" + X)))
+js, xc = show(":bottega.json"), show(":" + X)
+attuale = max(json.loads(js)["build"], build_x(xc))
+if attuale > vecchia:
+    raise SystemExit(0)
+nuova = vecchia + 1
+d = json.loads(js); d["build"] = nuova
+nuovi = {"bottega.json": json.dumps(d, indent=2) + "\n",
+         X: re.sub(r"^CURRENT_PROJECT_VERSION\s*=\s*\d+\s*$", f"CURRENT_PROJECT_VERSION = {nuova}", xc, flags=re.M)}
+for p, testo in nuovi.items():
+    blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], input=testo, capture_output=True, text=True, check=True).stdout.strip()
+    modo = subprocess.run(["git", "ls-files", "-s", "--", p], capture_output=True, text=True).stdout.split(" ")[0] or "100644"
+    subprocess.run(["git", "update-index", "--cacheinfo", f"{modo},{blob},{p}"], check=True)
+    # il file nella cartella si allinea solo se era ancora al numero vecchio
+    cartella = open(p).read()
+    if (json.loads(cartella)["build"] if p == "bottega.json" else build_x(cartella)) <= vecchia:
+        if p == "bottega.json":
+            c = json.loads(cartella); c["build"] = nuova; cartella = json.dumps(c, indent=2) + "\n"
+        else:
+            cartella = re.sub(r"^CURRENT_PROJECT_VERSION\s*=\s*\d+\s*$", f"CURRENT_PROJECT_VERSION = {nuova}", cartella, flags=re.M)
+        open(p, "w").write(cartella)
+print(f"pre-commit: build {vecchia} -> {nuova}")
+PY
+exit 0

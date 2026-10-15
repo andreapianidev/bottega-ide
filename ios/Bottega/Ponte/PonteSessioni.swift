@@ -297,7 +297,7 @@ final class PonteSessioni {
         case .notConnectedToInternet?, .networkConnectionLost?:
             return "Niente rete sull'iPhone."
         case .cannotConnectToHost?, .timedOut?, .cannotFindHost?, .dnsLookupFailed?:
-            return "Il Mac non risponde: controlla che sia acceso, con la Bottega aperta e Tailscale attivo."
+            return "Il Mac non risponde: controlla che sia acceso, con Moony IDE aperto e Tailscale attivo."
         case .cancelled?:
             return "Interrotto."
         default:

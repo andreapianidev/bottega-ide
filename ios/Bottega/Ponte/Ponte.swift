@@ -612,7 +612,7 @@ final class Ponte {
             struct E: Decodable { let errore: String }
             let m = corpo.flatMap { try? JSONDecoder().decode(E.self, from: $0) }?.errore
             let ripiego = h.statusCode == 401
-                ? "Il Mac non riconosce più questo iPhone: ricollegalo con «Collega l'iPhone» dalla Bottega."
+                ? "Il Mac non riconosce più questo iPhone: ricollegalo con «Collega l'iPhone» da Moony IDE."
                 : "Il Mac ha risposto \(h.statusCode)."
             throw ErrorePonte(messaggio: m ?? ripiego, codice: h.statusCode)
         }
@@ -635,7 +635,7 @@ final class Ponte {
         case .notConnectedToInternet?, .networkConnectionLost?:
             return "Niente rete sull'iPhone."
         case .cannotConnectToHost?, .timedOut?, .cannotFindHost?, .dnsLookupFailed?:
-            return "Il Mac non risponde: controlla che sia acceso, con la Bottega aperta e Tailscale attivo su tutti e due."
+            return "Il Mac non risponde: controlla che sia acceso, con Moony IDE aperto e Tailscale attivo su tutti e due."
         case .appTransportSecurityRequiresSecureConnection?:
             return "iOS ha bloccato la connessione al Mac."
         default:

@@ -211,8 +211,8 @@ struct VistaSessioni: View {
     private var rettangolo: some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 4) {
-                Image(systemName: "hammer.fill")
-                Text("Bottega")
+                Image(systemName: "moon.fill")
+                Text("Moony AI")
                 Spacer(minLength: 4)
                 if let q = voce.quando, voce.fonte != .scollegato {
                     Text(q, style: .time)
@@ -222,7 +222,7 @@ struct VistaSessioni: View {
             .font(.caption.weight(.semibold))
             switch voce.fonte {
             case .scollegato:
-                Text("Apri la Bottega e collega il Mac")
+                Text("Apri Moony AI e collega il Mac")
                     .font(.footnote)
                     .lineLimit(2)
             case _ where voce.stato == nil:
@@ -292,7 +292,7 @@ private struct ElencoProgetti: View {
 enum Riassunto {
     /// Una frase per la riga della schermata di blocco e per VoiceOver.
     static func frase(_ v: VoceSessioni) -> String {
-        if v.fonte == .scollegato { return "Bottega da collegare" }
+        if v.fonte == .scollegato { return "Moony AI da collegare" }
         guard v.stato != nil else { return "Il Mac non risponde" }
         switch (v.tiAspetta, v.inCorso) {
         case (0, 0): return "Nessuna sessione al lavoro"
@@ -331,13 +331,13 @@ private struct Testata: View {
 
     var body: some View {
         // il nome del Mac intero; se non ci sta, le prime due parole («MacBook Air»), poi la prima
-        let parole = (voce.stato?.mac ?? "Bottega").split(separator: " ").map(String.init)
+        let parole = (voce.stato?.mac ?? "Moony AI").split(separator: " ").map(String.init)
         HStack(spacing: 6) {
             Sferetta(aspetta: voce.tiAspetta > 0, lavora: voce.inCorso > 0, diametro: 14)
             ViewThatFits(in: .horizontal) {
                 nome(parole.joined(separator: " "))
                 if parole.count > 2 { nome(parole.prefix(2).joined(separator: " ")) }
-                Text(parole.first ?? "Bottega").lineLimit(1).minimumScaleFactor(0.75)
+                Text(parole.first ?? "Moony AI").lineLimit(1).minimumScaleFactor(0.75)
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(Tinte.tinta)
@@ -392,7 +392,7 @@ private struct Vuoto: View {
     var body: some View {
         switch voce.fonte {
         case .scollegato:
-            Text("Apri la Bottega e collega il Mac.")
+            Text("Apri Moony AI e collega il Mac.")
         case _ where voce.stato == nil:
             Text("Il Mac non risponde.")
         default:

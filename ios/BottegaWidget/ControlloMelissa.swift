@@ -16,7 +16,7 @@ import WidgetKit
 
 struct ApriMelissaIntent: AppIntent {
     static let title: LocalizedStringResource = "Parla con Moony"
-    static let description = IntentDescription("Apre la Bottega con Moony gia' in ascolto.")
+    static let description = IntentDescription("Apre Moony AI gia' in ascolto.")
     /// In Comandi rapidi ci sono gia' le azioni dell'app: questa serve solo al controllo.
     static let isDiscoverable = false
 
@@ -38,6 +38,6 @@ struct ControlloMelissa: ControlWidget {
             .tint(Tinte.ambra)
         }
         .displayName("Parla con Moony")
-        .description("Apre la Bottega con Moony in ascolto.")
+        .description("Apre Moony AI in ascolto.")
     }
 }

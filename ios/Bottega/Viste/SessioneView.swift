@@ -73,7 +73,7 @@ struct SessioneView: View {
                 Circle().fill(colore(scheda?.stato ?? lavoro.stato)).frame(width: 9, height: 9)
                 Text(scheda?.stato ?? lavoro.stato).font(.subheadline.weight(.medium)).foregroundStyle(colore(scheda?.stato ?? lavoro.stato))
                 Spacer()
-                Text(lavoro.origine == "bottega" ? "Lavoro della Bottega" : "Aperta altrove")
+                Text(lavoro.origine == "bottega" ? "Lavoro di Moony IDE" : "Aperta altrove")
                     .font(.caption)
                     .foregroundStyle(Tinte.tinta)
             }

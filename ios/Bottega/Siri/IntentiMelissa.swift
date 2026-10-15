@@ -2,7 +2,7 @@
 //  IntentiMelissa.swift
 //  Bottega per iPhone
 //
-//  Siri e Comandi rapidi (docs/CONTRATTI.md, 9.4): «Chiedi a Melissa su Bottega» e «Chi mi aspetta su Bottega».
+//  Siri e Comandi rapidi (docs/CONTRATTI.md, 9.4): «Chiedi a Moony su Moony AI» e «Chi mi aspetta su Moony AI».
 //  Girano senza aprire l'app: Melissa risponde direttamente con il cervello scelto sull'iPhone quando
 //  le chiavi sono importate; il ponte porta la cronologia al Mac quando e' collegato.
 //
@@ -53,11 +53,11 @@ struct ChiMiAspetta: AppIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let ponte = Ponte.shared
         guard ponte.collegato else {
-            return .result(dialog: "La Bottega non è collegata a nessun Mac. Apri l'app e collegala.")
+            return .result(dialog: "Moony AI non è collegata a nessun Mac. Apri l'app e collegala.")
         }
         await ponte.aggiornaStato()
         guard let s = ponte.stato ?? StatoMac.ultimo() else {
-            return .result(dialog: "Il Mac non risponde: controlla che sia acceso, con la Bottega aperta.")
+            return .result(dialog: "Il Mac non risponde: controlla che sia acceso, con Moony IDE aperto.")
         }
         let frase = Self.frase(s)
         let risposta = ponte.linea == .collegato ? frase : "Ultimo registro del Mac, alle \(Date(timeIntervalSince1970: s.ora / 1000).formatted(date: .abbreviated, time: .shortened)); potrebbe essere cambiato. \(frase)"

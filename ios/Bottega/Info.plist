@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>it</string>
 	<key>CFBundleDisplayName</key>
-	<string>Bottega</string>
+	<string>Moony AI</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -68,7 +68,7 @@
 		</dict>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>La Bottega parla con il tuo Mac attraverso Tailscale.</string>
+	<string>Moony AI parla con il tuo Mac attraverso Tailscale.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Moony ti ascolta solo mentre la sfera è accesa.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

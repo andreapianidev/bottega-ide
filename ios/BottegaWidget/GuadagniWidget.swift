@@ -197,7 +197,7 @@ struct VistaGuadagni: View {
             } else {
                 switch famiglia {
                 case .accessoryInline:
-                    Label(voce.letto.fonte == .scollegato ? "Bottega da collegare" : "Guadagni non letti", systemImage: "eurosign.circle")
+                    Label(voce.letto.fonte == .scollegato ? "Moony AI da collegare" : "Guadagni non letti", systemImage: "eurosign.circle")
                 case .accessoryRectangular:
                     VStack(alignment: .leading) {
                         Label("Guadagni", systemImage: "eurosign.circle").font(.caption.weight(.semibold))

@@ -302,7 +302,7 @@ private struct SpesaDeepSeek: View {
     CreditiWidget()
 } timeline: {
     VoceCrediti.esempio
-    VoceCrediti(date: .now, letto: Letto(dati: nil, visto: nil, fonte: .salvata, errore: "I conti dei servizi non sono ancora stati letti: li legge la Bottega sul Mac."))
+    VoceCrediti(date: .now, letto: Letto(dati: nil, visto: nil, fonte: .salvata, errore: "I conti dei servizi non sono ancora stati letti: li legge Moony IDE sul Mac."))
 }
 
 #Preview("Medio", as: .systemMedium) {

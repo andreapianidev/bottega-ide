@@ -3,7 +3,7 @@
 //  Bottega per iPhone
 //
 //  La Bottega in tasca: Melissa e i lavori del Mac, raggiunti dalla rete Tailscale. Il Mac deve essere
-//  acceso con la Bottega aperta; il collegamento arriva dal QR del comando "Collega l'iPhone".
+//  acceso con Moony IDE aperto; il collegamento arriva dal QR del comando "Collega l'iPhone".
 //
 
 import SwiftUI
@@ -16,6 +16,8 @@ struct BottegaApp: App {
     @Environment(\.scenePhase) private var fase
     /// Un link della Bottega non valido arrivato da scollegati: lo mostra la schermata di benvenuto.
     @State private var avvisoLink: String?
+    /// La schermata d'avvio (AvvioView): luna, nome e versione, poi sfuma da sola.
+    @State private var avvio = true
 
     var body: some Scene {
         WindowGroup {
@@ -24,6 +26,17 @@ struct BottegaApp: App {
                     PlanciaView(ponte: ponte, melissa: melissa, davanti: fase == .active)
                 } else {
                     BenvenutoView(ponte: ponte, avvisoLink: $avvisoLink)
+                }
+            }
+            .overlay {
+                if avvio {
+                    AvvioView()
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                        .task {
+                            try? await Task.sleep(for: .seconds(1.2))
+                            withAnimation(.easeOut(duration: 0.5)) { avvio = false }
+                        }
                 }
             }
             .preferredColorScheme(.dark)

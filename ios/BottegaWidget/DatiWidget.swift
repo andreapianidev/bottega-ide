@@ -63,7 +63,7 @@ enum DatiWidget {
                 CacheWidget.scrivi(grezzi, stanza, query)
                 return Letto(dati: d, visto: Date(), fonte: .diretta, errore: nil)
             }
-            return Letto(dati: daCopia, visto: copia?.visto, fonte: .salvata, errore: "La risposta del Mac non si legge: aggiorna l'app o la Bottega.")
+            return Letto(dati: daCopia, visto: copia?.visto, fonte: .salvata, errore: "La risposta del Mac non si legge: aggiorna l'app o Moony IDE.")
         }
         guard case .errore(let frase) = esito else { return .scollegato }
         return Letto(dati: daCopia, visto: daCopia == nil ? nil : copia?.visto, fonte: .salvata, errore: frase)
@@ -114,7 +114,7 @@ enum DatiWidget {
         let (d, r) = try await sessione.data(for: req)
         guard let h = r as? HTTPURLResponse else { return .errore(nonRisponde) }
         if (200..<300).contains(h.statusCode) { return .dati(d) }
-        if h.statusCode == 401 { return .errore("Il Mac non riconosce l'iPhone: ricollegalo dalla Bottega.") }
+        if h.statusCode == 401 { return .errore("Il Mac non riconosce l'iPhone: ricollegalo da Moony IDE.") }
         struct E: Decodable { let errore: String }
         return .errore((try? JSONDecoder().decode(E.self, from: d))?.errore ?? "Il Mac ha risposto \(h.statusCode).")
     }
@@ -406,7 +406,7 @@ struct VuotoWidget: View {
     var body: some View {
         // la frase del Mac per intero se ci sta (prima con il simbolo, poi senza), altrimenti in poche parole:
         // mai tagliata a meta'
-        let intera = fonte == .scollegato ? "Apri la Bottega e collega il Mac." : (errore ?? "Il Mac non risponde.")
+        let intera = fonte == .scollegato ? "Apri Moony AI e collega il Mac." : (errore ?? "Il Mac non risponde.")
         ViewThatFits(in: .vertical) {
             VStack(alignment: .leading, spacing: 4) {
                 simbolo

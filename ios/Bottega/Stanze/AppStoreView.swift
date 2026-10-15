@@ -67,7 +67,7 @@ struct AppStoreView: View {
         if let s = d.scheda { SezioneScheda(s: s) }
         SezionePaesi(paesi: d.paesi ?? [])
         SezioneErroriAppStore(e: d.errori)
-        Text("AdMob è la stima di AdMob, in euro. Lo Store sono i ricavi netti dei report di vendita di Apple, portati in euro con i cambi del giorno; Apple pubblica le vendite di ieri verso le 14. I buchi sono regole scritte nel codice della Bottega, non un modello.")
+        Text("AdMob è la stima di AdMob, in euro. Lo Store sono i ricavi netti dei report di vendita di Apple, portati in euro con i cambi del giorno; Apple pubblica le vendite di ieri verso le 14. I buchi sono regole scritte nel codice di Moony IDE, non un modello.")
             .font(.caption2)
             .foregroundStyle(Tinte.tinta)
     }

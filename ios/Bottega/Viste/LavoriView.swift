@@ -345,7 +345,7 @@ struct LavoriView: View {
         guard let s = statoVisibile else { return "Aspetto il primo registro dal Mac…" }
         if !mostraTutte && (s.attivita != nil || !s.lavori.isEmpty) { return "Nessun agente richiede attenzione adesso. Tocca «Tutte» per vedere il registro." }
         if s.attivita != nil { return "Nessuna attività osservata dal Mac." }
-        return "Nessuna sessione Claude rilevata. Aggiorna la Bottega sul Mac per vedere anche Codex, Cline e i terminali."
+        return "Nessuna sessione Claude rilevata. Aggiorna Moony IDE sul Mac per vedere anche Codex, Cline e i terminali."
     }
 
     private var gruppiAttivita: [(String, [StatoMac.Attivita])] {
@@ -678,7 +678,7 @@ private struct Riga: View {
     private var dettaglio: String {
         let minuti = max(0, Int((Date().timeIntervalSince1970 * 1000 - lavoro.da) / 60_000))
         let quando = minuti < 1 ? "adesso" : minuti < 60 ? "da \(minuti) min" : "da \(minuti / 60) h \(minuti % 60) min"
-        return "\(lavoro.origine == "bottega" ? "Lavoro della Bottega" : "Aperta altrove"), \(quando)"
+        return "\(lavoro.origine == "bottega" ? "Lavoro di Moony IDE" : "Aperta altrove"), \(quando)"
     }
 }
 
