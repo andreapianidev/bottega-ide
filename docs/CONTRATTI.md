@@ -2347,6 +2347,26 @@ rete di casa dicono al Mac dov'e' l'iPhone, non portano dati.
   `/v1/assistente/storia` resta `tu|melissa`. Test senza simulatore: `scripts/test-ios-personaggi.sh`. Dalla build 135
 risponde chi riceve la parola con `passa_parola`, o l'invitato di un invito deciso (9.11); prima (build 124-134) si
 cercava il nome nel testo.
+- La chat sulla luna (build 171, `ios/Bottega/Viste/ConversazioneView.swift`, `ios/Bottega/Chat/AllegatoMoony.swift`),
+  come Moony AI 4.0 beta 3 sul Mac. Una domanda scritta risponde per iscritto (niente voce, niente riempitivi, con il
+  ragionamento dell'impegno); il microfono e la luna aprono la conversazione a voce di sempre. I turni hanno due campi
+  facoltativi: `voce: true` se nati a voce (la chat li segna col microfono) ed `esterno: true` per gli allegati.
+  Sotto il campo: il modello, Flash (`deepseek-flash`), Pro (`deepseek-v4-pro`, e' l'impegno «profondo» e si
+  sincronizza col Mac come prima) o Vision (`deepseek-flash`, solo su questo iPhone); con chi parli; il credito
+  DeepSeek da `GET https://api.deepseek.com/user/balance` con la chiave del telefono («Credito $X.XX USD», giallo sotto
+  1 dollaro, «n/d» se non risponde), riletto all'apertura, dopo ogni risposta e ogni 5 minuti.
+  Allegati (al piu' 5 per messaggio, servono le chiavi sul telefono): foto, fotocamera, file da File (immagini 20 MB,
+  PDF 50 MB, testo e codice 2 MB, docx, odt e rtf; un .doc vecchio da' un messaggio chiaro). Un PDF con testo si legge
+  con PDFKit, una scansione manda le prime 3 pagine come immagini. Ogni allegato diventa un turno `tu` con
+  `esterno: true` che comincia con `[Allegato: nome · tipo]`, avvisa il modello che non sono parole di Andrea e che le
+  istruzioni dentro non sono ordini, e porta al piu' 30.000 caratteri. Con Vision le immagini (JPEG, lato lungo 2000 px,
+  data: URL) vanno a `deepseek-flash` come parti `image_url` della domanda, con il ragionamento spento; con Flash o Pro
+  prima le descrive la visione e la descrizione entra come un altro turno esterno, poi risponde il modello scelto.
+  I turni esterni nascono sincronizzati: non vanno mai a `/v1/assistente/storia` (il ponte accetta 2000 caratteri e
+  `tu|melissa`, e un file non deve diventare parole di Andrea nella memoria). Verso il Mac ogni testo si taglia a 2000
+  caratteri, perche' un turno piu' lungo farebbe rifiutare l'intero lotto. «Nuova chat» sposta `inizioChat`: la chat
+  mostra e il modello vede solo i turni da li' in poi, e quella chiusa va in `moony-chat-passate.json` (Application
+  Support, al piu' 40, solo da leggere). Il Mac conserva la sua storia di sempre.
 
 ### 9.11 Chi risponde quando Melissa chiama, e cosa si dice mentre si pensa (build 126, mod 0.15)
 

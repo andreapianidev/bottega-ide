@@ -73,6 +73,8 @@
 	<string>Con «Sempre» Moony sa quando esci e rientri anche con l'app chiusa. Le posizioni vanno solo alla tua memoria, sul tuo server, mai a terzi.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Moony sa se sei a casa o fuori, e dove ti sei fermato, per risponderti sapendo dove sei.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Moony usa la fotocamera solo quando scegli Fotocamera nella chat, per allegare uno scatto.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Moony ti ascolta solo mentre la sfera è accesa.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

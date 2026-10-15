@@ -552,7 +552,9 @@ final class Ponte {
 
     func importaStoria(_ turns: [TurnoTelefono]) async throws {
         struct R: Decodable { let ok: Bool }
-        let body: [[String: String]] = turns.map { ["id": $0.id.uuidString.lowercased(), "chi": $0.riga.chi, "testo": $0.riga.testo] }
+        // il ponte rifiuta l'intero lotto con un testo oltre 2000 caratteri (MAX_TESTO): una risposta lunga scritta
+        // nella chat bloccherebbe la sincronizzazione per sempre, quindi al Mac ne arrivano i primi 2000
+        let body: [[String: String]] = turns.map { ["id": $0.id.uuidString.lowercased(), "chi": $0.riga.chi, "testo": String($0.riga.testo.prefix(2000))] }
         let _: R = try await manda("/v1/assistente/storia", ["turns": body])
     }
 

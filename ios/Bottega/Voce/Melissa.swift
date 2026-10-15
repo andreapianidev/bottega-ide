@@ -47,6 +47,10 @@ final class Melissa {
     private var riempitivi: Task<Void, Never>?
     /// Un riempitivo e' gia' stato detto in questo giro: la risposta perde il suo «Allora,» iniziale.
     private var riempito = false
+    /// Il giro di adesso parla: una domanda detta a voce si', una scritta nella chat no (risponde per iscritto).
+    private var voceGiro = true
+    /// Le immagini degli allegati della domanda scritta di adesso (data: URL), per Vision.
+    private var immaginiGiro: [String] = []
     /// Gli ultimi riempitivi detti da ciascuna voce ("melissa" o la chiave), per non ripetersi (per l'eco, il modello).
     private var recentiRiempitivi: [String: [String]] = [:]
 
@@ -104,15 +108,47 @@ final class Melissa {
         if sfera == .riposo { liberaAudio() }
     }
 
-    /// Una domanda scritta: stesso giro, senza microfono dopo.
-    func scrivi(_ testo: String) {
-        let t = testo.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty, !occupata else { return }
+    /// Una domanda scritta nella chat: stesso giro, senza microfono dopo, e la risposta si legge (non si dice). Gli
+    /// allegati entrano prima della domanda come contenuto esterno (AllegatoMoony); servono le chiavi sul telefono,
+    /// perche' il ponte porta al Mac al piu' 2000 caratteri.
+    func scrivi(_ testo: String, allegati: [AllegatoMoony] = []) {
+        var t = testo.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty || !allegati.isEmpty, !occupata else { return }
+        if !allegati.isEmpty {
+            guard AssistenteTelefono.shared.configurato else {
+                avviso = "Gli allegati li legge Moony sull'iPhone: importa le chiavi DeepSeek dalle Impostazioni, con il Mac acceso."
+                return
+            }
+            AssistenteTelefono.shared.aggiungiAllegati(allegati)
+            if t.isEmpty { t = allegati.count == 1 ? "Guarda l'allegato e dimmi cosa contiene." : "Guarda gli allegati e dimmi cosa contengono." }
+        }
+        let immagini = allegati.flatMap(\.immagini)
         giro += 1
         let g = giro
         conversazione = false
         ascolto.ferma()
-        turno = Task { await chiedi(t, giro: g) }
+        turno = Task {
+            let telefono = AssistenteTelefono.shared
+            // Vision guarda le immagini e risponde; con Flash o Pro le descrive prima la visione, poi risponde il
+            // modello scelto (come Moony AI sul Mac)
+            if !immagini.isEmpty, telefono.modello != .vision {
+                sfera = .pensa
+                parziale = t
+                do {
+                    telefono.aggiungiDescrizione(try await telefono.descrivi(immagini, domanda: t), immagini: immagini.count)
+                } catch {
+                    guard g == giro else { return }
+                    avviso = error.localizedDescription
+                    sfera = .errore
+                    parziale = ""
+                    return
+                }
+                guard g == giro else { return }
+            } else {
+                immaginiGiro = immagini
+            }
+            await chiedi(t, giro: g, voce: false)
+        }
     }
 
     /// I pulsanti «Con chi parli»: la chiamata passa a `chi` (o torna a Melissa) senza una frase di Andrea nella storia, e
@@ -213,13 +249,18 @@ final class Melissa {
         }
     }
 
-    private func chiedi(_ testo: String, giro g: Int) async {
+    private func chiedi(_ testo: String, giro g: Int, voce: Bool? = nil) async {
+        voceGiro = voce ?? voceAccesa
         sfera = .pensa
         parziale = testo
+        defer {
+            immaginiGiro = []
+            if AssistenteTelefono.shared.configurato { Task { await AssistenteTelefono.shared.aggiornaCredito() } }
+        }
         do {
             if AssistenteTelefono.shared.configurato {
                 try await chiediSulTelefono(testo, giro: g)
-            } else if voceAccesa {
+            } else if voceGiro {
                 try await chiediAVoce(testo)
             } else {
                 _ = try await ponte.chiedi(testo)
@@ -254,16 +295,17 @@ final class Melissa {
         riempito = false
         defer {
             annullaRiempitivi()
-            if voceAccesa { scaldaRiempitivi() }
+            if voceGiro { scaldaRiempitivi() }
             // Anche una risposta interrotta resta nella cronologia locale. La sincronizzazione e' autonoma:
             // non ritarda la voce e il server deduplica ogni turno tramite UUID.
             if ponte.linea == .collegato {
                 Task { await AssistenteTelefono.shared.sincronizza(con: ponte) }
             }
         }
-        if voceAccesa { try flusso.prepara() }
+        if voceGiro { try flusso.prepara() }
         let telefono = AssistenteTelefono.shared
-        let voce = voceAccesa
+        let voce = voceGiro
+        let immagini = immaginiGiro
         let suona: (Data) -> Void = { pcm in
             // il primo audio vero: niente piu' riempitivi, ne' quelli in attesa ne' quello che si sta preparando
             self.annullaRiempitivi()
@@ -303,7 +345,7 @@ final class Melissa {
                 try await telefono.rispondi(testo, chi: rispostaDi, invito: invito,
                                             passaA: p == nil ? conVoce : [], deciso: p == nil && vivo ? scelto : nil, voce: voce,
                                             contestoMac: contesto, memoria: self.ponte.memoriaMelissa(),
-                                            riempito: { self.riempito && g == self.giro },
+                                            riempito: { self.riempito && g == self.giro }, immagini: immagini,
                                             audio: self.audio(di: rispostaDi, voce: voce, suona))
             }
             let chi = await withTaskCancellationHandler { await capito.value } onCancel: { capito.cancel(); risposta.cancel() }
@@ -338,7 +380,7 @@ final class Melissa {
         // a fine giro, anche interrotto, il nome e' di chi ha la chiamata
         defer { lavoroTelefono = nil; parlante = Personaggi.nome(chiParla) }
         try await task.value
-        if voceAccesa {
+        if voceGiro {
             guard flusso.haSuonato else { throw ErrorePonte(messaggio: "ElevenLabs non ha mandato l'audio della voce di \(parlante).") }
             sfera = .parla
             await flusso.aspettaFine()
