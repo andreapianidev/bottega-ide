@@ -297,6 +297,34 @@ Ogni hook esce sempre con 0 entro 150 ms; il lavoro pesante (riassunti) parte st
 Server MCP `bottega-memoria` registrato a livello utente, strumenti: `memoria_cerca`, `memoria_ricorda`,
 `memoria_recenti`, `memoria_sessione`, `memoria_bacheca`.
 
+### 2.1 Memoria e Moony: una memoria sola (15/10/2026, `memoria/lib/moony.mjs`)
+
+La memoria e' una sola, bottega-mem, in due meta'. Il Mac tiene il lavoro (sessioni, riassunti, decisioni,
+note). La VM1 (`segretaria`, `~/segretaria/memory.db`, porta 8765) tiene quello che deve poter scrivere anche a
+Mac addormentato: conversazioni di Moony (Melissa), fatti su Andrea, eventi di casa, riassunti. Ognuna e'
+l'unica che scrive le proprie righe; l'altra ne tiene la copia.
+
+- **Dalla VM al Mac**: `GET /bottega/export?messages=&facts=&facts_id=&events=&summaries=&limit=500`
+  (Bearer `SEGRETARIA_BRIDGE_TOKEN`, da `~/.secrets/segretaria-bridge.env`) restituisce le righe dopo i
+  cursori, piu' `more` per tabella. I fatti si seguono per `(updated_at, id)` perche' cambiano. Il Mac le
+  copia intere (JSON) in `moony_messages`, `moony_facts`, `moony_events`, `moony_summaries`, e **non cancella
+  mai**: una riga tolta sulla VM resta qui. Fatti e riassunti diventano memorie `origin='moony'`
+  (`moony_memorie` lega la riga della VM alla memoria, che si aggiorna se il fatto cambia); le battute con
+  `persona` diventano note dei personaggi (`origin='personaggio'`, cosi' Darlene sulla Bottega ricorda cosa ha
+  detto in Avo), quelle senza diventano note `origin='melissa'`. Una battuta che la Bottega aveva gia' salvato
+  da se' (stesso personaggio, stessa voce, stesso testo entro 5 minuti) non si ripete. Gli eventi di casa
+  restano solo nella copia, fuori dalla ricerca.
+- **Dal Mac alla VM**: `POST /bottega/memories {"items":[...]}` (al massimo 500) manda le memorie di tipo
+  fatto, decisione, riassunto e nota con origine `auto` o `manuale`, in ordine di id (cursore
+  `meta.moony_mandate`). La VM le tiene in `bottega_memories` con il suo indice FTS, aggiornate per id e mai
+  cancellate. `/memories/search` ne aggiunge fino a 3 quando il testo risponde, nella forma dei fatti
+  (`FactRow` delle app) con **id negativo**, `source: "bottega"`, `category` uguale al tipo, `match:
+  "bottega"`: le app le leggono senza modifiche, e `/facts/update` e `/facts/delete` su quegli id non fanno
+  niente. Prima cedono il posto i fatti di riempimento (`match: "base"`), e il totale non supera `limit`.
+- **Quando**: a ogni `import-all` (l'estensione lo chiama ogni minuto), mai prima di una lettura MCP o CLI.
+  Non lancia mai: a VM irraggiungibile riprova al giro dopo. Esito in `meta.moony_ultimo`
+  (`{"at","ok","errore"?}`); `node memoria/cli.mjs moony [--stato] --json` per un giro a mano o i numeri.
+
 ## 3. Estensione <-> plancia (webview)
 
 Estensione -> plancia:

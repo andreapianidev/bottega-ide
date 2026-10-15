@@ -52,6 +52,26 @@ node memoria/cli.mjs import-codex --json
 node memoria/cli.mjs import-all --json
 ```
 
+## Moony: la meta' sempre accesa (dal 15/10/2026)
+
+La memoria di Moony (Melissa) non e' un archivio a parte: e' la meta' di questa memoria che vive sulla VM1
+(`segretaria`, `~/segretaria/memory.db`), perche' il telefono, la casa e Avo devono poter scrivere anche quando
+il Mac dorme. A ogni `import-all` (l'estensione lo chiama ogni minuto) `lib/moony.mjs` fa due cose:
+
+- porta qui conversazioni, fatti, eventi di casa e riassunti di Moony. Li copia interi nelle tabelle
+  `moony_*` e non li cancella mai, nemmeno se sulla VM spariscono. Fatti, riassunti e battute diventano
+  anche ricordi cercabili;
+- manda alla VM fatti, decisioni, riassunti e note del lavoro, cosi' Moony li ritrova quando le si chiede
+  cosa si e' deciso.
+
+```sh
+node memoria/cli.mjs moony --json          # un giro a mano, con i numeri
+node memoria/cli.mjs moony --stato --json  # solo i numeri e l'esito dell'ultimo giro
+```
+
+Configurazione: `~/.secrets/segretaria-bridge.env` (`SEGRETARIA_URL`, `SEGRETARIA_BRIDGE_TOKEN`). Contratto in
+`docs/CONTRATTI.md`, sezione 2.1.
+
 ## Sessioni in parallelo: la bacheca
 
 Ogni richiesta e ogni modifica finiscono anche in `bacheca/<progetto>.jsonl` (al massimo qualche

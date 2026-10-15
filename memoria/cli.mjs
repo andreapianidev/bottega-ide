@@ -44,6 +44,7 @@ const HELP = `Memoria della Bottega
   categorie [--giorni N] [--json]     sessione -> categoria
   immagini [--limite N] [--giorni N] [--riprova] [--json]
                                       le schermate delle sessioni diventano cercabili (OCR del Nucleo, in fondo)
+  moony [--stato] [--json]            scambio con la memoria di Moony sulla VM1 (--stato: solo i numeri)
   install [--app-dir D] [--no-mcp] [--prova]
   uninstall [--no-mcp] [--prova]
   status [--json]`;
@@ -67,7 +68,12 @@ async function main() {
 		const result = syncSources();
 		const { ingest } = await import('./lib/core.mjs');
 		const spool = ingest();
-		if (cmd === 'import-all') return print({ ...result, spool });
+		if (cmd === 'import-all') {
+			// la meta' sempre accesa della memoria, sulla VM1 (lib/moony.mjs): solo qui, mai prima di una lettura
+			const { syncMoony } = await import('./lib/moony.mjs');
+			const { openStore } = await import('./lib/store.mjs');
+			return print({ ...result, spool, moony: await syncMoony(openStore()) });
+		}
 	}
 	switch (cmd) {
 		case 'worker': {
@@ -226,6 +232,13 @@ async function main() {
 		case 'status':
 		case 'stato': {
 			return print(await status());
+		}
+		case 'moony': {
+			const { syncMoony, statoMoony } = await import('./lib/moony.mjs');
+			const { openStore } = await import('./lib/store.mjs');
+			const store = openStore();
+			const giro = flags.stato ? undefined : await syncMoony(store);
+			return print({ ...(giro ? { giro } : {}), ...statoMoony(store) });
 		}
 		case undefined:
 		case 'aiuto':
