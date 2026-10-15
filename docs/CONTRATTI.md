@@ -874,6 +874,38 @@ ahead, upstream}[]`) e tutto cio' che succede li' (sessioni passate e vive, ore 
 principale. Una sola regola, in due copie allineate: `worktreeMain`/`canonKey` in `src/scan.ts` (usata da
 `sessionOwner`, quindi anche dal cruscotto) e `worktreeMain` in `memoria/lib/paths.mjs` (usata da `projectOf`).
 
+### 4.11 Una Melissa sola sul Mac: chi ha la voce (15/10/2026)
+
+Sul Mac ascoltano e parlano tre Melissa: la barra della Bottega (`src/assistant.ts`, voce del Nucleo di servizio),
+l'isola di Claude Code (Nucleo `--isola`) e Melissa di Avo Agency AI (sfera fluttuante con la scorciatoia e sfera in
+finestra, una sola sessione). Una voce alla volta. Il patto e' un file, `~/.bottega/voce/chi.json` (cartella 700, file
+600), scritto con un file temporaneo nella stessa cartella e `rename`:
+
+```
+{"chi": "bottega" | "avo" | "isola" | "", "pid": 123, "at": 1760000000.5, "personaggio": "melissa"}
+```
+
+`at` in secondi (Unix, con decimali); `personaggio` (facoltativo) e' chi ha la chiamata, con le chiavi dei file
+`~/.bottega/personaggi/*.json` piu' `melissa`.
+
+- **Prendere la voce.** Chi apre il microfono per Andrea scrive la sua presa: la barra all'apertura della
+  conversazione e al push-to-talk (`voce-unica.ts`), l'isola a `/detta` (`nucleo/Sources/Isola/VoceUnica.swift`), Avo
+  all'avvio della sfera, a ogni risposta parlata (al piu' ogni 3 s) e alla sua iniziativa. Chi prende la voce manda
+  anche `POST /zitta` senza `sessione` all'isola (tace e svuota la fila).
+- **Lasciarla.** Chi smette e la teneva (stesso `chi` e stesso `pid`) scrive `chi: ""`: la barra a riposo fuori dalla
+  conversazione, l'isola a dettato chiuso, Avo quando la sessione si ferma. Mai sopra la presa di un altro.
+- **Cederla.** Ognuno guarda la cartella (non il file: il `rename` lo sostituisce). Una presa di un altro, piu' recente
+  di tutto quello gia' visto o scritto, fa tacere e chiudere il microfono: la barra chiude la conversazione e ferma la
+  voce (`Assistant.cediLaVoce`, mai un turno dall'iPhone), Avo ferma la sessione e nasconde la sfera fluttuante.
+  Il personaggio della presa, se esiste anche qui, diventa quello attivo: la chiamata resta a lui.
+- **Le voci automatiche non la tolgono a chi la tiene.** Una presa e' tenuta se `chi` non e' vuoto, il processo `pid`
+  e' vivo e `at` ha meno di 30 minuti. Intanto le battute dell'isola (`/parla`: cronaca della mod, avvisi di fine)
+  aspettano in fila come a microfono aperto (scadono dopo 5 minuti, 4. «Una voce alla volta»), e l'iniziativa di
+  Melissa in Avo rinuncia.
+- Senza `~/.bottega` Avo non scrive e non guarda niente. Senza file nessuno tiene la voce.
+- Limite noto: chi prende la voce non chiude un dettato gia' aperto nell'isola (`/detta/fine` manderebbe a Claude la
+  frase a meta').
+
 ## 5. Connettori e posta per progetto
 
 La Bottega non tiene chiavi di Gmail, Vercel o simili: usa i connettori che l'utente ha gia' in Claude Code. Codice:

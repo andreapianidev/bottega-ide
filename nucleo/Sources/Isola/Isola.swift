@@ -205,6 +205,8 @@ final class Isola {
             }
             if dettaPer == sessione { return res.ok() }
             dettaPer = sessione
+            // one Melissa on the Mac (VoceUnica): Avo and the bar go quiet and drop their microphone
+            VoceUnica.prendi()
             dettaParziale = ""
             narraPer = nil
             // what this session left unread (an old ferma, an old text) belongs to before
@@ -258,8 +260,9 @@ final class Isola {
             guard !testo.isEmpty || final else { return res.errore(400, "Niente da dire.") }
             let ora = Date()
             // with the microphone open the line waits in the queue and goes out when it closes (build 153:
-            // before, a 409, and another session's notice was lost while Andrea dictated)
-            let ascolta = dettaPer != nil
+            // before, a 409, and another session's notice was lost while Andrea dictated); the same while
+            // another Melissa of the Mac (Avo, the bar) holds the voice (VoceUnica)
+            let ascolta = dettaPer != nil || VoceUnica.tenutaDaAltri()
             // whoever was waiting for a voice now free goes first: this line comes after them
             giraCoda()
             let b = Battuta(sessione: sessione, testo: testo, append: append, final: final, voce: voce, at: ora)
@@ -379,7 +382,8 @@ final class Isola {
 
     /// The voice is free and the microphone closed: the next waiting session speaks, all its lines.
     private func giraCoda() {
-        let esito = codaVoci.prossime(suona: Speaker.shared.isSounding, ascolta: dettaPer != nil, ora: Date())
+        let esito = codaVoci.prossime(suona: Speaker.shared.isSounding,
+                                      ascolta: dettaPer != nil || VoceUnica.tenutaDaAltri(), ora: Date())
         for b in esito.scartate {
             Log.info("isola: scarto una battuta di \(b.sessione.prefix(8)) rimasta in attesa per \(Int(CodaVoci.scadenza / 60)) minuti")
         }
@@ -431,6 +435,7 @@ final class Isola {
         guard let sessione = dettaPer else { return }
         dettaPer = nil
         dettaParziale = ""
+        VoceUnica.lascia()
         // lines that waited for the microphone to close
         if !codaVoci.attesa.isEmpty { armaCoda() }
         if let errore {

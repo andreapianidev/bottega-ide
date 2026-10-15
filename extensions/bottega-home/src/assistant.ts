@@ -186,6 +186,9 @@ export interface AssistantDeps {
 	onState(state: AssistantState): void;
 	/** Melissa comincia ad ascoltare con la sfera dentro l'IDE: la vista laterale si fa vedere. */
 	onConverse?(): void;
+	/** Una Melissa sola sul Mac (src/voce-unica.ts, CONTRATTI 4.11): la barra prende la voce quando apre il microfono
+	 *  e la lascia quando torna a riposo. Senza, la barra non dice niente alle altre. */
+	voce?: { prendi(personaggio?: string): void; lascia(): void };
 	/** Solo per i test: uno stream finto al posto di Agnes. */
 	stream?: LlmStreamFn;
 	/** I cervelli: Agnes primaria, gli altri solo se Andrea li sceglie (src/cervelli.ts). */
@@ -798,6 +801,8 @@ export class Assistant {
 		if (s !== 'speaking') this.state.agitazione = AGITAZIONE_NEUTRA;
 		this.state.partial = partial;
 		if (changed) this.paintStatus();
+		// a riposo e fuori dalla conversazione la voce torna libera per le altre Melissa del Mac (voce-unica.ts)
+		if (changed && s === 'idle' && !this.state.conversing) this.deps.voce?.lascia();
 		this.emit();
 	}
 	private pushLog(role: 'tu' | 'melissa' | 'azione', text: string): void {
@@ -1092,6 +1097,7 @@ export class Assistant {
 		clearTimeout(this.orbHideTimer);
 		this.pushStarted = true;
 		this.awaitingPushFinal = true;
+		this.deps.voce?.prendi(this.chi());
 		clearTimeout(this.pushFinalTimer);
 		this.showBigOrb();
 		this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });
@@ -1129,6 +1135,8 @@ export class Assistant {
 		this.dallUltimoOspite = 1;
 		this.out.info(`conversazione aperta (Nucleo ${this.deps.nucleo.available ? 'pronto' : 'non disponibile'})`);
 		this.state.conversing = true;
+		// una Melissa sola: Avo e l'isola tacciono e mollano il microfono (voce-unica.ts)
+		this.deps.voce?.prendi(this.chi());
 		this.showBigOrb();
 		this.deps.nucleo.fireAndForget('orb.state', { state: 'listening' });
 		this.deps.nucleo
@@ -1149,10 +1157,37 @@ export class Assistant {
 		this.deps.nucleo.fireAndForget('voice.stopSpeaking');
 		this.deps.nucleo.fireAndForget('voice.converse.stop');
 		this.out.info(`conversazione chiusa: ${reason}`);
+		this.deps.voce?.lascia();
 		this.deps.nucleo.fireAndForget('orb.state', { state: 'idle' });
 		this.restOrb();
 		this.setState('idle');
 		this.paintStatus();
+	}
+
+	/** Un'altra Melissa del Mac (Avo, l'isola) ha preso la voce (voce-unica.ts, CONTRATTI 4.11): la barra tace, molla
+	 *  il microfono e, se di la' parlavano con un personaggio, la chiamata resta a lui anche qui. Un turno
+	 *  dell'iPhone non usa ne' voce ne' microfono del Mac: continua. */
+	cediLaVoce(da: string, personaggio?: string): void {
+		if (this.remote) return;
+		const st = this.state.state;
+		const occupata = this.state.conversing || this.pushStarted || this.speaking || st === 'listening' || st === 'thinking' || st === 'speaking';
+		if (occupata) this.out.info(`la voce l'ha presa ${da}: taccio e chiudo il microfono`);
+		if (this.pushStarted) {
+			this.pushStarted = false;
+			this.awaitingPushFinal = false;
+			this.deps.nucleo.fireAndForget('voice.stop');
+		}
+		if (this.state.conversing) this.stopConversation(`voce presa da ${da}`);
+		else if (occupata) {
+			this.currentAbort?.abort();
+			this.deps.nucleo.fireAndForget('voice.stopSpeaking');
+			this.deps.nucleo.fireAndForget('orb.state', { state: 'idle' });
+			this.setState('idle');
+		}
+		if (personaggio && personaggio !== this.chi() && !this.personaTurno && (personaggio === 'melissa' || esiste(personaggio))) {
+			this.state.personaggio = personaggio;
+			this.emit();
+		}
 	}
 
 	/** La voce non funziona: lo si dice nella barra e nel registro, e la conversazione si chiude. */

@@ -49,6 +49,7 @@ import { RegiaPersonaggi } from './regia-personaggi';
 import { avviaRegiaPersonaggi } from './regia-personaggi-host';
 import { forzatureDalleRegole } from './forzature-regole';
 import { IsolaAttivita, isolaVera } from './isola-attivita';
+import { VoceUnica } from './voce-unica';
 import { fileCondiviso, fraseAvviso, InterruttoreAvviso, pensaDeepseek } from './avviso-fine';
 
 // Melissa usa i connettori di Claude Code in sola lettura (docs/CONTRATTI.md, 5 e 6): prima che nasca l'assistente.
@@ -906,7 +907,14 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 	} catch {
 		console.warn('Continuità: stato privato non leggibile, file conservato; la Bottega continua senza ponte memoria.');
 	}
+	// una Melissa sola sul Mac (src/voce-unica.ts, CONTRATTI 4.11): se Avo o l'isola prendono la voce la barra tace
+	const voceUnica = new VoceUnica(
+		p => assistant?.cediLaVoce(p.chi, p.personaggio),
+		() => void isolaVera().manda('/zitta', {}),
+	);
+	ctx.subscriptions.push({ dispose: () => voceUnica.dispose() });
 	assistant = new Assistant({
+		voce: voceUnica,
 		continuita,
 		contesto: () => contestoMemoria.testo(cartellaAttiva()),
 		// la memoria dei personaggi nella Memoria della Bottega (CONTRATTI 9.11)
