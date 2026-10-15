@@ -2372,7 +2372,10 @@ cercava il nome nel testo.
   «Vision» (`deepseek-flash` che guarda); Mistral «Mistral Small», «Mistral Medium», «Mistral Large», «Codestral»
   (`*-latest`, `https://api.mistral.ai/v1/chat/completions`). Verso Mistral niente `reasoning_effort`, un solo
   messaggio di sistema in testa, nessun messaggio assistant con sole `tool_calls`. La voce non segue la scelta: parla
-  sempre con DeepSeek Flash. Un fornitore senza chiave resta nel menu, spento («manca la chiave»). Credito: DeepSeek da
+  sempre con DeepSeek Flash, e cosi' Siri (build 175). Con immagini mandate al modello (Vision) niente strumenti,
+  come sul Mac. La logica pura (catalogo, schede, tagli, markdown, zip) sta in `ios/Bottega/Chat/ChatPura.swift`, provata
+  da `scripts/test-ios-chat.sh` senza simulatore; `scripts/test-ios-modelli-reali.py` (solo con `BOTTEGA_TEST_REALE=1`)
+  prova dal vivo ogni modello con le chiavi del vault. Un fornitore senza chiave resta nel menu, spento («manca la chiave»). Credito: DeepSeek da
   `/user/balance`, con Agnes «Agnes: gratis», con Mistral «Mistral: credito condiviso con Nora» (Mistral non ha
   un'API del saldo). Agnes (build 174, Andrea il 16/10/2026): solo «Agnes 3.0 Flash» e «Agnes 2.5 Flash», gratuiti,
   `https://apihub.agnes-ai.com/v1/chat/completions`, sul filo come DeepSeek; con un 429 si riprova piano.

@@ -557,25 +557,11 @@ final class Ponte {
         return parti.isEmpty ? nil : parti.joined(separator: "\n")
     }
 
-    /// I primi `massimo` caratteri contati come li conta il ponte (JavaScript, `length`: unita' UTF-16, un'emoji ne vale
-    /// due), senza spezzare un carattere a meta'.
-    static func taglia(_ testo: String, massimo: Int = 2000) -> String {
-        guard testo.utf16.count > massimo else { return testo }
-        var n = 0
-        var fine = testo.startIndex
-        for c in testo {
-            n += c.utf16.count
-            if n > massimo { break }
-            fine = testo.index(after: fine)
-        }
-        return String(testo[..<fine])
-    }
-
     func importaStoria(_ turns: [TurnoTelefono]) async throws {
         struct R: Decodable { let ok: Bool }
         // il ponte rifiuta l'intero lotto con un testo oltre 2000 caratteri (MAX_TESTO): una risposta lunga scritta
         // nella chat bloccherebbe la sincronizzazione per sempre, quindi al Mac ne arrivano i primi 2000
-        let body: [[String: String]] = turns.map { ["id": $0.id.uuidString.lowercased(), "chi": $0.riga.chi, "testo": Self.taglia($0.riga.testo)] }
+        let body: [[String: String]] = turns.map { ["id": $0.id.uuidString.lowercased(), "chi": $0.riga.chi, "testo": TestoChat.taglia($0.riga.testo)] }
         let _: R = try await manda("/v1/assistente/storia", ["turns": body])
     }
 

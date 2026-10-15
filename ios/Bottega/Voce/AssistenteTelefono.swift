@@ -66,76 +66,6 @@ struct TurnoTelefono: Codable, Identifiable {
     }
 }
 
-/// Un modello della chat scritta (16/10/2026, lo stesso catalogo di Moony AI sul Mac, stessi nomi e stesso ordine).
-/// La voce non segue la scelta: parla sempre DeepSeek Flash.
-struct ModelloChat: Identifiable, Equatable {
-    enum Fornitore: String, CaseIterable {
-        case deepseek, agnes, mistral
-        var nome: String {
-            switch self {
-            case .deepseek: "DeepSeek"
-            case .agnes: "Agnes"
-            case .mistral: "Mistral"
-            }
-        }
-        var url: String {
-            switch self {
-            case .deepseek: "https://api.deepseek.com/chat/completions"
-            // solo i modelli del piano free, circa 20 richieste al minuto per tutto l'account
-            case .agnes: "https://apihub.agnes-ai.com/v1/chat/completions"
-            // l'endpoint europeo
-            case .mistral: "https://api.mistral.ai/v1/chat/completions"
-            }
-        }
-    }
-
-    let id: String
-    let nome: String
-    let fornitore: Fornitore
-    /// Il nome del modello sul filo.
-    let modello: String
-    let simbolo: String
-    let dettaglio: String
-    /// Vision: le immagini allegate vanno al modello, che le guarda.
-    var vede: Bool { id == "vision" }
-
-    static let catalogo: [ModelloChat] = [
-        ModelloChat(id: "flash", nome: "Flash", fornitore: .deepseek, modello: "deepseek-flash", simbolo: "bolt.fill",
-                    dettaglio: "DeepSeek V4.1 Flash: risponde in 3-4 secondi e costa pochissimo"),
-        ModelloChat(id: "pro", nome: "Pro", fornitore: .deepseek, modello: "deepseek-v4-pro", simbolo: "brain.head.profile",
-                    dettaglio: "DeepSeek V4 Pro: più preciso, più lento, costa circa 4 volte Flash"),
-        ModelloChat(id: "vision", nome: "Vision", fornitore: .deepseek, modello: "deepseek-flash", simbolo: "eye.fill",
-                    dettaglio: "Flash che guarda: le immagini allegate le vede e risponde lei"),
-        ModelloChat(id: "agnes-3.0-flash", nome: "Agnes 3.0 Flash", fornitore: .agnes, modello: "agnes-3.0-flash",
-                    simbolo: "sparkles", dettaglio: "gratis, piano free: più lento di DeepSeek, circa 20 richieste al minuto"),
-        ModelloChat(id: "agnes-2.5-flash", nome: "Agnes 2.5 Flash", fornitore: .agnes, modello: "agnes-2.5-flash",
-                    simbolo: "sparkles", dettaglio: "gratis, la generazione precedente di Agnes"),
-        ModelloChat(id: "mistral-small", nome: "Mistral Small", fornitore: .mistral, modello: "mistral-small-latest",
-                    simbolo: "wind", dettaglio: "veloce ed economico, dati in Europa"),
-        ModelloChat(id: "mistral-medium", nome: "Mistral Medium", fornitore: .mistral, modello: "mistral-medium-latest",
-                    simbolo: "wind", dettaglio: "più capace di Small, costa di più"),
-        ModelloChat(id: "mistral-large", nome: "Mistral Large", fornitore: .mistral, modello: "mistral-large-latest",
-                    simbolo: "wind", dettaglio: "il più capace di Mistral, il più caro"),
-        ModelloChat(id: "codestral", nome: "Codestral", fornitore: .mistral, modello: "codestral-latest",
-                    simbolo: "chevron.left.forwardslash.chevron.right", dettaglio: "Mistral per il codice"),
-    ]
-
-    static func con(_ id: String) -> ModelloChat { catalogo.first { $0.id == id } ?? catalogo[0] }
-}
-
-/// Una chat della barra delle schede: i suoi turni hanno `chat` uguale al suo id.
-struct ChatMoony: Codable, Identifiable, Equatable {
-    let id: UUID
-    /// La prima domanda scritta o detta, accorciata; vuoto finche' non c'e'.
-    var titolo: String
-    /// Quando e' nata, in millisecondi: le righe che arrivano solo dal Mac vanno nella chat nata per ultima prima di loro.
-    let inizio: Double
-    /// L'ultimo turno, per ordinare i recenti.
-    var ultima: Double
-
-    var nomeScheda: String { titolo.isEmpty ? "Nuova chat" : titolo }
-}
-
 /// Una risposta detta: il testo senza segnali e il personaggio che Melissa ha tirato dentro, se c'e'.
 struct Battuta {
     let testo: String
@@ -159,11 +89,11 @@ final class AssistenteTelefono {
     /// Il modello della chat scritta (ModelloChat.catalogo). Pro si sincronizza col Mac come impegno «profondo»;
     /// Vision e i modelli Mistral restano su questo iPhone.
     private(set) var modelloID: String
-    /// Le chat, dalla piu' recente; le schede aperte (al piu' `maxSchede`) e quella attiva. Solo su questo iPhone.
-    private(set) var chat: [ChatMoony] = []
-    private(set) var schede: [UUID] = []
-    private(set) var attiva = UUID()
-    static let maxSchede = 8
+    /// Le chat, le schede aperte e quella attiva (SchedeChat, ChatPura.swift). Solo su questo iPhone.
+    private(set) var schedeChat = SchedeChat.iniziale(inizio: 0, adesso: 0)
+    var chat: [ChatMoony] { schedeChat.chat }
+    var schede: [UUID] { schedeChat.schede }
+    var attiva: UUID { schedeChat.attiva }
     /// Le conversazioni chiuse con «Nuova chat» prima delle schede (build 171-172): si leggono soltanto.
     private(set) var passate: [ChatPassata] = []
     private var applicandoSceltaMac = false
@@ -186,12 +116,6 @@ final class AssistenteTelefono {
     private let archivioChat: URL
     private let archivioSchede: URL
 
-    private struct Schede: Codable {
-        var chat: [ChatMoony]
-        var schede: [UUID]
-        var attiva: UUID
-    }
-
     private init() {
         provider = "deepseek" // migrazione del provider Agnes ritirato; l’impegno resta invariato
         let impegnoSalvato = UserDefaults.standard.string(forKey: "melissa.telefono.impegno") ?? "normale"
@@ -210,12 +134,9 @@ final class AssistenteTelefono {
         if let data = try? Data(contentsOf: archivioChat), let saved = try? JSONDecoder().decode([ChatPassata].self, from: data) {
             passate = saved
         }
-        if let data = try? Data(contentsOf: archivioSchede), let saved = try? JSONDecoder().decode(Schede.self, from: data),
-           saved.chat.contains(where: { $0.id == saved.attiva }) {
-            chat = saved.chat
-            schede = saved.schede.filter { id in saved.chat.contains { $0.id == id } }
-            attiva = saved.attiva
-            if !schede.contains(attiva) { schede.append(attiva) }
+        if let data = try? Data(contentsOf: archivioSchede), var saved = try? JSONDecoder().decode(SchedeChat.self, from: data),
+           saved.normalizza() {
+            schedeChat = saved
         } else {
             migraAlleSchede()
         }
@@ -226,14 +147,11 @@ final class AssistenteTelefono {
     private func migraAlleSchede() {
         let inizio = UserDefaults.standard.double(forKey: "moony.chat.inizio")
         let adesso = Date().timeIntervalSince1970 * 1000
-        let prima = ChatMoony(id: UUID(), titolo: "", inizio: inizio, ultima: adesso)
-        chat = [prima]
-        schede = [prima.id]
-        attiva = prima.id
-        for i in turni.indices where turni[i].chat == nil && turni[i].alle >= inizio { turni[i].chat = prima.id }
-        if let t = turni.first(where: { $0.chat == prima.id && $0.chi == "tu" && $0.esterno != true }) {
-            chat[0].titolo = Self.titolo(t.testo)
-            chat[0].ultima = turni.last { $0.chat == prima.id }?.alle ?? adesso
+        schedeChat = SchedeChat.iniziale(inizio: inizio, adesso: adesso)
+        let prima = schedeChat.attiva
+        for i in turni.indices where turni[i].chat == nil && turni[i].alle >= inizio { turni[i].chat = prima }
+        if let t = turni.first(where: { $0.chat == prima && $0.chi == "tu" && $0.esterno != true }) {
+            schedeChat.registra(in: prima, chi: "tu", testo: t.testo, adesso: turni.last { $0.chat == prima }?.alle ?? adesso)
         }
         salva()
         salvaSchede()
@@ -339,7 +257,7 @@ final class AssistenteTelefono {
     // MARK: - le schede
 
     /// La chat aperta adesso.
-    var chatAttiva: ChatMoony? { chat.first { $0.id == attiva } }
+    var chatAttiva: ChatMoony? { schedeChat.chatAttiva }
 
     /// Le chat che hanno almeno un turno, dalla piu' recente: i recenti.
     var recenti: [ChatMoony] {
@@ -349,51 +267,32 @@ final class AssistenteTelefono {
 
     func haTurni(_ id: UUID) -> Bool { turni.contains { $0.chat == id } }
 
-    /// «+»: una chat nuova in una scheda nuova. Se quella aperta e' ancora vuota si resta li'.
-    func nuovaChat() {
-        if let c = chatAttiva, c.titolo.isEmpty, !haTurni(c.id) { return }
-        let adesso = Date().timeIntervalSince1970 * 1000
-        let nuova = ChatMoony(id: UUID(), titolo: "", inizio: adesso, ultima: adesso)
-        chat.insert(nuova, at: 0)
-        // le chat nuove mai usate e senza scheda non servono piu'
-        chat.removeAll { c in c.id != nuova.id && c.titolo.isEmpty && !schede.contains(c.id) && !haTurni(c.id) }
-        apri(nuova.id)
-    }
+    private var adesso: Double { Date().timeIntervalSince1970 * 1000 }
 
-    /// Apre una chat: nella sua scheda se c'e', altrimenti in una nuova. Oltre `maxSchede` si chiude la piu' vecchia
-    /// che non e' quella attiva.
-    func apri(_ id: UUID) {
-        guard chat.contains(where: { $0.id == id }) else { return }
-        if !schede.contains(id) {
-            schede.append(id)
-            while schede.count > Self.maxSchede, let vecchia = schede.first(where: { $0 != id }) {
-                schede.removeAll { $0 == vecchia }
-            }
-        }
-        attiva = id
+    /// «+»: una chat nuova in una scheda nuova (SchedeChat.nuova).
+    func nuovaChat() {
+        schedeChat.nuova(adesso: adesso) { !haTurni($0) }
         salvaSchede()
     }
 
-    /// «x» chiude la scheda, la chat resta fra i recenti. Chiusa l'ultima, se ne apre una nuova vuota.
+    /// Apre una chat nella sua scheda o in una nuova (SchedeChat.apri).
+    func apri(_ id: UUID) {
+        schedeChat.apri(id)
+        salvaSchede()
+    }
+
+    /// «x» chiude la scheda, la chat resta fra i recenti (SchedeChat.chiudi).
     func chiudi(scheda id: UUID) {
-        guard let i = schede.firstIndex(of: id) else { return }
-        schede.remove(at: i)
-        if attiva == id {
-            if schede.isEmpty {
-                nuovaChat()
-                return
-            }
-            attiva = schede[max(0, i - 1)]
-        }
+        schedeChat.chiudi(id, adesso: adesso) { !haTurni($0) }
         salvaSchede()
     }
 
     /// Cancella una chat dai recenti, con i suoi turni (quelli gia' arrivati al Mac restano nella storia del Mac).
     func togli(chat id: UUID) {
         turni.removeAll { $0.chat == id }
-        chat.removeAll { $0.id == id }
         salva()
-        if schede.contains(id) { chiudi(scheda: id) } else { salvaSchede() }
+        schedeChat.togli(id, adesso: adesso) { !haTurni($0) }
+        salvaSchede()
     }
 
     func togli(passata id: UUID) {
@@ -402,18 +301,13 @@ final class AssistenteTelefono {
         try? data.write(to: archivioChat, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
-    /// La chat a cui va una riga arrivata solo dal Mac: quella nata per ultima prima della riga.
-    func chat(perRigaDelle alle: Double) -> UUID? {
-        chat.filter { $0.inizio <= alle }.max { $0.inizio < $1.inizio }?.id
-    }
-
-    private static func titolo(_ testo: String) -> String {
-        let riga = testo.split(whereSeparator: \.isNewline).first.map(String.init) ?? testo
-        return riga.count > 48 ? String(riga.prefix(47)) + "…" : riga
-    }
+    /// La chat a cui va una riga arrivata solo dal Mac (SchedeChat).
+    func chat(perRigaDelle alle: Double) -> UUID? { schedeChat.chat(perRigaDelle: alle) }
 
     private func salvaSchede() {
-        guard let data = try? JSONEncoder().encode(Schede(chat: Array(chat.prefix(200)), schede: schede, attiva: attiva)) else { return }
+        var copia = schedeChat
+        copia.chat = Array(copia.chat.prefix(200))
+        guard let data = try? JSONEncoder().encode(copia) else { return }
         try? data.write(to: archivioSchede, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
@@ -500,11 +394,8 @@ final class AssistenteTelefono {
                                    sincronizzato: false, voce: voce ? true : nil, chat: dove))
         accorcia()
         salva()
-        if let i = chat.firstIndex(where: { $0.id == dove }) {
-            chat[i].ultima = adesso
-            if chat[i].titolo.isEmpty, chi == "tu" { chat[i].titolo = Self.titolo(pulito) }
-            salvaSchede()
-        }
+        schedeChat.registra(in: dove, chi: chi, testo: pulito, adesso: adesso)
+        salvaSchede()
     }
 
     private func salva() {
@@ -534,10 +425,11 @@ final class AssistenteTelefono {
     }
 
     /// Melissa risponde, come sempre (Siri e la conversazione).
+    /// Siri: anche quando la risposta la legge il sistema e' voce, quindi DeepSeek Flash e non il modello della chat.
     func rispondi(_ testo: String, voce: Bool, contestoMac: String? = nil, memoria: String? = nil,
                  audio: @escaping (Data) -> Void) async throws -> String {
-        try await rispondi(testo, chi: "melissa", invito: "", voce: voce, contestoMac: contestoMac, memoria: memoria,
-                           audio: audio).testo
+        try await genera(chi: "melissa", ultimo: testo, domanda: testo, invito: "", passaA: [], deciso: nil, voce: voce,
+                         contestoMac: contestoMac, memoria: memoria, riempito: { false }, predefinito: true, audio: audio).testo
     }
 
     /// Andrea dice qualcosa e risponde `chi`: Melissa o il personaggio che ha la chiamata. `invito` si aggiunge
@@ -651,14 +543,13 @@ final class AssistenteTelefono {
 
     private func genera(chi: String, ultimo: String, domanda: String?, invito: String, passaA: [String], deciso: String?, voce: Bool,
                         contestoMac: String?, memoria: String?, riempito: @escaping () -> Bool, immagini: [String] = [],
-                        audio: @escaping (Data) -> Void) async throws -> Battuta {
+                        predefinito: Bool = false, audio: @escaping (Data) -> Void) async throws -> Battuta {
         let config = try configurazione(voce: voce)
         let personaggio = Personaggi.tutti[chi]
         // La voce parla sempre con DeepSeek Flash, qualunque sia la scelta della chat (Andrea, 16/10/2026: «il vocale
         // usa solo modelli predefiniti»). Con un'immagine allegata risponde Vision, che la guarda.
-        let scelto = voce ? ModelloChat.con("flash") : modello
-        let guarda = scelto.vede || !immagini.isEmpty
-        let m = guarda ? ModelloChat.con("vision") : scelto
+        let m = ModelloChat.risponde(scelto: modello, voce: voce || predefinito, immagini: !immagini.isEmpty)
+        let guarda = m.vede
         let fornitore = m.fornitore.nome
         guard let key = Self.chiave(m.fornitore, in: config) else {
             throw ErrorePonte(messaggio: "Manca la chiave \(fornitore) sull'iPhone: importala di nuovo dal Mac nelle Impostazioni.")
@@ -717,8 +608,9 @@ final class AssistenteTelefono {
         var corpo: [String: Any] = ["model": model, "messages": messages, "stream": true]
         // Mistral rifiuta i campi che non conosce, e il sistema e' gia' un messaggio solo in testa; Agnes parla come
         // DeepSeek (come sul Mac)
-        if m.fornitore != .mistral { corpo["reasoning_effort"] = effort }
-        if !passaA.isEmpty {
+        if m.fornitore.ragiona { corpo["reasoning_effort"] = effort }
+        // con le immagini niente strumenti, come la visione sul Mac: risponde lei guardandole
+        if !passaA.isEmpty, immagini.isEmpty {
             corpo["tools"] = [Personaggi.strumentoPassaParola(passaA)]
             corpo["tool_choice"] = "auto"
         }

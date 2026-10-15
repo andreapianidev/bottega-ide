@@ -47,7 +47,7 @@ enum RigheChat {
         let telefono = AssistenteTelefono.shared
         let attiva = telefono.attiva
         // i turni dell'iPhone come li conosce il Mac: stesso `chi`, testo tagliato come al ponte
-        let noti = Set(telefono.turni.map { "\($0.riga.chi)|\(Ponte.taglia($0.riga.testo))" })
+        let noti = Set(telefono.turni.map { "\($0.riga.chi)|\(TestoChat.taglia($0.riga.testo))" })
         let dalMac = (stato?.melissa.registro ?? []).filter { r in
             !noti.contains("\(r.chi)|\(r.testo)") && telefono.chat(perRigaDelle: r.alle) == attiva
         }.map { RigaChat(id: $0.id, chi: $0.chi, testo: $0.testo, alle: $0.alle) }
@@ -443,15 +443,9 @@ private struct MoonyPensa: View {
 struct MarkdownMoony: View {
     let testo: String
 
-    enum Blocco: Equatable {
-        case paragrafo(String)
-        case titolo(String, livello: Int)
-        case codice(String)
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(Self.blocchi(testo).enumerated()), id: \.offset) { _, b in
+            ForEach(Array(TestoChat.blocchi(testo).enumerated()), id: \.offset) { _, b in
                 switch b {
                 case .paragrafo(let p):
                     Text(Self.inline(p)).font(.body).foregroundStyle(Tinte.testo)
@@ -479,53 +473,6 @@ struct MarkdownMoony: View {
     static func inline(_ s: String) -> AttributedString {
         let opzioni = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         return (try? AttributedString(markdown: s, options: opzioni)) ?? AttributedString(s)
-    }
-
-    static func blocchi(_ testo: String) -> [Blocco] {
-        var out: [Blocco] = []
-        var paragrafo: [String] = []
-        var codice: [String]?
-
-        func chiudi() {
-            let p = paragrafo.joined(separator: "\n").trimmingCharacters(in: .newlines)
-            if !p.trimmingCharacters(in: .whitespaces).isEmpty { out.append(.paragrafo(p)) }
-            paragrafo.removeAll()
-        }
-
-        for riga in testo.components(separatedBy: "\n") {
-            let pulita = riga.trimmingCharacters(in: .whitespaces)
-            if pulita.hasPrefix("```") {
-                if let aperto = codice {
-                    out.append(.codice(aperto.joined(separator: "\n")))
-                    codice = nil
-                } else {
-                    chiudi()
-                    codice = []
-                }
-                continue
-            }
-            if codice != nil { codice?.append(riga); continue }
-            if pulita.isEmpty { chiudi(); continue }
-            if pulita.hasPrefix("#") {
-                let livello = pulita.prefix { $0 == "#" }.count
-                let resto = pulita.dropFirst(livello)
-                if livello <= 6, resto.hasPrefix(" ") {
-                    chiudi()
-                    out.append(.titolo(resto.trimmingCharacters(in: .whitespaces), livello: livello))
-                    continue
-                }
-            }
-            // elenchi: "- x", "* x", "+ x" diventano "• x", con il loro rientro
-            let rientro = riga.prefix { $0 == " " || $0 == "\t" }
-            if let primo = pulita.first, "-*+".contains(primo), pulita.dropFirst().hasPrefix(" ") {
-                paragrafo.append(String(rientro) + "• " + pulita.dropFirst(2))
-                continue
-            }
-            paragrafo.append(riga)
-        }
-        if let aperto = codice { out.append(.codice(aperto.joined(separator: "\n"))) }
-        chiudi()
-        return out
     }
 }
 
