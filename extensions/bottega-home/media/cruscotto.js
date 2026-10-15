@@ -310,7 +310,7 @@
 			try {
 				opt.onStato(s, motivo || '');
 			} catch (e) {
-				console.error('Bottega: cruscotto, stato della tela', e);
+				console.error('Moony IDE: cruscotto, stato della tela', e);
 			}
 		}
 
@@ -497,7 +497,7 @@
 			} catch (e) {
 				ferma();
 				ctx = null;
-				console.warn('Bottega: cruscotto, la tela 2D si ferma, resta l\'SVG:', e);
+				console.warn('Moony IDE: cruscotto, la tela 2D si ferma, resta l\'SVG:', e);
 				return cambia('svg', String((e && /** @type {any} */ (e).message) || e));
 			}
 			const ms = clock() - t;
@@ -910,7 +910,7 @@ struct VG {
 			try {
 				opt.onStato(s, motivo || '');
 			} catch (e) {
-				console.error('Bottega: cruscotto, stato della corrente', e);
+				console.error('Moony IDE: cruscotto, stato della corrente', e);
 			}
 		}
 
@@ -934,7 +934,7 @@ struct VG {
 
 		function ripiego(motivo) {
 			if (stato === 'svg') return;
-			console.warn('Bottega: corrente senza WebGPU, ripiego sull\'SVG:', motivo);
+			console.warn('Moony IDE: corrente senza WebGPU, ripiego sull\'SVG:', motivo);
 			spegni();
 			cambia('svg', motivo);
 		}
@@ -1517,7 +1517,7 @@ struct VG {
 			if (gpuCaduto) return;
 			gpuCaduto = true;
 			motivoGpu = motivo || officina.motivo || 'WebGPU spento';
-			console.warn('Bottega: cruscotto, il cielo passa alla tela 2D:', motivoGpu);
+			console.warn('Moony IDE: cruscotto, il cielo passa alla tela 2D:', motivoGpu);
 			if (cielo2d.stato === 'attesa') cielo2d.abilita();
 			else mostraMotore(cielo2d.stato === 'canvas' ? 'canvas' : 'svg', '');
 		}
@@ -1739,7 +1739,7 @@ struct VG {
 			const claudePeriod = P();
 			const metriche = source => {
 				if (source === 'claude') return `<div class="attivita-metriche"><span>Token ${tk(sum4(claudePeriod.tok))}</span><span>Ore stimate ${hm(claudePeriod.claude)}</span><span>Valore API a listino ${usd(claudePeriod.cost)}</span><em>Registri Claude Code; ore inferite con pause di ${stats.gapMinutes} minuti. Il listino non è la spesa dell'abbonamento.</em></div>`;
-				if (source === 'terminale') return '<div class="attivita-metriche"><span>Token N/D · Durata N/D · Costo N/D</span><em>Solo eventi della shell osservati mentre la Bottega è aperta; nessuno storico dei consumi.</em></div>';
+				if (source === 'terminale') return '<div class="attivita-metriche"><span>Token N/D · Durata N/D · Costo N/D</span><em>Solo eventi della shell osservati mentre Moony IDE è aperta; nessuno storico dei consumi.</em></div>';
 				const m = sourceMetrics[source];
 				const tokens = m && m.tokens != null ? tk(m.tokens) : 'N/D';
 				const durata = source === 'codex' && m && m.durationMinutes != null ? hm(m.durationMinutes) : 'N/D';

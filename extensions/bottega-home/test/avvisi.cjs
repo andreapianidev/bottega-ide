@@ -337,7 +337,7 @@ function banco(opz = {}) {
 		assert.strictEqual(aps.timestamp, Math.floor(b.ora / 1000));
 		assert.strictEqual(aps['attributes-type'], 'BottegaAttivita');
 		assert.deepStrictEqual(aps.attributes, { mac: 'mac-di-prova' });
-		assert.deepStrictEqual(aps.alert, { title: 'Bottega', body: '3 sessioni al lavoro' });
+		assert.deepStrictEqual(aps.alert, { title: 'Moony IDE', body: '3 sessioni al lavoro' });
 		const cs = aps['content-state'];
 		assert.deepStrictEqual({ ...cs, aggiornato: 0 }, { inCorso: 3, tiAspetta: 1, vive: 5, righe: [{ progetto: 'Uno', stato: 'in corso', da: 3000 }, { progetto: 'Bottega', stato: 'in corso', da: 2000 }, { progetto: 'Due', stato: 'ti aspetta', da: 1000 }], aggiornato: 0 }, 'righe in ordine di tempo, dalla piu\' recente, non per stato');
 		assert.strictEqual(cs.aggiornato, b.ora);

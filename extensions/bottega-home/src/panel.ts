@@ -130,7 +130,7 @@ export class PlanciaPanel {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="${css}">
 ${css2}
-<title>Bottega</title>
+<title>Moony IDE</title>
 </head>
 <body>
 <main id="app"></main>

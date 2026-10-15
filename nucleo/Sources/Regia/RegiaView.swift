@@ -63,7 +63,7 @@ struct RegiaView: View {
                         .foregroundStyle(RegiaInk.muted)
                 }
             }
-            Text(model.data.summary.isEmpty ? "Il riepilogo arriva dalla Regia della Bottega." : model.data.summary)
+            Text(model.data.summary.isEmpty ? "Il riepilogo arriva dalla Regia di Moony IDE." : model.data.summary)
                 .font(.system(size: 16))
                 .lineSpacing(5)
                 .foregroundStyle(model.data.summary.isEmpty ? RegiaInk.muted : RegiaInk.text)

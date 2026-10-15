@@ -295,7 +295,7 @@ export function statoVoce(usatiMese: number, limiteMese: number | null, rinnovo:
 		if (rinnovo) frase += ` fino al ${rinnovo.slice(8, 10).replace(/^0/, '')}/${rinnovo.slice(5, 7).replace(/^0/, '')}`;
 		if (resto <= 0) tono = 'male';
 		else if (usatiMese / limiteMese > 0.9) tono = 'attesa';
-	} else frase += ', contati dalla Bottega';
+	} else frase += ', contati da Moony IDE';
 	return { nome: 'ElevenLabs', unita: 'caratteri', usatiMese, limiteMese, rinnovo, tono, frase };
 }
 

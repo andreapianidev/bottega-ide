@@ -19,7 +19,7 @@ struct ControlloMelissa: ControlWidget {
             }
         }
         .displayName("Parla con Moony")
-        .description("Apre la Bottega e accende la conversazione con Moony.")
+        .description("Apre Moony IDE e accende la conversazione con Moony.")
     }
 }
 
@@ -31,7 +31,7 @@ struct ControlloPlancia: ControlWidget {
             }
         }
         .displayName("Apri la plancia")
-        .description("Apre la Bottega sulla plancia.")
+        .description("Apre Moony IDE sulla plancia.")
     }
 }
 
@@ -55,6 +55,6 @@ struct ControlloOsservatorio: ControlWidget {
             }
         }
         .displayName("Apri l'Osservatorio")
-        .description("Ore, progetti e token della Bottega in un cielo stellato.")
+        .description("Ore, progetti e token di Moony IDE in un cielo stellato.")
     }
 }

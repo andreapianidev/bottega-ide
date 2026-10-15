@@ -194,7 +194,7 @@ const sql = (db, s) => execFileSync('/usr/bin/sqlite3', [db, s], { encoding: 'ut
 		const notte = JSON.parse(fs.readFileSync(path.join(TEMI, 'themes', 'bottega-notte.json'), 'utf8')).colors;
 		const testo = T.profiloIterm(notte, { famiglia: "'SF Mono', Menlo", dimensione: 12.5, altezzaRiga: 1.15, cursore: 'line' });
 		const p = JSON.parse(testo).Profiles[0];
-		assert.strictEqual(p.Name, 'Bottega');
+		assert.strictEqual(p.Name, 'Moony IDE');
 		assert.strictEqual(p.Guid, T.GUID_ITERM);
 		for (let i = 0; i < 16; i++) assert.ok(p[`Ansi ${i} Color`], `manca Ansi ${i}`);
 		assert.deepStrictEqual(p['Cursor Color'], T.coloreIterm('#f4ab3c'));
@@ -271,7 +271,7 @@ const sql = (db, s) => execFileSync('/usr/bin/sqlite3', [db, s], { encoding: 'ut
 
 	await test('il profilo di iTerm2 si scrive all\'avvio e solo se cambia', async () => {
 		const p = JSON.parse(fs.readFileSync(profilo, 'utf8')).Profiles[0];
-		assert.strictEqual(p.Name, 'Bottega');
+		assert.strictEqual(p.Name, 'Moony IDE');
 		const prima = fs.statSync(profilo).mtimeMs;
 		await attendi(20);
 		await mondo.comandi['bottega.terminaleEsterno'](Uri.file(repo));

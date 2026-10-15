@@ -454,7 +454,7 @@ struct OggiWidgetView: View {
             etichetta("oggi")
             Spacer(minLength: 0)
             Text("Nessun dato").font(.headline).foregroundStyle(Notte.text)
-            Text("Apri la Bottega una volta: le ore arrivano da lì.")
+            Text("Apri Moony IDE una volta: le ore arrivano da lì.")
                 .font(.caption).foregroundStyle(Notte.dim)
             Spacer(minLength: 0)
         }

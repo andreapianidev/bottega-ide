@@ -626,7 +626,7 @@ private struct EmptySky: View {
             Text("Il cielo aspetta i numeri")
                 .font(.titolo(22))
                 .foregroundStyle(Tinta.testo)
-            Text("Li manda la Bottega quando il cruscotto ha finito di contare. Se resta così, apri il cruscotto nella plancia.")
+            Text("Li manda Moony IDE quando il cruscotto ha finito di contare. Se resta così, apri il cruscotto nella plancia.")
                 .font(.system(size: 13))
                 .foregroundStyle(Tinta.seconda)
                 .multilineTextAlignment(.center)

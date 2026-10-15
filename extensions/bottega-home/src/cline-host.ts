@@ -40,7 +40,7 @@ function scriviSeCambia(f: string, testo: string, mode?: number): boolean {
 }
 
 export function registerCline(ctx: vscode.ExtensionContext) {
-	const out = vscode.window.createOutputChannel('Bottega, Cline', { log: true });
+	const out = vscode.window.createOutputChannel('Moony IDE, Cline', { log: true });
 	const cfg = () => vscode.workspace.getConfiguration('bottega.cline');
 	ctx.subscriptions.push(out);
 	if (!cfg().get<boolean>('attivo', true)) return;
@@ -70,7 +70,7 @@ export function registerCline(ctx: vscode.ExtensionContext) {
 	 *  Andrea lo sposta altrove, la Bottega non lo riporta indietro. */
 	const prenotaSpostamento = () => {
 		if (fs.existsSync(FATTO)) return;
-		const pid = process.ppid; // l'host delle estensioni e' figlio del processo principale della Bottega
+		const pid = process.ppid; // l'host delle estensioni e' figlio del processo principale di Moony IDE
 		const prenotato = ctx.globalState.get<number>('bottega.cline.prenotato');
 		if (prenotato === pid) return; // gia' in attesa per questa apertura (ricarica della finestra)
 		// User/globalStorage/<estensione> accanto a User/globalStorage/state.vscdb (profilo predefinito)
@@ -83,9 +83,9 @@ export function registerCline(ctx: vscode.ExtensionContext) {
 		});
 		p.unref();
 		void ctx.globalState.update('bottega.cline.prenotato', pid);
-		out.info(`Cline passa nella barra di destra alla prossima chiusura della Bottega (processo ${pid})`);
+		out.info(`Cline passa nella barra di destra alla prossima chiusura di Moony IDE (processo ${pid})`);
 		void vscode.window
-			.showInformationMessage('Cline sara\' la terza voce della barra di destra, accanto a Moony e Claude Code, dalla prossima apertura della Bottega.', 'Riavvia adesso')
+			.showInformationMessage('Cline sara\' la terza voce della barra di destra, accanto a Moony e Claude Code, dalla prossima apertura di Moony IDE.', 'Riavvia adesso')
 			.then(scelta => {
 				if (!scelta) return;
 				const app = path.resolve(vscode.env.appRoot, '..', '..', '..');

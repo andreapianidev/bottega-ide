@@ -633,7 +633,7 @@ export interface ContestoRichiesta {
 
 export function promptSistema(tipo: 'comando' | 'perche'): string {
 	const base = [
-		'Sei l\'aiuto del terminale della Bottega, sul Mac di Andrea. Trasformi una richiesta in italiano in un comando di shell.',
+		'Sei l\'aiuto del terminale di Moony IDE, sul Mac di Andrea. Trasformi una richiesta in italiano in un comando di shell.',
 		'Regole:',
 		'- Il sistema e\' macOS con zsh: usa comandi BSD e di macOS, non GNU (per esempio sed -i \'\', stat -f, du -sh, find -size +100M, pbcopy, open, mdfind).',
 		'- Niente sudo se non e\' indispensabile. Non cancellare, non pubblicare e non fare git push se la richiesta non lo chiede in modo esplicito.',

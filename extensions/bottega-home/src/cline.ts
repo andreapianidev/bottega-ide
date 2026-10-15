@@ -78,11 +78,11 @@ export function allineaServer(claudeJson: any, clineSettings: any, gestiti: stri
 export function regolaCline(claudeMd: string): string {
 	const globali = claudeMd.trim();
 	return [
-		'# La Bottega: regole per Cline',
+		'# Moony IDE: regole per Cline',
 		'',
-		'<!-- File scritto dalla Bottega e riscritto a ogni avvio: le modifiche vanno in ~/.claude/CLAUDE.md, non qui. -->',
+		'<!-- File scritto da Moony IDE e riscritto a ogni avvio: le modifiche vanno in ~/.claude/CLAUDE.md, non qui. -->',
 		'',
-		'Lavori come riserva di Claude Code nella Bottega: stessi progetti, stesse regole, stessa memoria. Una sessione',
+		'Lavori come riserva di Claude Code in Moony IDE: stessi progetti, stesse regole, stessa memoria. Una sessione',
 		'Claude puo\' essersi fermata a meta\' lavoro perche\' e\' finito il credito: riparti da quello che dice la memoria.',
 		'',
 		'## Prima di ogni compito',
@@ -142,7 +142,7 @@ function applica() {
 		log('Cline e\\' nella barra di destra, dopo le altre voci');
 	} catch (e) { log('Cline non spostato: ' + (e && e.message)); }
 }
-log('aspetto la chiusura della Bottega (processo ' + pid + ')');
+log('aspetto la chiusura di Moony IDE (processo ' + pid + ')');
 const t = setInterval(() => { if (!vivo()) { clearInterval(t); setTimeout(applica, 1000); } }, 1000);
 `;
 }

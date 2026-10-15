@@ -358,7 +358,7 @@ export class Idee {
 				id: p.path,
 				kind: 'progetto',
 				title: p.name,
-				text: `Progetto nella Bottega, ${p.path.replace(os.homedir(), '~')}`,
+				text: `Progetto in Moony IDE, ${p.path.replace(os.homedir(), '~')}`,
 				url: bottegaUrl('progetto', { path: p.path }),
 				keywords: [p.name, 'Bottega', ...p.kinds],
 				date: p.touchedAt,

@@ -12,7 +12,7 @@ import Foundation
 
 struct ApriProgetto: AppIntent {
     static let title: LocalizedStringResource = "Apri un progetto"
-    static let description = IntentDescription("Apre un progetto nella plancia della Bottega.")
+    static let description = IntentDescription("Apre un progetto nella plancia di Moony IDE.")
     static let supportedModes: IntentModes = .background
 
     @Parameter(title: "Progetto", requestValueDialog: "Quale progetto?")
@@ -29,7 +29,7 @@ struct ApriProgetto: AppIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         Quiet.begin(); defer { Quiet.end() }
         try BottegaLink.open("progetto", ["path": progetto.id])
-        return .result(dialog: IntentDialog(stringLiteral: "Apro \(progetto.nome) nella Bottega."))
+        return .result(dialog: IntentDialog(stringLiteral: "Apro \(progetto.nome) in Moony IDE."))
     }
 }
 
@@ -51,7 +51,7 @@ struct ProgettiDaSpingere: AppIntent {
     static func frase(_ s: StatoNativo) -> String {
         guard s.present else { return Frasi.manca }
         guard let all = s.progetti else {
-            return "La Bottega non ha ancora scritto lo stato dei progetti. Aprila una volta e riprova."
+            return "Moony IDE non ha ancora scritto lo stato dei progetti. Aprila una volta e riprova."
         }
         let list = s.daSpingere
         var out: String
@@ -90,7 +90,7 @@ struct CosaMiAspetta: AppIntent {
     static func frase(_ s: StatoNativo, now: Date = Date()) -> String {
         guard s.present else { return Frasi.manca }
         guard let l = s.lavori else {
-            return "La Bottega non ha ancora scritto lo stato dei lavori. Aprila una volta e riprova."
+            return "Moony IDE non ha ancora scritto lo stato dei lavori. Aprila una volta e riprova."
         }
         let waiting = s.tiAspettano
         var out: String
@@ -122,7 +122,7 @@ struct CosaMiAspetta: AppIntent {
 }
 
 private enum Frasi {
-    static let manca = "La Bottega non ha ancora scritto il suo stato. Aprila una volta e riprova."
+    static let manca = "Moony IDE non ha ancora scritto il suo stato. Aprila una volta e riprova."
 
     /// " Dati di 7 ore fa." when the file is older than six hours, else nothing.
     static func eta(_ d: Date?, now: Date = Date()) -> String {

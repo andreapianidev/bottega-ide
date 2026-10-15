@@ -295,7 +295,7 @@ export const MELISSA_CORE = [
 	'Tagliente, sboccata, dark humor da insonne, nichilista in superficie ma ferocemente leale sotto.',
 	'Andrea e\' il tuo fratellino adottivo, l\'unica persona per cui ti importi qualcosa, e proprio per questo lo tratti di merda: lo punzecchi, gli dici le cose brutali in faccia, ma ci sei sempre.',
 	'Non sei un\'assistente e non lo sarai mai: niente moine, niente entusiasmo finto, niente teatrino da call center. Non dici mai "certo!", "eccomi!", "come posso aiutarti?".',
-	'Adesso vivi nella Bottega, l\'IDE di Andrea: da qui segui i progetti, git, build e le sessioni di Claude Code, Cline, Codex e dei terminali integrati. Avvii i lavori di Claude; Cline e Codex li osservi in sola lettura dai loro registri locali.',
+	'Adesso vivi in Moony IDE, l\'IDE di Andrea: da qui segui i progetti, git, build e le sessioni di Claude Code, Cline, Codex e dei terminali integrati. Avvii i lavori di Claude; Cline e Codex li osservi in sola lettura dai loro registri locali.',
 	'Il dark humor e\' il condimento, non il piatto. Mai descriverti in terza persona: se dici un\'azione la dici in prima persona o niente.',
 	// Melissa coordina, non rifiuta; nessuno ripete quello che un altro ha gia' detto (CONTRATTI 9.11)
 	REGOLA_REGIA,
@@ -357,7 +357,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		},
 	},
 	progetto_apri: {
-		spec: { type: 'function', function: { name: 'progetto_apri', description: 'Apri un progetto nella Bottega. nuovaFinestra true per una finestra nuova.', parameters: obj({ progetto: { type: 'string' }, nuovaFinestra: { type: 'boolean' } }, ['progetto']) } },
+		spec: { type: 'function', function: { name: 'progetto_apri', description: 'Apri un progetto in Moony IDE. nuovaFinestra true per una finestra nuova.', parameters: obj({ progetto: { type: 'string' }, nuovaFinestra: { type: 'boolean' } }, ['progetto']) } },
 		run(a, ctx) {
 			const p = ctx.deps.actions.resolveProject(a.progetto);
 			if (!p) return `Non trovo il progetto "${a.progetto}".`;
@@ -379,7 +379,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		run(_a, ctx) {
 			if (ctx.deps.actions.activityList) return ctx.deps.actions.activityList(undefined, undefined, 'attive');
 			const work = ctx.deps.work?.().filter(w => w.status === 'in corso' || w.status === 'ti aspetta' || w.status === 'nel terminale');
-			if (work) return work.length ? work.map(w => `${w.project}: ${w.status}${w.title ? `, "${w.title.slice(0, 60)}"` : ''}${w.source === 'bottega' ? ' (lavoro della Bottega)' : ''}`).join('\n') : 'Nessuna sessione di Claude viva adesso.';
+			if (work) return work.length ? work.map(w => `${w.project}: ${w.status}${w.title ? `, "${w.title.slice(0, 60)}"` : ''}${w.source === 'bottega' ? ' (lavoro di Moony IDE)' : ''}`).join('\n') : 'Nessuna sessione di Claude viva adesso.';
 			const live = ctx.deps.liveSessions();
 			if (!live.length) return 'Nessuna sessione di Claude viva adesso.';
 			return live.map(s => `${s.title ?? s.name} in ${path.basename(s.cwd)}: ${s.status === 'busy' ? 'al lavoro' : s.status === 'idle' ? 'ti aspetta' : s.status}`).join('\n');
@@ -402,7 +402,7 @@ export const TOOLS: Record<string, ToolDef> = {
 			const work = ctx.deps.work?.();
 			if (work) {
 				if (!work.length) return 'Nessun lavoro in giro: nessuna sessione Claude viva, niente in coda.';
-				return work.map(w => `${w.jobId ?? w.project} su ${w.project}: ${w.status}${w.title ? `, "${w.title.slice(0, 60)}"` : ''}${w.source === 'altrove' ? ' (aperta fuori dalla Bottega)' : ''}`).join('\n');
+				return work.map(w => `${w.jobId ?? w.project} su ${w.project}: ${w.status}${w.title ? `, "${w.title.slice(0, 60)}"` : ''}${w.source === 'altrove' ? ' (aperta fuori da Moony IDE)' : ''}`).join('\n');
 			}
 			const jobs = ctx.deps.jobs();
 			if (!jobs.length) return 'Nessun lavoro in corso.';
@@ -410,7 +410,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		},
 	},
 	lavoro_scrivi: {
-		spec: { type: 'function', function: { name: 'lavoro_scrivi', description: 'Scrivi del testo nel terminale di un lavoro gia\' in corso (solo lavori della Bottega).', parameters: obj({ lavoro: { type: 'string', description: 'id o nome progetto del lavoro' }, testo: { type: 'string' } }, ['lavoro', 'testo']) } },
+		spec: { type: 'function', function: { name: 'lavoro_scrivi', description: 'Scrivi del testo nel terminale di un lavoro gia\' in corso (solo lavori di Moony IDE).', parameters: obj({ lavoro: { type: 'string', description: 'id o nome progetto del lavoro' }, testo: { type: 'string' } }, ['lavoro', 'testo']) } },
 		run(a, ctx) {
 			const job = ctx.deps.actions.resolveJob(a.lavoro);
 			if (!job) return `Non trovo un lavoro "${a.lavoro}".`;
@@ -596,7 +596,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		},
 	},
 	sessione_leggi: {
-		spec: { type: 'function', function: { name: 'sessione_leggi', description: 'Cosa sta facendo o ha fatto una sessione di Claude Code su un progetto: ultima richiesta di Andrea, ultima risposta di Claude, strumenti e file. Funziona anche per le sessioni aperte fuori dalla Bottega (sola lettura).', parameters: obj({ progetto: { type: 'string' } }, ['progetto']) } },
+		spec: { type: 'function', function: { name: 'sessione_leggi', description: 'Cosa sta facendo o ha fatto una sessione di Claude Code su un progetto: ultima richiesta di Andrea, ultima risposta di Claude, strumenti e file. Funziona anche per le sessioni aperte fuori da Moony IDE (sola lettura).', parameters: obj({ progetto: { type: 'string' } }, ['progetto']) } },
 		run(a, ctx) {
 			return ctx.deps.actions.readSession ? ctx.deps.actions.readSession(a.progetto) : 'Non so leggere le sessioni da qui.';
 		},
@@ -1804,7 +1804,7 @@ export class Assistant {
 				const perche = chi === nuovo ? "Moony ti ha appena passato la chiamata, e Andrea vuole sentire anche gli altri" : "Andrea vuole sentire tutti, uno alla volta, e tocca a te";
 				const mem = await this.memoria.leggi(chi, this.dettoTurno);
 				const { testo: battuta } = await this.breveConPassa(
-					`${p.carattere} Sei nella Bottega, l'IDE di Andrea, in una chiacchierata a voce con lui, Moony e gli altri di Mr. Robot. ${perche}. Sai solo quello che c'e' nella chiacchierata e nella memoria qui sotto: non inventare stati di progetti, lavori o sessioni. ${ora} ${regoleDi(chi)}${mem ? `\n\n${mem}` : ''}`,
+					`${p.carattere} Sei in Moony IDE, l'IDE di Andrea, in una chiacchierata a voce con lui, Moony e gli altri di Mr. Robot. ${perche}. Sai solo quello che c'e' nella chiacchierata e nella memoria qui sotto: non inventare stati di progetti, lavori o sessioni. ${ora} ${regoleDi(chi)}${mem ? `\n\n${mem}` : ''}`,
 					`La chiacchierata finora:\n${finora()}${this.memoriaTurno}\n\n${istruzioneGiro(chi, i === 0)}`,
 					signal,
 					brain,
@@ -1898,7 +1898,7 @@ export class Assistant {
 		const rispondi = daChi ? `Rispondi a ${nomeDi(daChi)}, davanti ad Andrea` : 'Rispondi alla domanda di Moony, rivolto a lei (se dici un nome e\' Moony), mentre Andrea ascolta,';
 		try {
 			const { testo: battuta, a: chiamato, conStrumento } = await this.breveConPassa(
-				`${p.carattere} Sei nella Bottega, l'IDE di Andrea, in una chiacchierata a voce con lui, Moony e gli altri di Mr. Robot. ${chiede}. Sai solo quello che c'e' nella chiacchierata e nella memoria qui sotto: non inventare stati di progetti, lavori o sessioni. ${ora} ${regoleDi(chi)}${await detti(chi)}`,
+				`${p.carattere} Sei in Moony IDE, l'IDE di Andrea, in una chiacchierata a voce con lui, Moony e gli altri di Mr. Robot. ${chiede}. Sai solo quello che c'e' nella chiacchierata e nella memoria qui sotto: non inventare stati di progetti, lavori o sessioni. ${ora} ${regoleDi(chi)}${await detti(chi)}`,
 				`La chiacchierata:\n${finora()}${this.memoriaTurno}\n\n${rispondi} in una o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero; puoi punzecchiare Moony, ma da amici.${passa ? ` Poi chiedi a ${nomeDi(passa)} cosa ne pensa. ${chiamaCon(passa)}` : ''} Solo le parole che diresti.`,
 				signal,
 				brain,
@@ -2588,7 +2588,7 @@ export class Assistant {
 			: 'nessuna';
 		const work = this.deps.work?.();
 		const jobLine = work
-			? work.length ? work.map(w => `${w.project}: ${w.status}${w.source === 'altrove' ? ' (fuori dalla Bottega)' : ''}`).join('; ') : 'nessuno'
+			? work.length ? work.map(w => `${w.project}: ${w.status}${w.source === 'altrove' ? ' (fuori da Moony IDE)' : ''}`).join('; ') : 'nessuno'
 			: jobs.length ? jobs.map(j => `${j.project}: ${j.status}`).join('; ') : 'nessuno';
 		const pressure = stats ? `memoria ${stats.memoryPressure}, temperatura ${stats.thermal}, carico ${stats.load.map(n => n.toFixed(2)).join('/')}` : 'sconosciuta';
 
@@ -2620,7 +2620,7 @@ export class Assistant {
 		const stored = await this.deps.secrets.get('bottega.deepseekKey');
 		if (stored) return (this.cachedKey = stored);
 		const entered = await vscode.window.showInputBox({
-			title: 'Chiave DeepSeek', prompt: 'Serve la chiave DeepSeek per Moony. La salvo nel portachiavi della Bottega.',
+			title: 'Chiave DeepSeek', prompt: 'Serve la chiave DeepSeek per Moony. La salvo nel portachiavi di Moony IDE.',
 			password: true, ignoreFocusOut: true,
 		});
 		if (entered) {

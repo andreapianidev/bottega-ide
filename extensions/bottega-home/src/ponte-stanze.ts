@@ -836,7 +836,7 @@ function servizi(d: StanzeDeps, now: number) {
 	try {
 		grezzo = fs.readFileSync(d.contiFile ?? CONTI_FILE, 'utf8');
 	} catch {
-		throw errore(503, 'I conti dei servizi non sono ancora stati letti: li legge la Bottega sul Mac.');
+		throw errore(503, 'I conti dei servizi non sono ancora stati letti: li legge Moony IDE sul Mac.');
 	}
 	let j: any;
 	try {
@@ -1044,7 +1044,7 @@ export class StanzePonte implements RotteStanze {
 		const nome = norma(q.get('nome') ?? '') as StanzaPonte;
 		if (!STANZE_PONTE.includes(nome)) throw errore(400, `Stanza sconosciuta. Ci sono: ${STANZE_PONTE.join(', ')}.`);
 		const f = this.deps.fonti();
-		if (!f) throw errore(503, 'Le stanze non sono ancora pronte: la Bottega si sta avviando.');
+		if (!f) throw errore(503, 'Le stanze non sono ancora pronte: Moony IDE si sta avviando.');
 		const now = this.deps.ora?.() ?? f.ora?.() ?? Date.now();
 		const tempo = this.deps.tempoMs ?? 20_000;
 		const progetto = (q.get('progetto') ?? '').trim().slice(0, 120) || undefined;
@@ -1115,7 +1115,7 @@ export class StanzePonte implements RotteStanze {
 				const scritto = compitoPulito(c.compito);
 				const compito = `${scritto || compitoBuco(b)} ${CODA_COMPITO}`;
 				const j = a.lavoro(p.path, compito);
-				if (!j) throw errore(503, 'I lavori della Bottega non sono pronti: riprova tra poco.');
+				if (!j) throw errore(503, 'I lavori di Moony IDE non sono pronti: riprova tra poco.');
 				this.avviati.set(id, now);
 				return {
 					ok: true,

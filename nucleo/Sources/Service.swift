@@ -140,7 +140,7 @@ enum Service {
                     guard let aid = d["id"] as? String, let title = d["title"] as? String else { return nil }
                     return Notifier.Action(id: aid, title: title)
                 }
-                try await Notifier.shared.post(id: id, title: r.string("title") ?? "Bottega",
+                try await Notifier.shared.post(id: id, title: r.string("title") ?? "Moony IDE",
                                                body: r.string("body") ?? "", subtitle: r.string("subtitle"),
                                                sound: r.bool("sound") ?? true, actions: actions)
                 r.respond()

@@ -18,7 +18,7 @@ import Foundation
 
 struct ParlaConMelissa: AppIntent {
     static let title: LocalizedStringResource = "Parla con Moony"
-    static let description = IntentDescription("Apre la Bottega e accende la conversazione con Moony.")
+    static let description = IntentDescription("Apre Moony IDE e accende la conversazione con Moony.")
     static let supportedModes: IntentModes = .background
     static let allowedExecutionTargets: IntentExecutionTargets = .main
 
@@ -30,7 +30,7 @@ struct ParlaConMelissa: AppIntent {
 
 struct ApriPlancia: AppIntent {
     static let title: LocalizedStringResource = "Apri la plancia"
-    static let description = IntentDescription("Apre la Bottega sulla plancia.")
+    static let description = IntentDescription("Apre Moony IDE sulla plancia.")
     static let supportedModes: IntentModes = .background
     static let allowedExecutionTargets: IntentExecutionTargets = .main
 
@@ -42,7 +42,7 @@ struct ApriPlancia: AppIntent {
 
 struct NuovoLavoro: AppIntent {
     static let title: LocalizedStringResource = "Nuovo lavoro"
-    static let description = IntentDescription("Apre la Bottega sul compositore dei lavori. Niente parte senza conferma.")
+    static let description = IntentDescription("Apre Moony IDE sul compositore dei lavori. Niente parte senza conferma.")
     static let supportedModes: IntentModes = .background
     static let allowedExecutionTargets: IntentExecutionTargets = .main
 
@@ -54,7 +54,7 @@ struct NuovoLavoro: AppIntent {
 
 struct ApriOsservatorio: AppIntent {
     static let title: LocalizedStringResource = "Apri l'Osservatorio"
-    static let description = IntentDescription("Apre l'Osservatorio: ore, progetti e token della Bottega in un cielo stellato.")
+    static let description = IntentDescription("Apre l'Osservatorio: ore, progetti e token di Moony IDE in un cielo stellato.")
     static let supportedModes: IntentModes = .background
     static let allowedExecutionTargets: IntentExecutionTargets = .main
 

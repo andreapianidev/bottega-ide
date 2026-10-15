@@ -214,7 +214,7 @@ async function elenco(a: { server?: string; cerca?: string }): Promise<string> {
 		}
 		const ro = strumentiLeggibili(tools, c.nome).filter(t => !cerca || `${t.name} ${t.description ?? ''}`.toLowerCase().includes(cerca));
 		if (!ro.length) {
-			return `${c.nome}: ${tools.length} strumenti, ma nessuno di sola lettura${cerca ? ` che parli di "${cerca}"` : ''} secondo le regole della Bottega: non posso leggerlo direttamente.`;
+			return `${c.nome}: ${tools.length} strumenti, ma nessuno di sola lettura${cerca ? ` che parli di "${cerca}"` : ''} secondo le regole di Moony IDE: non posso leggerlo direttamente.`;
 		}
 		const righe = ro.map(t => `${t.name}(${argomentiBrevi(t.inputSchema)}): ${descrizioneBreve(t.description)}`);
 		return tronca(`${c.nome}, diretto e gratis, ${ro.length} strumenti di sola lettura (con asterisco gli argomenti obbligatori). Chiamali con connettore_leggi:\n${righe.join('\n')}`);
@@ -270,7 +270,7 @@ async function leggi(a: { server: string; strumento: string; argomenti?: unknown
 	// prima di tutto, e prima di avviare qualsiasi processo: fuori subito chi ha una parola che scrive o e' sensibile
 	// (readOnlyHint supposto vero qui; il controllo vero, con le annotazioni del server, lo fa ClientMcp.chiama)
 	if (!soloLettura(strumento, { readOnlyHint: true })) {
-		return `Rifiutato: ${strumento} non e' di sola lettura. La Bottega non invia, non risponde, non crea e non cancella niente.`;
+		return `Rifiutato: ${strumento} non e' di sola lettura. Moony IDE non invia, non risponde, non crea e non cancella niente.`;
 	}
 	const c = serverDiretto(a.server);
 	if (!c) {
@@ -492,7 +492,7 @@ export const STRUMENTI_CONNETTORI: Record<string, StrumentoMelissa> = {
 			function: {
 				name: 'connettore_chiedi',
 				description:
-					'Chiede a Claude Code di leggere da un connettore di claude.ai che la Bottega non puo\' interrogare da sola: Gmail, Google Calendar, Google Drive, Vercel, Stripe, Hugging Face. Solo lettura. ' +
+					'Chiede a Claude Code di leggere da un connettore di claude.ai che Moony IDE non puo\' interrogare da sola: Gmail, Google Calendar, Google Drive, Vercel, Stripe, Hugging Face. Solo lettura. ' +
 					'Costa (decine di secondi e qualche decimo di dollaro, con un tetto giornaliero) e chiede SEMPRE conferma ad Andrea: lo strumento ti da\' tempo e costo da dirgli. La risposta arriva dopo, a voce. ' +
 					'Usalo per "ho mail da Rossi su Gmail?", "cosa ho in agenda giovedi\'?", "l\'ultimo deploy su Vercel e\' andato?". Per i server locali usa connettore_leggi.',
 				parameters: obj(

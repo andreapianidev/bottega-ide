@@ -184,7 +184,7 @@ enum CervelloCLI {
         }
         let input = AppleBrain.Input(
             instructions: opts["instructions"] ?? """
-            Sei Moony, l'assistente vocale della Bottega di Andrea. Rispondi in italiano, in una o due \
+            Sei Moony, l'assistente vocale di Moony IDE di Andrea. Rispondi in italiano, in una o due \
             frasi brevi da dire a voce. Usa gli strumenti quando servono per rispondere con dati veri.
             """,
             prompt: prompt, history: history, tools: tools, maxTokens: opts["max-tokens"].flatMap(Int.init))

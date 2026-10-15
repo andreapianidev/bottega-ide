@@ -221,12 +221,12 @@ final class Listener {
             if granted == true { return }
             openMicrophoneSettings()
             if granted == nil {
-                throw NucleoError("macOS non ha risposto alla richiesta del microfono. Si è aperto Impostazioni di Sistema, Privacy e sicurezza, Microfono: accendi Bottega e riprova.")
+                throw NucleoError("macOS non ha risposto alla richiesta del microfono. Si è aperto Impostazioni di Sistema, Privacy e sicurezza, Microfono: accendi Moony IDE e riprova.")
             }
-            throw NucleoError("Il permesso del microfono è stato negato. Si è aperto Impostazioni di Sistema, Privacy e sicurezza, Microfono: accendi Bottega e riprova.")
+            throw NucleoError("Il permesso del microfono è stato negato. Si è aperto Impostazioni di Sistema, Privacy e sicurezza, Microfono: accendi Moony IDE e riprova.")
         default:
             openMicrophoneSettings()
-            throw NucleoError("Il microfono non è autorizzato per Bottega. Si è aperto Impostazioni di Sistema, Privacy e sicurezza, Microfono: accendi Bottega e riprova.")
+            throw NucleoError("Il microfono non è autorizzato per Moony IDE. Si è aperto Impostazioni di Sistema, Privacy e sicurezza, Microfono: accendi Moony IDE e riprova.")
         }
     }
 

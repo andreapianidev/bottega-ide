@@ -5,11 +5,12 @@
 set -euo pipefail
 [[ $# == 0 || ($# == 1 && $1 == --stage-only) ]] || { echo "Uso: scripts/package.sh [--stage-only]" >&2; exit 2; }
 ROOT=${0:A:h:h}
-BUILT=$ROOT/vendor/VSCode-darwin-arm64/Bottega.app
+# gulp chiama l'app come nameLong ("Moony IDE.app"); le compilazioni di prima si chiamavano Bottega.app.
+BUILT=($ROOT/vendor/VSCode-darwin-arm64/*.app(Nom[1])); BUILT=${BUILT[1]:-}
 DIST=$ROOT/dist/Bottega.app
 read VERSION BUILD MINOS < <(python3 -c "import json;d=json.load(open('$ROOT/bottega.json'));print(d['version'],d['build'],d['minimumMacOS'])")
 
-[[ -d $BUILT ]] || { echo "Manca $BUILT: lancia prima scripts/build.sh"; exit 1; }
+[[ -n $BUILT && -d $BUILT ]] || { echo "Manca l'app compilata in vendor/VSCode-darwin-arm64: lancia prima scripts/build.sh"; exit 1; }
 
 echo "== estensioni della Bottega"
 (cd $ROOT/extensions/bottega-home && npm install --silent && npm run -s build)
@@ -96,7 +97,21 @@ PL=$DIST/Contents/Info.plist
 /usr/libexec/PlistBuddy -c "Add :LSArchitecturePriority array" -c "Add :LSArchitecturePriority:0 string arm64" $PL
 
 # Permessi di macOS: i testi li legge Andrea nella finestra di richiesta, quindi in italiano.
-/usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription La Bottega ascolta la tua voce solo mentre parli con Moony." $PL
+/usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription Moony IDE ascolta la tua voce solo mentre parli con Moony." $PL
+
+# Il nome che si vede e' "Moony IDE", il file resta Bottega.app (dal 15/10/2026). Dock, Finder e Spotlight
+# mostrano il nome del file, a meno che l'app non dichiari un nome localizzato: CFBundleDisplayName resta uguale
+# al nome del file e InfoPlist.strings porta "Moony IDE". CFBundleName NON si cambia, nemmeno localizzato:
+# Electron cerca i processi di supporto come "<CFBundleName> Helper.app" e senza li trova si ferma all'avvio
+# (build 164, "Unable to find helper app"). Portachiavi ("Bottega Safe Storage") e ~/Library/Application
+# Support/Bottega dipendono da nameShort e dal name di package.json: non si toccano.
+/usr/libexec/PlistBuddy -c "Set :CFBundleName Bottega" $PL
+/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Bottega" $PL 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Bottega" $PL
+/usr/libexec/PlistBuddy -c "Delete :LSHasLocalizedDisplayName" $PL 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :LSHasLocalizedDisplayName bool true" $PL
+for l in $DIST/Contents/Resources/*.lproj(N); do
+  printf '"CFBundleDisplayName" = "Moony IDE";\n' > $l/InfoPlist.strings
+done
 # Il riconoscimento vocale di Apple (come la Melissa di Avo) lo chiede il Nucleo, ma macOS legge la spiegazione
 # dall'app responsabile, cioe' la Bottega: senza questa chiave il Nucleo viene chiuso alla prima richiesta (2/10/2026).
 /usr/libexec/PlistBuddy -c "Delete :NSSpeechRecognitionUsageDescription" $PL 2>/dev/null || true
@@ -132,7 +147,7 @@ MAIN='^/Applications/Bottega[.]app/Contents/MacOS/Bottega( |$)'
 # launched from Bottega's own terminal must still detect its containing app.
 pgrep -a -f '^/Applications/Bottega[.]app/Contents/MacOS/Bottega$' >/dev/null && WAS_RUNNING=1
 if pgrep -a -f "$MAIN" >/dev/null; then
-  osascript -e 'tell application "Bottega" to quit' >/dev/null 2>&1 || true
+  osascript -e 'tell application id "com.andreapiani.bottega" to quit' >/dev/null 2>&1 || true
   for i in {1..30}; do pgrep -a -f "$MAIN" >/dev/null || break; sleep 1; done
   pkill -TERM -a -f "$MAIN" 2>/dev/null || true
   for i in {1..10}; do pgrep -a -f "$MAIN" >/dev/null || break; sleep 1; done
@@ -151,6 +166,7 @@ stop_installed_bottega_widget
 rm -rf /Applications/Bottega.app
 ditto $DIST /Applications/Bottega.app
 touch /Applications/Bottega.app   # Finder e Dock rileggono l'icona
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Bottega.app 2>/dev/null || true   # e il nome "Moony IDE"
 # Percorsi stabili per chi sta fuori dall'IDE (hook della Memoria, server MCP).
 APPEXT=/Applications/Bottega.app/Contents/Resources/app/extensions/bottega-home
 mkdir -p ~/.bottega/bin && chmod 700 ~/.bottega

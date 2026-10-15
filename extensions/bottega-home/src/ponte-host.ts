@@ -57,7 +57,7 @@ function segreto(file: string, name: string): string | undefined {
 }
 
 export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps): { notify(): void } {
-	const out = vscode.window.createOutputChannel('Bottega per iPhone', { log: true });
+	const out = vscode.window.createOutputChannel('Moony AI per iPhone', { log: true });
 	const dir = path.join(os.homedir(), '.bottega');
 	const acceso = () => vscode.workspace.getConfiguration('bottega').get<boolean>('ponte.attivo', true);
 
@@ -428,11 +428,11 @@ button { margin-top: 10px; font: inherit; padding: 6px 14px; border-radius: 8px;
 .nota { font-size: .9em; opacity: .7; }
 </style></head><body><main>
 <h1>Collega l'iPhone</h1>
-<p>Inquadra il codice con la fotocamera dell'iPhone: si apre la Bottega per iPhone già collegata a questo Mac.</p>
+<p>Inquadra il codice con la fotocamera dell'iPhone: si apre Moony AI per iPhone già collegata a questo Mac.</p>
 ${qr}
 <p class="dove">${esc(nome)}, porta ${porta}</p>
 <button id="copia">Copia il collegamento</button>
-<p class="nota">Funziona da ovunque, purché Tailscale sia acceso sull'iPhone e su questo Mac, e la Bottega sia aperta.
+<p class="nota">Funziona da ovunque, purché Tailscale sia acceso sull'iPhone e su questo Mac, e Moony IDE sia aperta.
 Il codice contiene il gettone del ponte: non mostrarlo ad altri.</p>
 </main>
 <script nonce="${nonce}">const vs = acquireVsCodeApi(); document.getElementById('copia').onclick = () => vs.postMessage({ type: 'copia' });</script>

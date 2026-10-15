@@ -14,7 +14,7 @@ import ScreenCaptureKit
 
 enum Schermo {
     static let messaggioPermesso = "Serve il permesso di registrazione dello schermo: Impostazioni di Sistema, " +
-        "Privacy e sicurezza, Registrazione schermo, Bottega."
+        "Privacy e sicurezza, Registrazione schermo, Moony IDE."
 
     struct SenzaPermesso: Error {}
 

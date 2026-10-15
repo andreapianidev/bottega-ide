@@ -213,7 +213,7 @@ export class Memoria {
 	/** Installa gli hook di Claude Code e il server MCP, dopo conferma modale. */
 	async install(): Promise<void> {
 		if (!this.available) {
-			vscode.window.showWarningMessage('Non trovo la Memoria da installare: manca cli.mjs. Controlla la cartella memoria della Bottega.');
+			vscode.window.showWarningMessage('Non trovo la Memoria da installare: manca cli.mjs. Controlla la cartella memoria di Moony IDE.');
 			return;
 		}
 		const ok = await vscode.window.showWarningMessage(

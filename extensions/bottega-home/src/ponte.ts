@@ -500,7 +500,7 @@ export class Ponte {
 			if (this.escluso(addr)) return json(429, { errore: 'Troppi tentativi sbagliati: riprova tra dieci minuti.' });
 			this.sbagli.get(addr)!.push(Date.now());
 			this.deps.log(`ponte: gettone sbagliato da ${addr}`);
-			return json(401, { errore: 'Gettone non valido: ricollega l\'iPhone dalla Bottega.' });
+			return json(401, { errore: 'Gettone non valido: ricollega l\'iPhone da Moony IDE.' });
 		}
 		const da = addr.replace(/^::ffff:/, '');
 		if (da !== '127.0.0.1' && da !== '::1') this.iphone = da; // una richiesta dal Mac stesso non e' l'iPhone

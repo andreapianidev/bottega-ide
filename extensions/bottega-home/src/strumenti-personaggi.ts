@@ -62,10 +62,10 @@ export class StrumentiPersonaggi {
 		const p = PERSONAGGI[chi]!;
 		return (p.strumenti ?? []).map(nome => {
 			const description = nome === 'vedetta_leggi'
-				? 'Legge i risultati della Vedetta della Bottega: le regole rosse e gialle dei progetti di Andrea (segreti, push, build, repository pubblici). Sola lettura.'
+				? 'Legge i risultati della Vedetta di Moony IDE: le regole rosse e gialle dei progetti di Andrea (segreti, push, build, repository pubblici). Sola lettura.'
 				: nome === 'mestiere_leggi'
-					? `Legge la memoria del tuo mestiere nella Bottega: ${DESCRIZIONE_MESTIERE[p.mestiere ?? ''] ?? 'quello che hai visto'}. Sola lettura.`
-					: 'Legge la bacheca della Bottega: le sessioni aperte adesso, da quanto Andrea lavora di fila, se ha lavorato di notte. Sola lettura.';
+					? `Legge la memoria del tuo mestiere in Moony IDE: ${DESCRIZIONE_MESTIERE[p.mestiere ?? ''] ?? 'quello che hai visto'}. Sola lettura.`
+					: 'Legge la bacheca di Moony IDE: le sessioni aperte adesso, da quanto Andrea lavora di fila, se ha lavorato di notte. Sola lettura.';
 			return { type: 'function' as const, function: { name: nome, description, parameters: { type: 'object', properties: {} } } };
 		});
 	}

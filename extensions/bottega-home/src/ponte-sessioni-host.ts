@@ -35,7 +35,7 @@ export function creaSessioni(ctx: vscode.ExtensionContext, d: SessioniHostDeps):
 				const ex = esecuzioni.get(term);
 				if (!ex) {
 					return term.shellIntegration
-						? 'Il comando di questo lavoro e\' partito prima che la Bottega lo potesse seguire (per esempio prima dell\'ultima apertura): l\'uscita non si puo\' leggere.'
+						? 'Il comando di questo lavoro e\' partito prima che Moony IDE lo potesse seguire (per esempio prima dell\'ultima apertura): l\'uscita non si puo\' leggere.'
 						: 'Questo terminale non ha la shell integration di VS Code: l\'uscita non si puo\' leggere da qui.';
 				}
 				const it = ex.read()[Symbol.asyncIterator]();

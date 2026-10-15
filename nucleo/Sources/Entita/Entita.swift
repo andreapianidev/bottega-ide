@@ -39,7 +39,7 @@ struct ProgettoEntity: IndexedEntity {
         nome = p.nome
         ramo = p.ramo
         daSpingere = p.daSpingere
-        stato = conosciuto ? Self.riga(p) : "nella Bottega"
+        stato = conosciuto ? Self.riga(p) : "in Moony IDE"
     }
 
     /// For an item Spotlight.swift indexes: only the name is known there.
@@ -55,8 +55,8 @@ struct ProgettoEntity: IndexedEntity {
     var attributeSet: CSSearchableItemAttributeSet {
         let a = defaultAttributeSet
         a.displayName = nome
-        a.contentDescription = "Progetto nella Bottega, \(stato)"
-        a.keywords = [nome, "Bottega", "progetto"]
+        a.contentDescription = "Progetto in Moony IDE, \(stato)"
+        a.keywords = [nome, "Moony IDE", "Bottega", "progetto"]
         return a
     }
 

@@ -1,9 +1,9 @@
 {
   "name": "bottega-home",
-  "displayName": "Bottega",
+  "displayName": "Moony IDE",
   "description": "La plancia dei progetti e delle attività di Claude Code, Codex, Cline e terminali.",
   "publisher": "andreapiani",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "license": "MIT",
   "engines": {
     "vscode": "^1.100.0"
@@ -21,218 +21,218 @@
       {
         "command": "bottega.openPlancia",
         "title": "Apri la plancia",
-        "category": "Bottega",
+        "category": "Moony IDE",
         "icon": "$(home)"
       },
       {
         "command": "bottega.openRegia",
         "title": "Apri la Regia",
-        "category": "Bottega",
+        "category": "Moony IDE",
         "icon": "$(multiple-windows)"
       },
       {
         "command": "bottega.refresh",
         "title": "Aggiorna",
-        "category": "Bottega",
+        "category": "Moony IDE",
         "icon": "$(refresh)"
       },
       {
         "command": "bottega.claudeHere",
         "title": "Apri Claude Code in questa cartella",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.openProject",
         "title": "Apri progetto",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.item.open",
         "title": "Apri in una nuova finestra",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.item.claude",
         "title": "Nuova sessione Claude",
-        "category": "Bottega",
+        "category": "Moony IDE",
         "icon": "$(sparkle)"
       },
       {
         "command": "bottega.item.finder",
         "title": "Mostra nel Finder",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.item.xcode",
         "title": "Apri in Xcode",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.voice.toggle",
         "title": "Accendi o spegni Moony",
-        "category": "Bottega",
+        "category": "Moony IDE",
         "icon": "$(mic)"
       },
       {
         "command": "bottega.assistant.ask",
         "title": "Chiedi a Moony",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.memoria.install",
         "title": "Attiva la memoria per Claude Code",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.aggiornaVSCode",
         "title": "Controlla se VS Code va aggiornato",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.openMelissa",
         "title": "Apri Moony",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.racconta",
         "title": "Moony, racconta quello che ho davanti",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.avviso.toggle",
         "title": "Moony, avviso di fine a voce: accendi o spegni",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.raccontaFerma",
         "title": "Moony, ferma il racconto",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.spiegaCodice",
         "title": "Spiega con Moony",
         "icon": "$(comment-discussion)",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.apriConti",
         "title": "Apri crediti e consumi dei servizi",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.openCruscotto",
         "title": "Apri il cruscotto",
-        "category": "Bottega",
+        "category": "Moony IDE",
         "icon": "$(graph)"
       },
       {
         "command": "bottega.voice.converse",
         "title": "Parla con Moony",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.openVedetta",
         "title": "Apri la vedetta: regole e Store",
-        "category": "Bottega",
+        "category": "Moony IDE",
         "icon": "$(eye)"
       },
       {
         "command": "bottega.openVedettaMetal",
         "title": "Apri la mappa Metal della Vedetta",
-        "category": "Bottega",
+        "category": "Moony IDE",
         "icon": "$(globe)"
       },
       {
         "command": "bottega.openClienti",
         "title": "Apri le ore per cliente",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.openAppStore",
         "title": "Apri la stanza App Store: guadagni delle app e dove intervenire",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.briefing",
         "title": "Il briefing di oggi",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.cerca",
         "title": "Dove l'ho già risolto?",
-        "category": "Bottega",
+        "category": "Moony IDE",
         "icon": "$(search)"
       },
       {
         "command": "bottega.continua",
         "title": "Continua un progetto da dove eri",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.regole.controlla",
         "title": "Ricontrolla le regole",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.openConnettori",
         "title": "Apri connettori e posta per progetto",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.barra.apri",
         "title": "Apri la barra di Moony",
-        "category": "Bottega"
+        "category": "Moony IDE"
       },
       {
         "command": "bottega.openOsservatorio",
         "title": "Apri l'Osservatorio",
-        "category": "Bottega",
+        "category": "Moony IDE",
         "icon": "$(star-empty)"
       },
       {
         "command": "bottega.ponte.collega",
         "title": "Collega l'iPhone",
-        "category": "Bottega",
+        "category": "Moony IDE",
         "icon": "$(device-mobile)"
       },
       {
         "command": "bottega.terminale",
         "title": "Apri il terminale",
-        "category": "Bottega",
+        "category": "Moony IDE",
         "icon": "$(terminal)"
       },
       {
         "command": "bottega.terminaleQui",
         "title": "Terminale qui",
-        "category": "Bottega",
+        "category": "Moony IDE",
         "icon": "$(terminal)"
       },
       {
         "command": "bottega.terminaleEsterno",
         "title": "Apri in iTerm2",
-        "category": "Bottega",
+        "category": "Moony IDE",
         "icon": "$(link-external)"
       },
       {
         "command": "bottega.terminaleEsternoDaQui",
         "title": "Apri in iTerm2",
-        "category": "Bottega",
+        "category": "Moony IDE",
         "icon": "$(link-external)"
       },
       {
         "command": "bottega.terminaleConsentiti",
         "title": "Terminale: comandi consentiti",
-        "category": "Bottega",
+        "category": "Moony IDE",
         "icon": "$(checklist)"
       },
       {
         "command": "bottega.nuovaSessione",
-        "title": "Bottega: Nuova sessione nella barra Terminale"
+        "title": "Moony IDE: Nuova sessione nella barra Terminale"
       },
       {
         "command": "bottega.openVercel",
         "title": "Apri i progetti Vercel",
-        "category": "Bottega"
+        "category": "Moony IDE"
       }
     ],
     "viewsContainers": {
@@ -407,7 +407,7 @@
       }
     ],
     "configuration": {
-      "title": "Bottega",
+      "title": "Moony IDE",
       "properties": {
         "bottega.roots": {
           "type": "array",
@@ -453,12 +453,12 @@
         "bottega.cline.attivo": {
           "type": "boolean",
           "default": true,
-          "description": "Cline come riserva di Claude Code: lo installa da Open VSX, lo mette nella barra di destra dopo Claude Code e gli passa i server MCP, le regole di ~/.claude/CLAUDE.md e la memoria della Bottega."
+          "description": "Cline come riserva di Claude Code: lo installa da Open VSX, lo mette nella barra di destra dopo Claude Code e gli passa i server MCP, le regole di ~/.claude/CLAUDE.md e la memoria di Moony IDE."
         },
         "bottega.terminale.barra": {
           "type": "boolean",
           "default": true,
-          "description": "Il terminale come ultima voce della barra di destra, dopo Moony, Claude Code e Cline. Si sposta una volta sola, alla prossima chiusura della Bottega: dopo decide Andrea."
+          "description": "Il terminale come ultima voce della barra di destra, dopo Moony, Claude Code e Cline. Si sposta una volta sola, alla prossima chiusura di Moony IDE: dopo decide Andrea."
         },
         "bottega.terminale.esterno": {
           "type": "string",
@@ -467,7 +467,7 @@
             "terminal"
           ],
           "enumDescriptions": [
-            "iTerm2 con il profilo Bottega (colori e carattere del tema); se manca, Terminale.",
+            "iTerm2 con il profilo Moony IDE (colori e carattere del tema); se manca, Terminale.",
             "Terminale di macOS."
           ],
           "default": "iterm2",
@@ -476,7 +476,7 @@
         "bottega.terminale.agnes": {
           "type": "boolean",
           "default": true,
-          "description": "Nel terminale della Bottega (e nel profilo Bottega di iTerm2) scrivi in italiano cosa vuoi fare e Agnes propone il comando. Vale per i terminali aperti dopo. Spento: zsh di sempre, nessun socket."
+          "description": "Nel terminale di Moony IDE (e nel profilo Moony IDE di iTerm2) scrivi in italiano cosa vuoi fare e Agnes propone il comando. Vale per i terminali aperti dopo. Spento: zsh di sempre, nessun socket."
         },
         "bottega.terminale.agnesModo": {
           "type": "string",
@@ -520,7 +520,7 @@
         "bottega.nucleoPath": {
           "type": "string",
           "default": "",
-          "description": "Percorso dell'eseguibile del Nucleo nativo. Vuoto: lo cerca dentro la Bottega e in ~/prototipi/Bottega/nucleo."
+          "description": "Percorso dell'eseguibile del Nucleo nativo. Vuoto: lo cerca dentro Moony IDE e in ~/prototipi/Bottega/nucleo."
         },
         "bottega.jobs.maxParallel": {
           "type": [
@@ -533,7 +533,7 @@
         "bottega.ponte.attivo": {
           "type": "boolean",
           "default": true,
-          "description": "Accende il ponte verso la Bottega per iPhone: ascolta solo sull'indirizzo Tailscale del Mac, con un gettone."
+          "description": "Accende il ponte verso Moony AI per iPhone: ascolta solo sull'indirizzo Tailscale del Mac, con un gettone."
         },
         "bottega.iphone.avvisi": {
           "type": "string",
@@ -548,7 +548,7 @@
             "Mai: restano la Live Activity e i widget."
           ],
           "default": "lontano",
-          "description": "Quando la Bottega manda le notifiche all'iPhone (una sessione ti aspetta, un lavoro ha finito, Moony chiede conferma, un progetto passa a rosso)."
+          "description": "Quando Moony IDE manda le notifiche all'iPhone (una sessione ti aspetta, un lavoro ha finito, Moony chiede conferma, un progetto passa a rosso)."
         },
         "bottega.voice.enabled": {
           "type": "boolean",
@@ -582,8 +582,8 @@
             "schermo"
           ],
           "enumDescriptions": [
-            "La sfera di Moony vive dentro la Bottega: barra laterale e barra di stato. Non copre le altre app.",
-            "La sfera galleggia sullo schermo, sopra tutte le finestre, anche con la Bottega in secondo piano."
+            "La sfera di Moony vive dentro Moony IDE: barra laterale e barra di stato. Non copre le altre app.",
+            "La sfera galleggia sullo schermo, sopra tutte le finestre, anche con Moony IDE in secondo piano."
           ],
           "default": "ide",
           "description": "Dove sta la sfera di Moony."
@@ -643,7 +643,7 @@
               "type": "string"
             }
           },
-          "description": "Connettori di Claude Code in piu' per le capacita' della Bottega, per esempio { \"posta\": [\"mio-server-imap\"] }. Un nome esatto o un'espressione regolare tra barre. Si aggiungono alla mappa di base."
+          "description": "Connettori di Claude Code in piu' per le capacita' di Moony IDE, per esempio { \"posta\": [\"mio-server-imap\"] }. Un nome esatto o un'espressione regolare tra barre. Si aggiungono alla mappa di base."
         },
         "bottega.connettori.letturaPermessa": {
           "type": "object",
@@ -664,7 +664,7 @@
               "type": "string"
             }
           },
-          "description": "Strumenti che la Bottega puo' usare anche senza un verbo di lettura nel nome, per server: { \"admob\": [\"/.*/\"] }. Nomi esatti o espressioni regolari tra barre. Le parole che scrivono (send, delete, update, generate, token...) restano escluse comunque."
+          "description": "Strumenti che Moony IDE puo' usare anche senza un verbo di lettura nel nome, per server: { \"admob\": [\"/.*/\"] }. Nomi esatti o espressioni regolari tra barre. Le parole che scrivono (send, delete, update, generate, token...) restano escluse comunque."
         },
         "bottega.connettori.modello": {
           "type": "string",
@@ -674,7 +674,7 @@
         "bottega.aggiornamenti.vscode": {
           "type": "boolean",
           "default": true,
-          "description": "Una volta al giorno controlla se l'ultima versione di Claude Code chiede un VS Code piu' nuovo di quello sotto la Bottega. Se serve arriva una notifica: con «Aggiorna» la Bottega si ricompila da sola (da 30 a 60 minuti) e alla fine si riapre."
+          "description": "Una volta al giorno controlla se l'ultima versione di Claude Code chiede un VS Code piu' nuovo di quello sotto Moony IDE. Se serve arriva una notifica: con «Aggiorna» Moony IDE si ricompila da sola (da 30 a 60 minuti) e alla fine si riapre."
         },
         "bottega.aggiornamenti.claudeCode": {
           "type": "boolean",
@@ -684,7 +684,7 @@
         "bottega.aggiornamenti.sorgenti": {
           "type": "string",
           "default": "",
-          "description": "La cartella dei sorgenti della Bottega, se non e' quella da cui e' stata installata o ~/Prototipi/Bottega."
+          "description": "La cartella dei sorgenti di Moony IDE, se non e' quella da cui e' stata installata o ~/Prototipi/Bottega."
         },
         "bottega.connettori.tettoGiornalieroUsd": {
           "type": "number",

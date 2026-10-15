@@ -464,7 +464,7 @@ export class SessioniPonte implements RotteSessioni {
 		const file = this.fileDi(t.w.sessionId);
 		const m = file ? this.memo.get(file) : undefined;
 		const c = this.cartella(t.w, reg, m?.lettura);
-		if (!c) throw errore(403, 'Questa sessione non lavora in un progetto che la Bottega conosce.');
+		if (!c) throw errore(403, 'Questa sessione non lavora in un progetto che Moony IDE conosce.');
 		return c;
 	}
 
@@ -532,7 +532,7 @@ export class SessioniPonte implements RotteSessioni {
 	private terminale(req: http.IncomingMessage, res: http.ServerResponse, chiave: string): void {
 		const t = this.lavoro(chiave);
 		if (!t || t.finita) throw errore(404, 'Questa sessione non c\'e\' piu\'.');
-		if (!t.w.jobId) throw errore(403, 'Il terminale si vede solo per i lavori della Bottega.');
+		if (!t.w.jobId) throw errore(403, 'Il terminale si vede solo per i lavori di Moony IDE.');
 		if (this.terminali.size >= MAX_TERMINALI) throw errore(429, 'Troppi terminali aperti insieme: chiudine uno.');
 		const fonte = this.d.terminale?.(t.w.jobId);
 		if (!fonte) throw errore(404, 'Il terminale di questo lavoro non e\' piu\' aperto.');
@@ -676,7 +676,7 @@ export function testoRiassunto(s: Scheda, ora = Date.now()): string {
 	const quando = min < 2 ? 'adesso' : min < 60 ? `${min} minuti fa` : `${Math.round(min / 60)} ore fa`;
 	const righe = [
 		`Riassumimi a voce, in due frasi al massimo, la sessione di Claude Code su ${s.progetto}. Non usare strumenti: la scheda e' questa.`,
-		`Stato: ${s.stato}, ultimo movimento ${quando}${s.origine === 'altrove' ? ', aperta fuori dalla Bottega' : ''}.`,
+		`Stato: ${s.stato}, ultimo movimento ${quando}${s.origine === 'altrove' ? ', aperta fuori da Moony IDE' : ''}.`,
 	];
 	if (s.richiesta) righe.push(`Ultima richiesta di Andrea: «${piatto(s.richiesta, 300)}»`);
 	if (s.passi.length) righe.push(`Ultimi passi: ${s.passi.slice(-6).map(p => p.testo).join('; ')}.`);

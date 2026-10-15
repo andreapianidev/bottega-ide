@@ -806,7 +806,7 @@
 			const parti = [
 				'AdMob è la stima di AdMob, in euro. Lo Store sono i ricavi netti dei report di vendita di Apple (dopo la sua quota), portati in euro con i cambi del giorno.',
 				'Apple pubblica le vendite di ieri verso le 14: fino ad allora l\'ultimo giorno dello Store manca, non è zero. Le versioni uscite si ricavano dai report di vendita, il giorno in cui compaiono.',
-				'I buchi sono regole scritte nel codice della Bottega, non un modello: ognuno dice con quali numeri è nato.',
+				'I buchi sono regole scritte nel codice di Moony IDE, non un modello: ognuno dice con quali numeri è nato.',
 			];
 			if (st && st.storeSenzaDati && st.storeSenzaDati.length)
 				parti.push(`Per ${st.storeSenzaDati.length === 1 ? 'un mese' : `${st.storeSenzaDati.length} mesi`} (da ${meseLungo(st.storeSenzaDati[0])}) Apple non dà più il report: lì lo Store è segnato n/d.`);

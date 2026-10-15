@@ -10,7 +10,7 @@ import { Nucleo } from './nucleo';
 const CLAUDE = 'anthropic.claude-code';
 
 export function registerAggiornamenti(ctx: vscode.ExtensionContext, nucleo: () => Nucleo | undefined): Aggiornamenti {
-	const out = vscode.window.createOutputChannel('Bottega, aggiornamenti', { log: true });
+	const out = vscode.window.createOutputChannel('Moony IDE, aggiornamenti', { log: true });
 	const cfg = () => vscode.workspace.getConfiguration('bottega.aggiornamenti');
 	const dir = path.join(os.homedir(), '.bottega');
 
@@ -37,8 +37,8 @@ export function registerAggiornamenti(ctx: vscode.ExtensionContext, nucleo: () =
 		chiedi: async tag => {
 			const si = 'Aggiorna';
 			const r = await vscode.window.showInformationMessage(
-				`Ricompilo la Bottega su VS Code ${tag}?`,
-				{ modal: true, detail: 'Ci vogliono da 30 a 60 minuti, con il Mac carico. Alla fine la Bottega si chiude e si riapre da sola: salva i file prima.' },
+				`Ricompilo Moony IDE su VS Code ${tag}?`,
+				{ modal: true, detail: 'Ci vogliono da 30 a 60 minuti, con il Mac carico. Alla fine Moony IDE si chiude e si riapre da sola: salva i file prima.' },
 				si,
 			);
 			return r === si;
@@ -58,7 +58,7 @@ export function registerAggiornamenti(ctx: vscode.ExtensionContext, nucleo: () =
 			const v = await agg.controllaVSCode(true);
 			if (!v) return void vscode.window.showWarningMessage('Non riesco a sapere cosa chiede Claude Code: Open VSX o GitHub non rispondono.');
 			if (!v.serve)
-				return void vscode.window.showInformationMessage(`Niente da fare: la Bottega e' su VS Code ${v.installato}, Claude Code ${v.claude} chiede ${v.minimo} o successivo.`);
+				return void vscode.window.showInformationMessage(`Niente da fare: Moony IDE e' su VS Code ${v.installato}, Claude Code ${v.claude} chiede ${v.minimo} o successivo.`);
 			if (!v.bersaglio) return void vscode.window.showWarningMessage(`Claude Code chiede VS Code ${v.minimo}, ma Microsoft non l'ha ancora pubblicato.`);
 			// la notifica con «Aggiorna» e' gia' partita
 		}),

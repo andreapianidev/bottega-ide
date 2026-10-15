@@ -59,7 +59,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         if waiting > 0 { symbol = "hand.raised.fill" }
         else if busy > 0 { symbol = "sparkles" }
         else { symbol = "circle.hexagongrid" }
-        let img = NSImage(systemSymbolName: symbol, accessibilityDescription: "Bottega")
+        let img = NSImage(systemSymbolName: symbol, accessibilityDescription: "Moony IDE")
         img?.isTemplate = true
         button.image = img
         button.imagePosition = .imageLeading
@@ -74,7 +74,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         }
         button.title = text.isEmpty ? "" : " " + text
         button.font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small), weight: .regular)
-        var tip = "Bottega: \(busy) in corso, \(waiting) in attesa, \(queued) in coda"
+        var tip = "Moony IDE: \(busy) in corso, \(waiting) in attesa, \(queued) in coda"
         if let first = lines.first(where: { $0.tone == "rosso" }) ?? lines.first(where: { $0.tone == "giallo" }) {
             tip += "\n" + first.title
         }
@@ -158,7 +158,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         sky.target = self
         sky.image = NSImage(systemSymbolName: "moon.stars", accessibilityDescription: nil)
         menu.addItem(sky)
-        let open = NSMenuItem(title: "Apri la Bottega", action: #selector(clicked(_:)), keyEquivalent: "")
+        let open = NSMenuItem(title: "Apri Moony IDE", action: #selector(clicked(_:)), keyEquivalent: "")
         open.target = self
         open.representedObject = "open"
         menu.addItem(open)

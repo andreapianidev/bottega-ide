@@ -161,7 +161,7 @@ struct VedettaView: View {
                 VStack(spacing: 9) {
                     Text("L'isola aspetta i progetti")
                         .font(.system(size: 23, design: .serif))
-                    Text("Apri la Bottega e avvia il controllo delle regole.")
+                    Text("Apri Moony IDE e avvia il controllo delle regole.")
                         .font(.system(size: 13))
                         .foregroundStyle(VedettaInk.muted)
                 }
@@ -291,11 +291,11 @@ struct VedettaView: View {
                 }
             }
             if project.hits.count > 3 {
-                Text("Altre \(project.hits.count - 3) regole nella Bottega")
+                Text("Altre \(project.hits.count - 3) regole in Moony IDE")
                     .font(.system(size: 11))
                     .foregroundStyle(VedettaInk.muted)
             }
-            Button("Apri in Bottega") {
+            Button("Apri in Moony IDE") {
                 Out.event("vedetta.project", ["path": project.path])
             }
             .buttonStyle(.borderedProminent)

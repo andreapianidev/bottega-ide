@@ -1066,7 +1066,7 @@ export function trovaBuchi(apps: AppRiga[], publisher?: string, ctx: { abbFinoA?
 				id: `${a.chiave}:scollegata`,
 				gravita: 'media',
 				titolo: 'L\'app di AdMob non è collegata allo Store',
-				perche: 'Un\'app non collegata alla sua scheda riceve meno annunci, e la Bottega non può unire i suoi guadagni ai download.',
+				perche: 'Un\'app non collegata alla sua scheda riceve meno annunci, e Moony IDE non può unire i suoi guadagni ai download.',
 				cosa: 'In AdMob: App, Impostazioni app, «Aggiungi store dell\'app», e scegli la scheda giusta.',
 			});
 		}

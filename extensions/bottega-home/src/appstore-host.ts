@@ -100,7 +100,7 @@ export const STRUMENTI_APPSTORE: Record<string, StrumentoAppStore> = {
 					properties: {
 						periodo: { type: 'string', enum: ['ieri', 'settimana', 'mese', 'anno'], description: 'di default la settimana' },
 						app: { type: 'string', description: 'nome di una sola app o del suo progetto, per esempio Talky' },
-						mostra: { type: 'boolean', description: 'true per aprire anche la stanza App Store nella Bottega' },
+						mostra: { type: 'boolean', description: 'true per aprire anche la stanza App Store in Moony IDE' },
 					},
 					required: [],
 					additionalProperties: false,

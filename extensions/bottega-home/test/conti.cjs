@@ -114,7 +114,7 @@ function nuovo(stato, now, nome, extra = {}) {
 		assert.deepStrictEqual(g.deleghe, { usd: 0.4 });
 		assert.strictEqual(d.servizi.deepseek.saldo, 9.5);
 		assert.strictEqual(d.servizi.elevenlabs.limiteMese, null);
-		assert.match(d.servizi.elevenlabs.frase, /contati dalla Bottega/);
+		assert.match(d.servizi.elevenlabs.frase, /contati da Moony IDE/);
 		const f = c.file();
 		assert.strictEqual(fs.statSync(f).mode & 0o777, 0o600);
 		const letto = JSON.parse(fs.readFileSync(f, 'utf8'));

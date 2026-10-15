@@ -203,7 +203,7 @@ enum Spotlight {
         switch CSIndexError.Code(rawValue: e.code) {
         case .remoteConnectionError?, .indexUnavailableError?, .indexingUnsupported?:
             // -1003 is what corespotlightd answers when Spotlight is off (mdutil -a -i off).
-            return "Spotlight non accetta l'indice della Bottega (CoreSpotlight \(e.code)): di solito vuol dire che "
+            return "Spotlight non accetta l'indice di Moony IDE (CoreSpotlight \(e.code)): di solito vuol dire che "
                 + "l'indicizzazione di Spotlight è spenta su questo Mac (mdutil -s /)."
         case .quotaExceeded?:
             return "Spotlight ha rifiutato gli elementi: troppi per la quota di un'app."

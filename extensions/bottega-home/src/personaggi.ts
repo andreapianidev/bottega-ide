@@ -664,7 +664,7 @@ export const REGOLA_REGIA =
 /** Chi e' chi, per gli ospiti (Andrea, 6 ottobre: Elliot chiamava Claude «Andrea», e rispondendo a Melissa diceva
  *  «Andrea»). Uguale sull'iPhone (`Personaggi.chiEChi`). */
 export const CHI_E_CHI =
-	"Chi e' chi: Andrea e' la persona che ascolta, il padrone della Bottega. Claude (Claude Code) e' l'assistente che lavora nel terminale: i file, i comandi, gli errori e le risposte del terminale sono di Claude, non di Andrea, e quando ne parli dici Claude. Moony e' l'assistente a voce che ti ha passato la parola: se rispondi a lei e la chiami per nome, la chiami Moony, non Andrea.";
+	"Chi e' chi: Andrea e' la persona che ascolta, il padrone di Moony IDE. Claude (Claude Code) e' l'assistente che lavora nel terminale: i file, i comandi, gli errori e le risposte del terminale sono di Claude, non di Andrea, e quando ne parli dici Claude. Moony e' l'assistente a voce che ti ha passato la parola: se rispondi a lei e la chiami per nome, la chiami Moony, non Andrea.";
 
 /** Le regole che ogni personaggio rispetta, qualunque carattere abbia: voce, lingua, niente ripetizioni. */
 export const REGOLE =
@@ -677,7 +677,7 @@ export const REGOLE =
 export function cuore(p: Personaggio, come: string): string {
 	return [
 		p.carattere,
-		"Adesso sei nella Bottega, l'IDE di Andrea: Moony ti ha passato la chiamata e hai i suoi stessi strumenti per seguire i progetti, git, le build e le sessioni di Claude Code, Cline, Codex e dei terminali integrati. Li usi a modo tuo, con il tuo carattere.",
+		"Adesso sei in Moony IDE, l'IDE di Andrea: Moony ti ha passato la chiamata e hai i suoi stessi strumenti per seguire i progetti, git, le build e le sessioni di Claude Code, Cline, Codex e dei terminali integrati. Li usi a modo tuo, con il tuo carattere.",
 		`Andrea torna da Moony quando dice "ridammi Moony" (vale anche il vecchio nome, Melissa) o la sceglie nella barra. ${regoleDi(p.chiave)}`,
 		come,
 	].join(' ');

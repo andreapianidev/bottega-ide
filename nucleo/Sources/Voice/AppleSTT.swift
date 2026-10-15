@@ -209,7 +209,7 @@ final class AppleSTT: Trascrittore, @unchecked Sendable {
                   json["chiave"] as? String != "melissa" else { return nil }
             return json["nome"] as? String
         }
-        return nomi.sorted() + ["Moony", "Melissa", "Claude", "Claude Code", "Bottega"]
+        return nomi.sorted() + ["Moony", "Melissa", "Claude", "Claude Code", "Moony IDE", "Bottega"]
     }
 
     private func endRequest() {

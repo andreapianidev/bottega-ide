@@ -93,13 +93,13 @@ export function leggiEsito(file: string): Esito | null {
 export function fraseEsito(e: Esito): { title: string; body: string } | null {
 	if (e.stato === 'fatto')
 		return {
-			title: `Bottega su VS Code ${e.tag}`,
+			title: `Moony IDE su VS Code ${e.tag}`,
 			body: `Aggiornata e installata${e.build ? `, build ${e.build}` : ''}.${e.push === false ? ' Il commit e\' fatto ma non spinto: va fatto il push.' : ''}`,
 		};
 	if (e.stato === 'fallito')
 		return {
 			title: `VS Code ${e.tag}: aggiornamento non riuscito`,
-			body: `La Bottega resta com'era. ${e.motivo ? e.motivo : 'Il registro e\' in ~/.bottega/aggiornamento.log.'}`,
+			body: `Moony IDE resta com'era. ${e.motivo ? e.motivo : 'Il registro e\' in ~/.bottega/aggiornamento.log.'}`,
 		};
 	return null;
 }
@@ -204,7 +204,7 @@ export class Aggiornamenti {
 		this.d.notifica({
 			id: `aggiorna:${v.bersaglio}`,
 			title: `Claude Code chiede VS Code ${v.minimo}`,
-			body: `La Bottega e' su ${v.installato}: con «Aggiorna» la ricompilo su ${v.bersaglio} (da 30 a 60 minuti). Alla fine si chiude e si riapre da sola, salva i file.`,
+			body: `Moony IDE e' su ${v.installato}: con «Aggiorna» la ricompilo su ${v.bersaglio} (da 30 a 60 minuti). Alla fine si chiude e si riapre da sola, salva i file.`,
 			actions: [
 				{ id: 'aggiorna', title: 'Aggiorna' },
 				{ id: 'dopo', title: 'Dopo' },
@@ -236,7 +236,7 @@ export class Aggiornamenti {
 		if (!/^\d+\.\d+\.\d+$/.test(tag)) return false;
 		const script = this.d.sorgenti ? path.join(this.d.sorgenti, 'scripts', 'aggiorna-vscode.sh') : '';
 		if (!script || !fs.existsSync(script)) {
-			this.d.notifica({ id: `aggiorna-esito:${tag}`, title: 'Aggiornamento di VS Code', body: 'Non trovo i sorgenti della Bottega: imposta bottega.aggiornamenti.sorgenti.' });
+			this.d.notifica({ id: `aggiorna-esito:${tag}`, title: 'Aggiornamento di VS Code', body: 'Non trovo i sorgenti di Moony IDE: imposta bottega.aggiornamenti.sorgenti.' });
 			return false;
 		}
 		if (this.inCorso()) {
@@ -245,7 +245,7 @@ export class Aggiornamenti {
 		}
 		this.d.log(`VS Code ${tag}: parte ${script}, registro in ${this.d.fileLog}.`);
 		(this.d.lancia ?? lanciaStaccato)(script, tag, this.d.fileLog);
-		this.d.notifica({ id: `aggiorna-esito:${tag}`, title: `Ricompilo la Bottega su VS Code ${tag}`, body: 'Ci vogliono da 30 a 60 minuti. Alla fine la Bottega si chiude e si riapre da sola.' });
+		this.d.notifica({ id: `aggiorna-esito:${tag}`, title: `Ricompilo Moony IDE su VS Code ${tag}`, body: 'Ci vogliono da 30 a 60 minuti. Alla fine Moony IDE si chiude e si riapre da sola.' });
 		this.sorvegliaEsito();
 		return true;
 	}

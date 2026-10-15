@@ -415,9 +415,9 @@
 
 	app.innerHTML = `
 	<header class="top">
-		<p class="brand">Bottega</p>
+		<p class="brand">Moony IDE</p>
 		<nav class="stanze" id="stanze" aria-label="Stanze">
-			<div class="tabs" role="tablist" aria-label="Stanze della Bottega">
+			<div class="tabs" role="tablist" aria-label="Stanze di Moony IDE">
 				${VIEWS.map(
 					([id, label], i) =>
 						`<button type="button" role="tab" id="tab-${id}" data-view="${id}" aria-controls="vista-${id}" aria-selected="false" tabindex="-1" title="${label}${i < 9 ? `, tasto ${i + 1}` : ''}"><i class="lume" aria-hidden="true"></i><span>${label}</span><span class="segnale" id="segnale-${id}" hidden></span></button>`,
@@ -609,7 +609,7 @@
 					<p class="conversa" id="conversa" hidden><i class="pallino" aria-hidden="true"></i>In conversazione <button type="button" class="chiudi-conversa" data-act="voice-end" data-fk="voice-end">Chiudi</button></p>
 					<p class="parziale" id="parziale" aria-live="polite"></p>
 					<p class="cervello" id="cervello"></p>
-					<p class="senza-nucleo" id="senza-nucleo" hidden>La voce passa dal Nucleo, l'app nativa della Bottega che ascolta, parla e accende la sfera. Adesso non risulta avviato, quindi Moony non sente e non parla. Puoi comunque scriverle qui accanto.</p>
+					<p class="senza-nucleo" id="senza-nucleo" hidden>La voce passa dal Nucleo, l'app nativa di Moony IDE che ascolta, parla e accende la sfera. Adesso non risulta avviato, quindi Moony non sente e non parla. Puoi comunque scriverle qui accanto.</p>
 				</div>
 			</div>
 			<div class="melissa-corpo">
@@ -692,9 +692,9 @@
 				: null;
 		} catch (err) {
 			rooms[id] = null;
-			console.error(`Bottega: ${id} non si monta`, err);
+			console.error(`Moony IDE: ${id} non si monta`, err);
 		}
-		if (!rooms[id]) root.innerHTML = `<p class="empty">${name} non è disponibile in questa versione della Bottega.</p>`;
+		if (!rooms[id]) root.innerHTML = `<p class="empty">${name} non è disponibile in questa versione di Moony IDE.</p>`;
 	}
 	const crus = rooms.cruscotto;
 	/** Chiama un metodo di una stanza esterna senza lasciare che un suo errore fermi la plancia. */
@@ -704,7 +704,7 @@
 		try {
 			r[method](...args);
 		} catch (err) {
-			console.error(`Bottega: ${id}.${method}`, err);
+			console.error(`Moony IDE: ${id}.${method}`, err);
 		}
 	}
 
@@ -1143,7 +1143,7 @@
 
 	function elsewhereHTML(s) {
 		return `<h2>Sessioni fuori dai progetti</h2>
-			<p>Partite dalla home o da cartelle che la Bottega non conosce. Riprenderle le riapre nella stessa cartella.</p>
+			<p>Partite dalla home o da cartelle che Moony IDE non conosce. Riprenderle le riapre nella stessa cartella.</p>
 			<ol>${s.elsewhere
 				.slice(0, 12)
 				.map(
@@ -1558,7 +1558,7 @@
 		return `<li class="lavoro altrove s-${g ? g[1] : 'corso'}">
 			<i class="dot" aria-hidden="true"></i>
 			<div class="lavoro-corpo">
-				<p class="lavoro-testa"><b class="nome" title="${esc(home(w.path))}">${esc(w.project)}</b><span class="tempo">${esc(`${WORK_TIME[w.status] || 'da'} ${dur(Date.now() - (w.since || Date.now()))}`)}</span><span class="provenienza">aperta fuori dalla Bottega</span></p>
+				<p class="lavoro-testa"><b class="nome" title="${esc(home(w.path))}">${esc(w.project)}</b><span class="tempo">${esc(`${WORK_TIME[w.status] || 'da'} ${dur(Date.now() - (w.since || Date.now()))}`)}</span><span class="provenienza">aperta fuori da Moony IDE</span></p>
 				${w.title ? `<p class="compito" title="${esc(w.title)}">${esc(w.title)}</p>` : ''}
 				${inside}
 			</div>
@@ -2234,7 +2234,7 @@
 				battito = motore.monta($('battito-canvas'), {
 					margine: BATTITO,
 					onFail: motivo => {
-						console.warn('Bottega: battito senza WebGPU, griglia ferma:', motivo);
+						console.warn('Moony IDE: battito senza WebGPU, griglia ferma:', motivo);
 						battito = null;
 						battitoFermo = motivo || 'WebGPU spento';
 						disegnaBattitoFermo();
@@ -2824,7 +2824,7 @@
 		state.cont = { path: m.path, opener: opener || '' };
 		$('continua-titolo').textContent = `Continua ${name} da dove eri`;
 		const src = Array.isArray(m.sources) ? m.sources.filter(Boolean) : [];
-		$('continua-fonti').textContent = src.length ? cap(src.join('; ')) + '.' : 'Prompt preparato dalla Bottega.';
+		$('continua-fonti').textContent = src.length ? cap(src.join('; ')) + '.' : 'Prompt preparato da Moony IDE.';
 		const ta = $('continua-testo');
 		ta.value = m.prompt || '';
 		const nightOk = !!(state.snapshot && state.snapshot.night);

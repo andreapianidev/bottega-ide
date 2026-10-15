@@ -175,7 +175,7 @@
 			const avvisi = Object.values(conti.servizi || {}).filter(x => x && x.tono !== 'ok').map(x => `${x.nome}: ${x.frase}`);
 			$('conti-piede').textContent = [
 				avvisi.length ? `Da guardare: ${avvisi.join('; ')}.` : '',
-				primo ? `Lo storico parte dal ${giornoLungo(primo)}: prima la Bottega non teneva i conti. I saldi si leggono ogni 30 minuti con la Bottega aperta; se resta chiusa, la spesa di quei giorni va sul giorno dopo.` : '',
+				primo ? `Lo storico parte dal ${giornoLungo(primo)}: prima Moony IDE non teneva i conti. I saldi si leggono ogni 30 minuti con Moony IDE aperta; se resta chiusa, la spesa di quei giorni va sul giorno dopo.` : '',
 			].filter(Boolean).join(' ');
 			const btn = `<button type="button" class="link mostra-tabella" data-conti="tabella" aria-expanded="${aperta}">${aperta ? 'Nascondi i numeri' : 'Mostra i numeri'}</button>`;
 			if (!aperta) {

@@ -784,7 +784,7 @@
 			const vuoto = $('ved-siti-vuoto');
 			if (!list.length) {
 				vuoto.hidden = false;
-				const txt = !v ? 'Vercel non viene letto in questa versione della Bottega.' : v.at ? 'Nessun progetto è collegato a un progetto su Vercel.' : 'Vercel non è ancora stato letto.';
+				const txt = !v ? 'Vercel non viene letto in questa versione di Moony IDE.' : v.at ? 'Nessun progetto è collegato a un progetto su Vercel.' : 'Vercel non è ancora stato letto.';
 				if (vuoto.textContent !== txt) vuoto.textContent = txt;
 			} else vuoto.hidden = true;
 			sync($('ved-siti'), list, s => s.projectId, sitoHTML);
@@ -850,7 +850,7 @@
 					const msg = { type: h.azione.act, ...(path ? { path } : {}), ...(h.azione.args || {}) };
 					post(msg);
 					sent.set(hitKey(path, h, i), now());
-					say(h.azione.act === 'rule.fix' ? 'La Bottega chiede conferma prima di cambiare.' : `Fatto: ${h.azione.label || 'chiesto'}.`);
+					say(h.azione.act === 'rule.fix' ? 'Moony IDE chiede conferma prima di cambiare.' : `Fatto: ${h.azione.label || 'chiesto'}.`);
 					setTimeout(() => render(), 8100);
 					return render();
 				}

@@ -150,7 +150,7 @@ export class ClientMcp {
 	/** Chiama uno strumento, solo se e' di sola lettura: per nome, per le annotazioni viste in tools/list o per
 	 *  il permesso a mano sul server (soloLettura). */
 	async chiama(nome: string, args: Record<string, unknown> = {}): Promise<RisultatoMcp> {
-		if (!soloLettura(nome, this.annotazioni.get(nome), this.nome)) throw new Error(`${nome} non e' di sola lettura: la Bottega non lo usa`);
+		if (!soloLettura(nome, this.annotazioni.get(nome), this.nome)) throw new Error(`${nome} non e' di sola lettura: Moony IDE non lo usa`);
 		await this.avvia();
 		return this.richiesta('tools/call', { name: nome, arguments: args });
 	}

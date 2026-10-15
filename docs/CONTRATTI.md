@@ -3,6 +3,13 @@
 Questo file e' la fonte unica delle interfacce tra Nucleo (Swift), Memoria (Node), estensione
 (TypeScript) e plancia (webview). Chi cambia un contratto aggiorna questo file nello stesso giro.
 
+Nome (dalla 0.2.0, 15/10/2026): per chi la usa l'app si chiama **Moony IDE** (`nameLong`, CFBundleName,
+nome localizzato in `InfoPlist.strings`, testi di estensione e Nucleo). Gli identificatori restano Bottega e non
+si cambiano: file `/Applications/Bottega.app`, `nameShort` (da li' `~/Library/Application Support/Bottega`),
+`name` di package.json (Portachiavi «Bottega Safe Storage»), bundle id `com.andreapiani.bottega`, `bottega://`,
+`~/.bottega/`, id dei comandi e delle impostazioni, id dei temi («Bottega Notte», «Bottega Calima»: si vedono
+come Moony Notte e Moony Calima), `BottegaAttivita`, «Bottega Nucleo.app».
+
 ```
 Bottega.app (VS Code 1.140, Electron)
   extensions/bottega-home  --stdio JSON-lines-->  Bottega Nucleo.app (Swift, nativo)
@@ -76,7 +83,7 @@ si manda tutto l'audio, anche il silenzio: fino al 2/10/2026 passava solo quello
 | `hotkey.register` | `key` (es. `space`), `modifiers` (es. `["option"]`) | `label` | eventi `hotkey.down {key}`, `hotkey.up {key}`: tieni premuto per parlare. Default Option+Space. Cmd+Option+M e' rifiutata (e' di Melissa) |
 | `hotkey.unregister` | | | |
 | `notify` | `id`, `title`, `body`, `actions?: [{id, title}]`, `subtitle?`, `sound?` (default true) | | eventi `notify.clicked {id, action?}` (`action` assente = clic sulla notifica, `dismiss` = chiusa) |
-| `menubar.update` | `busy`, `waiting`, `queued`, `title?`, `items?: [{id, title, status}]`, `visible?` | | icona nella barra dei menu (compare al primo update); `status` di un item: `busy`, `waiting`, `queued`, `done`, `error`; menu con una riga per item e "Apri la Bottega"; evento `menubar.clicked {item}` (`item` = id dell'item, oppure `open`). `visible: false` toglie l'icona |
+| `menubar.update` | `busy`, `waiting`, `queued`, `title?`, `items?: [{id, title, status}]`, `visible?` | | icona nella barra dei menu (compare al primo update); `status` di un item: `busy`, `waiting`, `queued`, `done`, `error`; menu con una riga per item e "Apri Moony IDE"; evento `menubar.clicked {item}` (`item` = id dell'item, oppure `open`). `visible: false` toglie l'icona |
 | `ai.generate` | `prompt`, `instructions?`, `maxTokens?` | `text` | Apple Intelligence sul dispositivo (FoundationModels) |
 | `ai.summarize` | `text`, `instructions?` | `text` | idem, con istruzioni di riassunto in italiano (richiesta, cosa e' stato fatto, decisioni, file, prossimi passi). Testi oltre la finestra di contesto: riassunto a pezzi da ~10.000 caratteri, poi fusione |
 | `ai.embed` | `texts: [string]`, `language` (`it`) | `vectors: [[number]]`, `dimension` | NLEmbedding di frase, vettori normalizzati (norma 1, quindi coseno = prodotto scalare). Una riga per testo, testo vuoto = vettore di zeri. La dimensione la decide il sistema: su macOS 27.2 per l'italiano e' **640**, non 512: chi salva vettori legga `dimension` |
@@ -750,7 +757,7 @@ somma dei giorni arrotondati.
 | cmd | argomenti | risposta | note |
 |---|---|---|---|
 | `power.status` | | `ac: bool`, `battery: number\|null`, `charging: bool`, `lowPower: bool` | IOKit `IOPSCopyPowerSourcesInfo`; `battery` null su un Mac senza batteria |
-| `power.keepAwake` | `reason` | `token` (`sveglio-N`) | `IOPMAssertionCreateWithName` (`PreventUserIdleSystemSleep`), nome visibile in `pmset -g assertions`: `Bottega: <reason>`. Chiuso il Nucleo, tutte le asserzioni si rilasciano |
+| `power.keepAwake` | `reason` | `token` (`sveglio-N`) | `IOPMAssertionCreateWithName` (`PreventUserIdleSystemSleep`), nome visibile in `pmset -g assertions`: `Moony IDE: <reason>`. Chiuso il Nucleo, tutte le asserzioni si rilasciano |
 | `power.release` | `token` | | errore in italiano se il token non esiste |
 | `spotlight.index` | `items: [{id, kind: 'progetto'\|'ricordo', title, text?, url, keywords?, date?}]`, `replace?: bool` | `count` | CoreSpotlight, `domainIdentifier` = kind, `uniqueIdentifier` = `kind:id`. `date`: millisecondi, secondi o `YYYY-MM-DD`. `replace` svuota prima i domini dei kind presenti. Ogni chiamata ha 10 s; se Spotlight e' spento (`mdutil`) risponde con un errore in italiano (CoreSpotlight -1003). Gli url stanno anche in `~/.bottega/nucleo/spotlight.json` (600), perche' il clic su un risultato porta solo l'identificatore |
 | `spotlight.clear` | `kind?` | | senza `kind` svuota tutto |
@@ -1899,7 +1906,7 @@ si usa `lavori` con i contatori precedenti. Le notifiche con azioni restano lega
   non la farebbero mai finire. Chi aspetta resta nel contenuto, in ambra, finche' l'attivita' vive.
 - Avvio con il token `avvio` quando ci sono sessioni al lavoro e non c'e' un'attivita' aperta:
   `{aps: {timestamp, event: "start", "content-state", "attributes-type": "BottegaAttivita", attributes: {mac},
-  alert: {title: "Bottega", body: "<n> sessioni al lavoro"}}}`, priorita' 10. Vale anche con Andrea al Mac.
+  alert: {title: "Moony IDE", body: "<n> sessioni al lavoro"}}}`, priorita' 10. Vale anche con Andrea al Mac.
 - Aggiornamento con il token `attivita` a ogni cambio, al massimo ogni 15 s (priorita' 5; 10 se cambia `tiAspetta`):
   `{aps: {timestamp, event: "update", "content-state", "stale-date": ora + 15 min}}`.
 - Se non cambia niente, un aggiornamento ogni 10 minuti comunque, cosi' l'attivita' non diventa vecchia.
@@ -3102,7 +3109,7 @@ in `extensions/bottega-theme`.
     (stessa chiave e stesso endpoint di Melissa). Se non risponde (errore, 12 s), l'altro, poi Apple Intelligence
     (`runAppleTurn` dal Nucleo, senza strumenti, 24 s); il cambio lo dice una riga grigia. Agnes al massimo una richiesta
     ogni 3 secondi: da primo cervello risponde «aspetta un attimo», da riserva si salta. Nessuna chiave nella shell, in
-    env, nei file di zsh o nei log (il registro «Bottega, terminale» scrive cartella, cervello e tempo, non il testo).
+    env, nei file di zsh o nei log (il registro «Moony IDE, terminale» scrive cartella, cervello e tempo, non il testo).
   - **Contesto mandato.** macOS e versione, versione di zsh, cartella corrente, ramo e `git status --short` (15 righe al
     massimo), per `??` l'ultimo comando e il codice d'uscita. Mai il contenuto dei file, mai la storia. Prompt di sistema:
     solo il comando, una riga (o piu' comandi con `&&`), BSD e macOS e non GNU, niente sudo se non indispensabile,

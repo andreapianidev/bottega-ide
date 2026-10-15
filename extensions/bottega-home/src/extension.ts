@@ -187,7 +187,7 @@ function allActivity(base: Pick<Snapshot, 'projects' | 'elsewhere' | 'live'>, wo
 		key: `claude:${w.sessionId ?? w.key}`, source: 'claude' as const, id: w.sessionId ?? w.key,
 		project: w.project, path: w.path, title: w.title || 'Sessione Claude Code',
 		status: w.status === 'ti aspetta' ? 'ti aspetta' as const : w.status === 'in corso' ? 'in corso' as const : 'sconosciuto' as const,
-		updatedAt: w.since, evidence: w.source === 'bottega' ? 'Claude Code: lavoro avviato dalla Bottega' : 'Claude Code: registro delle sessioni vive',
+		updatedAt: w.since, evidence: w.source === 'bottega' ? 'Claude Code: lavoro avviato da Moony IDE' : 'Claude Code: registro delle sessioni vive',
 	}));
 	const liveIds = new Set(base.live.map(s => s.sessionId));
 	const cutoff = Date.now() - 45 * 86_400_000;
@@ -369,7 +369,7 @@ function readClaudeSession(project: string): string {
 		.slice(0, 3)
 		.map(w => {
 			const d = digest(w.sessionId!);
-			const where = w.source === 'altrove' ? ' (aperta fuori dalla Bottega: sola lettura)' : '';
+			const where = w.source === 'altrove' ? ' (aperta fuori da Moony IDE: sola lettura)' : '';
 			return d ? safeDigest(digestText(d, w.project)) + where : `Sessione su ${w.project}: ${w.status}, non trovo la sua trascrizione.`;
 		})
 		.join('\n\n');
@@ -627,7 +627,7 @@ async function daRaccontare(): Promise<DaRaccontare | undefined> {
 	if (view === 'plancia' || view === 'melissa') testo = idee ? await idee.briefingFacts() : 'Il briefing non è pronto.';
 	else if (view === 'lavori' || view === 'regia') testo = activityList() +
 		(snapshot.work.some(w => w.status === 'in coda' || w.status === 'stanotte')
-			? '\nLavori della Bottega in fila: ' + snapshot.work.filter(w => w.status === 'in coda' || w.status === 'stanotte').map(w => `${w.project}: ${w.status}`).join('; ')
+			? '\nLavori di Moony IDE in fila: ' + snapshot.work.filter(w => w.status === 'in coda' || w.status === 'stanotte').map(w => `${w.project}: ${w.status}`).join('; ')
 			: '');
 	else testo = await leggiStanza({ stanza: view });
 	return { tipo: 'stanza', titolo, testo };
@@ -816,7 +816,7 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 		case 'sfera.diag': {
 			// Perche' il cielo del cruscotto o la sfera non usano WebGPU (docs/CONTRATTI.md, 7.7): una riga nel registro.
 			const d = m as any;
-			console.warn(`Bottega: ${m.type === 'cielo.diag' ? 'cielo del cruscotto' : 'sfera di Moony'} su ${d.motore}${d.motivo ? `, motivo: ${d.motivo}` : ''} (gpu ${!!d.gpu}, secure ${!!d.isSecureContext}, coi ${!!d.crossOriginIsolated})`);
+			console.warn(`Moony IDE: ${m.type === 'cielo.diag' ? 'cielo del cruscotto' : 'sfera di Moony'} su ${d.motore}${d.motivo ? `, motivo: ${d.motivo}` : ''} (gpu ${!!d.gpu}, secure ${!!d.isSecureContext}, coi ${!!d.crossOriginIsolated})`);
 			return;
 		}
 		default:
@@ -905,7 +905,7 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 		continuita = new ContinuitaMelissa({ log: message => console.warn(message) });
 		void continuita.leggi('melissa').catch(() => undefined);
 	} catch {
-		console.warn('Continuità: stato privato non leggibile, file conservato; la Bottega continua senza ponte memoria.');
+		console.warn('Continuità: stato privato non leggibile, file conservato; Moony IDE continua senza ponte memoria.');
 	}
 	// una Melissa sola sul Mac (src/voce-unica.ts, CONTRATTI 4.11): se Avo o l'isola prendono la voce la barra tace
 	const voceUnica = new VoceUnica(
@@ -1315,7 +1315,7 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 			const acceso = !avvisoFine.acceso;
 			try {
 				await avvisoFine.imposta(acceso);
-				assistant?.scriviRegistro(`avviso di fine ${acceso ? 'acceso' : 'spento'} dalla Bottega`);
+				assistant?.scriviRegistro(`avviso di fine ${acceso ? 'acceso' : 'spento'} da Moony IDE`);
 				barraView?.update();
 				void vscode.window.setStatusBarMessage(acceso ? 'Avviso di fine acceso: Moony ti dice quando un lavoro finisce' : 'Avviso di fine spento', 4000);
 			} catch (e: any) {
@@ -1397,7 +1397,7 @@ async function ensureItalian(ctx: vscode.ExtensionContext) {
 			? text.replace(/"locale"\s*:\s*"[^"]*"/, '"locale": "it"')
 			: text.replace('{', '{\n\t"locale": "it",');
 		fs.writeFileSync(argv, text);
-		const choice = await vscode.window.showInformationMessage('La Bottega sara\' in italiano dal prossimo avvio.', 'Riavvia adesso');
+		const choice = await vscode.window.showInformationMessage('Moony IDE sara\' in italiano dal prossimo avvio.', 'Riavvia adesso');
 		if (choice) {
 			// La lingua cambia solo riaprendo l'app: un processo staccato la riapre dopo la chiusura.
 			const app = path.resolve(vscode.env.appRoot, '..', '..', '..');

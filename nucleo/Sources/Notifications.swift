@@ -54,10 +54,10 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         case .notDetermined:
             let ok = (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
             authorized = ok
-            if !ok { throw NucleoError("Le notifiche della Bottega sono state negate.") }
+            if !ok { throw NucleoError("Le notifiche di Moony IDE sono state negate.") }
         default:
             authorized = false
-            throw NucleoError("Le notifiche della Bottega sono spente: attivale in Impostazioni di Sistema, Notifiche, Bottega Nucleo.")
+            throw NucleoError("Le notifiche di Moony IDE sono spente: attivale in Impostazioni di Sistema, Notifiche, Bottega Nucleo.")
         }
     }
 

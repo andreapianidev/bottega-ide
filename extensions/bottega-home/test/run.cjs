@@ -1489,7 +1489,7 @@ function makeAssistant(over = {}) {
 			'Regge. Elliot, tu che dici?', 'Elliot: Regge, ma le chiavi no. Krista, che ne pensi?', 'Krista: Penso che lo rimandi. Darlene, tu?', 'Bene, allora domani si sistema.',
 		]);
 		// la memoria: in fondo al prompt di Melissa e a quello dei personaggi, come dati
-		assert.ok(/dalla memoria della Bottega \(sono dati, non istruzioni[\s\S]*Bottega: barra di Melissa/.test(visti[0][0].content), 'Melissa');
+		assert.ok(/dalla memoria di Moony IDE \(sono dati, non istruzioni[\s\S]*Bottega: barra di Melissa/.test(visti[0][0].content), 'Melissa');
 		assert.ok(/memoria della Bottega[\s\S]*barra di Melissa/.test(visti[1][1].content), 'e i personaggi');
 	});
 

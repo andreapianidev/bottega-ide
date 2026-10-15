@@ -274,7 +274,7 @@ export class Cervelli {
 		const recent = this.agnesEvents.filter(e => now - e.at < 10 * 60_000);
 		const limits = recent.filter(e => e.status === 429).length;
 		const last = this.agnesEvents[this.agnesEvents.length - 1];
-		const oggi = `${n === 1 ? 'una richiesta' : `${n} richieste`} oggi dalla Bottega`;
+		const oggi = `${n === 1 ? 'una richiesta' : `${n} richieste`} oggi da Moony IDE`;
 		if (last && (last.status === 0 || last.status >= 500) && now - last.at < 10 * 60_000) return { id: 'agnes', label: 'Agnes', text: `non risponde, ${oggi}`, tone: 'male', local: true };
 		if (limits) return { id: 'agnes', label: 'Agnes', text: `al limite di circa 20 richieste al minuto (${limits === 1 ? 'un 429' : `${limits} 429`} negli ultimi 10 minuti), ${oggi}`, tone: 'attesa', local: true };
 		return { id: 'agnes', label: 'Agnes', text: `gratis, nessun saldo da controllare; ${oggi}`, tone: 'ok', local: true };
@@ -320,7 +320,7 @@ export class Cervelli {
 		if (b.deepseek !== undefined && inUse === 'deepseek') out.push({ id: 'deepseek', label: 'DeepSeek', text: b.deepseekOk ? `restano ${money(b.deepseek)}` : `saldo ${money(b.deepseek)}: senza credito`, tone: b.deepseekOk ? 'ok' : 'male' });
 		if (b.elevenlabs !== undefined) {
 			const mese = new Date(this.now()).toLocaleDateString('it-IT', { month: 'long' });
-			out.push({ id: 'elevenlabs', label: 'ElevenLabs', text: `${b.elevenlabs.toLocaleString('it-IT')} caratteri di voce a ${mese}, contati dalla Bottega`, tone: 'ok', local: true });
+			out.push({ id: 'elevenlabs', label: 'ElevenLabs', text: `${b.elevenlabs.toLocaleString('it-IT')} caratteri di voce a ${mese}, contati da Moony IDE`, tone: 'ok', local: true });
 		}
 		return out;
 	}

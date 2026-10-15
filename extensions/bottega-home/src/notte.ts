@@ -46,7 +46,7 @@ export const NIGHT_FILE = path.join(os.homedir(), '.bottega', 'notte.json');
 
 /** Quello che ogni lavoro notturno legge prima del suo compito. */
 export const NIGHT_PREAMBLE =
-	'Lavoro notturno della Bottega: lavori da solo mentre Andrea dorme. Regole per stanotte: niente git push, niente ' +
+	'Lavoro notturno di Moony IDE: lavori da solo mentre Andrea dorme. Regole per stanotte: niente git push, niente ' +
 	'pubblicazioni, niente deploy, niente invii a store o servizi esterni, niente messaggi a nessuno. Fai i commit in ' +
 	'locale (con il numero di build che sale, se il progetto lo chiede) e alla fine scrivi in poche righe cosa hai fatto ' +
 	'e cosa resta. Se ti serve una decisione di Andrea, fermati e scrivila chiaramente. Il compito:\n\n';
@@ -201,7 +201,7 @@ export class NightScheduler {
 	private async holdAwake(): Promise<void> {
 		const busy = this.deps.jobs().some(j => j.night && j.status === 'in corso' && this.started[j.id]);
 		if (busy && !this.token) {
-			this.token = await this.deps.keepAwake('La Bottega sta facendo un lavoro della notte').catch(() => undefined);
+			this.token = await this.deps.keepAwake('Moony IDE sta facendo un lavoro della notte').catch(() => undefined);
 		} else if (!busy && this.token) {
 			this.deps.release(this.token);
 			this.token = undefined;

@@ -1,9 +1,9 @@
 {
   "name": "bottega-theme",
-  "displayName": "Bottega, temi",
+  "displayName": "Moony IDE, temi",
   "description": "Notte e Calima: il cielo di La Palma e le sue lampade al sodio.",
   "publisher": "andreapiani",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "license": "MIT",
   "engines": {
     "vscode": "^1.100.0"
@@ -14,12 +14,14 @@
   "contributes": {
     "themes": [
       {
-        "label": "Bottega Notte",
+        "id": "Bottega Notte",
+        "label": "Moony Notte",
         "uiTheme": "vs-dark",
         "path": "./themes/bottega-notte.json"
       },
       {
-        "label": "Bottega Calima",
+        "id": "Bottega Calima",
+        "label": "Moony Calima",
         "uiTheme": "vs",
         "path": "./themes/bottega-calima.json"
       }

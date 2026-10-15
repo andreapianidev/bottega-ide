@@ -99,7 +99,7 @@
 					<p class="con-nota">Da package.json, vercel.json, README e CLAUDE.md, solo quelli che stanno in un progetto solo. Sono indizi deboli: un clic e li aggiungo.</p>
 					<ul class="con-sugg" id="con-sugg"></ul>
 				</details>
-				<p class="con-privato">La rubrica sta solo su questo Mac, in <code>~/.bottega/rubrica.json</code>, mai nel repository. La Bottega legge mittente, oggetto e data, e delle chat solo l'ultimo messaggio accorciato; non invia mai niente. Le chat personali compaiono solo per i numeri in rubrica.</p>
+				<p class="con-privato">La rubrica sta solo su questo Mac, in <code>~/.bottega/rubrica.json</code>, mai nel repository. Moony IDE legge mittente, oggetto e data, e delle chat solo l'ultimo messaggio accorciato; non invia mai niente. Le chat personali compaiono solo per i numeri in rubrica.</p>
 			</section>
 
 			<section class="con-sez" id="con-elenco" aria-labelledby="con-elenco-titolo" hidden>
@@ -107,7 +107,7 @@
 					<button type="button" class="act" data-k="elenco" data-fk="k:elenco">Aggiorna elenco</button>
 					<span class="con-nota" id="con-elenco-nota"></span>
 				</div>
-				<h2 class="con-titolo" id="con-cap-titolo">Cosa si accende nella Bottega</h2>
+				<h2 class="con-titolo" id="con-cap-titolo">Cosa si accende in Moony IDE</h2>
 				<ul class="con-cap" id="con-cap" aria-labelledby="con-cap-titolo"></ul>
 				<h2 class="con-titolo" id="con-elenco-titolo">I tuoi connettori</h2>
 				<ul class="con-lista" id="con-lista" aria-labelledby="con-elenco-titolo"></ul>
@@ -119,7 +119,7 @@
 					<summary id="con-plugin-titolo"></summary>
 					<ul class="con-lista" id="con-plugin"></ul>
 				</details>
-				<p class="con-privato">Si aggiungono in Claude Code: i connettori di claude.ai dalle impostazioni di claude.ai, i server locali con <code>claude mcp add</code>. La Bottega non tiene nessuna chiave.</p>
+				<p class="con-privato">Si aggiungono in Claude Code: i connettori di claude.ai dalle impostazioni di claude.ai, i server locali con <code>claude mcp add</code>. Moony IDE non tiene nessuna chiave.</p>
 			</section>
 		</div>`;
 
@@ -167,8 +167,8 @@
 				if (!con) return 'Sto guardando i connettori di Claude Code.';
 				const accese = (con.capacita || []).filter(c => c.accesa);
 				const usabili = (con.connettori || []).filter(c => c.stato === 'connesso').length;
-				if (!usabili && !accese.length) return 'Claude Code non ha ancora connettori che la Bottega sa usare.';
-				return `Hai ${n(it(usabili))} connettori collegati in Claude Code, e accendono ${n(it(accese.length))} capacità della Bottega.`;
+				if (!usabili && !accese.length) return 'Claude Code non ha ancora connettori che Moony IDE sa usare.';
+				return `Hai ${n(it(usabili))} connettori collegati in Claude Code, e accendono ${n(it(accese.length))} capacità di Moony IDE.`;
 			}
 			if (!posta) return 'Sto guardando la posta dei progetti.';
 			const nl = (posta.progetti || []).reduce((s, p) => s + (p.nonLetti || 0), 0);

@@ -260,7 +260,7 @@ export class Avvisi {
 			const prima = this.ultimaAttesa.get(w.key);
 			a.avvisata = true;
 			this.ultimaAttesa.set(w.key, now);
-			const progetto = pulisci(w.project, 40) || 'Bottega';
+			const progetto = pulisci(w.project, 40) || 'Moony IDE';
 			const titolo = pulisci(w.title, 80);
 			const vivo = await manda(
 				{
@@ -278,7 +278,7 @@ export class Avvisi {
 			if (!vivo) return;
 		}
 		for (const w of finiti) {
-			const progetto = pulisci(w.project, 40) || 'Bottega';
+			const progetto = pulisci(w.project, 40) || 'Moony IDE';
 			const titolo = pulisci(w.title, 80);
 			const vivo = await manda({ aps: { alert: { title: progetto, body: titolo ? `Ha finito: ${titolo}` : 'Il lavoro ha finito' }, category: 'FINITO', 'thread-id': progetto } }, now + 60 * 60_000, () => undefined);
 			if (!vivo) return;
@@ -373,7 +373,7 @@ export class Avvisi {
 			payload: {
 				aps: {
 					timestamp: sec, event: 'start', 'content-state': stato, 'attributes-type': 'BottegaAttivita', attributes: { mac: this.d.mac },
-					alert: { title: 'Bottega', body: n === 0 && ist.segui ? `Segui ${pulisci(ist.segui.progetto, 40)}` : n === 1 ? '1 sessione al lavoro' : `${n} sessioni al lavoro` },
+					alert: { title: 'Moony IDE', body: n === 0 && ist.segui ? `Segui ${pulisci(ist.segui.progetto, 40)}` : n === 1 ? '1 sessione al lavoro' : `${n} sessioni al lavoro` },
 				},
 			},
 		});

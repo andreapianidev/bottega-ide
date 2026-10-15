@@ -193,7 +193,7 @@ replace('src/vs/base/common/product.ts',
         'export interface IProductConfiguration {',
         'export interface IProductConfiguration {\n\treadonly bottegaVersion?: string;\n\treadonly bottegaBuild?: number;')
 about_prefix = '''(productService.bottegaVersion && productService.bottegaBuild !== undefined
-			? `Versione Bottega: ${productService.bottegaVersion}\\nBuild: ${productService.bottegaBuild}\\n\\nBase VS Code\\n`
+			? `Versione ${productService.nameLong}: ${productService.bottegaVersion}\\nBuild: ${productService.bottegaBuild}\\n\\nBase VS Code\\n`
 			: '') + '''
 replace('src/vs/platform/dialogs/electron-browser/dialog.ts',
         "return localize({ key: 'aboutDetail',",

@@ -85,7 +85,7 @@ final class Power {
     // MARK: keepAwake
 
     func keepAwake(reason: String) throws -> String {
-        let name = (reason.isEmpty ? "Bottega: un lavoro è in corso" : "Bottega: \(reason)") as CFString
+        let name = (reason.isEmpty ? "Moony IDE: un lavoro è in corso" : "Moony IDE: \(reason)") as CFString
         var id: IOPMAssertionID = 0
         let rc = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
                                              IOPMAssertionLevel(kIOPMAssertionLevelOn), name, &id)

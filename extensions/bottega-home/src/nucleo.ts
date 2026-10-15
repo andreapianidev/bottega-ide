@@ -267,7 +267,7 @@ export class Nucleo extends EventEmitter {
 		clearInterval(this.statsTimer);
 		for (const [, p] of this.pending) {
 			clearTimeout(p.timer);
-			p.reject(new Error('Bottega in chiusura.'));
+			p.reject(new Error('Moony IDE in chiusura.'));
 		}
 		this.pending.clear();
 		try {

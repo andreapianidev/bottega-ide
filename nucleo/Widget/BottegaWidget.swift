@@ -87,7 +87,7 @@ struct Conteggi: View {
         VStack(alignment: .leading, spacing: 2) {
             if !stato.present {
                 Text("Nessuno stato").font(.headline).foregroundStyle(Palette.text)
-                Text("Apri la Bottega una volta.").font(.caption).foregroundStyle(Palette.dim)
+                Text("Apri Moony IDE una volta.").font(.caption).foregroundStyle(Palette.dim)
             } else if stato.rosso + stato.giallo == 0 {
                 Text("Tutto in regola").font(.headline).foregroundStyle(Palette.text)
                 Text(stato.verde == 1 ? "1 progetto" : "\(stato.verde) progetti")
@@ -197,7 +197,7 @@ struct BottegaStatoWidget: Widget {
                 }
                 .widgetURL(URL(string: "bottega://andreapiani.bottega-home/briefing"))
         }
-        .configurationDisplayName("Bottega")
+        .configurationDisplayName("Moony IDE")
         .description("Il semaforo delle regole e il briefing del giorno.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }

@@ -83,7 +83,7 @@ export function strumentiConsentiti(strumenti: string[]): string[] {
 
 export function promptDelega(r: RichiestaDelega, strumenti: string[]): string {
 	return [
-		'Sei un lettore di dati per la Bottega, un programma che mostra queste informazioni in una sua schermata.',
+		'Sei un lettore di dati per Moony IDE, un programma che mostra queste informazioni in una sua schermata.',
 		`Puoi usare SOLO questi strumenti, e solo per leggere: ${strumenti.join(', ')}.`,
 		'Non inviare, non rispondere, non inoltrare, non creare bozze, non modificare e non cancellare niente.',
 		'Chiama sempre gli strumenti prima di rispondere: non rispondere mai a memoria o per supposizione.',

@@ -16,7 +16,7 @@ import AppKit
 
 struct ChiediAMelissa: AppIntent {
     static let title: LocalizedStringResource = "Chiedi a Moony"
-    static let description = IntentDescription("Apre la Bottega e fa una domanda a Moony.")
+    static let description = IntentDescription("Apre Moony IDE e fa una domanda a Moony.")
     static let supportedModes: IntentModes = .background
 
     @Parameter(title: "Domanda", requestValueDialog: "Cosa vuoi chiedere a Moony?")
@@ -36,7 +36,7 @@ struct ChiediAMelissa: AppIntent {
 
 struct AvviaLavoro: AppIntent {
     static let title: LocalizedStringResource = "Avvia un lavoro"
-    static let description = IntentDescription("Prepara un lavoro di Claude su un progetto. La Bottega chiede conferma prima di avviarlo.")
+    static let description = IntentDescription("Prepara un lavoro di Claude su un progetto. Moony IDE chiede conferma prima di avviarlo.")
     static let supportedModes: IntentModes = .background
 
     @Parameter(title: "Progetto", requestValueDialog: "Su quale progetto?")
@@ -59,7 +59,7 @@ struct AvviaLavoro: AppIntent {
 
 struct LeggiBriefing: AppIntent {
     static let title: LocalizedStringResource = "Briefing"
-    static let description = IntentDescription("Il briefing del giorno della Bottega: ore, lavori, store, regole.")
+    static let description = IntentDescription("Il briefing del giorno di Moony IDE: ore, lavori, store, regole.")
     static let supportedModes: IntentModes = .background
 
     @MainActor
@@ -144,10 +144,10 @@ enum BottegaLink {
 
     @MainActor
     static func open(_ via: String, _ query: [String: String]) throws {
-        guard let u = url(via, query) else { throw NucleoError("Indirizzo della Bottega non valido.") }
+        guard let u = url(via, query) else { throw NucleoError("Indirizzo di Moony IDE non valido.") }
         Log.info("apro \(u.absoluteString)")
         guard NSWorkspace.shared.open(u) else {
-            throw NucleoError("Non riesco ad aprire la Bottega: è installata in Applicazioni?")
+            throw NucleoError("Non riesco ad aprire Moony IDE: è installata in Applicazioni?")
         }
     }
 }

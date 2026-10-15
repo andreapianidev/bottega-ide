@@ -686,7 +686,7 @@ test('Continua chiesto da Melissa: apre la Plancia sul progetto e il dialogo; Es
 	const row = t.$$('#righe .row').find(r => r.getAttribute('data-row') === P('Vela'));
 	assert.strictEqual(row.querySelector('.detail').hidden, false);
 	assert.strictEqual(t.$('#continua-velo').hidden, false);
-	assert.strictEqual(t.$('#continua-fonti').textContent, 'Prompt preparato dalla Bottega.');
+	assert.strictEqual(t.$('#continua-fonti').textContent, 'Prompt preparato da Moony IDE.');
 	t.key('Escape', t.$('#continua-testo'));
 	assert.strictEqual(t.$('#continua-velo').hidden, true);
 	assert.strictEqual(t.d.activeElement.getAttribute('data-fk'), `continua:${P('Vela')}`);
@@ -982,7 +982,7 @@ test('Lavori mostra anche le sessioni vive aperte altrove, con le loro azioni', 
 	const vela = t.$('#l-aspetta li.altrove');
 	assert.ok(vela, 'la sessione di Vela aperta nel terminale e\' un lavoro che ti aspetta');
 	assert.match(vela.textContent, /Vela/);
-	assert.match(vela.querySelector('.provenienza').textContent, /fuori dalla Bottega/);
+	assert.match(vela.querySelector('.provenienza').textContent, /fuori da Moony IDE/);
 	assert.match(vela.textContent, /Rivedi il layout/);
 	const btn = label => [...t.$('#l-aspetta li.altrove').querySelectorAll('button')].find(b => b.textContent === label);
 	t.click(btn('Apri il progetto'));

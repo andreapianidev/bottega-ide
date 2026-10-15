@@ -70,7 +70,7 @@ const cwdDi = (t: vscode.Terminal): string | undefined => {
 };
 
 export function registerTerminale(ctx: vscode.ExtensionContext, deps: TerminaleDeps): TerminaleApi {
-	const out = vscode.window.createOutputChannel('Bottega, terminale', { log: true });
+	const out = vscode.window.createOutputChannel('Moony IDE, terminale', { log: true });
 	const cfg = () => vscode.workspace.getConfiguration('bottega.terminale');
 	const nato = Date.now();
 	const nostri = new WeakSet<vscode.Terminal>();
@@ -198,7 +198,7 @@ export function registerTerminale(ctx: vscode.ExtensionContext, deps: TerminaleD
 		// con persistent = false nascevano senza ZDOTDIR, cioe' senza Agnes (3/10/2026: shell partita 0,6 s prima). I file
 		// in ~/.bottega/zsh restano sul disco; se non si possono scrivere, sopra si toglie tutto.
 		ambiente.persistent = true;
-		ambiente.description = 'La Bottega: scrivi in italiano cosa vuoi fare e Agnes propone il comando';
+		ambiente.description = 'Moony IDE: scrivi in italiano cosa vuoi fare e Agnes propone il comando';
 		ambiente.replace('ZDOTDIR', ZDOT);
 		const suo = process.env.ZDOTDIR;
 		if (suo && path.resolve(suo) !== ZDOT && !suo.startsWith(os.tmpdir()) && esiste(path.join(suo, '.zshrc'))) ambiente.replace('BOTTEGA_ZDOTDIR_UTENTE', suo);
@@ -282,7 +282,7 @@ export function registerTerminale(ctx: vscode.ExtensionContext, deps: TerminaleD
 			} catch {}
 			fs.mkdirSync(path.dirname(PROFILO), { recursive: true });
 			fs.writeFileSync(PROFILO, testo);
-			out.info(`profilo Bottega di iTerm2 aggiornato: ${PROFILO}`);
+			out.info(`profilo Moony IDE di iTerm2 aggiornato: ${PROFILO}`);
 		} catch (e: any) {
 			out.warn(`profilo di iTerm2 non scritto: ${e?.message ?? e}`);
 		}
@@ -320,7 +320,7 @@ export function registerTerminale(ctx: vscode.ExtensionContext, deps: TerminaleD
 	 *  Andrea lo sposta altrove, la Bottega non lo riporta indietro. */
 	const prenota = () => {
 		if (!cfg().get<boolean>('barra', true) || fs.existsSync(FATTO)) return;
-		const pid = process.ppid; // l'host delle estensioni e' figlio del processo principale della Bottega
+		const pid = process.ppid; // l'host delle estensioni e' figlio del processo principale di Moony IDE
 		// Cline sposta la sua voce alla stessa chiusura? Allora si aspetta lui (docs/CONTRATTI.md 11 e 12).
 		const cline = vscode.workspace.getConfiguration('bottega.cline').get<boolean>('attivo', true) && !!vscode.extensions.getExtension(CLINE_ID) && !fs.existsSync(CLINE_FATTO);
 		const prenotato = ctx.globalState.get<number>('bottega.terminale.prenotato');
@@ -348,10 +348,10 @@ export function registerTerminale(ctx: vscode.ExtensionContext, deps: TerminaleD
 		attesa.unref();
 		attesaCline = cline;
 		void ctx.globalState.update('bottega.terminale.prenotato', pid);
-		out.info(`il terminale passa nella barra di destra alla prossima chiusura della Bottega (processo ${pid}${cline ? ', dopo Cline' : ''})`);
+		out.info(`il terminale passa nella barra di destra alla prossima chiusura di Moony IDE (processo ${pid}${cline ? ', dopo Cline' : ''})`);
 		if (prenotato === pid) return; // il messaggio e' gia' stato dato
 		void vscode.window
-			.showInformationMessage('Dalla prossima apertura della Bottega il terminale sara\' l\'ultima voce della barra di destra, dopo Moony, Claude Code e Cline.', 'Riavvia adesso')
+			.showInformationMessage('Dalla prossima apertura di Moony IDE il terminale sara\' l\'ultima voce della barra di destra, dopo Moony, Claude Code e Cline.', 'Riavvia adesso')
 			.then(scelta => {
 				if (!scelta) return;
 				const app = path.resolve(vscode.env.appRoot, '..', '..', '..');
@@ -407,12 +407,12 @@ export const STRUMENTI_TERMINALE: Record<string, StrumentoTerminale> = {
 			function: {
 				name: 'terminale_apri',
 				description:
-					'Apre un terminale nella cartella di un progetto (o, senza progetto, nella cartella corrente): nella Bottega, nella voce Terminale della barra di destra, oppure fuori in iTerm2 con esterno true.',
+					'Apre un terminale nella cartella di un progetto (o, senza progetto, nella cartella corrente): in Moony IDE, nella voce Terminale della barra di destra, oppure fuori in iTerm2 con esterno true.',
 				parameters: {
 					type: 'object',
 					properties: {
 						progetto: { type: 'string', description: 'nome del progetto, per esempio Woofmap' },
-						esterno: { type: 'boolean', description: 'true per aprirlo in iTerm2 (o Terminale) invece che nella Bottega' },
+						esterno: { type: 'boolean', description: 'true per aprirlo in iTerm2 (o Terminale) invece che in Moony IDE' },
 					},
 					required: [],
 					additionalProperties: false,
@@ -420,7 +420,7 @@ export const STRUMENTI_TERMINALE: Record<string, StrumentoTerminale> = {
 			},
 		},
 		run: async (a, ctx) => {
-			if (!api) return 'Il terminale della Bottega non e\' pronto.';
+			if (!api) return 'Il terminale di Moony IDE non e\' pronto.';
 			let cartella: string | undefined;
 			let nome = 'la cartella corrente';
 			if (a?.progetto) {

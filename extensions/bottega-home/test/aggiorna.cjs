@@ -179,7 +179,7 @@ function banco(opts = {}) {
 		assert.strictEqual(b.notifiche.length, 1, 'la seconda volta no');
 		fs.writeFileSync(f, JSON.stringify({ stato: 'fatto', tag: '1.141.0', at: 1, build: 40, push: false }));
 		b.a.annunciaEsito();
-		assert.strictEqual(b.notifiche[1].title, 'Bottega su VS Code 1.141.0');
+		assert.strictEqual(b.notifiche[1].title, 'Moony IDE su VS Code 1.141.0');
 		assert.match(b.notifiche[1].body, /build 40/);
 		assert.match(b.notifiche[1].body, /non spinto/);
 	});

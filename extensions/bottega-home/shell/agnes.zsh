@@ -214,7 +214,7 @@ __bottega_accetta() {
 	fi
 	if [[ ! -S $__bottega_sock ]]; then
 		zle -I
-		__bottega_grigio "la Bottega e' chiusa: $__bottega_nome risponde solo con la Bottega aperta"
+		__bottega_grigio "Moony IDE e' chiusa: $__bottega_nome risponde solo con Moony IDE aperta"
 		return
 	fi
 	__bottega_t0=$EPOCHREALTIME
@@ -256,7 +256,7 @@ __bottega_accetta() {
 			'errore '*) errore=${r#errore } ;;
 		esac
 	done
-	(( ok )) || errore="la Bottega non risponde sul terminale"
+	(( ok )) || errore="Moony IDE non risponde sul terminale"
 	print -s -- "$riga"
 	for r in $note; do __bottega_grigio "$r"; done
 	for r in $spiega; do print -r -- "$r"; done

@@ -55,7 +55,7 @@ struct Stato {
     var briefingText: String {
         guard present else { return Self.missing }
         guard let briefing, !briefing.isEmpty else {
-            return "Oggi non c'è ancora un briefing. Lo prepara la Bottega quando la apri."
+            return "Oggi non c'è ancora un briefing. Lo prepara Moony IDE quando la apri."
         }
         if let d = briefingDate, d != Self.today {
             return "Il briefing più recente è del \(Self.human(d)). \(briefing)"
@@ -92,7 +92,7 @@ struct Stato {
         return out
     }
 
-    private static let missing = "La Bottega non ha ancora scritto il suo stato. Aprila una volta e riprova."
+    private static let missing = "Moony IDE non ha ancora scritto il suo stato. Aprila una volta e riprova."
 
     private static var today: String {
         let f = DateFormatter()

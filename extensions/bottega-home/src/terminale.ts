@@ -11,7 +11,7 @@ import { spostaInBarra } from './cline';
 export const TERMINALE_CONTENITORE = 'terminal';
 /** ViewContainerLocation.AuxiliaryBar in VS Code: la barra laterale secondaria, a destra. */
 const BARRA_DESTRA = 2;
-export const PROFILO_ITERM = 'Bottega';
+export const PROFILO_ITERM = 'Moony IDE';
 /** Guid fisso: iTerm2 riconosce lo stesso profilo anche quando il file cambia. */
 export const GUID_ITERM = 'bottega-terminale-andreapiani';
 
@@ -96,7 +96,7 @@ function dopoCline(n) {
 	}
 	setTimeout(() => dopoCline(n + 1), 1000);
 }
-log('aspetto la chiusura della Bottega (processo ' + pid + ')' + (aspetta ? ', poi Cline' : ''));
+log('aspetto la chiusura di Moony IDE (processo ' + pid + ')' + (aspetta ? ', poi Cline' : ''));
 const t = setInterval(() => { if (!vivo()) { clearInterval(t); setTimeout(() => dopoCline(0), 1000); } }, 1000);
 `;
 }
@@ -193,7 +193,7 @@ export function profiloIterm(colori: Record<string, string>, carattere: { famigl
 	const p: Record<string, unknown> = {
 		Name: PROFILO_ITERM,
 		Guid: GUID_ITERM,
-		Tags: ['Bottega'],
+		Tags: ['Moony IDE'],
 		'Normal Font': fontIterm(carattere.famiglia, carattere.dimensione),
 		'Use Non-ASCII Font': false,
 		'Vertical Spacing': typeof carattere.altezzaRiga === 'number' && carattere.altezzaRiga >= 1 ? Math.round(carattere.altezzaRiga * 100) / 100 : 1,
