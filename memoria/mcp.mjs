@@ -151,7 +151,7 @@ async function handle(msg) {
 					capabilities: { tools: { listChanged: false } },
 					serverInfo: { name: 'bottega-memoria', title: 'Memoria della Bottega', version: '1.0.0' },
 					instructions:
-						"Memoria persistente di Claude Code, Codex, Cline, Melissa e terminali integrati di questo Mac. Usa memoria_cerca prima di rifare un lavoro gia' fatto, memoria_ricorda per le decisioni da tenere, memoria_bacheca per sapere cosa fanno le altre sessioni aperte adesso.",
+						"Memoria persistente di Claude Code, Codex, Cline, Moony e terminali integrati di questo Mac. Usa memoria_cerca prima di rifare un lavoro gia' fatto, memoria_ricorda per le decisioni da tenere, memoria_bacheca per sapere cosa fanno le altre sessioni aperte adesso.",
 				};
 				break;
 			case 'ping':

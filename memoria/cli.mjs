@@ -38,7 +38,7 @@ const HELP = `Memoria della Bottega
   sessione <id> [--json]              dettaglio di una sessione
   orari [--json]                       da quando Andrea lavora di fila e le notti recenti
   personaggio <chiave> [--frase <testo>] [--limite N] [--json]
-                                      la memoria di un personaggio di Melissa: ultime battute, ricordi e mestiere
+                                      la memoria di un personaggio di Moony: ultime battute, ricordi e mestiere
   classifica [--tutte] [--limite N] [--json]
                                       categoria delle sessioni riassunte (Apple Intelligence, in fondo)
   categorie [--giorni N] [--json]     sessione -> categoria

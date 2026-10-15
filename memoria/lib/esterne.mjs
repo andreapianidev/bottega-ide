@@ -23,6 +23,8 @@ export function nomePersonaggio(chiave) {
 	const k = chiavePersonaggio(chiave);
 	if (!k) return String(chiave || 'Personaggio');
 	if (k === 'andrea') return 'Andrea';
+	// Melissa si chiama Moony dal 15/10/2026: stesso personaggio, la chiave resta `melissa`
+	if (k === 'melissa') return 'Moony';
 	if (nomi.has(k)) return nomi.get(k);
 	let nome = k.charAt(0).toUpperCase() + k.slice(1);
 	try {
@@ -54,7 +56,7 @@ function ensurePersonaggi(store) {
 export function saveExternal(store, e) {
 	// il mestiere dei personaggi ha la sua tabella, non e' una nota (lib/mestiere.mjs)
 	if (e.source === MESTIERE) return saveMestiere(store, e);
-	const names = { cline: 'Cline', terminale: 'Terminale', melissa: 'Melissa', [PERSONAGGIO]: true };
+	const names = { cline: 'Cline', terminale: 'Terminale', melissa: 'Moony', [PERSONAGGIO]: true };
 	if (!names[e.source] || typeof e.text !== 'string' || !Number.isFinite(e.at) || e.at <= 0 || e.at > Date.now() + 60_000) return 0;
 	const personaggio = e.source === PERSONAGGIO;
 	const chiave = personaggio ? chiavePersonaggio(e.sid) : '';

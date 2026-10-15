@@ -49,7 +49,17 @@ function ensure(store) {
 	store._moony = true;
 }
 
-const norma = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+// Chiave di una frase per riconoscere la stessa battuta salvata da due parti: Avo la manda sia alla VM sia
+// alla Bottega, e le due copie differiscono per tag di voce, punteggiatura o coda tagliata (59 doppioni al
+// primo giro con il confronto esatto). Bastano le prime 50 lettere e cifre.
+const norma = s =>
+	redact(String(s || ''))
+		.toLowerCase()
+		.replace(/\[[^\]]*\]/g, '')
+		.normalize('NFD')
+		.replace(/[̀-ͯ]/g, '')
+		.replace(/[^\p{L}\p{N}]+/gu, '')
+		.slice(0, 50);
 const ms = secondi => Math.round(Number(secondi) * 1000);
 
 /** Fatti e riassunti di Moony diventano memorie cercabili; una per riga della VM, aggiornata se cambia. */
@@ -93,8 +103,8 @@ function riassunto(store, s) {
 /** La Bottega salva gia' da se' le battute dette sul Mac: la stessa frase vicina nel tempo non si ripete. */
 function giaDetta(store, sql, args, at, text) {
 	try {
-		const t = norma(redact(text));
-		return store.all(sql, ...args, at - FINESTRA_MS, at + FINESTRA_MS).some(r => norma(r.text) === t);
+		const t = norma(text);
+		return !!t && store.all(sql, ...args, at - FINESTRA_MS, at + FINESTRA_MS).some(r => norma(r.text) === t);
 	} catch {
 		return false; // tabella dei personaggi non ancora creata
 	}
