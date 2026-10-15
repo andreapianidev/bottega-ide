@@ -800,7 +800,7 @@ function makeAssistant(over = {}) {
 	await test('in conversazione Melissa non risponde alla propria voce (eco)', async () => {
 		let turns = 0;
 		// contano le risposte di Melissa, non le battute di un ospite che lei invita
-		const { a, nucleo } = makeAssistant({ stream: async (m, _t, onDelta) => (m[0].content.startsWith('Sei Melissa') && turns++, onDelta({ content: 'Peak ha tre commit da spingere e la build ferma.' })) });
+		const { a, nucleo } = makeAssistant({ stream: async (m, _t, onDelta) => (m[0].content.startsWith('Sei Moony') && turns++, onDelta({ content: 'Peak ha tre commit da spingere e la build ferma.' })) });
 		a.wire({ subscriptions: [] });
 		nucleo.fire('orb.clicked', {});
 		nucleo.fire('voice.final', { text: 'come sta peak', mode: 'converse' });
@@ -1123,7 +1123,7 @@ function makeAssistant(over = {}) {
 		const giro = scriptedStream([[{ content: 'Ci penso io.' }]]);
 		// le risposte che non valgono
 		const registro = [];
-		for (const [json, atteso] of [['niente JSON qui', null], ['{"passa": "krista"', null], ['{"passa": "tyrell", "chiede": "melissa"}', { passa: null, chiede: [], tutti: false }], ['Ecco: {"passa": "melissa", "chiede": null}', { passa: 'melissa', chiede: [], tutti: false }], ['{"chiede": "elliot"}', { passa: null, chiede: ['elliot'], tutti: false }], ['{"chiede": ["Elliot", "krista", "trenton"], "tutti": "si"}', { passa: null, chiede: ['elliot', 'krista'], tutti: false }]]) {
+		for (const [json, atteso] of [['niente JSON qui', null], ['{"passa": "krista"', null], ['{"passa": "tyrell", "chiede": "melissa"}', { passa: null, chiede: [], tutti: false }], ['Ecco: {"passa": "melissa", "chiede": null}', { passa: 'melissa', chiede: [], tutti: false }], ['{"passa": "Moony"}', { passa: 'melissa', chiede: [], tutti: false }], ['{"chiede": "elliot"}', { passa: null, chiede: ['elliot'], tutti: false }], ['{"chiede": ["Elliot", "krista", "trenton"], "tutti": "si"}', { passa: null, chiede: ['elliot', 'krista'], tutti: false }]]) {
 			const b = makeAssistant({ cervelli: cervelliChiVuole(json) });
 			assert.deepStrictEqual(await b.a.chiVuole('passami qualcuno'), atteso, json);
 		}
@@ -1157,7 +1157,7 @@ function makeAssistant(over = {}) {
 		assert.ok(a.getState().log.some(r => r.text === 'Darlene: Ci penso io, fratellino.'));
 		await a.turn('ridammi Melissa', true);
 		assert.strictEqual(a.getState().personaggio, 'melissa');
-		assert.ok(a.systemPrompt().startsWith('Sei Melissa Alderson'));
+		assert.ok(a.systemPrompt().startsWith('Sei Moony'));
 	});
 
 	await test('personaggi: Melissa da\' la parola a Elliot con passa_parola, Elliot risponde con la sua voce e Melissa chiude', async () => {
@@ -1396,9 +1396,10 @@ function makeAssistant(over = {}) {
 		const { a } = makeAssistant({ nucleo });
 		a.wire(ctxProva());
 		nucleo.fire('available');
+		// una richiesta per voce (build 159: il Nucleo ne prende al piu' 300 frasi per richiesta)
 		const sc = nucleo.reqs.filter(r => r.cmd === 'voice.scalda');
-		assert.strictEqual(sc.length, 1);
-		const voci = sc[0].args.voci;
+		assert.ok(sc.every(r => r.args.voci.length === 1), 'una voce per richiesta');
+		const voci = sc.map(r => r.args.voci[0]);
 		assert.deepStrictEqual(voci.map(v => v.voce), ['', DARLENE, ELLIOT, 'CxyJefqDMJqI9Y7prMgt']);
 		assert.ok(voci.every(v => v.testi.length > 10 && v.testi.every(t => !t.includes('{x}'))), 'l\'eco no');
 		// un Nucleo che non la conosce: niente si rompe, e si riprova al collegamento dopo
@@ -1408,7 +1409,7 @@ function makeAssistant(over = {}) {
 		b.a.wire(ctxProva());
 		await tick();
 		vecchio.fire('available');
-		assert.strictEqual(vecchio.reqs.filter(r => r.cmd === 'voice.scalda').length, 2);
+		assert.strictEqual(vecchio.reqs.filter(r => r.cmd === 'voice.scalda').length, 2 * sc.length);
 	});
 
 	await test('personaggi: la chiusa di Melissa non ha lo strumento: la parola torna ad Andrea', async () => {
@@ -1769,6 +1770,14 @@ function makeAssistant(over = {}) {
 		assert.strictEqual(p.chiChiede('voglio parlare con mr robot'), 'elliot');
 		assert.strictEqual(p.chiChiede('passami il sale'), null);
 		assert.strictEqual(p.chiChiede('ridammi Melissa'), 'melissa');
+		// Moony, il nome nuovo, con le trascrizioni probabili del riconoscimento italiano; Melissa resta valido
+		for (const detto of ['ridammi Moony', 'passami Mooney', 'torna Muni', 'fammi parlare con Mooni', 'Ridammi Muny']) assert.strictEqual(p.chiChiede(detto), 'melissa', detto);
+		assert.strictEqual(p.chiChiede('passami i comuni'), null, 'muni solo come parola intera');
+		assert.strictEqual(p.chiChiede('torna municipio'), null);
+		assert.strictEqual(p.chiedeAltro('Moony, passami Darlene per favore, grazie'), false);
+		assert.strictEqual(p.chiedeAltro('ridammi Moony'), false);
+		assert.strictEqual(p.nomeDi('melissa'), 'Moony');
+		assert.ok(p.cuore(p.PERSONAGGI.elliot, '').includes('ridammi Moony'));
 		// saluto col solo comando, risposta se dopo il nome c'e' altro
 		assert.strictEqual(p.chiedeAltro('Passami Darlene'), false);
 		assert.strictEqual(p.chiedeAltro('Melissa, passami Darlene per favore, grazie'), false);
@@ -1806,7 +1815,7 @@ function makeAssistant(over = {}) {
 		for (const k of p.ORDINE) assert.ok(!p.cuore(p.PERSONAGGI[k], '').includes('\u2014'));
 		assert.strictEqual(p.dallaRiga('Krista: Niente scuse.').chi, 'krista');
 		assert.strictEqual(p.esiste('constructor'), false);
-		assert.strictEqual(p.nomeDi('constructor'), 'Melissa');
+		assert.strictEqual(p.nomeDi('constructor'), 'Moony');
 	});
 
 	await test('personaggi: file con campi facoltativi, espressioni rotte e nomi strani; pubblica toglie i rimossi', async () => {

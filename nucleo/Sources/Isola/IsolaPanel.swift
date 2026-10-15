@@ -128,7 +128,7 @@ final class IsolaPanel {
         p.isReleasedWhenClosed = false
         p.hidesOnDeactivate = false
         p.animationBehavior = .none
-        p.title = "Melissa"
+        p.title = "Moony"
         costruisciSfera()
         let vista = IsolaVista(m: modello, sfera: orbView)
         let host = IsolaHosting(rootView: vista)

@@ -10,11 +10,11 @@
 import AppIntents
 
 struct ChiediAMelissa: AppIntent {
-    static let title: LocalizedStringResource = "Chiedi a Melissa"
-    static let description = IntentDescription("Fai una domanda a Melissa e ascolta la risposta.")
+    static let title: LocalizedStringResource = "Chiedi a Moony"
+    static let description = IntentDescription("Fai una domanda a Moony e ascolta la risposta.")
     static let openAppWhenRun = false
 
-    @Parameter(title: "Domanda", requestValueDialog: IntentDialog("Cosa vuoi chiedere a Melissa?"))
+    @Parameter(title: "Domanda", requestValueDialog: IntentDialog("Cosa vuoi chiedere a Moony?"))
     var domanda: String
 
     @MainActor
@@ -86,8 +86,9 @@ struct ChiMiAspetta: AppIntent {
 struct ScorciatoieBottega: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: ChiediAMelissa(),
-                    phrases: ["Chiedi a Melissa su \(.applicationName)", "Parla con Melissa su \(.applicationName)"],
-                    shortTitle: "Chiedi a Melissa", systemImageName: "sparkles")
+                    phrases: ["Chiedi a Moony su \(.applicationName)", "Parla con Moony su \(.applicationName)",
+                              "Chiedi a Melissa su \(.applicationName)"],
+                    shortTitle: "Chiedi a Moony", systemImageName: "sparkles")
         AppShortcut(intent: ChiMiAspetta(),
                     phrases: ["Chi mi aspetta su \(.applicationName)", "Cosa mi aspetta su \(.applicationName)"],
                     shortTitle: "Chi mi aspetta", systemImageName: "hourglass")

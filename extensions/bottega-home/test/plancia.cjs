@@ -241,7 +241,7 @@ test('stanze su una riga: quelle che non ci stanno vanno in «Altro», la stanza
 	const fuori = () => t.$$('.tabs button.fuori').map(b => b.dataset.view);
 	assert.deepStrictEqual(fuori(), ['melissa', 'cruscotto', 'vedetta', 'appstore', 'clienti', 'connettori', 'regia', 'vercel'], 'tre schede nella riga, le altre in «Altro»');
 	assert.strictEqual(t.$('#altro').hidden, false);
-	assert.match(t.$('#altro').title, /Melissa, Cruscotto, Vedetta, App Store, Clienti, Connettori, Regia, Vercel/);
+	assert.match(t.$('#altro').title, /Moony, Cruscotto, Vedetta, App Store, Clienti, Connettori, Regia, Vercel/);
 	// apre il pannello e sceglie Connettori: entra nella riga al posto dell'ultima
 	t.click(t.$('#altro'));
 	assert.strictEqual(t.$('#altro').getAttribute('aria-expanded'), 'true');
@@ -273,7 +273,7 @@ test('undici schede, con i tasti da 1 a 9 invariati', () => {
 	const tabs = t.$$('[role="tab"]');
 	assert.deepStrictEqual(
 		tabs.map(x => x.querySelector('span:not(.segnale)').textContent),
-		['Plancia', 'Lavori', 'Memoria', 'Melissa', 'Cruscotto', 'Vedetta', 'App Store', 'Clienti', 'Connettori', 'Regia', 'Vercel'],
+		['Plancia', 'Lavori', 'Memoria', 'Moony', 'Cruscotto', 'Vedetta', 'App Store', 'Clienti', 'Connettori', 'Regia', 'Vercel'],
 	);
 	assert.match(tabs[5].getAttribute('title'), /tasto 6/);
 	const ids = ['plancia', 'lavori', 'memoria', 'melissa', 'cruscotto', 'vedetta', 'appstore', 'clienti', 'connettori'];

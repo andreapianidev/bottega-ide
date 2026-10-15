@@ -170,10 +170,10 @@ private struct PlanciaWatch: View {
 
     private func statoMelissa(_ stato: String) -> LocalizedStringKey {
         switch stato {
-        case "thinking": "Melissa sta pensando"
-        case "speaking": "Melissa sta parlando"
-        case "listening": "Melissa ascolta"
-        default: "Melissa pronta"
+        case "thinking": "Moony sta pensando"
+        case "speaking": "Moony sta parlando"
+        case "listening": "Moony ascolta"
+        default: "Moony pronta"
         }
     }
 

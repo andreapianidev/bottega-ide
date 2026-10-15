@@ -606,7 +606,8 @@ export const QUEUE_MAX_FAIL_MS = 3 * 86_400_000; // un weekend di credito finito
 /** Pura: l'elemento in coda (`tries` fallimenti passeggeri, il primo a `firstFailAt`) va abbandonato? */
 export function giveUpTransient(item, now = Date.now()) {
 	const tries = Number(item?.tries) || 0;
-	const first = Number(item?.firstFailAt);
+	// null o mancante = data del primo fallimento sconosciuta: mai letta come 1970, che farebbe abbandonare subito l'elemento
+	const first = item?.firstFailAt == null ? NaN : Number(item.firstFailAt);
 	return tries >= QUEUE_MAX_TRIES && Number.isFinite(first) && now - first >= QUEUE_MAX_FAIL_MS;
 }
 

@@ -249,7 +249,7 @@ export class Avvisi {
 		if (conferma) {
 			conferma.avvisata = true;
 			const vivo = await manda(
-				{ aps: { alert: { title: 'Melissa', body: pulisci(conferma.testo, 160) }, sound: 'default', category: 'CONFERMA', 'interruption-level': 'time-sensitive' }, conferma: conferma.id },
+				{ aps: { alert: { title: 'Moony', body: pulisci(conferma.testo, 160) }, sound: 'default', category: 'CONFERMA', 'interruption-level': 'time-sensitive' }, conferma: conferma.id },
 				now + 10 * 60_000,
 				() => (conferma.avvisata = false),
 			);

@@ -38,7 +38,7 @@ si compila vale come vuota, con un avviso. Senza `riempitivi`, o con un gruppo v
 inglesi, senza virgole (`["playful", "snappy", "laughs"]`). Il modello puo' metterne nelle battute, e una guardia tiene
 solo questi (docs/CONTRATTI.md, 9.11, «Tag di voce»). Senza, il personaggio parla senza tag.
 
-`melissa.json` non e' un personaggio: e' il file di Melissa, con `chiave: "melissa"`, i suoi `riempitivi`, i suoi `toni`
+`melissa.json` non e' un personaggio: e' il file di Moony (fino al 15 ottobre 2026 Melissa), con `chiave: "melissa"`, `nome: "Moony"`, i suoi `riempitivi`, i suoi `toni`
 e la regola dei tag comune a tutti: `regola_toni` (la frase del prompt, con `{toni}` al posto dei tag di chi parla) e
 `toni_massimo` (quanti tag tiene al piu' una battuta), e `ritorni`: le frasi di Melissa quando riprende la chiamata,
 con `{nome}` di chi gliela ripassa, senza accordi di genere («Rieccomi. Com'e' andata con {nome}?»). La leggono la

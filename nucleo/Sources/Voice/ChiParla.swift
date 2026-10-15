@@ -15,7 +15,7 @@
 import Foundation
 
 enum ChiParla {
-    static let melissa = "Melissa"
+    static let melissa = "Moony"
 
     private static let lock = NSLock()
     nonisolated(unsafe) private static var mappa: [String: String] = [:]
@@ -45,7 +45,7 @@ enum ChiParla {
     /// name not in the files.
     static func aspetto(nome: String) -> SferaAspetto {
         let n = nome.trimmingCharacters(in: .whitespaces)
-        guard !n.isEmpty, n != melissa else { return .melissa }
+        guard !n.isEmpty, n != melissa, n != "Melissa" else { return .melissa }
         lock.lock(); defer { lock.unlock() }
         rileggi()
         return aspetti[n] ?? .melissa

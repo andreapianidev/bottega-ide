@@ -30,7 +30,7 @@ struct CervelloTelefonoFoglio: View {
                         }
                     }
                 } header: {
-                    Text("Cervello di Melissa")
+                    Text("Cervello di Moony")
                 } footer: {
                     Text("Risponde direttamente dall'iPhone. La scelta e la conversazione si sincronizzano con il Mac quando e' collegato.")
                 }
@@ -43,7 +43,7 @@ struct CervelloTelefonoFoglio: View {
                     Section { Text("Accendi il Mac una volta per importare le chiavi nelle Impostazioni.") }
                 }
             }
-            .navigationTitle("Il cervello di Melissa")
+            .navigationTitle("Il cervello di Moony")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fatto") { chiudi() } } }
             .onChange(of: telefono.provider) { _, _ in
                 Task { await telefono.sincronizzaScelta(con: Ponte.shared) }
@@ -76,7 +76,7 @@ struct CervelloNome: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Cervello di Melissa: \(s.nome)")
+            .accessibilityLabel("Cervello di Moony: \(s.nome)")
             .accessibilityHint("Tocca per cambiarlo")
         }
     }
@@ -100,7 +100,7 @@ struct CervelloFoglio: View {
                            scegli: { p in Task { await manda(provider: p, sempre: sempre) } },
                            cambiaDurata: cambiaDurata,
                            impegno: { i in Task { await manda(impegno: i) } })
-                .navigationTitle("Il cervello di Melissa")
+                .navigationTitle("Il cervello di Moony")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) { Button("Fatto") { chiudi() } }
@@ -174,7 +174,7 @@ struct CervelloModulo: View {
                     Label("Serve il Mac acceso", systemImage: "desktopcomputer")
                         .foregroundStyle(Tinte.tinta)
                 } footer: {
-                    Text("Il cervello lo sceglie Melissa sul Mac: accendilo, con la Bottega aperta e Tailscale attivo.")
+                    Text("Il cervello lo sceglie Moony sul Mac: accendilo, con la Bottega aperta e Tailscale attivo.")
                 }
             }
             Section {
@@ -201,7 +201,7 @@ struct CervelloModulo: View {
             } header: {
                 Text("Vale")
             } footer: {
-                Text("Per questa conversazione: chiusa la conversazione, o dopo 15 minuti senza domande, Melissa torna \(CervelliMac.ritorno(dati?.predefinito ?? "agnes")). Sempre: resta finché non ne scegli un altro.")
+                Text("Per questa conversazione: chiusa la conversazione, o dopo 15 minuti senza domande, Moony torna \(CervelliMac.ritorno(dati?.predefinito ?? "agnes")). Sempre: resta finché non ne scegli un altro.")
             }
             Section {
                 Picker("Impegno", selection: Binding(get: { dati?.impegno ?? "normale" }, set: { impegno($0) })) {

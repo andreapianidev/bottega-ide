@@ -14,7 +14,7 @@ struct RaccontoView: View {
                     riassunto.avvia(titolo: titolo, contesto: contesto())
                 } else { riassunto.ferma() }
             } label: {
-                Label(riassunto.stato == .fermo ? "Racconta con Melissa" : "Ferma Melissa",
+                Label(riassunto.stato == .fermo ? "Racconta con Moony" : "Ferma Moony",
                       systemImage: riassunto.stato == .fermo ? "waveform" : "stop.fill")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Tinte.ambra)

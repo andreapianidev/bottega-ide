@@ -43,7 +43,7 @@ export function splitSummary(text: string): { story: string; todo: string[]; fil
 
 /** Una risposta osservata puo' contenere un esito; una richiesta non e' un lavoro concluso. */
 export function isSessionOutcome(m: MemoryItem): boolean {
-	return m.kind === 'riassunto' || (m.kind === 'nota' && /^(?:Codex|Cline|Melissa) · (?:Risposta|Esito):/.test(m.title));
+	return m.kind === 'riassunto' || (m.kind === 'nota' && /^(?:Codex|Cline|Melissa|Moony) · (?:Risposta|Esito):/.test(m.title));
 }
 
 export async function prepareContinuation(project: { name: string; path: string }, src: ContinuaSource, now = Date.now()): Promise<Continuation> {
@@ -64,7 +64,7 @@ export async function prepareContinuation(project: { name: string; path: string 
 		}
 		if (s.files.length) out.push('', `File toccati l'ultima volta: ${s.files.slice(0, 12).join(', ')}.`);
 	}
-	const dec = decisions.filter(d => !isSessionOutcome(d) && !/^(?:Codex|Cline|Melissa|Terminale) ·/.test(d.title) && d.text && (!last || d.createdAt >= last.createdAt - 30 * DAY)).slice(0, 5);
+	const dec = decisions.filter(d => !isSessionOutcome(d) && !/^(?:Codex|Cline|Melissa|Moony|Terminale) ·/.test(d.title) && d.text && (!last || d.createdAt >= last.createdAt - 30 * DAY)).slice(0, 5);
 	if (dec.length) {
 		sources.push(dec.length === 1 ? 'una decisione recente' : `${dec.length} decisioni e note recenti`);
 		out.push('', 'Decisioni e note da verificare:', ...dec.map(d => `- ${d.text.split('\n')[0].slice(0, 240)}`));

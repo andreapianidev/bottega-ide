@@ -853,11 +853,11 @@ export function apriSportello(o: SportelloOpzioni): Sportello {
 		const t0 = ora();
 		try {
 			const testo = String(await o.melissa!(domanda)).trim();
-			log(`Melissa ha risposto in ${((ora() - t0) / 1000).toFixed(1)} s`);
+			log(`Moony ha risposto in ${((ora() - t0) / 1000).toFixed(1)} s`);
 			const righe = testo.split(/\n+/).map(x => x.trim()).filter(Boolean).slice(0, 30);
-			return { esito: 'ok', note: ['risponde Melissa'], risposta: righe.length ? righe : ['Melissa non ha risposto niente.'] };
+			return { esito: 'ok', note: ['risponde Moony'], risposta: righe.length ? righe : ['Moony non ha risposto niente.'] };
 		} catch (e: any) {
-			return { esito: 'errore', errore: `Melissa non risponde: ${String(e?.message ?? e).split('\n')[0].slice(0, 120)}` };
+			return { esito: 'errore', errore: `Moony non risponde: ${String(e?.message ?? e).split('\n')[0].slice(0, 120)}` };
 		}
 	};
 
@@ -913,7 +913,7 @@ export function apriSportello(o: SportelloOpzioni): Sportello {
 				const p = leggiProposta(testo);
 				// una domanda, non un comando: risponde Melissa con i suoi strumenti
 				if (tipo === 'comando' && o.melissa && (/^\s*MELISSA\b/.test(testo.trim()) || (!p.comando && p.spiega.length))) {
-					log(`domanda da ${cartella}: ${NOMI[cerv]} la passa a Melissa`);
+					log(`domanda da ${cartella}: ${NOMI[cerv]} la passa a Moony`);
 					return await chiediAMelissa(richiesta);
 				}
 				if (!p.comando && !p.spiega.length) {

@@ -29,7 +29,7 @@ struct BenvenutoView: View {
                         Text("La Bottega in tasca")
                             .font(.largeTitle.weight(.semibold))
                             .foregroundStyle(Tinte.testo)
-                        Text("Melissa e i lavori del tuo Mac, da dove vuoi.")
+                        Text("Moony e i lavori del tuo Mac, da dove vuoi.")
                             .font(.body)
                             .foregroundStyle(Tinte.tinta)
                     }

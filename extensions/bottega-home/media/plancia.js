@@ -18,7 +18,7 @@
 		['plancia', 'Plancia'],
 		['lavori', 'Lavori'],
 		['memoria', 'Memoria'],
-		['melissa', 'Melissa'],
+		['melissa', 'Moony'],
 		['cruscotto', 'Cruscotto'],
 		['vedetta', 'Vedetta'],
 		['appstore', 'App Store'],
@@ -605,11 +605,11 @@
 			<div class="notte" id="notte">
 				<canvas id="sfera" aria-hidden="true"></canvas>
 				<div class="notte-testo">
-					<h1 class="stato-melissa" id="melissa-stato">Melissa</h1>
+					<h1 class="stato-melissa" id="melissa-stato">Moony</h1>
 					<p class="conversa" id="conversa" hidden><i class="pallino" aria-hidden="true"></i>In conversazione <button type="button" class="chiudi-conversa" data-act="voice-end" data-fk="voice-end">Chiudi</button></p>
 					<p class="parziale" id="parziale" aria-live="polite"></p>
 					<p class="cervello" id="cervello"></p>
-					<p class="senza-nucleo" id="senza-nucleo" hidden>La voce passa dal Nucleo, l'app nativa della Bottega che ascolta, parla e accende la sfera. Adesso non risulta avviato, quindi Melissa non sente e non parla. Puoi comunque scriverle qui accanto.</p>
+					<p class="senza-nucleo" id="senza-nucleo" hidden>La voce passa dal Nucleo, l'app nativa della Bottega che ascolta, parla e accende la sfera. Adesso non risulta avviato, quindi Moony non sente e non parla. Puoi comunque scriverle qui accanto.</p>
 				</div>
 			</div>
 			<div class="melissa-corpo">
@@ -617,11 +617,11 @@
 					<button type="button" role="switch" class="interruttore" id="voce" aria-checked="false" data-fk="voce"><span class="binario" aria-hidden="true"><i></i></span><span>Ascolto a voce</span></button>
 					<p class="suggerimento" id="suggerimento">Tocca <kbd>Opzione</kbd> e <kbd>Spazio</kbd> per parlare liberamente, tieni premuto per un solo comando. Funziona ovunque sul Mac.</p>
 				</div>
-				<ol class="registro" id="registro" aria-label="Conversazione con Melissa"></ol>
+				<ol class="registro" id="registro" aria-label="Conversazione con Moony"></ol>
 				<p class="invito" id="registro-vuoto" hidden>Ancora nessuna conversazione. Tieni premuto Opzione e Spazio e parla, oppure scrivile qui sotto.</p>
 				<form class="chiedi" id="chiedi" autocomplete="off">
-					<label class="sr" for="domanda">Scrivi a Melissa</label>
-					<textarea id="domanda" rows="2" placeholder="Scrivi a Melissa, per esempio: quali progetti aspettano un push?"></textarea>
+					<label class="sr" for="domanda">Scrivi a Moony</label>
+					<textarea id="domanda" rows="2" placeholder="Scrivi a Moony, per esempio: quali progetti aspettano un push?"></textarea>
 					<button type="submit" class="act main">Chiedi</button>
 				</form>
 			</div>
@@ -2107,14 +2107,14 @@
 				: `Gli ultimi ${c === 1 ? 'ricordo' : `${n(c)} ricordi`}${where}.`;
 		}
 		setHTML($('frase-memoria'), head);
-		$('mem-aggiornamento').textContent = m.error || (m.checkedAt ? `Controllata alle ${new Date(m.checkedAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}. Claude Code, Codex, Cline, Melissa e terminali integrati; gli orari sotto sono quelli originali.` : '');
+		$('mem-aggiornamento').textContent = m.error || (m.checkedAt ? `Controllata alle ${new Date(m.checkedAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}. Claude Code, Codex, Cline, Moony e terminali integrati; gli orari sotto sono quelli originali.` : '');
 
 		const box = $('mem-risultati');
 		box.classList.toggle('in-attesa', m.waiting);
 		if (m.results === null) {
 			setHTML(
 				box,
-				`<p class="invito">La memoria raccoglie riassunti, decisioni e fatti di Claude Code, conversazioni Codex e Cline, scambi con Melissa ed esiti dei terminali integrati. Cerca una parola qui sopra, o scrivi accanto una cosa da ricordare.</p>`,
+				`<p class="invito">La memoria raccoglie riassunti, decisioni e fatti di Claude Code, conversazioni Codex e Cline, scambi con Moony ed esiti dei terminali integrati. Cerca una parola qui sopra, o scrivi accanto una cosa da ricordare.</p>`,
 			);
 		} else if (!m.results.length) {
 			setHTML(
@@ -2427,11 +2427,11 @@
 	// ---------- Melissa ----------
 
 	const VOICE_SENTENCE = {
-		idle: 'Melissa aspetta che la chiami.',
-		listening: 'Melissa ti ascolta.',
-		thinking: 'Melissa ci pensa.',
-		speaking: 'Melissa risponde.',
-		error: 'Melissa non è riuscita a rispondere.',
+		idle: 'Moony aspetta che la chiami.',
+		listening: 'Moony ti ascolta.',
+		thinking: 'Moony ci pensa.',
+		speaking: 'Moony risponde.',
+		error: 'Moony non è riuscita a rispondere.',
 	};
 	const BRAIN = {
 		agnes: 'Pensa con Agnes.',
@@ -2439,7 +2439,7 @@
 		apple: 'Pensa con Apple Intelligence, qui sul Mac.',
 		nessuno: 'Nessun cervello collegato: serve la chiave Agnes o Apple Intelligence attiva.',
 	};
-	const WHO = { tu: 'Tu', melissa: 'Melissa', azione: 'Fatto' };
+	const WHO = { tu: 'Tu', melissa: 'Moony', azione: 'Fatto' };
 
 	function renderMelissa() {
 		const a = assistant();
@@ -2454,10 +2454,10 @@
 		$('senza-nucleo').hidden = nucleo;
 
 		let line;
-		if (!state.snapshot) line = 'Melissa';
-		else if (!nucleo) line = 'Melissa non sente: manca il Nucleo.';
+		if (!state.snapshot) line = 'Moony';
+		else if (!nucleo) line = 'Moony non sente: manca il Nucleo.';
 		else if (!enabled) line = 'Voce spenta. Puoi scriverle.';
-		else if (a && a.conversing && st === 'idle') line = 'Melissa ti ascolta.';
+		else if (a && a.conversing && st === 'idle') line = 'Moony ti ascolta.';
 		else line = VOICE_SENTENCE[st] || VOICE_SENTENCE.idle;
 		$('melissa-stato').textContent = line;
 		const conversing = !!(a && a.conversing && nucleo);
@@ -2507,10 +2507,11 @@
 	// (onFail, che arriva dopo) si usa il Canvas 2D qui sotto, su un canvas nuovo.
 	const makeOrb2D = () => (() => {
 		const LIN = {
-			idle: [0.26, 0.74, 1.0],
-			listening: [0.16, 0.86, 0.86],
-			thinking: [0.6, 0.38, 0.98],
-			speaking: [0.42, 0.88, 0.52],
+			// la luna di Moony: argento, niente blu (uguale a lunaTavolozza in motore/sfera-gpu.js e al Nucleo)
+			idle: [0.74, 0.75, 0.78],
+			listening: [0.70, 0.74, 0.80],
+			thinking: [0.76, 0.73, 0.82],
+			speaking: [0.86, 0.80, 0.70],
 			error: [0.905, 0.402, 0.045], // il sodio della palette, #f4ab3c, in lineare
 		};
 		const GREY = [0.16, 0.18, 0.24];
@@ -2608,6 +2609,10 @@
 			ctx.fillStyle = g;
 			ctx.fillRect(0, 0, S, S);
 
+			// Moony: la luna sopra il corpo, quanto manca ai pesi delle forme dei personaggi
+			const luna = mol ? Math.max(0, 1 - mol.pesi[0] - mol.pesi[1] - mol.pesi[2]) : 1;
+			if (A && A.luna2D) A.luna2D(ctx, c, c, Rc, luna * (1 - dim * 0.5), performance.now() / 1000, level, C, mol ? mol.luna : null);
+
 			// plasma: cinque correnti che girano piano e si sommano
 			ctx.globalCompositeOperation = 'lighter';
 			for (let i = 0; i < 5; i++) {
@@ -2618,7 +2623,7 @@
 				const br = Rc * (0.5 + 0.16 * Math.sin(phase * 1.1 + i * 2));
 				const hue = i % 2 ? C : mixC(C, [1, 1, 1], 0.3);
 				g = ctx.createRadialGradient(x, y, 0, x, y, br);
-				g.addColorStop(0, rgba(hue, 0.1 + 0.42 * E));
+				g.addColorStop(0, rgba(hue, (0.1 + 0.42 * E) * (1 - 0.8 * luna)));
 				g.addColorStop(1, rgba(hue, 0));
 				ctx.fillStyle = g;
 				ctx.fillRect(0, 0, S, S);
@@ -2629,8 +2634,8 @@
 			const cy = c + Math.cos(phase * 0.7) * Rc * 0.05;
 			const cr = Rc * (0.38 + 0.2 * pulse);
 			g = ctx.createRadialGradient(cx, cy, 0, cx, cy, cr);
-			g.addColorStop(0, `rgba(255,255,255,${(0.55 + 0.4 * (1 - dim)).toFixed(3)})`);
-			g.addColorStop(0.35, rgba(mixC(C, [1, 1, 1], 0.55), 0.6));
+			g.addColorStop(0, `rgba(255,255,255,${((0.55 + 0.4 * (1 - dim)) * (1 - 0.85 * luna)).toFixed(3)})`);
+			g.addColorStop(0.35, rgba(mixC(C, [1, 1, 1], 0.55), 0.6 * (1 - 0.85 * luna)));
 			g.addColorStop(1, rgba(C, 0));
 			ctx.fillStyle = g;
 			ctx.fillRect(0, 0, S, S);
@@ -2639,7 +2644,7 @@
 			ctx.globalCompositeOperation = 'source-over';
 			g = ctx.createRadialGradient(c, c, Rc * 0.6, c, c, Rc);
 			g.addColorStop(0, 'rgba(3,6,16,0)');
-			g.addColorStop(1, 'rgba(3,6,16,0.62)');
+			g.addColorStop(1, `rgba(3,6,16,${(0.62 * (1 - 0.7 * luna)).toFixed(3)})`); // la luna non scurisce al bordo
 			ctx.fillStyle = g;
 			ctx.fillRect(0, 0, S, S);
 			ctx.globalCompositeOperation = 'lighter';
@@ -2666,8 +2671,12 @@
 			return mixC(base, scale(mol.colore, A.luce(mol.agit)), mol.tinta);
 		}
 
+		/** lo stato in numero, come la sfera WebGPU: per l'umore della luna di Moony nel ripiego 2D */
+		function numStato(t) {
+			return t === 'listening' ? 1 : t === 'thinking' ? 2 : t === 'speaking' ? 3 : t === 'error' ? 4 : 0;
+		}
 		function step(dt) {
-			if (mol) mol.passo(dt);
+			if (mol) mol.passo(dt, numStato(target));
 			const want = voluto();
 			const m = MOTO[target] || MOTO.idle;
 			const k = 1 - Math.exp(-dt * 4);
@@ -2697,7 +2706,7 @@
 		}
 
 		function snapTo() {
-			if (mol) mol.salta();
+			if (mol) mol.salta(numStato(target));
 			col = voluto().slice();
 			const m = MOTO[target] || MOTO.idle;
 			e = m.e;
@@ -3100,7 +3109,7 @@
 				state.briefOpen = !state.briefOpen;
 				return renderBriefing();
 			case 'briefing.listen':
-				announce('Melissa legge il briefing.');
+				announce('Moony legge il briefing.');
 				return vscode.postMessage({ type: act });
 			case 'briefing.make':
 			case 'briefing.dismiss':

@@ -17,8 +17,8 @@ import AppIntents
 import Foundation
 
 struct ParlaConMelissa: AppIntent {
-    static let title: LocalizedStringResource = "Parla con Melissa"
-    static let description = IntentDescription("Apre la Bottega e accende la conversazione con Melissa.")
+    static let title: LocalizedStringResource = "Parla con Moony"
+    static let description = IntentDescription("Apre la Bottega e accende la conversazione con Moony.")
     static let supportedModes: IntentModes = .background
     static let allowedExecutionTargets: IntentExecutionTargets = .main
 

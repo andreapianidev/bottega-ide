@@ -207,7 +207,7 @@ replace('src/vs/workbench/browser/parts/dialogs/dialog.ts',
 p = 'src/vs/workbench/browser/parts/globalCompositeBar.ts'
 replace(p,
         "private readonly accountAction = this._register(new Action(ACCOUNTS_ACTIVITY_ID));",
-        "private readonly accountAction = this._register(new Action(ACCOUNTS_ACTIVITY_ID));\n\tprivate readonly melissaAction = this._register(new Action('bottega.melissa', localize('bottegaMelissa', \"Parla con Melissa\"), 'bottega-melissa-action', true, async () => {\n\t\tawait this.commandService.executeCommand('bottega.barra.apri');\n\t\tawait this.commandService.executeCommand('bottega.voice.converse');\n\t}));")
+        "private readonly accountAction = this._register(new Action(ACCOUNTS_ACTIVITY_ID));\n\tprivate readonly melissaAction = this._register(new Action('bottega.melissa', localize('bottegaMelissa', \"Parla con Moony\"), 'bottega-melissa-action', true, async () => {\n\t\tawait this.commandService.executeCommand('bottega.barra.apri');\n\t\tawait this.commandService.executeCommand('bottega.voice.converse');\n\t}));")
 replace(p,
         "@IExtensionService private readonly extensionService: IExtensionService,",
         "@IExtensionService private readonly extensionService: IExtensionService,\n\t\t@ICommandService private readonly commandService: ICommandService,")

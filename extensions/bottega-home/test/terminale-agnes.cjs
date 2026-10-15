@@ -541,7 +541,7 @@ function terminale(passi, env) {
 		tempo += 5000;
 		const r3 = await chiedi({ azione: 'proponi', tipo: 'comando', cartella: progetto, richiesta: 'domanda rotta' });
 		assert.strictEqual(r3.esito, 'errore');
-		assert.ok(/Melissa non risponde/.test(r3.errore));
+		assert.ok(/Moony non risponde/.test(r3.errore));
 		tempo += 5000;
 		risposte = { deepseek: 'ls -la' };
 		const r4 = await chiedi({ azione: 'proponi', tipo: 'comando', cartella: progetto, richiesta: 'elenca i file' });

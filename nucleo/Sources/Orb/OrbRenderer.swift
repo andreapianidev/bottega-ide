@@ -30,6 +30,10 @@ struct OrbUniforms {
     var p6: SIMD4<Float>
     var p7: SIMD4<Float>
     var p8: SIMD4<Float>
+    /// Moony's moon (Avo's p7 and p8): (phase, eclipse, harvest, halo ring) of the mood, and
+    /// (Reduce motion 0/1, listening, thinking, speaking) eased.
+    var p9: SIMD4<Float>
+    var p10: SIMD4<Float>
 }
 
 private struct ParticleUniforms {
@@ -91,6 +95,10 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
     private let pixelFormat: MTLPixelFormat
     private var noiseTexture: MTLTexture
     private var noiseIsRich = false
+    /// The moon's noise (MoonyNoise, as in Avo): bound instead of the rich one while the moon shows.
+    private var moonyNoiseTexture: MTLTexture?
+    /// Listening, thinking, speaking for the moon, eased: its light turns in about a second, it never jumps.
+    private var lunaStati = SIMD3<Float>(repeating: 0)
     private let noiseSampler: MTLSamplerState
 
     private let particlePipeline: MTLRenderPipelineState?
@@ -142,7 +150,20 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
     /// The spring has somewhere to go: the shape, tint or agitation of who speaks differ from
     /// what the last frame showed. The panel keeps drawing while this is true, even at rest.
     var inTransito: Bool {
-        !molla.ferma(verso: OrbAspetto.aspetto, agitazione: OrbAspetto.agitazione)
+        !molla.ferma(verso: OrbAspetto.aspetto, agitazione: OrbAspetto.agitazione) || !lunaFerma
+    }
+
+    /// Where Moony's moon wants to go now: the mood's moon and the one-hot voice state.
+    private var lunaVuole: (umore: SIMD4<Float>, stati: SIMD3<Float>) {
+        (UmoreLuna.perStato(state, parlato: OrbAspetto.umoreParlato).luna,
+         SIMD3(state == 1 ? 1 : 0, state == 2 ? 1 : 0, state == 3 ? 1 : 0))
+    }
+
+    /// The moon has arrived (mood and voice states): a view drawing only on change may stop.
+    private var lunaFerma: Bool {
+        let v = lunaVuole
+        let a = abs(molla.luna - v.umore), b = abs(lunaStati - v.stati)
+        return a.x + a.y + a.z + a.w < 0.004 && b.x + b.y + b.z < 0.004
     }
 
     init?(device: MTLDevice, library lib: MTLLibrary, pixelFormat: MTLPixelFormat) {
@@ -304,9 +325,15 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
         // first frame they are there at once
         molla.passo(dt: dt, verso: OrbAspetto.aspetto, agitazione: OrbAspetto.agitazione,
                     salta: primo || MetalEngine.shared.reduceMotion)
+        // Moony's moon: the mood changes her face in a few seconds, the voice state turns her light in about one
+        // (Avo: OrbIdentita k = dt * 0.8, VoiceOrbRenderer k = dt * 1.6); with Reduce motion they are there at once
+        let lv = lunaVuole
+        molla.passoLuna(dt: dt, verso: lv.umore, salta: primo || MetalEngine.shared.reduceMotion)
+        lunaStati = primo || MetalEngine.shared.reduceMotion ? lv.stati : lunaStati + (lv.stati - lunaStati) * min(1, dt * 1.6)
+        do { let d = abs(lunaStati - lv.stati); if d.x + d.y + d.z < 0.004 { lunaStati = lv.stati } }
         // Arrived: tell the panel once, after this frame, so a view drawing only for the
         // transition goes back to still (at rest the docked orb must cost 0% CPU).
-        let ancoraInMoto = !molla.ferma(verso: OrbAspetto.aspetto, agitazione: OrbAspetto.agitazione)
+        let ancoraInMoto = !molla.ferma(verso: OrbAspetto.aspetto, agitazione: OrbAspetto.agitazione) || !lunaFerma
         if mollaInMoto && !ancoraInMoto, let cb = onFermo {
             DispatchQueue.main.async { MainActor.assumeIsolated { cb() } }
         }
@@ -356,7 +383,9 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
             spectrum: (vec(0), vec(1), vec(2), vec(3)),
             p6: SIMD4(molla.pesi.x, molla.pesi.y, molla.pesi.z, molla.tinta),
             p7: SIMD4(molla.colore.x, molla.colore.y, molla.colore.z, molla.agit),
-            p8: SIMD4(0, Umore.luce(molla.agit), 0, 0))
+            p8: SIMD4(0, Umore.luce(molla.agit), 0, 0),
+            p9: molla.luna,
+            p10: SIMD4(MetalEngine.shared.reduceMotion ? 1 : 0, lunaStati.x, lunaStati.y, lunaStati.z))
         let lc = molla.colore * Umore.luce(molla.agit)
         var pu = ParticleUniforms(q0: SIMD4(dt, tSec, Float(state), loud),
                                   q1: SIMD4(1, Float(Self.particleCount), pulse, 0),
@@ -372,7 +401,11 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
             ce.endEncoding()
         }
 
-        let noise = noiseTexture
+        // Moony's moon uses the noise of Avo's approved preview (MoonyNoise), the others the rich one; the switch is
+        // half way through the ~0.4 s morph, when the other's figure already covers the moon (as in Avo)
+        let lunaW = max(0, min(1, 1 - (molla.pesi.x + molla.pesi.y + molla.pesi.z)))
+        if lunaW >= 0.5, moonyNoiseTexture == nil { moonyNoiseTexture = MoonyNoise.makeTexture(device: device) }
+        let noise = lunaW >= 0.5 ? (moonyNoiseTexture ?? noiseTexture) : noiseTexture
         func renderOrb(_ enc: MTLRenderCommandEncoder) {
             enc.setRenderPipelineState(pipeline)
             enc.setFragmentBytes(&u, length: MemoryLayout<OrbUniforms>.stride, index: 0)
@@ -443,6 +476,11 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
 
             if let e = cmd.makeRenderCommandEncoder(descriptor: rpd) {
                 var cu = bu
+                // Moony's moon (no shape weight on), as in Avo: a silver streak instead of blue, with Avo's gain, and a
+                // softer glow, so the halo while speaking stays the approved one and does not cover the craters
+                cu.b1.w = lunaW
+                cu.b1.y *= 1 - 0.55 * lunaW
+                cu.b1.z += (0.55 - cu.b1.z) * lunaW
                 e.setRenderPipelineState(comp)
                 e.setFragmentTexture(scene, index: 0)
                 e.setFragmentTexture(bloomChain[0], index: 1)
@@ -458,6 +496,52 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
     }
 
     // MARK: - Noise
+
+    /// Moony's noise, the generator of Avo (MoonyNoise.swift): one pseudo-random value per voxel on a 64^3 grid, which
+    /// the linear sampler turns into value noise. The moon was approved with this noise; the rich Perlin-Worley volume
+    /// gives softer seas and a different moon. Change it in Avo and here together, or the two moons stop matching.
+    enum MoonyNoise {
+        static let dim = 64
+        nonisolated(unsafe) private static var data: [Float16]?
+        nonisolated(unsafe) private static var warming = false
+        private static let lock = NSLock()
+
+        /// The 3D rgba16Float texture, or nil while the voxels are being made (off main, the first time).
+        static func makeTexture(device: MTLDevice) -> MTLTexture? {
+            lock.lock()
+            let voxels = data
+            if voxels == nil, !warming {
+                warming = true
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let d = generate()
+                    lock.lock(); data = d; lock.unlock()
+                    DispatchQueue.main.async { MetalEngine.notifyChange() }
+                }
+            }
+            lock.unlock()
+            guard let voxels else { return nil }
+            return OrbRenderer.makeNoiseTexture(device: device, dim: dim, data: voxels)
+        }
+
+        static func generate() -> [Float16] {
+            let n = dim
+            var out = [Float16](repeating: 0, count: n * n * n * 4)
+            var i = 0
+            for z in 0..<n {
+                for y in 0..<n {
+                    for x in 0..<n {
+                        for c in 0..<4 {
+                            var h = UInt32(truncatingIfNeeded: x &* 73856093 ^ y &* 19349663 ^ z &* 83492791 ^ c &* 2654435761)
+                            h ^= h >> 13; h = h &* 0x5bd1e995; h ^= h >> 15
+                            out[i] = Float16(Float(h & 0xFFFF) / 65535)
+                            i += 1
+                        }
+                    }
+                }
+            }
+            return out
+        }
+    }
 
     /// 4^3 hash noise: the orb renders a clean smooth globe (reveal 0) until the rich
     /// volume is ready a moment later.

@@ -643,7 +643,7 @@ export class SessioniPonte implements RotteSessioni {
 	private async riassunto(req: http.IncomingMessage, res: http.ServerResponse, chiave: string, aiuti: AiutiRotte): Promise<void> {
 		const s = chiave ? await this.scheda(chiave) : undefined;
 		if (!s) throw errore(404, 'Questa sessione non c\'e\' piu\'.');
-		if (aiuti.occupata()) throw errore(409, 'Melissa sta gia\' rispondendo: riprova tra un attimo.');
+		if (aiuti.occupata()) throw errore(409, 'Moony sta gia\' rispondendo: riprova tra un attimo.');
 		if (req.socket.destroyed) return;
 		const testo = testoRiassunto(s);
 		this.d.log(`sessioni: riassunto a voce di ${s.progetto} per l'iPhone`);

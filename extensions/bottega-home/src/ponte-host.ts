@@ -170,7 +170,7 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 		confermaAttuale: () => deps.assistant()?.pendingConfirmation(),
 		chiedi: async testo => {
 			const a = deps.assistant();
-			if (!a) throw Object.assign(new Error('Melissa non e\' ancora pronta.'), { status: 503 });
+			if (!a) throw Object.assign(new Error('Moony non e\' ancora pronta.'), { status: 503 });
 			impegnata = true;
 			try {
 				return await a.askRemote(testo);
@@ -255,7 +255,7 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
  *  ElevenLabs del Nucleo (ponte.flusso.*); l'audio torna come eventi `ponte.audio` e scorre all'iPhone. */
 async function parla(deps: PonteHostDeps, testo: string, emetti: (r: RigaParla) => void, segnale: AbortSignal, log: (line: string) => void): Promise<string> {
 	const a = deps.assistant();
-	if (!a) throw Object.assign(new Error('Melissa non e\' ancora pronta.'), { status: 503 });
+	if (!a) throw Object.assign(new Error('Moony non e\' ancora pronta.'), { status: 503 });
 	const n = deps.nucleo();
 	const id = crypto.randomUUID();
 	let voce = false;

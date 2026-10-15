@@ -15,15 +15,15 @@ import AppKit
 // MARK: - Intents
 
 struct ChiediAMelissa: AppIntent {
-    static let title: LocalizedStringResource = "Chiedi a Melissa"
-    static let description = IntentDescription("Apre la Bottega e fa una domanda a Melissa.")
+    static let title: LocalizedStringResource = "Chiedi a Moony"
+    static let description = IntentDescription("Apre la Bottega e fa una domanda a Moony.")
     static let supportedModes: IntentModes = .background
 
-    @Parameter(title: "Domanda", requestValueDialog: "Cosa vuoi chiedere a Melissa?")
+    @Parameter(title: "Domanda", requestValueDialog: "Cosa vuoi chiedere a Moony?")
     var testo: String
 
     static var parameterSummary: some ParameterSummary {
-        Summary("Chiedi a Melissa \(\.$testo)")
+        Summary("Chiedi a Moony \(\.$testo)")
     }
 
     @MainActor
@@ -89,9 +89,10 @@ struct StatoDelleRegole: AppIntent {
 struct BottegaScorciatoie: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: ChiediAMelissa(), phrases: [
+            "Chiedi a Moony con \(.applicationName)",
+            "Fai una domanda a Moony con \(.applicationName)",
             "Chiedi a Melissa con \(.applicationName)",
-            "Fai una domanda a Melissa con \(.applicationName)",
-        ], shortTitle: "Chiedi a Melissa", systemImageName: "waveform")
+        ], shortTitle: "Chiedi a Moony", systemImageName: "waveform")
         AppShortcut(intent: AvviaLavoro(), phrases: [
             "Avvia un lavoro con \(.applicationName)",
             "Nuovo lavoro con \(.applicationName)",

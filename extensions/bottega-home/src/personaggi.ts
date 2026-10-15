@@ -221,8 +221,14 @@ carica();
 
 /** Il nome da mostrare: "melissa" o la chiave di un personaggio. */
 export function nomeDi(chi: string): string {
-	return (Object.hasOwn(PERSONAGGI, chi) && PERSONAGGI[chi]?.nome) || 'Melissa';
+	return (Object.hasOwn(PERSONAGGI, chi) && PERSONAGGI[chi]?.nome) || NOME_MELISSA;
 }
+
+/** Il nome di lei (chiave `melissa`): da ottobre 2026 Moony. Le parole che la chiamano nei comandi a voce: il nome nuovo,
+ *  le trascrizioni probabili del riconoscimento italiano e il vecchio «Melissa», che resta valido (CONTRATTI 9.11). */
+export const NOME_MELISSA = 'Moony';
+export const PAROLE_MELISSA = ['moony', 'mooney', 'mooni', 'muny', 'muni', 'melissa'];
+const lei = () => PAROLE_MELISSA.join('|');
 
 /** Vero per una chiave caricata (mai per 'constructor' e simili). */
 export function esiste(chi: unknown): chi is string {
@@ -256,21 +262,21 @@ function chiaveDi(nome: string): string | null {
 export function chiChiede(t: string): string | null {
 	const m = t
 		.toLowerCase()
-		.match(new RegExp(`\\b(?:passami|passa|fammi parlare con|voglio parlare con|ridammi|torna|chiama)\\s+(?:a\\s+)?(melissa|${nomi()}|mr\\.?\\s*robot)\\b`));
+		.match(new RegExp(`\\b(?:passami|passa|fammi parlare con|voglio parlare con|ridammi|torna|chiama)\\s+(?:a\\s+)?(${lei()}|${nomi()}|mr\\.?\\s*robot)\\b`));
 	if (!m?.[1]) return null;
-	if (m[1] === 'melissa') return 'melissa';
+	if (PAROLE_MELISSA.includes(m[1])) return 'melissa';
 	return chiaveDi(m[1]) ?? (m[1].startsWith('mr') ? chiaveDi('elliot') : null);
 }
 
 /** Le parole che dopo «passami Darlene» non chiedono niente: «passami Darlene per favore» resta un passaggio col saluto. */
 const SOLO_PASSAGGIO = new Set(['ciao', 'ehi', 'eh', 'ehm', 'dai', 'allora', 'ok', 'okay', 'va', 'bene', 'per', 'favore', 'piacere',
 	'grazie', 'un', 'una', 'attimo', 'momento', 'secondo', 'subito', 'adesso', 'ora', 'pure', 'please', 'mi', 'me', 'la', 'lo', 'le',
-	'e', 'anche', 'che', 'al', 'telefono', 'cosi', 'così', 'si', 'sì', 'no', 'però', 'senti', 'ascolta', 'vai', 'mr', 'robot', 'melissa']);
+	'e', 'anche', 'che', 'al', 'telefono', 'cosi', 'così', 'si', 'sì', 'no', 'però', 'senti', 'ascolta', 'vai', 'mr', 'robot', ...PAROLE_MELISSA]);
 
 /** Dopo il passaggio c'e' qualcosa da dire a chi prende la chiamata («passami Darlene, come va col firewall?»): risponde
  *  a quello invece di salutare. Basta una parola vera con il punto di domanda, o due senza (CONTRATTI 9.11). */
 export function chiedeAltro(t: string): boolean {
-	const comando = new RegExp(`\\b(?:passami|passa|fammi parlare con|voglio parlare con|ridammi|torna|chiama)\\s+(?:a\\s+)?(?:melissa|${nomi()}|mr\\.?\\s*robot)\\b`, 'i');
+	const comando = new RegExp(`\\b(?:passami|passa|fammi parlare con|voglio parlare con|ridammi|torna|chiama)\\s+(?:a\\s+)?(?:${lei()}|${nomi()}|mr\\.?\\s*robot)\\b`, 'i');
 	const resto = t.replace(comando, ' ');
 	const nomiNoti = new Set(ORDINE.map(k => PERSONAGGI[k]!.nome.toLowerCase()));
 	const vere = (resto.toLowerCase().match(/[\p{L}]+/gu) ?? []).filter(x => !SOLO_PASSAGGIO.has(x) && !nomiNoti.has(x));
@@ -331,15 +337,15 @@ export const CHI_VUOLE_MS = 2500;
  *  Personaggi.swift): CONTRATTI 9.11, «Chi vuole sentire Andrea». */
 export function promptChiVuole(): string {
 	const elenco = ORDINE.map(k => `- ${k}: ${PERSONAGGI[k]!.nome}, ${PERSONAGGI[k]!.ruolo}`).join('\n');
-	return "Andrea parla a voce con Melissa, la sua assistente; il microfono puo' capire male i nomi. Con lei ci sono " +
+	return "Andrea parla a voce con Moony, la sua assistente; il microfono puo' capire male i nomi. Con lei ci sono " +
 		`questi personaggi (chiave: nome, ruolo):\n${elenco}\n` +
 		'Dalla frase di Andrea decidi chi vuole sentire. "passa": la chiave di chi vuole come interlocutore da ora ' +
 		'in poi ("passami...", "fammi parlare con...", "la psicologa", un nome capito male che somiglia), oppure ' +
-		'"melissa" se rivuole Melissa; altrimenti null. "chiede": l\'elenco delle chiavi di chi vuole sentire solo ' +
+		'"melissa" se rivuole Moony (o Melissa, il suo vecchio nome, o un nome capito male come Mooney o Muni); altrimenti null. "chiede": l\'elenco delle chiavi di chi vuole sentire solo ' +
 		'adesso, una volta ("chiedi a...", "e tu...?", "c\'e\' la psicologa?"); altrimenti []. "tutti": true se vuole ' +
 		'sentirli tutti, uno dopo l\'altro ("fammi sentire tutti", "parla con gli altri", "e gli altri"); altrimenti false. ' +
 		'Esempi: «No dicevo Eliot Elliot passami Elliot e gli altri personaggi passami qualcuno fammi sentire tutte... ' +
-		'siamo io te e altri» = {"passa": "elliot", "chiede": [], "tutti": true}; «Melissa c\'e\' la psicologa se mi ' +
+		'siamo io te e altri» = {"passa": "elliot", "chiede": [], "tutti": true}; «Moony c\'e\' la psicologa se mi ' +
 		'fumo una canna, parla con gli altri» = {"passa": null, "chiede": ["krista"], "tutti": true}. Rispondi solo con ' +
 		'il JSON, nient\'altro: {"passa": chiave o "melissa" o null, "chiede": [chiavi], "tutti": true o false}';
 }
@@ -365,7 +371,7 @@ export function leggiChiVuole(testo: string): Voluto | null {
 	if (!x || typeof x !== 'object' || Array.isArray(x)) return null;
 	// "Krista" vale krista, come sull'iPhone
 	const chiave = (v: unknown) => (typeof v === 'string' ? v.toLowerCase() : '');
-	const passa = chiave(x.passa);
+	const passa = PAROLE_MELISSA.includes(chiave(x.passa)) ? 'melissa' : chiave(x.passa);
 	const chiede: string[] = [...new Set<string>((Array.isArray(x.chiede) ? x.chiede : [x.chiede]).map(chiave).filter(esiste))];
 	return { passa: passa === 'melissa' || esiste(passa) ? passa : null, chiede, tutti: x.tutti === true };
 }
@@ -658,7 +664,7 @@ export const REGOLA_REGIA =
 /** Chi e' chi, per gli ospiti (Andrea, 6 ottobre: Elliot chiamava Claude «Andrea», e rispondendo a Melissa diceva
  *  «Andrea»). Uguale sull'iPhone (`Personaggi.chiEChi`). */
 export const CHI_E_CHI =
-	"Chi e' chi: Andrea e' la persona che ascolta, il padrone della Bottega. Claude (Claude Code) e' l'assistente che lavora nel terminale: i file, i comandi, gli errori e le risposte del terminale sono di Claude, non di Andrea, e quando ne parli dici Claude. Melissa e' l'assistente a voce che ti ha passato la parola: se rispondi a lei e la chiami per nome, la chiami Melissa, non Andrea.";
+	"Chi e' chi: Andrea e' la persona che ascolta, il padrone della Bottega. Claude (Claude Code) e' l'assistente che lavora nel terminale: i file, i comandi, gli errori e le risposte del terminale sono di Claude, non di Andrea, e quando ne parli dici Claude. Moony e' l'assistente a voce che ti ha passato la parola: se rispondi a lei e la chiami per nome, la chiami Moony, non Andrea.";
 
 /** Le regole che ogni personaggio rispetta, qualunque carattere abbia: voce, lingua, niente ripetizioni. */
 export const REGOLE =
@@ -671,8 +677,8 @@ export const REGOLE =
 export function cuore(p: Personaggio, come: string): string {
 	return [
 		p.carattere,
-		"Adesso sei nella Bottega, l'IDE di Andrea: Melissa ti ha passato la chiamata e hai i suoi stessi strumenti per seguire i progetti, git, le build e le sessioni di Claude Code, Cline, Codex e dei terminali integrati. Li usi a modo tuo, con il tuo carattere.",
-		`Andrea torna da Melissa quando dice "ridammi Melissa" o la sceglie nella barra. ${regoleDi(p.chiave)}`,
+		"Adesso sei nella Bottega, l'IDE di Andrea: Moony ti ha passato la chiamata e hai i suoi stessi strumenti per seguire i progetti, git, le build e le sessioni di Claude Code, Cline, Codex e dei terminali integrati. Li usi a modo tuo, con il tuo carattere.",
+		`Andrea torna da Moony quando dice "ridammi Moony" (vale anche il vecchio nome, Melissa) o la sceglie nella barra. ${regoleDi(p.chiave)}`,
 		come,
 	].join(' ');
 }

@@ -351,7 +351,7 @@ export function registerTerminale(ctx: vscode.ExtensionContext, deps: TerminaleD
 		out.info(`il terminale passa nella barra di destra alla prossima chiusura della Bottega (processo ${pid}${cline ? ', dopo Cline' : ''})`);
 		if (prenotato === pid) return; // il messaggio e' gia' stato dato
 		void vscode.window
-			.showInformationMessage('Dalla prossima apertura della Bottega il terminale sara\' l\'ultima voce della barra di destra, dopo Melissa, Claude Code e Cline.', 'Riavvia adesso')
+			.showInformationMessage('Dalla prossima apertura della Bottega il terminale sara\' l\'ultima voce della barra di destra, dopo Moony, Claude Code e Cline.', 'Riavvia adesso')
 			.then(scelta => {
 				if (!scelta) return;
 				const app = path.resolve(vscode.env.appRoot, '..', '..', '..');

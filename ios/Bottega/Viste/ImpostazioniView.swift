@@ -22,7 +22,7 @@ struct ImpostazioniView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Melissa") {
+                Section("Moony") {
                     Toggle("Risponde a voce", isOn: $melissa.voceAccesa)
                     LabeledContent("Sul telefono", value: telefono.configurato ? "pronta anche senza Mac" : "da configurare")
                     Button(importando ? "Importo…" : "Importa Agnes, DeepSeek e ElevenLabs dal Mac") {
@@ -31,7 +31,7 @@ struct ImpostazioniView: View {
                             defer { importando = false }
                             do {
                                 try await ponte.importaConfigurazioneAssistente()
-                                esitoImportazione = "Melissa può rispondere dall'iPhone anche con il Mac spento."
+                                esitoImportazione = "Moony può rispondere dall'iPhone anche con il Mac spento."
                             } catch { esitoImportazione = error.localizedDescription }
                         }
                     }

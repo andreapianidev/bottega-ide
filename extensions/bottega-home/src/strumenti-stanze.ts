@@ -892,7 +892,7 @@ const VISTE: Record<string, [view: string, nome: string]> = {
 	notte: ['lavori', 'i Lavori, con la coda della notte'],
 	lavori: ['lavori', 'i Lavori'],
 	plancia: ['plancia', 'la plancia'],
-	melissa: ['melissa', 'la stanza di Melissa'],
+	melissa: ['melissa', 'la stanza di Moony'],
 };
 
 export async function mostraStanza(a: { stanza: unknown; progetto?: string }, f: FontiStanze | undefined = fonti): Promise<string> {

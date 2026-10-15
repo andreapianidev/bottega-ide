@@ -47,7 +47,8 @@
    window.BottegaSferaGPU.aspetto: le stesse regole per le viste e per la sfera Canvas 2D di ripiego:
      daStato(assistant) -> aspetto (chi parla o ha la chiamata, dallo stato dell'assistente), rgb(colore), luce(agitazione),
      traccia(ctx, cx, cy, R, pesi) (il cerchio del corpo che resta, come percorso), corpo(pesi) (il suo raggio, in
-     raggi), visto(pesi) (il bordo che si vede, in raggi), pioggia2D, darlene2D e krista2D (le figure in Canvas 2D).
+     raggi), visto(pesi) (il bordo che si vede, in raggi), pioggia2D, darlene2D, krista2D e luna2D (le figure in Canvas 2D;
+     luna2D e' la luna di Moony, la sfera senza forma; il nono argomento, facoltativo, e' la sua luna dell'umore).
      riposa(si): con si (il predefinito) la sfera in 'idle' o spenta, finiti i movimenti, si ferma su un
      fotogramma e riparte al primo cambio di stato; con no gira sempre, anche spenta.
    `mount` lancia subito se WebGPU qui non c'e' (manca motore/gpu.js o navigator.gpu): la vista usa
@@ -95,26 +96,49 @@
 			const o = a && typeof a === 'object' ? a : {};
 			const i = Object.hasOwn(INDICE, o.forma) ? INDICE[o.forma] : -1;
 			const c = rgb(o.colore);
-			return { pesi: [0, 1, 2].map(k => (k === i ? 1 : 0)), tinta: c ? 0.85 : 0, colore: c, agitazione: agitazione(o.agitazione) };
+			const umore = typeof o.umore === 'string' && Object.hasOwn(LUNE, o.umore) ? o.umore : 'calma';
+			return { pesi: [0, 1, 2].map(k => (k === i ? 1 : 0)), tinta: c ? 0.85 : 0, colore: c, agitazione: agitazione(o.agitazione), umore };
 		}
+		/** Che luna e' stanotte per ogni umore della luna di Moony: (fase, eclissi, raccolto, aureola). La tabella di Avo
+		 *  (OrbIdentita.lunaPerUmore) e del Nucleo (UmoreLuna); l'umore arriva dall'estensione (src/sfera-aspetto.ts). */
+		const LUNE = {
+			calma: [0, 0, 0, 0],                 // superluna d'argento
+			concentrata: [0.15, 0, 0, 0],        // argento, luce un filo piu' radente
+			curiosa: [0.45, 0, 0, 0],            // mezza luna, luce radente: i crateri saltano fuori
+			calore: [-0.2, 0, 0.6, 0],           // luna di miele, quasi piena
+			gioia: [-0.65, 0, 1, 0],             // luna piena del raccolto, dorata
+			meraviglia: [-0.25, 0, 0, 1],        // aureola di ghiaccio attorno alla luna
+			malinconia: [0.85, 0, 0, 0],         // falce sottile e fredda, luce cinerea sul resto
+			allarme: [-0.5, 1, 0, 0],            // eclissi: luna di sangue
+		};
+		/** l'umore che la luna mostra: a riposo calma, in ascolto curiosa, mentre pensa concentrata, mentre parla quello
+		 *  della battuta (come Avo); l'errore resta calmo, il suo segno e' l'ambra */
+		const umoreDa = (st, umore) => (st === 1 ? 'curiosa' : st === 2 ? 'concentrata' : st === 3 ? umore : 'calma');
 		/** chi si vede nella sfera, dallo stato dell'assistente: mentre parla chi parla (a.parla), se no chi ha la chiamata */
 		function daStato(a) {
 			const ag = agitazione(a && a.agitazione);
 			if (!a) return { forma: 'sfera', agitazione: ag };
+			const umore = a.umore;
 			const chi = (a.state === 'speaking' && typeof a.parla === 'string' && a.parla) || a.personaggio || 'melissa';
 			const p = chi !== 'melissa' && Array.isArray(a.personaggi) ? a.personaggi.find(x => x && x.chiave === chi) : null;
 			const sf = p && p.sfera;
-			if (!sf || typeof sf !== 'object' || !Object.hasOwn(INDICE, sf.forma)) return { forma: 'sfera', agitazione: ag };
-			return { forma: sf.forma === 'cubo' ? 'codice' : sf.forma, colore: sf.colore, agitazione: ag };
+			if (!sf || typeof sf !== 'object' || !Object.hasOwn(INDICE, sf.forma)) return { forma: 'sfera', agitazione: ag, umore };
+			return { forma: sf.forma === 'cubo' ? 'codice' : sf.forma, colore: sf.colore, agitazione: ag, umore };
 		}
 		/** l'aspetto che si muove: va al valore chiesto in circa 0,4 s (95%), mai a scatti */
 		function molla() {
-			const firma = x => `${x.pesi.join(',')}|${x.tinta}|${x.colore ? x.colore.join(',') : ''}|${x.agitazione}`;
+			const firma = x => `${x.pesi.join(',')}|${x.tinta}|${x.colore ? x.colore.join(',') : ''}|${x.agitazione}|${x.umore}`;
+			/** dove vuole andare la luna di Moony: la luna dell'umore e gli stati della voce (ascolta, pensa, parla) */
+			const lunaVuole = st => [LUNE[umoreDa(st, m.vuole.umore)] || LUNE.calma, [st === 1 ? 1 : 0, st === 2 ? 1 : 0, st === 3 ? 1 : 0]];
 			const m = {
 				pesi: [0, 0, 0],
 				tinta: 0,
 				colore: [1, 1, 1],
 				agit: NEUTRA,
+				// la luna di Moony (p10 e p11): l'umore cambia faccia in qualche secondo (Avo: k = dt * 0,8), gli stati della
+				// voce girano la luce in circa un secondo (k = dt * 1,6)
+				luna: [0, 0, 0, 0],
+				stati: [0, 0, 0],
 				vuole: leggi(null),
 				/** un aspetto nuovo; vero se e' diverso da quello di prima */
 				vai(a) {
@@ -123,7 +147,13 @@
 					m.vuole = x;
 					return cambiato;
 				},
-				passo(dt) {
+				passo(dt, st) {
+					const [lv, sv] = lunaVuole(st);
+					const kl = Math.min(1, dt * 0.8), ks = Math.min(1, dt * 1.6);
+					for (let i = 0; i < 4; i++) m.luna[i] += (lv[i] - m.luna[i]) * kl;
+					for (let i = 0; i < 3; i++) m.stati[i] += (sv[i] - m.stati[i]) * ks;
+					if (Math.abs(m.luna[0] - lv[0]) + Math.abs(m.luna[1] - lv[1]) + Math.abs(m.luna[2] - lv[2]) + Math.abs(m.luna[3] - lv[3]) < 0.004) m.luna = lv.slice();
+					if (Math.abs(m.stati[0] - sv[0]) + Math.abs(m.stati[1] - sv[1]) + Math.abs(m.stati[2] - sv[2]) < 0.004) m.stati = sv.slice();
 					const k = 1 - Math.exp(-dt / 0.13);
 					const v = m.vuole;
 					for (let i = 0; i < 3; i++) m.pesi[i] += (v.pesi[i] - m.pesi[i]) * k;
@@ -135,16 +165,21 @@
 					m.tinta += (v.tinta - m.tinta) * k;
 					m.agit += (v.agitazione - m.agit) * k;
 				},
-				salta() {
+				salta(st) {
+					const [lv, sv] = lunaVuole(st);
+					m.luna = lv.slice();
+					m.stati = sv.slice();
 					const v = m.vuole;
 					m.pesi = v.pesi.slice();
 					if (v.colore) m.colore = v.colore.slice();
 					m.tinta = v.tinta;
 					m.agit = v.agitazione;
 				},
-				fermo() {
+				fermo(st) {
 					const v = m.vuole;
-					return Math.abs(m.pesi[0] - v.pesi[0]) + Math.abs(m.pesi[1] - v.pesi[1]) + Math.abs(m.pesi[2] - v.pesi[2]) < 0.01 &&
+					const [lv, sv] = lunaVuole(st);
+					const lunaFerma = m.luna.every((x, i) => x === lv[i]) && m.stati.every((x, i) => x === sv[i]);
+					return lunaFerma && Math.abs(m.pesi[0] - v.pesi[0]) + Math.abs(m.pesi[1] - v.pesi[1]) + Math.abs(m.pesi[2] - v.pesi[2]) < 0.01 &&
 						Math.abs(m.tinta - v.tinta) < 0.005 && Math.abs(m.agit - v.agitazione) < 0.005;
 				},
 			};
@@ -408,7 +443,83 @@
 			}
 			ctx.restore();
 		}
-		return { NEUTRA, rgb, luce, leggi, daStato, molla, traccia, corpo, visto, pioggia2D, darlene2D, krista2D };
+		/** I crateri della luna di Moony in Canvas 2D, fissi (seme costante): [x, y, raggio] in raggi della sfera. */
+		const CRATERI = [[-0.42, -0.30, 0.20], [0.18, -0.48, 0.12], [0.38, 0.10, 0.17], [-0.12, 0.30, 0.11], [-0.50, 0.28, 0.09],
+			[0.05, -0.05, 0.08], [0.52, -0.30, 0.07], [-0.25, -0.62, 0.06], [0.26, 0.52, 0.10], [-0.62, -0.02, 0.06]];
+		const MARI = [[-0.20, -0.18, 0.42], [0.30, 0.25, 0.30], [-0.35, 0.40, 0.22]];
+		/** MOONY in Canvas 2D (la luna, 15/10/2026), dentro il ritaglio del corpo, dopo il suo gradiente: mari scuri,
+		 *  crateri con conca in ombra e bordo chiaro verso la luce (da sinistra, fredda), terminatore morbido a destra, il
+		 *  fondo dei crateri che la voce accende. Ruota piano facendo scorrere i crateri. peso 0..1 (1 senza forme di
+		 *  personaggio), t in secondi, voce 0..1, colore lineare della tinta di stato. */
+		function luna2D(ctx, cx, cy, R, peso, t, voce, colore, umore) {
+			if (!(peso > 0.001)) return;
+			const v = Math.max(0, Math.min(1, Number(voce) || 0));
+			// l'umore della superluna (fase, eclissi, raccolto, aureola), qui solo come tinta: oro del raccolto, argento freddo
+			// della malinconia, rame dell'eclissi (gli stessi fattori dello shader)
+			const lu = Array.isArray(umore) ? umore : [0, 0, 0, 0];
+			const fr = Math.min(1, Math.max(0, (lu[0] - 0.45) / 0.55)) * 0.7 + 0.35 * (lu[3] || 0);
+			const tinta = (colore || [0.74, 0.75, 0.78]).map((x, i) =>
+				x * (1 + ([1.18, 0.92, 0.62][i] - 1) * (lu[2] || 0)) * (1 + ([0.88, 0.96, 1.12][i] - 1) * Math.min(1, fr)) * (1 + ([0.95, 0.34, 0.20][i] - 1) * (lu[1] || 0)));
+			const giro = ((Number(t) || 0) * 0.025) % 2;          // la luna gira piano: i crateri scorrono verso destra
+			ctx.save();
+			ctx.globalCompositeOperation = 'source-over';
+			// il disco argento, luce da sinistra
+			let g = ctx.createRadialGradient(cx - R * 0.45, cy - R * 0.15, R * 0.05, cx, cy, R);
+			g.addColorStop(0, rgbaL([0.80 * tinta[0] / 0.75, 0.80 * tinta[1] / 0.75, 0.82 * tinta[2] / 0.78], peso));
+			g.addColorStop(1, rgbaL([0.30, 0.31, 0.33], peso));
+			ctx.fillStyle = g;
+			ctx.beginPath();
+			ctx.arc(cx, cy, R, 0, Math.PI * 2);
+			ctx.fill();
+			const scorre = (x) => ((x + 1 + giro) % 2) - 1;        // da -1 a 1, rientra dall'altro lato
+			// i mari
+			for (const [x0, y, r] of MARI) {
+				const x = scorre(x0);
+				g = ctx.createRadialGradient(cx + x * R, cy + y * R, 0, cx + x * R, cy + y * R, r * R);
+				g.addColorStop(0, rgbaL([0.10, 0.11, 0.12], 0.45 * peso));
+				g.addColorStop(1, rgbaL([0.10, 0.11, 0.12], 0));
+				ctx.fillStyle = g;
+				ctx.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+			}
+			// i crateri: conca in ombra dal lato della luce, bordo chiaro dal lato opposto, fondo che la voce accende
+			for (const [x0, y, r] of CRATERI) {
+				const x = scorre(x0);
+				const d = Math.hypot(x, y);
+				if (d + r > 0.98) continue;
+				const k = Math.sqrt(Math.max(0.15, 1 - d * d));          // scorciati verso il bordo
+				const px = cx + x * R, py = cy + y * R, rr = r * R;
+				ctx.save();
+				ctx.translate(px, py);
+				ctx.rotate(Math.atan2(y, x));
+				ctx.scale(k, 1);
+				ctx.beginPath();
+				ctx.arc(-rr * 0.12, 0, rr, 0, Math.PI * 2);
+				ctx.fillStyle = rgbaL([0.08, 0.08, 0.09], 0.40 * peso);
+				ctx.fill();
+				ctx.restore();
+				ctx.beginPath();
+				ctx.arc(px, py, rr, Math.PI * 0.15, Math.PI * 0.85, true);
+				ctx.strokeStyle = rgbaL([0.92, 0.93, 0.96], 0.35 * peso);
+				ctx.lineWidth = Math.max(0.6, rr * 0.16);
+				ctx.stroke();
+				if (v > 0.02) {
+					g = ctx.createRadialGradient(px, py, 0, px, py, rr * 0.8);
+					g.addColorStop(0, rgbaL([Math.min(1, tinta[0] + 0.3), Math.min(1, tinta[1] + 0.3), Math.min(1, tinta[2] + 0.3)], 0.6 * v * peso));
+					g.addColorStop(1, rgbaL(tinta, 0));
+					ctx.fillStyle = g;
+					ctx.fillRect(px - rr, py - rr, 2 * rr, 2 * rr);
+				}
+			}
+			// il terminatore morbido a destra e la luce cinerea sul lato in ombra
+			g = ctx.createLinearGradient(cx - R, cy, cx + R, cy);
+			g.addColorStop(0, 'rgba(2,3,6,0)');
+			g.addColorStop(0.62, 'rgba(2,3,6,0)');
+			g.addColorStop(1, `rgba(2,3,6,${(0.78 * peso).toFixed(3)})`);
+			ctx.fillStyle = g;
+			ctx.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+			ctx.restore();
+		}
+		return { NEUTRA, rgb, luce, leggi, daStato, molla, traccia, corpo, visto, pioggia2D, darlene2D, krista2D, luna2D };
 	})();
 	/** Lato del volume di rumore, come in Avo. */
 	const DIM = 96;
@@ -495,6 +606,22 @@ fn worley(f: vec3f, celle: i32, seme: i32) -> f32 {
 	let f = (vec3f(id) + 0.5) / ${DIM}.0;
 	textureStore(uscita, id, vec4f(vfbm(f, 1), 1.0 - min(worley(f, 8, 17), 1.0), 1.0 - min(worley(f, 16, 53), 1.0), vfbm(f, 91)));
 }
+
+// il rumore della luna di Moony (MoonyNoise di Avo, MoonyNoise del Nucleo): un valore pseudocasuale per voxel su 64^3,
+// che il campionatore lineare fa diventare rumore a valori. La luna e' stata approvata con questo: la sfera lo usa al
+// posto del volume ricco quando c'e' la luna. Stesso hash di Avo, che va cambiato insieme.
+@compute @workgroup_size(4, 4, 4) fn cs_rumore_luna(@builtin(global_invocation_id) id: vec3u) {
+	if (id.x >= 64u || id.y >= 64u || id.z >= 64u) { return; }
+	var v = vec4f(0.0);
+	for (var c = 0u; c < 4u; c++) {
+		var h = (id.x * 73856093u) ^ (id.y * 19349663u) ^ (id.z * 83492791u) ^ (c * 2654435761u);
+		h ^= h >> 13u;
+		h = h * 0x5bd1e995u;
+		h ^= h >> 15u;
+		v[c] = f32(h & 0xFFFFu) / 65535.0;
+	}
+	textureStore(uscita, id, v);
+}
 `;
 
 	/* La sfera: orb_fragment di Avo, riga per riga. Uniform come OrbUniforms del Nucleo (p5 = zoom,
@@ -514,6 +641,10 @@ struct U {
 	p7: vec4f,
 	p8: vec4f,
 	p9: vec4f,
+	// la luna di Moony (p7 e p8 in Avo): p10 = (fase, eclissi, raccolto, aureola) dell'umore, p11 = (fermo, ascolta,
+	// pensa, parla), riduci movimento e gli stati della voce ammorbiditi. Tutto 0: la luna d'argento a riposo
+	p10: vec4f,
+	p11: vec4f,
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var rumore: texture_3d<f32>;
@@ -564,6 +695,8 @@ struct Spinta {
 	// i pesi dei personaggi (la sfera e' il resto; il codice resta una sfera): rombo = Krista, stella = Darlene
 	rombo: f32,
 	stella: f32,
+	// quanto le onde della voce piegano la superficie: 1 per tutti, meta' sulla luna di Moony
+	onde: f32,
 };
 
 fn spostamento(dir: vec3f, d: Spinta) -> f32 {
@@ -575,8 +708,8 @@ fn spostamento(dir: vec3f, d: Spinta) -> f32 {
 	let theta = acos(clamp(dir.y, -1.0, 1.0));
 	let phi = atan2(dir.z, dir.x);
 	let onda = d.verso * d.tempo * 1.6;
-	h += d.bassi * 0.11 * sin(3.0 * phi + onda) * sin(2.0 * theta);
-	h += d.medi * 0.06 * sin(6.0 * phi - onda * 1.3 + n * 4.0) * sin(4.0 * theta);
+	h += d.bassi * 0.11 * d.onde * sin(3.0 * phi + onda) * sin(2.0 * theta);
+	h += d.medi * 0.06 * d.onde * sin(6.0 * phi - onda * 1.3 + n * 4.0) * sin(4.0 * theta);
 	return h * d.rivela;
 }
 
@@ -671,6 +804,257 @@ fn rilievo(p: vec3f, freq: f32) -> vec3f {
 	return vec3f(dx, dy, dz) / (2.0 * e);
 }
 
+// MOONY, LA LUNA (Andrea, 15/10/2026: la sfera non e' piu' blu, ha le fattezze e i crateri della luna). La stessa
+// superficie del Nucleo (OrbShaders.metal, moony_*) e di Avo, cosi' le lune sono uguali. Solo la sfera senza forma
+// diventa luna: il peso luna vale 1 senza pesi di forma e 0 per Darlene, Krista ed Elliot, che non cambiano. Crateri da un
+// voronoi 3D procedurale, mari dal rumore gia' in uso; costa meno del plasma che sostituisce.
+
+// argento a riposo, argento freddo in ascolto, argento lilla quando pensa, perla calda quando parla, il sodio
+// della Bottega nell'errore: poca saturazione, la luna resta luna in ogni stato
+fn lunaTavolozza(s: i32) -> vec3f {
+	if (s == 1) { return vec3f(0.70, 0.74, 0.80); }
+	if (s == 2) { return vec3f(0.76, 0.73, 0.82); }
+	if (s == 3) { return vec3f(0.86, 0.80, 0.70); }
+	if (s == 4) { return vec3f(0.92, 0.74, 0.48); }
+	return vec3f(0.74, 0.75, 0.78);
+}
+
+fn hash43(p: vec3f) -> vec4f {
+	var q = fract(p.xyzx * vec4f(0.1031, 0.1030, 0.0973, 0.1099));
+	q += dot(q, q.wzxy + 33.33);
+	return fract((q.xxyz + q.yzzw) * q.zywx);
+}
+
+struct Crateri { grad: vec3f, fondo: f32, ombra: f32, raggiera: f32 };
+
+// un voronoi 3D sulla superficie: ogni cella forse ha un cratere (conca, bordo rialzato, ombra portata dal bordo verso
+// la luce, piu' lunga verso il terminatore); i vicini si sommano, quindi i crateri si sovrappongono senza tagli
+fn crateri(p: vec3f, nrm: vec3f, luce: vec3f, densitaC: f32) -> Crateri {
+	var c: Crateri;
+	let ip = floor(p);
+	let fp = fract(p);
+	let lt = luce - nrm * dot(luce, nrm);
+	let ltl = length(lt);
+	let ld = select(vec3f(1.0, 0.0, 0.0), lt / max(ltl, 1e-4), ltl > 1e-4);
+	let alto = clamp(dot(nrm, luce), 0.0, 1.0);
+	let lungaOmbra = 0.20 + 1.70 * (1.0 - alto);
+	for (var z = -1; z <= 1; z++) {
+		for (var y = -1; y <= 1; y++) {
+			for (var x = -1; x <= 1; x++) {
+				let g = vec3f(f32(x), f32(y), f32(z));
+				let h = hash43(ip + g);
+				if (h.z > densitaC) { continue; }
+				let off = fp - (g + 0.15 + 0.70 * h.xyz);
+				let rr = 0.12 + 0.30 * h.y * h.y;
+				let ot = off - nrm * dot(off, nrm);
+				let dd = length(ot);
+				let q = dd / rr;
+				if (q > 1.7) { continue; }
+				let conca = select(0.0, 0.70 * q, q < 1.0);
+				let e = (q - 1.0) / 0.26;
+				let orlo = 0.11 * exp(-e * e);
+				let dorlo = orlo * (-2.0 * e / 0.26);
+				c.grad += (conca + dorlo) * (ot / max(dd, 1e-4));
+				c.fondo = max(c.fondo, smoothstep(0.95, 0.45, q) * (0.5 + 0.5 * h.w));
+				if (q < 1.0) {
+					let vv = vec2f(dot(ot, ld), length(ot - ld * dot(ot, ld))) / rr;
+					let bordo = sqrt(max(1.0 - vv.y * vv.y, 0.0));
+					let s = 1.0 - smoothstep(lungaOmbra * 0.65, lungaOmbra, bordo - vv.x);
+					c.ombra = max(c.ombra, s * smoothstep(1.0, 0.92, q));
+				}
+				if (h.w > 0.82) { c.raggiera = max(c.raggiera, exp(-max(q - 1.0, 0.0) * 2.4) * select(0.6, 1.0, q > 0.85)); }
+			}
+		}
+	}
+	return c;
+}
+
+// LA SUPERLUNA (Avo, 15/10/2026: grafica iperrealistica, e si capisce quando parla, pensa e cambia umore). Riga per
+// riga da VoiceOrbShaders.metal di Avo (MoonyAspetto, moony_aspetto, moony_raggi, moony_superficie, moony_aureola) e dal
+// Nucleo (OrbShaders.metal): chi cambia una luna cambia anche le altre. Due assi, cosi' si leggono anche sulla sfera
+// piccola: l'UMORE decide che luna e' stanotte (p10 = fase, eclissi, raccolto, aureola), lo STATO della voce come si
+// muove la luce (p11 = fermo, ascolta, pensa, parla, ammorbiditi). p10 = p11 = 0 e' la luna d'argento a riposo.
+struct Aspetto {
+	L: vec3f,          // luce del sole nello spazio della vista (la fase)
+	eclissi: f32,      // 1 = luna di sangue (allarme)
+	raccolto: f32,     // 1 = luna del raccolto, dorata (gioia); ~0,5 miele (calore)
+	freddo: f32,       // 1 = argento freddo (malinconia); un poco anche la meraviglia
+	cinerea: f32,      // luce cinerea sul lato in ombra: cresce quando la luna e' una falce
+	ascolta: f32,      // 0..1: la luna si accende verso chi parla
+	libra: f32,        // dondolio lento dell'asse (librazione), 0 con riduci movimento
+	falce: f32,        // 0..1 quanto la luna e' ridotta a falce: il bordo in ombra si spegne
+};
+
+fn rotX(p: vec3f, a: f32) -> vec3f {
+	let s = sin(a);
+	let c = cos(a);
+	return vec3f(p.x, c * p.y - s * p.z, s * p.y + c * p.z);
+}
+
+fn aspettoLuna(tempo: f32) -> Aspetto {
+	var a: Aspetto;
+	let mossa = 1.0 - clamp(u.p11.x, 0.0, 1.0);
+	a.ascolta = clamp(u.p11.y, 0.0, 1.0);
+	let pensa = clamp(u.p11.z, 0.0, 1.0);
+	let fase = clamp(u.p10.x, -1.0, 1.2);                     // <0 verso la piena, >0 verso la falce
+	a.eclissi = clamp(u.p10.y, 0.0, 1.0);
+	a.raccolto = clamp(u.p10.z, 0.0, 1.0);
+	let aureola = clamp(u.p10.w, 0.0, 1.0);
+	// angolo fra il sole e chi guarda: 1,15 rad e' la luna approvata (gibbosa, luce da sinistra)
+	var theta = 1.15 + 1.30 * fase
+		- 0.55 * a.ascolta                                       // ascolta: si gira verso di te, si riempie
+		+ pensa * (0.35 + 0.55 * sin(tempo * 0.70) * mossa);     // pensa: il terminatore scorre avanti e indietro
+	theta = clamp(theta, 0.10, 2.70);
+	a.L = normalize(vec3f(-sin(theta) * 0.95, 0.30, cos(theta)));
+	a.freddo = clamp(smoothstep(0.45, 1.0, fase) + 0.35 * aureola, 0.0, 1.0);
+	a.falce = smoothstep(1.6, 2.4, theta);
+	a.cinerea = 0.022 + 0.030 * a.falce;
+	a.libra = 0.07 * sin(tempo * 0.13) * mossa;
+	return a;
+}
+
+// un sistema di raggi (come Tycho e Copernico): strisce chiare che partono da un cratere giovane, spezzate
+fn raggiLuna(mp: vec3f, c: vec3f, seme: f32) -> f32 {
+	let cd = dot(mp, c);
+	if (cd < 0.15) { return 0.0; }
+	let d = acos(min(cd, 1.0));
+	let t1 = normalize(cross(c, vec3f(0.0, 1.0, 0.0)));
+	let t2 = cross(c, t1);
+	let an = atan2(dot(mp, t2), dot(mp, t1));
+	let giro = vec3f(cos(an), sin(an), 0.0);
+	let r1 = vn(giro * 7.0 + vec3f(0.0, 0.0, seme));
+	let r2 = vn(giro * 19.0 + vec3f(5.0, 3.0, seme));
+	var raggi = smoothstep(0.60, 0.92, r1) * 0.85 + smoothstep(0.66, 0.95, r2) * 0.55;
+	raggi *= smoothstep(0.30, 0.70, vn(mp * 13.0 + vec3f(seme)));
+	let lungo = exp(-d * 2.2) * smoothstep(0.04, 0.12, d);
+	let nimbo = exp(-(d * d) / 0.0045);
+	return raggi * lungo + 0.75 * nimbo;
+}
+
+// la superficie della luna nel punto colpito: N e' la normale della forma, senza il rilievo della sfera
+fn superficieLuna(pos: vec3f, N: vec3f, pr: f32, tempo: f32, st: i32, verso: f32, forte: f32, attacco: f32,
+		cuore: f32, flusso: f32, guadagno: f32, acuti: f32, base: vec3f, a: Aspetto) -> vec3f {
+	let V = vec3f(0.0, 0.0, 1.0);
+	let L = a.L;
+	let giro = tempo * 0.025 + 0.8;                          // la luna gira piano su se stessa
+	let sp = normalize(pos);
+	let mp = rotX(rotY(sp, giro), a.libra);                  // il punto sulla luna, che ruota e dondola con lei
+	let Lm = rotX(rotY(L, giro), a.libra);
+	let Vm = rotX(rotY(V, giro), a.libra);
+	let Nm = rotX(rotY(N, giro), a.libra);
+
+	// mari: i bacini della faccia visibile, tondi e larghi, con i bordi frastagliati dal rumore (mediana ~0,40)
+	let grana = vn(mp * 22.0);
+	let mare = fbm3(mp * 2.2 + vec3f(13.0, 5.0, 2.0));
+	let bm = (mare - 0.405) * 1.4 + 0.03 * (grana - 0.5);
+	var mari = 0.0;
+	mari = max(mari, smoothstep(0.42, 0.33, length(mp - vec3f(0.835, 0.530, 0.147)) + bm));    // Imbrium
+	mari = max(mari, smoothstep(0.25, 0.16, length(mp - vec3f(0.775, 0.407, -0.484)) + bm));   // Serenitatis
+	mari = max(mari, smoothstep(0.30, 0.21, length(mp - vec3f(0.705, 0.070, -0.705)) + bm));   // Tranquillitatis
+	mari = max(mari, smoothstep(0.16, 0.07, length(mp - vec3f(0.298, 0.259, -0.919)) + bm));   // Crisium
+	mari = max(mari, smoothstep(0.49, 0.40, length(mp - vec3f(0.811, 0.139, 0.568)) + bm));    // Procellarum
+	mari = max(mari, smoothstep(0.22, 0.13, length(mp - vec3f(0.933, -0.342, -0.115)) + bm));  // Nubium
+	mari = max(mari, smoothstep(0.18, 0.09, length(mp - vec3f(0.857, -0.242, -0.456)) + bm));  // Nectaris
+
+	// crateri grandi e piccoli, lo stesso voronoi a due scale
+	let cg = crateri(mp * 3.2, mp, Lm, 0.40);
+	let cp = crateri(mp * 8.5 + 17.0, mp, Lm, 0.30);
+	var g = cg.grad * (1.0 - 0.45 * mari) + 0.7 * cp.grad * (1.0 - 0.6 * mari) + rilievo(mp, 16.0) * 0.03;
+	g -= Nm * dot(g, Nm);
+	let Nb = normalize(Nm - g * 0.9);
+
+	// luce: Lommel-Seeliger con un terminatore morbido
+	let ndl = dot(Nb, Lm);
+	let ndv = clamp(dot(Nb, Vm), 0.0, 1.0);
+	let ndlG = dot(Nm, Lm);
+	let avvolge = clamp((ndl + 0.10) / 1.10, 0.0, 1.0);
+	let ls = max(ndl, 0.0) / (max(ndl, 0.0) + ndv + 0.05);
+	var diff = mix(avvolge, 2.0 * ls, 0.5) * smoothstep(-0.25, 0.20, ndlG);
+	diff *= 1.0 - 0.85 * max(cg.ombra, 0.8 * cp.ombra);
+
+	// colore: altipiani appena caldi, mari fra il bluastro e il bruno, grana, raggiere e raggi
+	let tipo = vn(mp * 3.0 + 31.0);
+	let mareCol = mix(vec3f(0.135, 0.146, 0.172), vec3f(0.170, 0.160, 0.146), tipo);
+	var alb = mix(vec3f(0.40, 0.395, 0.40), mareCol, mari) * (0.86 + 0.28 * grana);
+	alb += vec3f(0.12) * max(cg.raggiera, 0.6 * cp.raggiera) * (1.0 - 0.5 * mari);
+	let sole = clamp(ndlG, 0.0, 1.0);
+	let piena = smoothstep(0.25, 0.95, dot(L, V));
+	// tre crateri a raggiera a 120 gradi di longitudine: mentre la luna gira, uno e' quasi sempre in vista
+	let raggi = raggiLuna(mp, vec3f(0.869, -0.469, -0.153), 3.0)
+		+ 0.7 * raggiLuna(mp, vec3f(-0.604, 0.342, -0.720), 11.0)
+		+ 0.6 * raggiLuna(mp, vec3f(-0.280, 0.574, 0.770), 23.0);
+	alb += vec3f(0.17) * raggi * smoothstep(0.05, 0.55, sole) * mix(0.45, 1.0, piena) * (1.0 - 0.25 * mari);
+	let lb = max(dot(base, vec3f(0.2126, 0.7152, 0.0722)), 1e-3);
+	alb *= mix(vec3f(1.0), base / lb, 0.35);
+	alb *= mix(vec3f(1.0), vec3f(1.20, 0.90, 0.58), a.raccolto);   // raccolto: oro e arancio
+	alb *= mix(vec3f(1.0), vec3f(0.90, 0.96, 1.10), a.freddo);     // malinconia: argento freddo
+	let luceCol = vec3f(0.95, 0.98, 1.03);
+	var col = alb * luceCol * diff * 1.30 * (1.0 + 0.18 * a.ascolta);
+	col += alb * vec3f(0.78, 0.86, 1.0) * a.cinerea * (1.0 - clamp(diff, 0.0, 1.0));   // luce cinerea
+
+	// eclissi: l'ombra della Terra tinge la luna di rame, con il filo turchese dell'ozono sul bordo dell'ombra
+	if (a.eclissi > 0.0) {
+		let bo = dot(sp.xy, vec2f(-0.60, 0.80));
+		let rame = mix(vec3f(0.10, 0.016, 0.010), vec3f(1.05, 0.30, 0.09), smoothstep(-0.95, 1.05, bo));
+		let albE = mix(alb, vec3f(dot(alb, vec3f(0.3333))), 0.55);
+		var sangue = albE * rame * (0.80 + 0.20 * clamp(diff, 0.0, 1.0));
+		sangue += albE * vec3f(0.10, 0.30, 0.34) * smoothstep(0.82, 0.99, bo) * 0.30;
+		col = mix(col, sangue, a.eclissi);
+	}
+
+	// la voce: a ogni sillaba la luna si schiarisce un poco e il fondo dei crateri grandi si accende; il pensiero lo fa
+	// pulsare a onde che salgono
+	col *= 1.0 + 0.22 * attacco + 0.12 * forte;
+	let fondo = max(cg.fondo, 0.25 * cp.fondo);
+	var accesa = 0.02 + 0.02 * cuore + 0.45 * forte + 0.60 * attacco;
+	if (st == 2) { accesa += 0.16 * smoothstep(0.55, 1.0, sin(tempo * 2.2 - mp.y * 5.0)); }
+	col += mix(base, vec3f(1.0), 0.45) * fondo * accesa * 0.28 * (1.0 - 0.6 * a.eclissi);
+
+	// onde di luce sulla superficie (verso il centro in ascolto, verso fuori quando parla)
+	let rip = 0.5 + 0.5 * sin(pr * 15.0 - verso * tempo * 5.0);
+	col += base * rip * flusso * 0.06;
+
+	// bordo d'argento che segue lo spettro, con un velo di madreperla; si accende dalla parte del sole
+	let ang = atan2(sp.y, sp.x);
+	let bi = i32((ang / (2.0 * PI) + 0.5) * f32(BANDE)) & (BANDE - 1);
+	let eq = banda(bi);
+	let nz = clamp(N.z, 0.0, 1.0);
+	let fres = pow(1.0 - nz, 3.0);
+	var bordo = mix(base, vec3f(1.0), 0.55 * (1.0 - 0.7 * a.eclissi));
+	bordo *= mix(0.45 * (1.0 - 0.75 * a.falce), 1.0, smoothstep(-0.35, 0.35, ndlG));
+	col += bordo * fres * (0.30 + 0.25 * guadagno) * (0.8 + 0.6 * eq + 0.35 * acuti);
+	var irid = 0.5 + 0.5 * cos(6.2831853 * (fres * 2.6 + tempo * 0.05 + vec3f(0.0, 0.33, 0.66)));
+	irid = mix(vec3f(dot(irid, vec3f(0.3333))), irid, 0.35);
+	col += irid * fres * 0.10;
+
+	// filamenti di polvere al bordo sulle sillabe
+	let fil = fbm3(sp * 6.0 + vec3f(0.0, tempo * 0.30, 0.0));
+	let prom = smoothstep(0.62, 0.92, fil) * pow(fres, 1.5);
+	col += bordo * prom * (0.20 + 1.2 * attacco + 0.6 * forte);
+
+	// scintille sul lato illuminato
+	let scint = fbm3(pos * 26.0 - tempo * 0.6);
+	let tw = 0.5 + 0.5 * sin(tempo * 3.0 + scint * 28.0);
+	let lampo = smoothstep(0.78, 0.93, scint) * (0.30 + 0.70 * tw * tw) * clamp(ndl, 0.0, 1.0);
+	col += luceCol * lampo * (0.25 + 0.25 * guadagno) * (1.0 - a.eclissi);
+
+	// filo di luce sottile al limbo
+	let cromo = smoothstep(0.16, 0.0, nz) * smoothstep(0.0, 0.05, nz);
+	col += bordo * cromo * (0.5 + 0.4 * guadagno);
+	return col;
+}
+
+// aureola di ghiaccio (meraviglia): l'anello di 22 gradi attorno alla luna, rossiccio dentro e azzurro fuori. Solo
+// fuori dal disco. (In Avo pow(x, 2.0): qui x * x, che vale lo stesso anche per x negativo.)
+fn aureolaLuna(pr: f32, Rvis: f32, tempo: f32) -> vec3f {
+	let rr = pr / max(Rvis, 1e-3);
+	let e = (rr - 1.78) / 0.075;
+	let anello = exp(-e * e);
+	let iride = mix(vec3f(1.0, 0.62, 0.45), vec3f(0.55, 0.78, 1.0), smoothstep(1.70, 1.88, rr));
+	let velo = smoothstep(1.05, 1.70, rr) * smoothstep(2.10, 1.80, rr) * 0.10;
+	return iride * (anello * 0.30 + velo * 0.25) * (0.92 + 0.08 * sin(tempo * 0.5));
+}
+
 struct VF { @builtin(position) pos: vec4f };
 
 @vertex fn vs_pieno(@builtin(vertex_index) i: u32) -> VF {
@@ -760,6 +1144,12 @@ struct VF { @builtin(position) pos: vec4f };
 	let codice = clamp(u.p7.x, 0.0, 1.0);
 	d.rombo = u.p7.y;
 	d.stella = u.p7.z;
+	// Moony: 1 senza forme (la sua luna), 0 per Darlene, Krista ed Elliot; nel passaggio scorre con i pesi, cosi' la luna
+	// si scioglie nella figura dell'altro
+	var luna = clamp(1.0 - (u.p7.x + u.p7.y + u.p7.z), 0.0, 1.0);
+	if (luna < 0.001) { luna = 0.0; }
+	d.onde = 1.0 - 0.5 * luna;
+	let aspetto = aspettoLuna(tempo);
 	var nucleo = 1.0;
 	var guadagno = 1.0;
 	var flusso = 0.0;
@@ -801,8 +1191,17 @@ struct VF { @builtin(position) pos: vec4f };
 		nucleo = 1.10 + 0.50 * scoppio;
 	}
 
-	// l'agitazione della battuta deforma di piu', fino al 60%
-	d.amp *= 1.0 + 0.6 * agitazione;
+	// la superluna: l'alone dell'umore (il raccolto splende, l'eclissi si spegne, la falce si raccoglie) e la luce che
+	// sale quando ascolta. Con luna = 0 il fattore e' esattamente 1: gli altri personaggi non cambiano
+	if (luna > 0.0) {
+		let aloneLuna = (1.0 + 0.40 * aspetto.raccolto) * (1.0 - 0.55 * aspetto.eclissi)
+			* (1.0 - 0.35 * smoothstep(0.6, 1.1, u.p10.x)) * (1.0 + 0.25 * aspetto.ascolta);
+		guadagno *= mix(1.0, aloneLuna, luna);
+	}
+
+	// l'agitazione della battuta deforma di piu', fino al 60% (sulla luna con la regola di Avo, cosi' le lune coincidono)
+	d.amp *= mix(1.0 + 0.6 * agitazione, 0.75 + 0.60 * agitazione, luna);
+	d.amp *= 1.0 - 0.80 * luna;                 // la luna resta tonda: il rilievo lo fanno i crateri
 	d.baseR += cuore * 0.012 + impulso * 0.05;
 	guadagno += cuore * 0.08 + attacco * 0.45;
 	flusso += attacco * 0.5;
@@ -817,6 +1216,15 @@ struct VF { @builtin(position) pos: vec4f };
 		let luma = dot(base, vec3f(0.2126, 0.7152, 0.0722));
 		base = max(mix(vec3f(luma), base, 1.0 + 0.45 * energia), vec3f(0.0));
 		base = ruotaTinta(base, (energia - 0.30) * 0.55 * select(-1.0, 1.0, st == 3));
+	}
+	// Moony: la tavolozza di stato diventa argento lunare (niente blu), che la voce schiarisce sui picchi
+	if (luna > 0.0) {
+		var lunaCol = mix(lunaTavolozza(prima), lunaTavolozza(st), smix);
+		if (st == 1 || st == 3) { lunaCol *= 1.0 + 0.22 * clamp(forte * 0.70 + medi * 0.55 + bassi * 0.35, 0.0, 1.0); }
+		lunaCol *= mix(vec3f(1.0), vec3f(1.18, 0.92, 0.62), aspetto.raccolto);   // alone e bordo dorati
+		lunaCol *= mix(vec3f(1.0), vec3f(0.88, 0.96, 1.12), aspetto.freddo);
+		lunaCol *= mix(vec3f(1.0), vec3f(0.95, 0.34, 0.20), aspetto.eclissi);    // alone rame, spento
+		base = mix(base, lunaCol, luna);
 	}
 	// il colore di chi parla, con la luce della sua emozione: la deriva della tavolozza ne resta solo un filo
 	base = mix(base, u.p8.xyz * u.p9.y, clamp(u.p7.w, 0.0, 1.0));
@@ -835,6 +1243,8 @@ struct VF { @builtin(position) pos: vec4f };
 	let krista = clamp(d.rombo, 0.0, 1.0);
 	let Rvis = R * (1.0 - 0.40 * clamp(d.stella, 0.0, 1.0) - 0.50 * krista);
 	let pxMondo = 2.0 * zoom / res.y;
+	// sulla luna alone, corona e campo partono dal bordo: sopra il disco coprirebbero mari e crateri
+	let fuoriDisco = select(1.0, mix(1.0, smoothstep(Rvis * 0.90, Rvis * 1.03, pr), luna), luna > 0.0);
 	let prudenza = 0.72;
 	let passiFuori = PASSI_FUORI;
 
@@ -858,6 +1268,9 @@ struct VF { @builtin(position) pos: vec4f };
 
 		if (preso) {
 			var N = normale(pos, d);
+			let Ngeo = N;
+			var corpo = vec3f(0.0);
+			if (luna < 0.999) {                // la sfera di sempre (Darlene, Krista, Elliot e i passaggi)
 			let campo = ricciolo(pos * 5.5 + vec3f(0.0, tempo * 0.10, 0.0));
 			let fp = pos + campo * 0.12;
 			var b = rilievo(fp, 9.0) + rilievo(fp, 22.0) * 0.5;
@@ -880,7 +1293,7 @@ struct VF { @builtin(position) pos: vec4f };
 			let centrale = smoothstep(R, 0.0, pr);
 
 			let profondo = base * 0.22;
-			var corpo = mix(profondo, base, diff * 0.85 + 0.15);
+			corpo = mix(profondo, base, diff * 0.85 + 0.15);
 			corpo *= mix(vec3f(1.0), luceChiave, 0.45);
 			corpo += base * mix(ambiente, base, 0.5) * (N.y * 0.5 + 0.5) * 0.10;
 			corpo += base * rip * flusso * 0.22;
@@ -940,13 +1353,18 @@ struct VF { @builtin(position) pos: vec4f };
 			corpo *= mix(0.72, 1.0, pow(ndv, 0.55));
 			let cromo = smoothstep(0.16, 0.0, ndv) * smoothstep(0.0, 0.05, ndv);
 			corpo += emissione(0.92, base) * cromo * (1.1 + 0.6 * guadagno);
+			}
+			if (luna > 0.0) {
+				let corpoLuna = superficieLuna(pos, Ngeo, pr, tempo, st, d.verso, forte, attacco, cuore, flusso, guadagno, acuti, base, aspetto);
+				corpo = select(mix(corpo, corpoLuna, luna), corpoLuna, luna >= 0.999);
+			}
 
 			col = corpo;
 			alfa = 1.0;
 		} else {
 			let cop = 1.0 - smoothstep(0.0, 1.6 * pxMondo, minimo);
 			if (cop > 0.0) {
-				col = mix(base, vec3f(1.0), 0.55) * (0.9 + guadagno);
+				col = mix(base, vec3f(1.0), 0.55) * (0.9 + guadagno) * (1.0 - 0.5 * luna);   // sulla luna un filo d'argento
 				alfa = cop;
 			}
 		}
@@ -994,8 +1412,15 @@ struct VF { @builtin(position) pos: vec4f };
 
 	// alone morbido
 	let h = alone(pr, Rvis, guadagno * (1.0 - 0.25 * notte) * (1.0 - 0.55 * krista), forte);
-	col += base * h;
+	col += base * h * fuoriDisco;
 	alfa = max(alfa, h);
+
+	// la meraviglia di Moony: l'aureola di ghiaccio attorno alla luna (solo fuori dal disco)
+	if (luna > 0.0 && u.p10.w > 0.002) {
+		let aur = aureolaLuna(pr, Rvis, tempo) * clamp(u.p10.w, 0.0, 1.0) * luna;
+		col += aur;
+		alfa = max(alfa, dot(aur, vec3f(0.3333)) * 0.8);
+	}
 
 	// corona e raggi lunghi, accesi per angolo dalla banda della voce
 	let cang = atan2(p.y, p.x);
@@ -1007,7 +1432,7 @@ struct VF { @builtin(position) pos: vec4f };
 	let s1 = pow(0.5 + 0.5 * sin(cang * 18.0 + tempo * 0.80 + cn1 * 6.2831853), 3.0);
 	let s2 = pow(0.5 + 0.5 * sin(cang * 41.0 - tempo * 0.55 + cn2 * 6.2831853), 5.0);
 	// Krista e' calma: niente corona che sfrigola, raggi quasi spenti
-	let corona = (s1 + 0.6 * s2) * exp(-fuori * 4.0) * (0.05 + 0.10 * forte + 0.18 * attacco) * (1.0 - 0.6 * spenta) * (1.0 - 0.85 * krista);
+	let corona = (s1 + 0.6 * s2) * exp(-fuori * 4.0) * (0.05 + 0.10 * forte + 0.18 * attacco) * (1.0 - 0.6 * spenta) * (1.0 - 0.85 * krista) * fuoriDisco;
 	col += emissione(0.7, base) * corona;
 	alfa = max(alfa, corona * 0.6);
 	let rN = pow(0.5 + 0.5 * sin(cang * 9.0 + cn1 * 4.0 + tempo * 0.22), 6.0);
@@ -1193,9 +1618,14 @@ fn coloreStato(st: i32) -> vec3f {
 	return vec3f(0.60, 0.80, 0.95);
 }
 
-// anche le scintille prendono il colore di chi parla (q3 = colore, tinta)
+// anche le scintille prendono il colore di chi parla (q3 = colore, tinta). Moony (nessuna tinta): polvere d'argento;
+// con la tinta piena di un personaggio (0,85) i colori di prima. L'errore resta ambra.
 fn colore(st: i32) -> vec3f {
-	return mix(coloreStato(st), pu.q3.xyz, clamp(pu.q3.w, 0.0, 1.0));
+	let ta = clamp(pu.q3.w, 0.0, 1.0);
+	let luna = select(1.0 - clamp(ta / 0.85, 0.0, 1.0), 0.0, st == 4);
+	var argento = vec3f(0.84, 0.85, 0.88);
+	if (st == 1) { argento = vec3f(0.76, 0.80, 0.86); } else if (st == 2) { argento = vec3f(0.82, 0.80, 0.88); } else if (st == 3) { argento = vec3f(0.92, 0.87, 0.78); }
+	return mix(mix(coloreStato(st), argento, luna), pu.q3.xyz, ta);
 }
 
 struct VS { @builtin(position) pos: vec4f, @location(0) pc: vec2f, @location(1) luce: f32 };
@@ -1339,7 +1769,8 @@ fn codifica(x: f32) -> f32 {
 	let sc = textureSampleLevel(sorgente, cs, v.uv, 0.0);
 	let bl = textureSampleLevel(bagliore, cs, v.uv, 0.0).rgb;
 	let st = textureSampleLevel(striscia, cs, v.uv, 0.0).rgb;
-	let add = bl * b.b1.y + st * vec3f(0.40, 0.72, 1.30) * b.b1.z;
+	// sulla luna di Moony (b1.w = peso della luna, scritto a ogni fotogramma) la striscia e' argento, non blu
+	let add = bl * b.b1.y + st * mix(vec3f(0.40, 0.72, 1.30), vec3f(0.92, 0.95, 1.02), clamp(b.b1.w, 0.0, 1.0)) * b.b1.z;
 	// la maschera radiale di VoiceOrbIndicator: piena fino a 0,62 del raggio, zero al bordo
 	let r = length(v.uv * 2.0 - 1.0);
 	let m = clamp(1.0 - (r - 0.62) / 0.38, 0.0, 1.0);
@@ -1424,8 +1855,8 @@ fn codifica(x: f32) -> f32 {
 		// l'aspetto di chi parla (set, quarto argomento): pesi delle forme (codice, rombo, stella), tinta, colore, agitazione;
 		// i valori vogliono andare ai *Vuole in circa 0,4 s
 		const mol = ASPETTO.molla();
-		// p0..p5 (24) + spettro (16) + p6..p9 (16): 224 byte
-		const U = new Float32Array(56);
+		// p0..p5 (24) + spettro (16) + p6..p11 (24): 256 byte
+		const U = new Float32Array(64);
 		const PUv = new Float32Array(16);
 		const luce = (() => {
 			const l = Math.hypot(0.45, 0.65, 0.85);
@@ -1576,8 +2007,9 @@ fn codifica(x: f32) -> f32 {
 				const layC = d.createPipelineLayout({ bindGroupLayouts: [blC] });
 				const fsp = (frag, target, blend, lay = layB) =>
 					d.createRenderPipelineAsync({ layout: lay, vertex: { module: modB, entryPoint: 'vs_fs' }, fragment: { module: modB, entryPoint: frag, targets: [blend ? { format: target, blend } : { format: target }] }, primitive: { topology: 'triangle-list' } });
-				const [pRumore, pSfera, pCalcolo, pSprite, pScia, pSoglia, pGiu, pSu, pStriscia, pComp] = await Promise.all([
+				const [pRumore, pRumoreL, pSfera, pCalcolo, pSprite, pScia, pSoglia, pGiu, pSu, pStriscia, pComp] = await Promise.all([
 					d.createComputePipelineAsync({ layout: 'auto', compute: { module: modR, entryPoint: 'cs_rumore' } }),
+					d.createComputePipelineAsync({ layout: 'auto', compute: { module: modR, entryPoint: 'cs_rumore_luna' } }),
 					d.createRenderPipelineAsync({ layout: 'auto', vertex: { module: mod, entryPoint: 'vs_pieno' }, fragment: { module: mod, entryPoint: 'fs_sfera', targets: [{ format: HDR, blend: premol }] }, primitive: { topology: 'triangle-list' } }),
 					d.createComputePipelineAsync({ layout: layP, compute: { module: modP, entryPoint: 'cs_parti' } }),
 					d.createRenderPipelineAsync({ layout: layPD, vertex: { module: modP, entryPoint: 'vs_sprite', buffers: istanze }, fragment: { module: modP, entryPoint: 'fs_sprite', targets: [{ format: HDR, blend: premol }] }, primitive: { topology: 'triangle-list' } }),
@@ -1594,11 +2026,16 @@ fn codifica(x: f32) -> f32 {
 				}
 				// il volume di rumore, una volta: 96^3 su gruppi di 4^3
 				const vol = d.createTexture({ size: [DIM, DIM, DIM], dimension: '3d', format: 'rgba16float', usage: USO.STORAGE_TEX | USO.TEXTURE });
+				const volL = d.createTexture({ size: [64, 64, 64], dimension: '3d', format: 'rgba16float', usage: USO.STORAGE_TEX | USO.TEXTURE });
 				const enc = d.createCommandEncoder();
 				const cp = enc.beginComputePass();
 				cp.setPipeline(pRumore);
 				cp.setBindGroup(0, d.createBindGroup({ layout: pRumore.getBindGroupLayout(0), entries: [{ binding: 0, resource: vol.createView() }] }));
 				cp.dispatchWorkgroups(DIM / 4, DIM / 4, DIM / 4);
+				// e quello della luna, 64^3
+				cp.setPipeline(pRumoreL);
+				cp.setBindGroup(0, d.createBindGroup({ layout: pRumoreL.getBindGroupLayout(0), entries: [{ binding: 0, resource: volL.createView() }] }));
+				cp.dispatchWorkgroups(16, 16, 16);
 				cp.end();
 				d.queue.submit([enc.finish()]);
 				const ubuf = d.createBuffer({ size: U.byteLength, usage: USO.UNIFORM | USO.COPY_DST });
@@ -1616,9 +2053,18 @@ fn codifica(x: f32) -> f32 {
 						{ binding: 2, resource: samp },
 					],
 				});
+				// la luna di Moony legge il suo rumore (come Avo): si passa a meta' del cambio di figura
+				const bgL = d.createBindGroup({
+					layout: pSfera.getBindGroupLayout(0),
+					entries: [
+						{ binding: 0, resource: { buffer: ubuf } },
+						{ binding: 1, resource: volL.createView() },
+						{ binding: 2, resource: samp },
+					],
+				});
 				const bgP = d.createBindGroup({ layout: blP, entries: [{ binding: 0, resource: { buffer: parti } }, { binding: 1, resource: { buffer: pbuf } }] });
 				const bgPD = d.createBindGroup({ layout: blPD, entries: [{ binding: 1, resource: { buffer: pbuf } }] });
-				r = { pSfera, pCalcolo, pSprite, pScia, pSoglia, pGiu, pSu, pStriscia, pComp, blB, blC, ubuf, pbuf, parti, bbuf, vol, bg, bgP, bgPD, sampB, tele: null, mis: null };
+				r = { pSfera, pCalcolo, pSprite, pScia, pSoglia, pGiu, pSu, pStriscia, pComp, blB, blC, ubuf, pbuf, parti, bbuf, vol, volL, bg, bgL, bgP, bgPD, sampB, tele: null, mis: null };
 				if (d.features && d.features.has && d.features.has('timestamp-query')) {
 					try {
 						r.mis = {
@@ -1688,7 +2134,8 @@ fn codifica(x: f32) -> f32 {
 			});
 			d.queue.writeBuffer(r.bbuf, 0, val.buffer, 0, slot * BU_PASSO);
 			for (const p of passate) p.vista = p.dst.createView();
-			r.tele = { px, scena, vistaScena: scena.createView(), catena, sA, sB, passate, bgC, tutte: [scena, ...catena, sA, sB] };
+			// b1.y, b1.z, b1.w del composito: bagliore, striscia e peso della luna di Moony, riscritti quando cambia la luna
+			r.tele = { px, scena, vistaScena: scena.createView(), catena, sA, sB, passate, bgC, tutte: [scena, ...catena, sA, sB], lunaOff: sc * BU_PASSO + 20, luna: -1 };
 			return r.tele;
 		}
 
@@ -1715,11 +2162,11 @@ fn codifica(x: f32) -> f32 {
 				rivela = 1;
 				spenta = spentaVuole;
 				for (let i = 0; i < 16; i++) spettro[i] = livello * (1 - i / 20);
-				mol.salta();
+				mol.salta(statoOra);
 				return;
 			}
 			// il passaggio fra personaggi: circa 0,4 s, mai a scatti
-			mol.passo(dt);
+			mol.passo(dt, statoOra);
 			// i filtri di Avo sono per fotogramma a 60 Hz: qui valgono per passi da 1/60 di secondo,
 			// cosi' a 30 o 20 fotogrammi la sfera reagisce alla voce come in Avo
 			const passi = dt * 60;
@@ -1774,6 +2221,8 @@ fn codifica(x: f32) -> f32 {
 			U.set([mol.pesi[0], mol.pesi[1], mol.pesi[2], mol.tinta], 44);
 			U.set([mol.colore[0], mol.colore[1], mol.colore[2], mol.agit], 48);
 			U.set([0, ASPETTO.luce(mol.agit), 0, 0], 52);
+			U.set(mol.luna, 56);
+			U.set([opt.reduced() ? 1 : 0, mol.stati[0], mol.stati[1], mol.stati[2]], 60);
 			dev.queue.writeBuffer(r.ubuf, 0, U.buffer, 0, U.byteLength);
 			// le particelle: i punti di Avo sono in pixel, qui il quadrato va diviso per la tela
 			const lc = ASPETTO.luce(mol.agit);
@@ -1781,6 +2230,12 @@ fn codifica(x: f32) -> f32 {
 			dev.queue.writeBuffer(r.pbuf, 0, PUv.buffer, 0, PUv.byteLength);
 
 			const mis = r.mis && !r.mis.occupata ? r.mis : null;
+			const luna = Math.min(1, Math.max(0, 1 - (mol.pesi[0] + mol.pesi[1] + mol.pesi[2])));
+			if (Math.abs(luna - T.luna) > 1e-3) {
+				T.luna = luna;
+				// come Avo: sulla luna la striscia e' argento e il bagliore piu' contenuto, cosi' non copre i crateri
+				dev.queue.writeBuffer(r.bbuf, T.lunaOff, new Float32Array([BLOOM[1] * (1 - 0.55 * luna), BLOOM[2], luna]));
+			}
 			const enc = dev.createCommandEncoder();
 			if (mosso) {
 				const cp = enc.beginComputePass();
@@ -1792,7 +2247,7 @@ fn codifica(x: f32) -> f32 {
 			// la scena HDR: la sfera, poi le scie, poi gli sprite sopra le loro scie
 			const s = pass(enc, T.vistaScena, true, mis ? { querySet: mis.qs, beginningOfPassWriteIndex: 0 } : null);
 			s.setPipeline(r.pSfera);
-			s.setBindGroup(0, r.bg);
+			s.setBindGroup(0, luna >= 0.5 ? r.bgL : r.bg);
 			s.draw(3);
 			s.setBindGroup(0, r.bgPD);
 			s.setVertexBuffer(0, r.parti);
@@ -1848,7 +2303,7 @@ fn codifica(x: f32) -> f32 {
 		}
 
 		/** Il passaggio fra personaggi e' finito: forma, tinta e agitazione sono arrivate. */
-		const aspettoFermo = () => mol.fermo();
+		const aspettoFermo = () => mol.fermo(statoOra);
 		/** Ferma e uguale a se stessa: a riposo da un po', voce muta, comparsa finita, molle scariche, aspetto arrivato. */
 		const quieta = () =>
 			bersaglio === 0 && statoOra === 0 && tPrima / 1000 - cambioDa > 1.5 && rivela >= 1 && livello === 0 &&

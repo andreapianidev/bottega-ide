@@ -201,7 +201,7 @@ final class Isola {
         case ("POST", "/detta"):
             guard !sessione.isEmpty else { return res.errore(400, "Manca la sessione.") }
             if let altra = dettaPer, altra != sessione {
-                return res.errore(409, "Melissa sta gia' ascoltando un'altra sessione.")
+                return res.errore(409, "Moony sta gia' ascoltando un'altra sessione.")
             }
             if dettaPer == sessione { return res.ok() }
             dettaPer = sessione

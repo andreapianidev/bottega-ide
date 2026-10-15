@@ -816,7 +816,7 @@ async function onPlanciaMessage(m: PlanciaMessage): Promise<void> {
 		case 'sfera.diag': {
 			// Perche' il cielo del cruscotto o la sfera non usano WebGPU (docs/CONTRATTI.md, 7.7): una riga nel registro.
 			const d = m as any;
-			console.warn(`Bottega: ${m.type === 'cielo.diag' ? 'cielo del cruscotto' : 'sfera di Melissa'} su ${d.motore}${d.motivo ? `, motivo: ${d.motivo}` : ''} (gpu ${!!d.gpu}, secure ${!!d.isSecureContext}, coi ${!!d.crossOriginIsolated})`);
+			console.warn(`Bottega: ${m.type === 'cielo.diag' ? 'cielo del cruscotto' : 'sfera di Moony'} su ${d.motore}${d.motivo ? `, motivo: ${d.motivo}` : ''} (gpu ${!!d.gpu}, secure ${!!d.isSecureContext}, coi ${!!d.crossOriginIsolated})`);
 			return;
 		}
 		default:
@@ -924,7 +924,7 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 		onMemory: row => {
 			const file = vscode.window.activeTextEditor?.document.uri;
 			const cwd = row.restored ? undefined : (file ? vscode.workspace.getWorkspaceFolder(file) : undefined)?.uri.fsPath || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-			void registraMemoria({ source: 'melissa', sid: 'conversazione', id: `${row.at}:${row.role}`, at: row.at, cwd, who: row.role === 'tu' ? 'Richiesta' : 'Risposta', text: row.text }).catch(() => console.warn('Memoria: registrazione Melissa non riuscita'));
+			void registraMemoria({ source: 'melissa', sid: 'conversazione', id: `${row.at}:${row.role}`, at: row.at, cwd, who: row.role === 'tu' ? 'Richiesta' : 'Risposta', text: row.text }).catch(() => console.warn('Memoria: registrazione Moony non riuscita'));
 		},
 		nucleo: nucleo!,
 		actions: {
@@ -1162,7 +1162,7 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 		vscode.commands.registerCommand('bottega.item.xcode', (p: Project) => openXcode(p.path)),
 		vscode.commands.registerCommand('bottega.voice.toggle', () => assistant!.toggle()),
 		vscode.commands.registerCommand('bottega.assistant.ask', async () => {
-			const text = await vscode.window.showInputBox({ title: 'Chiedi a Melissa', prompt: 'Cosa le chiedi?', ignoreFocusOut: true });
+			const text = await vscode.window.showInputBox({ title: 'Chiedi a Moony', prompt: 'Cosa le chiedi?', ignoreFocusOut: true });
 			if (text) await assistant!.ask(text);
 		}),
 		vscode.commands.registerCommand('bottega.memoria.install', () => memoria!.install()),
@@ -1317,7 +1317,7 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 				await avvisoFine.imposta(acceso);
 				assistant?.scriviRegistro(`avviso di fine ${acceso ? 'acceso' : 'spento'} dalla Bottega`);
 				barraView?.update();
-				void vscode.window.setStatusBarMessage(acceso ? 'Avviso di fine acceso: Melissa ti dice quando un lavoro finisce' : 'Avviso di fine spento', 4000);
+				void vscode.window.setStatusBarMessage(acceso ? 'Avviso di fine acceso: Moony ti dice quando un lavoro finisce' : 'Avviso di fine spento', 4000);
 			} catch (e: any) {
 				void vscode.window.showWarningMessage(e?.message ?? String(e));
 			}
@@ -1369,8 +1369,8 @@ ${a.evidence}` }).catch(() => console.warn('Memoria: registrazione terminale non
 			apple: () => !!nucleo?.available && !!nucleo.capabilities?.foundationModels,
 			// una domanda scritta nel terminale («quanto abbiamo guadagnato ieri?») va a Melissa, muta, con i suoi strumenti
 			melissa: async domanda => {
-				if (!assistant) throw new Error('Melissa non e\' ancora pronta');
-				if (assistant.busy()) throw new Error('Melissa sta gia\' rispondendo, riprova tra un attimo');
+				if (!assistant) throw new Error('Moony non e\' ancora pronta');
+				if (assistant.busy()) throw new Error('Moony sta gia\' rispondendo, riprova tra un attimo');
 				// la risposta si legge nel terminale, non si ascolta: cifre e non numeri in lettere, poche righe
 				return assistant.askRemote(`${domanda}\n\n(Scritta nel terminale: rispondi per scritto, breve, con le cifre in numeri e gli euro col simbolo €.)`);
 			},

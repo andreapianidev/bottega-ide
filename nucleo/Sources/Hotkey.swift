@@ -44,7 +44,7 @@ final class Hotkey {
         }
         guard carbonMods != 0 else { throw NucleoError("La scorciatoia globale ha bisogno di almeno un modificatore.") }
         if code == UInt32(kVK_ANSI_M), carbonMods == UInt32(cmdKey | optionKey) {
-            throw NucleoError("Cmd+Option+M e' la scorciatoia di Melissa: scegline un'altra.")
+            throw NucleoError("Cmd+Option+M e' la scorciatoia di Moony: scegline un'altra.")
         }
 
         unregister()

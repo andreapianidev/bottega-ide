@@ -521,7 +521,7 @@ export class Ponte {
 			}
 			if (url === '/v1/assistente/storia' && this.deps.importaTurniTelefono) {
 				if (req.method !== 'POST') return json(405, { errore: 'La cronologia si manda con POST.' });
-				if (this.deps.occupata()) return json(409, { errore: 'Melissa sta rispondendo: sincronizzo la storia dopo.' });
+				if (this.deps.occupata()) return json(409, { errore: 'Moony sta rispondendo: sincronizzo la storia dopo.' });
 				const body = await leggiCorpo(req);
 				const turns = Array.isArray(body?.turns) ? body.turns : [];
 				if (turns.length > 24) return json(400, { errore: 'Troppi turni.' });
@@ -572,10 +572,10 @@ export class Ponte {
 			const testo = typeof corpo.testo === 'string' ? corpo.testo.trim().slice(0, MAX_TESTO) : '';
 			if (url === '/v1/chiedi') {
 				if (!testo) return json(400, { errore: 'Manca il testo.' });
-				if (this.deps.occupata()) return json(409, { errore: 'Melissa sta gia\' rispondendo: riprova tra un attimo.' });
+				if (this.deps.occupata()) return json(409, { errore: 'Moony sta gia\' rispondendo: riprova tra un attimo.' });
 				// un si' o un no da una notifica CONFERMA vale solo per la domanda di quella notifica
 				if (typeof corpo.conferma === 'number' && this.deps.confermaAttuale?.() !== corpo.conferma) {
-					return json(409, { errore: 'La domanda e\' cambiata o e\' gia\' chiusa: guarda Melissa nell\'app.' });
+					return json(409, { errore: 'La domanda e\' cambiata o e\' gia\' chiusa: guarda Moony nell\'app.' });
 				}
 				this.deps.log(`ponte: domanda dall'iPhone (${testo.length} caratteri)`);
 				const risposta = await this.deps.chiedi(testo);
@@ -583,7 +583,7 @@ export class Ponte {
 			}
 			if (url === '/v1/parla') {
 				if (!testo) return json(400, { errore: 'Manca il testo.' });
-				if (this.deps.occupata()) return json(409, { errore: 'Melissa sta gia\' rispondendo: riprova tra un attimo.' });
+				if (this.deps.occupata()) return json(409, { errore: 'Moony sta gia\' rispondendo: riprova tra un attimo.' });
 				// l'iPhone ha chiuso mentre arrivava la domanda: niente turno fantasma
 				if (req.socket.destroyed) return;
 				this.deps.log(`ponte: domanda a voce dall'iPhone (${testo.length} caratteri)`);
@@ -706,7 +706,7 @@ export function cervelliPerIPhone(b: BrainState): PonteCervelli {
 export function rotteCervelli(cervelli: () => CervelliPonte | undefined): RotteCervelli {
 	const serve = () => {
 		const c = cervelli();
-		if (!c) throw Object.assign(new Error('I cervelli di Melissa non sono ancora pronti.'), { status: 503 });
+		if (!c) throw Object.assign(new Error('I cervelli di Moony non sono ancora pronti.'), { status: 503 });
 		return c;
 	};
 	return {

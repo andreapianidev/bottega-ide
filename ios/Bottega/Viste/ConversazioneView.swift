@@ -74,7 +74,7 @@ struct ConversazioneView: View {
                             .foregroundStyle(Tinte.tinta)
                     }
                     if righe.isEmpty {
-                        Text("Qui compare la conversazione con Melissa, la stessa che vedi nella Bottega sul Mac.")
+                        Text("Qui compare la conversazione con Moony, la stessa che vedi nella Bottega sul Mac.")
                             .font(.callout)
                             .foregroundStyle(Tinte.tinta)
                             .padding(.top, 24)

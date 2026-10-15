@@ -15,11 +15,11 @@ struct ControlloMelissa: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "com.andreapiani.bottega.controllo.melissa") {
             ControlWidgetButton(action: ParlaConMelissa()) {
-                Label("Melissa", systemImage: "waveform")
+                Label("Moony", systemImage: "waveform")
             }
         }
-        .displayName("Parla con Melissa")
-        .description("Apre la Bottega e accende la conversazione con Melissa.")
+        .displayName("Parla con Moony")
+        .description("Apre la Bottega e accende la conversazione con Moony.")
     }
 }
 

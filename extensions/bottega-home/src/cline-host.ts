@@ -85,7 +85,7 @@ export function registerCline(ctx: vscode.ExtensionContext) {
 		void ctx.globalState.update('bottega.cline.prenotato', pid);
 		out.info(`Cline passa nella barra di destra alla prossima chiusura della Bottega (processo ${pid})`);
 		void vscode.window
-			.showInformationMessage('Cline sara\' la terza voce della barra di destra, accanto a Melissa e Claude Code, dalla prossima apertura della Bottega.', 'Riavvia adesso')
+			.showInformationMessage('Cline sara\' la terza voce della barra di destra, accanto a Moony e Claude Code, dalla prossima apertura della Bottega.', 'Riavvia adesso')
 			.then(scelta => {
 				if (!scelta) return;
 				const app = path.resolve(vscode.env.appRoot, '..', '..', '..');

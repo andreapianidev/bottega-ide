@@ -297,7 +297,7 @@ function banco(opz = {}) {
 		b.conferma = { id: 1, testo: 'Posso fare git push su Bottega?' };
 		await b.giro(1000);
 		a = b.presi('alert');
-		assert.deepStrictEqual(a[0].payload, { aps: { alert: { title: 'Melissa', body: 'Posso fare git push su Bottega?' }, sound: 'default', category: 'CONFERMA', 'interruption-level': 'time-sensitive' }, conferma: 1 });
+		assert.deepStrictEqual(a[0].payload, { aps: { alert: { title: 'Moony', body: 'Posso fare git push su Bottega?' }, sound: 'default', category: 'CONFERMA', 'interruption-level': 'time-sensitive' }, conferma: 1 });
 		assert.ok(a[0].scadenza > b.ora / 1000);
 		await b.giro(1000);
 		assert.strictEqual(b.presi('alert').length, 0, 'la stessa domanda una volta sola');

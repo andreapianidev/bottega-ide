@@ -169,7 +169,7 @@ struct CorniceStanza<T: Decodable, Contenuto: View>: View {
                 if let d = lettura.dati {
                     stato(d)
                     HStack {
-                        Button(riassunto.stato == .fermo ? "Racconta con Melissa" : "Ferma Melissa") {
+                        Button(riassunto.stato == .fermo ? "Racconta con Moony" : "Ferma Moony") {
                             if riassunto.stato == .fermo { avviaRacconto() } else { riassunto.ferma() }
                         }
                         .font(.subheadline.weight(.semibold))
@@ -179,7 +179,7 @@ struct CorniceStanza<T: Decodable, Contenuto: View>: View {
                     }
                     if riassunto.stato != .fermo || !riassunto.testo.isEmpty || riassunto.errore != nil || erroreRacconto != nil {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Melissa racconta").font(.caption.weight(.semibold)).foregroundStyle(Tinte.ambra)
+                            Text("Moony racconta").font(.caption.weight(.semibold)).foregroundStyle(Tinte.ambra)
                             if let errore = riassunto.errore ?? erroreRacconto {
                                 Text(errore).foregroundStyle(Tinte.rosso)
                             } else {

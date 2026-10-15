@@ -131,15 +131,15 @@ struct ChiVuole: Equatable {
     /// del 6 ottobre. Parola per parola quello della mod e della Bottega (promptChiVuole).
     static func prompt(_ personaggi: [Personaggio]) -> String {
         let elenco = personaggi.map { "- \($0.chiave): \($0.nome), \($0.ruolo)" }.joined(separator: "\n")
-        return "Andrea parla a voce con Melissa, la sua assistente; il microfono puo' capire male i nomi. Con lei ci sono " +
+        return "Andrea parla a voce con Moony, la sua assistente; il microfono puo' capire male i nomi. Con lei ci sono " +
             "questi personaggi (chiave: nome, ruolo):\n\(elenco)\n" +
             "Dalla frase di Andrea decidi chi vuole sentire. \"passa\": la chiave di chi vuole come interlocutore da ora " +
             "in poi (\"passami...\", \"fammi parlare con...\", \"la psicologa\", un nome capito male che somiglia), oppure " +
-            "\"melissa\" se rivuole Melissa; altrimenti null. \"chiede\": l'elenco delle chiavi di chi vuole sentire solo " +
+            "\"melissa\" se rivuole Moony (o Melissa, il suo vecchio nome, o un nome capito male come Mooney o Muni); altrimenti null. \"chiede\": l'elenco delle chiavi di chi vuole sentire solo " +
             "adesso, una volta (\"chiedi a...\", \"e tu...?\", \"c'e' la psicologa?\"); altrimenti []. \"tutti\": true se vuole " +
             "sentirli tutti, uno dopo l'altro (\"fammi sentire tutti\", \"parla con gli altri\", \"e gli altri\"); altrimenti false. " +
             "Esempi: «No dicevo Eliot Elliot passami Elliot e gli altri personaggi passami qualcuno fammi sentire tutte... " +
-            "siamo io te e altri» = {\"passa\": \"elliot\", \"chiede\": [], \"tutti\": true}; «Melissa c'e' la psicologa se mi " +
+            "siamo io te e altri» = {\"passa\": \"elliot\", \"chiede\": [], \"tutti\": true}; «Moony c'e' la psicologa se mi " +
             "fumo una canna, parla con gli altri» = {\"passa\": null, \"chiede\": [\"krista\"], \"tutti\": true}. Rispondi solo con " +
             "il JSON, nient'altro: {\"passa\": chiave o \"melissa\" o null, \"chiede\": [chiavi], \"tutti\": true o false}"
     }
@@ -149,7 +149,7 @@ struct ChiVuole: Equatable {
         guard let inizio = testo.firstIndex(of: "{"), let fine = testo.lastIndex(of: "}"), inizio < fine,
               let json = try? JSONSerialization.jsonObject(with: Data(testo[inizio...fine].utf8)) as? [String: Any]
         else { return nil }
-        let passa = (json["passa"] as? String)?.lowercased()
+        let passa = ((json["passa"] as? String)?.lowercased()).map { Personaggi.paroleMelissa.contains($0) ? "melissa" : $0 }
         let grezzi: [String] = (json["chiede"] as? [Any])?.compactMap { $0 as? String } ?? ((json["chiede"] as? String).map { [$0] } ?? [])
         var chiede: [String] = []
         for k in grezzi.map({ $0.lowercased() }) where chiavi.contains(k) && !chiede.contains(k) { chiede.append(k) }
@@ -303,7 +303,7 @@ enum Personaggi {
     }
 
     /// Chi non e' un tema per l'eco: Melissa, Andrea e i personaggi.
-    static var nonTemi: [String] { ["Melissa", "Andrea"] + ordine.compactMap { tutti[$0]?.nome } }
+    static var nonTemi: [String] { ["Moony", "Melissa", "Andrea"] + ordine.compactMap { tutti[$0]?.nome } }
 
     /// Le regole che ogni personaggio rispetta, qualunque carattere abbia: voce, verita', lingua.
     static let regole = "Non hai strumenti e non vedi file, progetti o sessioni; quello che non sai lo dici, non inventi mai. " +
@@ -314,8 +314,8 @@ enum Personaggi {
     /// «Andrea»). Stesso testo di CHI_E_CHI nella Bottega.
     static let chiEChi = "Chi e' chi: Andrea e' la persona che ascolta, il padrone della Bottega. Claude (Claude Code) e' " +
         "l'assistente che lavora nel terminale: i file, i comandi, gli errori e le risposte del terminale sono di Claude, non " +
-        "di Andrea, e quando ne parli dici Claude. Melissa e' l'assistente a voce che ti ha passato la parola: se rispondi a " +
-        "lei e la chiami per nome, la chiami Melissa, non Andrea."
+        "di Andrea, e quando ne parli dici Claude. Moony e' l'assistente a voce che ti ha passato la parola: se rispondi a " +
+        "lei e la chiami per nome, la chiami Moony, non Andrea."
 
     /// Nessuno ripete un fatto o un argomento che un altro ha gia' detto nella chiacchierata (docs/CONTRATTI.md, 9.11).
     static let nonRipetere = "Non ripetere un fatto o un argomento che un altro ha gia' detto nella chiacchierata: aggiungi " +
@@ -371,7 +371,14 @@ enum Personaggi {
     }
 
     /// Il nome da mostrare per chi parla: "melissa" o la chiave di un personaggio.
-    static func nome(_ chi: String) -> String { tutti[chi]?.nome ?? "Melissa" }
+    static func nome(_ chi: String) -> String { tutti[chi]?.nome ?? nomeMelissa }
+
+    /// Il nome di lei (chiave "melissa"): da ottobre 2026 Moony. Le parole che la chiamano nei comandi a voce: il nome
+    /// nuovo, le trascrizioni probabili del riconoscimento italiano e il vecchio "Melissa", che resta valido. Come
+    /// `PAROLE_MELISSA` della Bottega (personaggi.ts).
+    static let nomeMelissa = "Moony"
+    static let paroleMelissa = ["moony", "mooney", "mooni", "muny", "muni", "melissa"]
+    private static var lei: String { paroleMelissa.joined(separator: "|") }
 
     /// I nomi per le espressioni regolari, e da un nome detto alla chiave.
     private static var nomi: String {
@@ -388,23 +395,23 @@ enum Personaggi {
 
     /// "passami Darlene", "fammi parlare con Elliot", "ridammi Melissa": a chi passare la chiamata, o nil.
     static func chiChiede(_ testo: String) -> String? {
-        guard let chi = primo("\\b(?:passami|passa|fammi parlare con|voglio parlare con|ridammi|torna|chiama)\\s+(?:a\\s+)?(melissa|\(nomi)|mr\\.?\\s*robot)\\b", in: testo)
+        guard let chi = primo("\\b(?:passami|passa|fammi parlare con|voglio parlare con|ridammi|torna|chiama)\\s+(?:a\\s+)?(\(lei)|\(nomi)|mr\\.?\\s*robot)\\b", in: testo)
         else { return nil }
-        if chi == "melissa" { return chi }
+        if paroleMelissa.contains(chi) { return "melissa" }
         return chi.hasPrefix("mr") ? chiaveDi("elliot") : chiaveDi(chi)
     }
 
     /// Le parole che dopo "passami Darlene" non chiedono niente: "passami Darlene per favore" resta un passaggio col saluto.
-    private static let soloPassaggio: Set<String> = ["ciao", "ehi", "eh", "ehm", "dai", "allora", "ok", "okay", "va", "bene", "per",
+    private static let soloPassaggio: Set<String> = Set(["ciao", "ehi", "eh", "ehm", "dai", "allora", "ok", "okay", "va", "bene", "per",
         "favore", "piacere", "grazie", "un", "una", "attimo", "momento", "secondo", "subito", "adesso", "ora", "pure", "please", "mi",
         "me", "la", "lo", "le", "e", "anche", "che", "al", "telefono", "cosi", "così", "si", "sì", "no", "però", "senti", "ascolta",
-        "vai", "mr", "robot", "melissa"]
+        "vai", "mr", "robot"] + paroleMelissa)
 
     /// Dopo il passaggio c'e' qualcosa da dire a chi prende la chiamata ("passami Darlene, come va col firewall?"): risponde
     /// a quello invece di salutare. Basta una parola vera con il punto di domanda, o due senza. Come `chiedeAltro` della
     /// Bottega (personaggi.ts).
     static func chiedeAltro(_ testo: String) -> Bool {
-        let schema = "\\b(?:passami|passa|fammi parlare con|voglio parlare con|ridammi|torna|chiama)\\s+(?:a\\s+)?(?:melissa|\(nomi)|mr\\.?\\s*robot)\\b"
+        let schema = "\\b(?:passami|passa|fammi parlare con|voglio parlare con|ridammi|torna|chiama)\\s+(?:a\\s+)?(?:\(lei)|\(nomi)|mr\\.?\\s*robot)\\b"
         guard let re = try? NSRegularExpression(pattern: schema, options: .caseInsensitive) else { return false }
         let resto = re.stringByReplacingMatches(in: testo, range: NSRange(testo.startIndex..., in: testo), withTemplate: " ")
         let noti = Set(ordine.compactMap { tutti[$0]?.nome.lowercased() })

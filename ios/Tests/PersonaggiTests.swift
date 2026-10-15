@@ -10,6 +10,12 @@ final class PersonaggiTests: XCTestCase {
         XCTAssertEqual(Personaggi.chiChiede("passa a Elliot"), "elliot")
         XCTAssertEqual(Personaggi.chiChiede("voglio parlare con mr robot"), "elliot")
         XCTAssertEqual(Personaggi.chiChiede("ok, ridammi Melissa"), "melissa")
+        // Moony, il nome nuovo, e le trascrizioni probabili; Melissa resta valido. Muni solo come parola intera.
+        for detto in ["ridammi Moony", "passami Mooney", "torna Muni", "fammi parlare con Mooni", "Ridammi Muny"] {
+            XCTAssertEqual(Personaggi.chiChiede(detto), "melissa", detto)
+        }
+        XCTAssertNil(Personaggi.chiChiede("torna municipio"))
+        XCTAssertFalse(Personaggi.chiedeAltro("Moony, passami Darlene per favore, grazie"))
         XCTAssertNil(Personaggi.chiChiede("Darlene e' simpatica"))
         XCTAssertNil(Personaggi.chiChiede("passami il sale"))
     }
@@ -144,7 +150,7 @@ final class PersonaggiTests: XCTestCase {
             XCTAssertFalse(p.saluti.isEmpty)
             XCTAssertFalse(Personaggi.sistema(p).contains("\u{2014}"))
         }
-        XCTAssertEqual(Personaggi.nome("melissa"), "Melissa")
+        XCTAssertEqual(Personaggi.nome("melissa"), "Moony")
     }
 
     /// Ognuno nel suo campo (9.11): senza `parole`, a caso entra o riceve la parola solo chi ha `chiacchiera` (oggi

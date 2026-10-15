@@ -137,7 +137,7 @@ export class IsolaAttivita {
 		for (let t = 0; t < AVVISO_ATTESA_MS && !this.chiusa && !(await libera()); t += 2000) await pausa(2000);
 		if (this.chiusa) return;
 		if (!(await libera())) {
-			this.d.log?.(`isola: avviso non detto, Melissa era occupata: ${testo}`);
+			this.d.log?.(`isola: avviso non detto, Moony era occupata: ${testo}`);
 			return this.mostra(s);
 		}
 		if (!(await this.d.manda('/ping'))) {

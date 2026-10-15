@@ -332,7 +332,7 @@ function lineette(d) {
 		];
 		b.send({ type: 'stato', assistant: assistant({ personaggi, personaggio: 'elliot' }) });
 		assert.deepStrictEqual(b.$$('#personaggi input').map(i => i.value), ['melissa', 'darlene', 'elliot', 'tyrell'], 'in ordine, anche uno nuovo');
-		assert.deepStrictEqual(b.$$('#personaggi span').map(x => x.textContent), ['Melissa', 'Darlene', 'Elliot', 'Tyrell']);
+		assert.deepStrictEqual(b.$$('#personaggi span').map(x => x.textContent), ['Moony', 'Darlene', 'Elliot', 'Tyrell']);
 		assert.strictEqual(b.$('#personaggi input[value=elliot]').checked, true);
 		assert.strictEqual(b.$$('#personaggi label')[2].title, 'Sicurezza, chiavi e codice');
 		assert.strictEqual(b.$('#sfera-etichetta').textContent, 'Parla con Elliot');
@@ -397,11 +397,11 @@ function lineette(d) {
 		b.send({ type: 'stato', assistant: assistant({ state: 'speaking', level: 0.4, conversing: true }) });
 		assert.strictEqual(b.$('#stato').textContent, 'Parlo');
 		assert.strictEqual(b.$('#sfera-tasto').getAttribute('aria-pressed'), 'true');
-		assert.strictEqual(b.$('#sfera-etichetta').textContent, 'Chiudi la conversazione con Melissa');
+		assert.strictEqual(b.$('#sfera-etichetta').textContent, 'Chiudi la conversazione con Moony');
 		b.send({ type: 'stato', assistant: assistant({ state: 'error' }) });
 		assert.strictEqual(b.$('#stato').textContent, 'Qualcosa non va');
 		b.send({ type: 'stato', assistant: assistant({ enabled: false }) });
-		assert.strictEqual(b.$('#stato').textContent, 'Melissa è spenta');
+		assert.strictEqual(b.$('#stato').textContent, 'Moony è spenta');
 		assert.strictEqual(b.$('#voce').textContent, 'Accendi la voce');
 		b.click(b.$('#voce'));
 		assert.deepStrictEqual(b.last('voice.toggle'), { type: 'voice.toggle' });
@@ -421,7 +421,7 @@ function lineette(d) {
 		assert.ok(righe[1].classList.contains('melissa'));
 		assert.ok(righe[2].classList.contains('azione'));
 		assert.ok(righe[2].querySelector('time'), 'l\'azione ha la sua ora');
-		assert.match(righe[2].textContent, /Azione di Melissa: .*Ho avviato un lavoro su faro-di-prova/);
+		assert.match(righe[2].textContent, /Azione di Moony: .*Ho avviato un lavoro su faro-di-prova/);
 		assert.strictEqual(b.$('#registro-vuoto').hidden, true);
 		assert.strictEqual(b.$('#registro').getAttribute('aria-live'), 'off', 'la conversazione non si annuncia da sola');
 		const i = b.$('#domanda');

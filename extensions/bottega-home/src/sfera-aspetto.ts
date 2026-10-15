@@ -81,3 +81,37 @@ export function agitazioneDi(testo: string): number {
 	if (b >= 0) return 0.1;
 	return AGITAZIONE_NEUTRA;
 }
+
+/** La luna di Moony (CONTRATTI 9.x, «La luna di Moony»): quale luna e' stanotte. Le chiavi, il lessico e la tabella
+ *  delle lune sono quelli di Avo (OrbMoodDirector.classify, OrbIdentita.lunaPerUmore) e del Nucleo (OrbAspetto.swift,
+ *  UmoreLuna); la tabella sta anche nelle viste (media/motore/sfera-gpu.js). Chi li cambia qui li cambia anche li'. */
+export const UMORI_LUNA = ['calma', 'concentrata', 'curiosa', 'calore', 'gioia', 'meraviglia', 'malinconia', 'allarme'] as const;
+export type UmoreLuna = (typeof UMORI_LUNA)[number];
+
+/** Le parole di Avo con i loro pesi; a parita' vince il primo in questo ordine. */
+const LESSICO_LUNA: [UmoreLuna, number, string[]][] = [
+	['meraviglia', 2, ['storia', 'racconto', "c'era una volta", 'immagina', 'sogno', 'universo', 'stelle', 'galassia', 'mistero', 'leggenda', 'favola', 'magia', 'story', 'imagine', 'dream', 'universe', 'galaxy', 'myth']],
+	['gioia', 2, ['fantastico', 'bellissimo', 'ottimo', 'perfetto', 'evviva', 'complimenti', "ce l'abbiamo fatta", 'riuscito', 'felice', 'auguri', 'grande', 'great', 'awesome', 'wonderful', 'congratulations', 'done']],
+	['calore', 1, ['grazie', 'prego', 'caro', 'affetto', 'amico', 'casa', 'famiglia', 'buongiorno', 'buonasera', 'ti voglio', 'coccole', 'abbraccio', 'thanks', 'welcome', 'friend', 'home', 'family']],
+	['malinconia', 1, ['mi dispiace', 'purtroppo', 'triste', 'malinconia', 'perso', 'addio', 'solitudine', 'nostalgia', 'manca', 'difficile', 'sorry', 'unfortunately', 'sad', 'lonely', 'miss']],
+	['allarme', 2, ['attenzione', 'errore', 'problema', 'guasto', 'fallito', 'urgente', 'pericolo', 'allarme', 'non funziona', 'critico', 'subito', 'error', 'failed', 'warning', 'urgent', 'danger', 'critical']],
+	['concentrata', 1, ['codice', 'funzione', 'compila', 'build', 'server', 'database', 'api', 'calcolo', 'analisi', 'configura', 'installa', 'script', 'log', 'code', 'function', 'compile', 'deploy', 'query', 'debug']],
+	['curiosa', 1, ['forse', 'chissà', 'domanda', 'curioso', 'interessante', 'perché', 'come mai', 'scopriamo', 'vediamo', 'ipotesi', 'e se', 'maybe', 'question', 'curious', 'interesting', 'why', 'what if']],
+	['calma', 1, ['tranquillo', 'calma', 'riposo', 'respira', 'piano', 'va bene', 'certo', "d'accordo", 'ok', 'sereno', 'calm', 'relax', 'breathe', 'fine', 'sure']],
+];
+
+/** L'umore di quello che la voce ha detto finora: i primi 400 caratteri, parole cercate come sottostringhe nel testo in
+ *  minuscolo, vince il punteggio piu' alto; nessuna parola: calma. */
+export function umoreLunaDi(testo: string): UmoreLuna {
+	const s = String(testo || '').slice(0, 400).toLowerCase();
+	let meglio: UmoreLuna = 'calma';
+	let punti = 0;
+	for (const [u, peso, parole] of LESSICO_LUNA) {
+		const p = parole.reduce((a, w) => a + (s.includes(w) ? peso : 0), 0);
+		if (p > punti) {
+			meglio = u;
+			punti = p;
+		}
+	}
+	return meglio;
+}

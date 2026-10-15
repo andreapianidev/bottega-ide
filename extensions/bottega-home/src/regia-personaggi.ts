@@ -148,8 +148,8 @@ export class RegiaPersonaggi {
 		const nuovo = passa && passa !== 'melissa' ? passa : null;
 		const voci = g.voci.map((k, i) => {
 			this.entra(s, k);
-			const perche = k === nuovo ? 'Melissa ti ha appena passato la chiamata, e Andrea vuole sentire anche gli altri' : 'Andrea vuole sentire tutti, uno alla volta, e tocca a te';
-			return this.pronto(k, `${P.PERSONAGGI[k]!.carattere} Sei in una chiacchierata a voce con Melissa, Andrea e gli altri di Mr. Robot. ${perche}. ${SA_SOLO} ${P.regoleDi(k)}`, P.istruzioneGiro(k, i === 0));
+			const perche = k === nuovo ? 'Moony ti ha appena passato la chiamata, e Andrea vuole sentire anche gli altri' : 'Andrea vuole sentire tutti, uno alla volta, e tocca a te';
+			return this.pronto(k, `${P.PERSONAGGI[k]!.carattere} Sei in una chiacchierata a voce con Moony, Andrea e gli altri di Mr. Robot. ${perche}. ${SA_SOLO} ${P.regoleDi(k)}`, P.istruzioneGiro(k, i === 0));
 		});
 		const somme = g.chiude && voci.length
 			? `Hanno detto la loro ${P.insieme(voci.map(o => o.nome))}. Tira le somme tu in una o due frasi, rivolta ad Andrea: cosa ne esce, senza ripetere le loro parole e senza fare domande agli altri. Solo le parole che diresti.`
@@ -191,7 +191,7 @@ export class RegiaPersonaggi {
 	private chiusa(x: any): Record<string, unknown> {
 		const nome = P.nomeDi(P.esiste(x?.dopo) ? x.dopo : '');
 		return {
-			istruzione: `Hanno appena detto la loro. Chiudi tu in una o due frasi, rivolta ad Andrea, riprendendo il filo o rispondendo a modo tuo, senza fare domande a ${nome === 'Melissa' ? 'loro' : nome} ne' agli altri. Solo le parole che diresti.`,
+			istruzione: `Hanno appena detto la loro. Chiudi tu in una o due frasi, rivolta ad Andrea, riprendendo il filo o rispondendo a modo tuo, senza fare domande a ${nome === 'Moony' ? 'loro' : nome} ne' agli altri. Solo le parole che diresti.`,
 		};
 	}
 
@@ -248,20 +248,20 @@ export class RegiaPersonaggi {
 			: passabili.length && caso() < 0.4 ? passabili[Math.min(passabili.length - 1, Math.floor(caso() * passabili.length))]! : null;
 		const passaggio = passa ? ` Poi chiedi a ${P.nomeDi(passa)} cosa ne pensa. ${P.chiamaCon(passa)}` : '';
 		if (o.cronaca) {
-			const chiede = daChi ? `${P.nomeDi(daChi)} ti ha appena chiesto cosa ne pensi` : 'Melissa ti ha appena chiesto un parere';
+			const chiede = daChi ? `${P.nomeDi(daChi)} ti ha appena chiesto cosa ne pensi` : 'Moony ti ha appena chiesto un parere';
 			return this.pronto(
 				chi,
-				`${p.carattere} Andrea fa altro e Melissa gli racconta a voce cosa sta facendo Claude Code nel suo terminale; ${chiede}. Il tuo campo e' ${p.ruolo_cronaca}: parla solo di quello. Sai solo quello che trovi qui sotto: non inventare file, risultati o errori. ${P.regoleDi(chi)}`,
+				`${p.carattere} Andrea fa altro e Moony gli racconta a voce cosa sta facendo Claude Code nel suo terminale; ${chiede}. Il tuo campo e' ${p.ruolo_cronaca}: parla solo di quello. Sai solo quello che trovi qui sotto: non inventare file, risultati o errori. ${P.regoleDi(chi)}`,
 				`Rispondi in una o due frasi brevi, a modo tuo, con qualcosa di utile: un dubbio, un rischio, un consiglio.${passaggio} Solo le parole che diresti.`,
 				passa,
 			);
 		}
-		const chiede = daChi ? `${P.nomeDi(daChi)} ti ha appena chiesto qualcosa` : `Melissa ti ha appena tirato in mezzo, e tocca a te per ${P.RUOLI[chi] ?? 'dire la tua'}`;
-		const rispondi = daChi ? `Rispondi a ${P.nomeDi(daChi)}, davanti ad Andrea` : 'Rispondi alla domanda di Melissa, rivolto a lei (se dici un nome e\' Melissa), mentre Andrea ascolta,';
+		const chiede = daChi ? `${P.nomeDi(daChi)} ti ha appena chiesto qualcosa` : `Moony ti ha appena tirato in mezzo, e tocca a te per ${P.RUOLI[chi] ?? 'dire la tua'}`;
+		const rispondi = daChi ? `Rispondi a ${P.nomeDi(daChi)}, davanti ad Andrea` : 'Rispondi alla domanda di Moony, rivolto a lei (se dici un nome e\' Moony), mentre Andrea ascolta,';
 		return this.pronto(
 			chi,
-			`${p.carattere} Sei in una chiacchierata a voce con Melissa, Andrea e gli altri di Mr. Robot; Andrea lavora con Claude Code. ${chiede}. ${SA_SOLO} ${P.regoleDi(chi)}`,
-			`${rispondi} in una o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero; puoi punzecchiare Melissa, ma da amici.${passaggio} Solo le parole che diresti.`,
+			`${p.carattere} Sei in una chiacchierata a voce con Moony, Andrea e gli altri di Mr. Robot; Andrea lavora con Claude Code. ${chiede}. ${SA_SOLO} ${P.regoleDi(chi)}`,
+			`${rispondi} in una o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero; puoi punzecchiare Moony, ma da amici.${passaggio} Solo le parole che diresti.`,
 			passa,
 		);
 	}

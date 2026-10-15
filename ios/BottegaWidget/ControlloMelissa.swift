@@ -15,8 +15,8 @@ import SwiftUI
 import WidgetKit
 
 struct ApriMelissaIntent: AppIntent {
-    static let title: LocalizedStringResource = "Parla con Melissa"
-    static let description = IntentDescription("Apre la Bottega con Melissa gia' in ascolto.")
+    static let title: LocalizedStringResource = "Parla con Moony"
+    static let description = IntentDescription("Apre la Bottega con Moony gia' in ascolto.")
     /// In Comandi rapidi ci sono gia' le azioni dell'app: questa serve solo al controllo.
     static let isDiscoverable = false
 
@@ -33,11 +33,11 @@ struct ControlloMelissa: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: Self.kind) {
             ControlWidgetButton(action: ApriMelissaIntent()) {
-                Label("Parla con Melissa", systemImage: "waveform.circle.fill")
+                Label("Parla con Moony", systemImage: "waveform.circle.fill")
             }
             .tint(Tinte.ambra)
         }
-        .displayName("Parla con Melissa")
-        .description("Apre la Bottega con Melissa in ascolto.")
+        .displayName("Parla con Moony")
+        .description("Apre la Bottega con Moony in ascolto.")
     }
 }

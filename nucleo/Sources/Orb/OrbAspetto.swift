@@ -141,10 +141,88 @@ enum Umore {
 
 }
 
+/// Moony's mood: which moon it is tonight (CONTRATTI 9.x, «La luna di Moony»). The state of the voice chooses it
+/// (at rest calm, listening curious, thinking focused), and while speaking the text said so far does, with Avo's
+/// lexicon (OrbMoodDirector.classify). The table of the moons is Avo's (OrbIdentita.lunaPerUmore). The same keys,
+/// lexicon and table are in the extension (src/sfera-aspetto.ts) and in the views (media/motore/sfera-gpu.js):
+/// change them everywhere. Only the moon reads it; Darlene, Krista and Elliot ignore it.
+enum UmoreLuna: String, CaseIterable {
+    case calma, concentrata, curiosa, calore, gioia, meraviglia, malinconia, allarme
+
+    /// (phase, eclipse, harvest, halo ring) for the shader (p9). Phase 0 = the approved silver moon (gibbous, light
+    /// from the left), negative towards full, positive towards the crescent. All 0 = calm.
+    var luna: SIMD4<Float> {
+        switch self {
+        case .calma: return SIMD4(0, 0, 0, 0)             // silver super moon
+        case .concentrata: return SIMD4(0.15, 0, 0, 0)    // silver, a slightly lower light: sharp relief
+        case .curiosa: return SIMD4(0.45, 0, 0, 0)        // half moon, grazing light: the craters stand out
+        case .calore: return SIMD4(-0.2, 0, 0.6, 0)       // honey moon, almost full
+        case .gioia: return SIMD4(-0.65, 0, 1, 0)         // full harvest moon, golden, wide halo
+        case .meraviglia: return SIMD4(-0.25, 0, 0, 1)    // ice halo ring around the moon
+        case .malinconia: return SIMD4(0.85, 0, 0, 0)     // thin cold crescent, earthshine on the rest
+        case .allarme: return SIMD4(-0.5, 1, 0, 0)        // eclipse: blood moon, halo dimmed
+        }
+    }
+
+    /// The mood the moon goes to: the voice state, and for speaking the mood of the text.
+    static func perStato(_ stato: Int32, parlato: UmoreLuna) -> UmoreLuna {
+        switch stato {
+        case 1: return .curiosa
+        case 2: return .concentrata
+        case 3: return parlato
+        default: return .calma          // at rest, and the error (its sodium amber stays the sign)
+        }
+    }
+
+    /// Avo's words, with Avo's weights (OrbMoodDirector.classify): the first 400 characters, substring match on the
+    /// lower-cased text. The highest score wins; a tie goes to the first in this order. No word: calm.
+    private static let lessico: [(UmoreLuna, Int, [String])] = [
+        (.meraviglia, 2, ["storia", "racconto", "c'era una volta", "immagina", "sogno", "universo",
+                          "stelle", "galassia", "mistero", "leggenda", "favola", "magia",
+                          "story", "imagine", "dream", "universe", "galaxy", "myth"]),
+        (.gioia, 2, ["fantastico", "bellissimo", "ottimo", "perfetto", "evviva", "complimenti",
+                     "ce l'abbiamo fatta", "riuscito", "felice", "auguri", "grande",
+                     "great", "awesome", "wonderful", "congratulations", "done"]),
+        (.calore, 1, ["grazie", "prego", "caro", "affetto", "amico", "casa", "famiglia",
+                      "buongiorno", "buonasera", "ti voglio", "coccole", "abbraccio",
+                      "thanks", "welcome", "friend", "home", "family"]),
+        (.malinconia, 1, ["mi dispiace", "purtroppo", "triste", "malinconia", "perso",
+                          "addio", "solitudine", "nostalgia", "manca", "difficile",
+                          "sorry", "unfortunately", "sad", "lonely", "miss"]),
+        (.allarme, 2, ["attenzione", "errore", "problema", "guasto", "fallito", "urgente",
+                       "pericolo", "allarme", "non funziona", "critico", "subito",
+                       "error", "failed", "warning", "urgent", "danger", "critical"]),
+        (.concentrata, 1, ["codice", "funzione", "compila", "build", "server", "database", "api",
+                           "calcolo", "analisi", "configura", "installa", "script", "log",
+                           "code", "function", "compile", "deploy", "query", "debug"]),
+        (.curiosa, 1, ["forse", "chissà", "domanda", "curioso", "interessante", "perché",
+                       "come mai", "scopriamo", "vediamo", "ipotesi", "e se",
+                       "maybe", "question", "curious", "interesting", "why", "what if"]),
+        (.calma, 1, ["tranquillo", "calma", "riposo", "respira", "piano", "va bene",
+                     "certo", "d'accordo", "ok", "sereno",
+                     "calm", "relax", "breathe", "fine", "sure"]),
+    ]
+
+    static func classifica(_ testo: String) -> UmoreLuna {
+        let s = String(testo.prefix(400)).lowercased()
+        var meglio = UmoreLuna.calma, punti = 0
+        for (u, peso, parole) in lessico {
+            let p = parole.reduce(0) { $0 + (s.contains($1) ? peso : 0) }
+            if p > punti { meglio = u; punti = p }
+        }
+        return meglio
+    }
+}
+
 /// What the sphere shows now (written and read on main).
 enum OrbAspetto {
     nonisolated(unsafe) static var aspetto = SferaAspetto.melissa
     nonisolated(unsafe) static var agitazione = Umore.neutra
+    /// The mood of what the voice has said in this episode (UmoreLuna.classifica of `parlato`): the moon shows it
+    /// while speaking (UmoreLuna.perStato).
+    nonisolated(unsafe) static var umoreParlato = UmoreLuna.calma
+    /// The text of this voice episode, up to the 400 characters the lexicon reads; emptied when the voice is over.
+    nonisolated(unsafe) private static var parlato = ""
 
     #if os(macOS)
     /// The desktop resolves names from its character files. iOS shares the appearance
@@ -158,15 +236,23 @@ enum OrbAspetto {
     /// on Mac and iPhone. An omitted text keeps the current agitation.
     static func parla(aspetto nuovo: SferaAspetto, testo: String? = nil) {
         let ag = testo.map(Umore.agitazione) ?? agitazione
-        guard nuovo != aspetto || ag != agitazione else { return }
+        var um = umoreParlato
+        if let t = testo, !t.isEmpty, parlato.count < 400 {
+            parlato += parlato.isEmpty ? t : " " + t
+            um = UmoreLuna.classifica(parlato)
+        }
+        guard nuovo != aspetto || ag != agitazione || um != umoreParlato else { return }
         aspetto = nuovo
         agitazione = ag
+        umoreParlato = um
         MetalEngine.notifyChange()
     }
 
-    /// The voice is over: Melissa again, calm.
+    /// The voice is over: Melissa again, calm. The next episode reads its own mood.
     static func riposo() {
-        guard aspetto != .melissa || agitazione != Umore.neutra else { return }
+        parlato = ""
+        guard aspetto != .melissa || agitazione != Umore.neutra || umoreParlato != .calma else { return }
+        umoreParlato = .calma
         aspetto = .melissa
         agitazione = Umore.neutra
         MetalEngine.notifyChange()
@@ -179,6 +265,15 @@ struct OrbMolla {
     var tinta: Float = 0
     var colore = SIMD3<Float>(repeating: 1)
     var agit = Umore.neutra
+    /// Moony's mood for the shader (UmoreLuna.luna): the moon changes face in a few seconds, like a passing cloud.
+    var luna = SIMD4<Float>(repeating: 0)
+
+    /// Towards the mood's moon, with Avo's rate (OrbIdentita: k = dt * 0.8); `salta` lands at once.
+    mutating func passoLuna(dt: Float, verso v: SIMD4<Float>, salta: Bool) {
+        luna = salta ? v : luna + (v - luna) * min(1, dt * 0.8)
+        let d = abs(luna - v)
+        if d.x + d.y + d.z + d.w < 0.004 { luna = v }
+    }
 
     mutating func passo(dt: Float, verso a: SferaAspetto, agitazione: Float, salta: Bool) {
         let tintaVuole: Float = a.colore == nil ? 0 : 0.85

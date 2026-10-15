@@ -23,7 +23,7 @@ final class Melissa {
     private(set) var chiParla = "melissa"
     /// Chi sta parlando adesso, da mostrare sotto la sfera: "Melissa", "Darlene". Cambia quando la voce di quella
     /// battuta comincia a suonare, non quando il suo audio arriva (`audio(di:)`).
-    private(set) var parlante = "Melissa"
+    private(set) var parlante = "Moony"
     /// Le risposte di Melissa da quando un personaggio e' intervenuto: non ne tira dentro uno ogni volta.
     private var dallUltimoOspite = 1
     /// Chi e' intervenuto l'ultima volta: il prossimo, se non c'e' un motivo, e' un altro.
@@ -360,7 +360,7 @@ final class Melissa {
                                                                    voce: voce, audio: self.audio(di: "melissa", voce: voce, suona))
             } catch {
                 if Task.isCancelled { throw error }
-                Log.info("regia di Melissa non riuscita: \(error.localizedDescription)")
+                Log.info("regia di Moony non riuscita: \(error.localizedDescription)")
             }
         }
         if let passa {
@@ -389,10 +389,10 @@ final class Melissa {
             let dalMac = await ponte.personaggio(chi, frase: ultimaFraseDiAndrea())
             dallUltimoOspite = 0
             ultimoOspite = chi
-            let perche = chi == nuovo ? "Melissa ti ha appena passato la chiamata, e Andrea vuole sentire anche gli altri"
+            let perche = chi == nuovo ? "Moony ti ha appena passato la chiamata, e Andrea vuole sentire anche gli altri"
                 : "Andrea vuole sentire tutti, uno alla volta, e tocca a te"
             do {
-                _ = try await telefono.interviene(chi, istruzione: "Sei in una chiacchierata a voce con Melissa, Andrea e gli " +
+                _ = try await telefono.interviene(chi, istruzione: "Sei in una chiacchierata a voce con Moony, Andrea e gli " +
                                                     "altri di Mr. Robot. \(perche). " + Personaggi.istruzioneGiro(chi, primo: i == 0),
                                                   memoria: unisci(memoria, dalMac), voce: voce, audio: self.audio(di: chi, voce: voce, suona))
                 dette.append(p.nome)
@@ -448,11 +448,11 @@ final class Melissa {
             chiede = "\(Personaggi.nome(daChi)) ti ha appena chiesto qualcosa"
             a = "Rispondi a \(Personaggi.nome(daChi)), davanti ad Andrea"
         } else {
-            chiede = "Melissa ti ha appena tirato in mezzo, e tocca a te per \(Personaggi.ruoli[chi] ?? "dire la tua")"
-            a = "Rispondi alla domanda di Melissa, rivolto a lei (se dici un nome e' Melissa), mentre Andrea ascolta,"
+            chiede = "Moony ti ha appena tirato in mezzo, e tocca a te per \(Personaggi.ruoli[chi] ?? "dire la tua")"
+            a = "Rispondi alla domanda di Moony, rivolto a lei (se dici un nome e' Moony), mentre Andrea ascolta,"
         }
-        let istruzione = "Sei in una chiacchierata a voce con Melissa, Andrea e gli altri di Mr. Robot. \(chiede). \(a) in una " +
-            "o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero; puoi punzecchiare Melissa, ma da amici." +
+        let istruzione = "Sei in una chiacchierata a voce con Moony, Andrea e gli altri di Mr. Robot. \(chiede). \(a) in una " +
+            "o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero; puoi punzecchiare Moony, ma da amici." +
             (passa.map { " Poi chiedi a \(Personaggi.nome($0)) cosa ne pensa. " + Personaggi.chiamaCon($0) } ?? "") +
             " Solo le parole che diresti."
         let battuta = try await telefono.interviene(chi, istruzione: istruzione, passaA: ultima ? [] : altri, deciso: passa,
@@ -563,7 +563,7 @@ final class Melissa {
 
     private func tornaAMelissa() {
         chiParla = "melissa"
-        parlante = "Melissa"
+        parlante = "Moony"
     }
 
     /// La risposta arriva a frasi e la voce suona mentre Melissa sta ancora rispondendo (ponte /v1/parla).
@@ -600,7 +600,7 @@ final class Melissa {
             await flusso.aspettaFine()
         }
         if !vocePonte || (!risposta.isEmpty && !flusso.haSuonato) {
-            throw ErrorePonte(messaggio: erroreVoce ?? "ElevenLabs non ha mandato la voce di Melissa.")
+            throw ErrorePonte(messaggio: erroreVoce ?? "ElevenLabs non ha mandato la voce di Moony.")
         }
     }
 

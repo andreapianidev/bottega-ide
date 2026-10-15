@@ -19,7 +19,7 @@ import Observation
 final class Navigazione {
     static let shared = Navigazione()
 
-    enum Stanza: String, CaseIterable { case melissa = "Melissa", lavori = "Lavori", stanze = "Stanze" }
+    enum Stanza: String, CaseIterable { case melissa = "Moony", lavori = "Lavori", stanze = "Stanze" }
 
     var stanza: Stanza = .melissa
     /// La stanza della plancia aperta a tutto schermo (StanzeView), se ce n'e' una.

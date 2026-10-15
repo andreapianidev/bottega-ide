@@ -67,7 +67,7 @@ interrompe con un tocco). L'estensione resta su «parlo» finche' `voice.state` 
 con lo stesso tempo massimo del microfono. ElevenLabs realtime resta con `BOTTEGA_STT=elevenlabs`. Con ElevenLabs:
 si manda tutto l'audio, anche il silenzio: fino al 2/10/2026 passava solo quello sopra una soglia fissa (livello 0,08, circa -37 dBFS), e il microfono del MacBook Air senza voice processing restava sotto, quindi a ElevenLabs non arrivava niente. La conversazione si chiude dopo 60 s di silenzio, l'audio in piu' ha un tetto. Ogni apertura del microfono riaccende la trascrizione (`setMuted(false)` in `Listener.open`): la sessione tenuta calda 30 s dopo la chiusura poteva restare muta da una risposta interrotta (voce spenta mentre Melissa parlava), e la conversazione dopo restava in ascolto senza trascrivere niente (4/10/2026). Registro: `conversazione richiesta`, `trascrizione: primo audio inviato a ElevenLabs`, `prima trascrizione parziale ricevuta`, `conversazione chiusa dal Nucleo` con i secondi inviati; l'estensione scrive ogni tocco e il motivo di ogni chiusura. Se l'utente parla sopra Melissa, la voce si ferma ed esce `voice.bargein {text, trigger}` (`trigger`: `energy` con cancellazione dell'eco hardware, `speech` quando lo decide il testo parziale). Eco: prima la cancellazione hardware (voice processing), se fallisce il filtro software sul testo (parole in comune con quello che Melissa sta dicendo) |
 | `voice.converse.stop` | | | chiude la conversazione (emette `voice.final` se c'era una frase a meta') |
-| `wake.enable` | `phrase` (default `melissa`), `locale?` | | ascolto continuo tramite la trascrizione ElevenLabs, ma solo intorno alla voce (il silenzio non si manda); evento `wake.detected {phrase, text}`. Sospeso mentre Melissa parla e durante ascolto o conversazione. Costa audio trascritto ogni volta che qualcuno parla nella stanza: va acceso solo se serve |
+| `wake.enable` | `phrase` (default: `moony` e le sue trascrizioni probabili `mooney`, `mooni`, `muny`, `muni`, piu' il vecchio `melissa`; una parola sola vale solo intera), `locale?` | | ascolto continuo tramite la trascrizione ElevenLabs, ma solo intorno alla voce (il silenzio non si manda); evento `wake.detected {phrase, text}`. Sospeso mentre Melissa parla e durante ascolto o conversazione. Costa audio trascritto ogni volta che qualcuno parla nella stanza: va acceso solo se serve |
 | `wake.disable` | | | |
 | `orb.show` | | | sfera grande (~165 pt) in un pannello flottante di vetro, in basso al centro, con la didascalia sotto; trascinabile, la posizione resta. Se era agganciata, la piccola sparisce e la grande cresce al suo posto (solo dissolvenza con Riduci movimento) |
 | `orb.dock` | | `presentation` | sfera agganciata: piccola (~56 pt, pannello 72x72 pt), sempre a schermo finche' il Nucleo gira, su tutte le Scrivanie, non prende mai il fuoco, senza didascalia, trascinabile con una posizione sua (default in basso a destra sopra il Dock, margini 24 pt). Se la grande e' visibile si rimpicciolisce nella piccola. A riposo (`idle`) e' ferma: un solo fotogramma, 0 fps, il Nucleo da fermo resta a 0% di CPU. Mentre pensa (`thinking`) o in `error` si anima a 12 fps (~13 µs di CPU e ~0.7 ms di GPU per fotogramma, misurati fuori schermo); 30 fps se lo stato e' listening o speaking. Lo stato `error` la tinge d'ambra; gli altri stati cambiano solo il colore (per ingrandirla l'estensione manda `orb.show`) |
@@ -2345,6 +2345,17 @@ Regole scritte due volte: sul Mac nella barra (`src/personaggi.ts`, `src/riempit
 `src/regia-personaggi.ts`) e sull'iPhone (`Voce/Personaggi.swift`, `Voce/Riempitivi.swift`, `Voce/AssistenteTelefono.swift`,
 `Voce/Melissa.swift`), che deve funzionare a Mac spento. La mod melissa non ha piu' regole sue: le chiede alla barra.
 
+**Melissa si chiama Moony (Andrea, 15 ottobre 2026).** Stesso carattere, stessa voce, al femminile: cambia il nome visibile
+e parlato. Le chiavi restano `melissa` (il file `personaggi/melissa.json` e il suo campo `chiave`, la sorgente e la persona
+della Memoria, i nomi di file e di tipi, il valore `"melissa"` di `passa` in «Chi vuole sentire Andrea», le chiavi di
+impostazioni e di Keychain): dati e collegamenti dipendono da li'. `melissa.json` porta ora `"nome": "Moony"` (lo legge
+Avo); nella barra il nome sta in `NOME_MELISSA` di `src/personaggi.ts`, sull'iPhone in `Personaggi.nomeMelissa`. I comandi a
+voce («ridammi...», «passami...», «torna...») la riconoscono con `PAROLE_MELISSA` / `Personaggi.paroleMelissa`: `moony`, le
+trascrizioni probabili del riconoscimento italiano `mooney`, `mooni`, `muny`, `muni`, e il vecchio `melissa`, sempre solo
+come parola intera (`muni` non scatta su «comuni» o «municipio»). Un `passa` del modello che vale una di quelle parole
+diventa `"melissa"`. Gli altri personaggi la chiamano Moony; lei si presenta come Moony e sa che prima si chiamava
+Melissa.
+
 **Sul Mac la regia sta in un posto solo (build 136, mod 0.19).** La mod melissa di Claude Code non decide piu' chi parla,
 quando, con che voce e con che prompt: lo chiede alla barra con `POST /v1/regia` sul socket Unix
 `~/.bottega/regia.sock` (`src/regia-personaggi-host.ts`; cartella 700, socket 600, nessun gettone: lo stesso modo con cui
@@ -2749,8 +2760,9 @@ i suoi riempitivi: non e' un personaggio, non entra nell'elenco e non si chiama.
   quella lista dette da quella voce (per l'eco conta il modello, non la frase finita; le frasi di altri gruppi non
   contano), poi `candidati[floor(caso * candidati.length)]`. Ogni voce ricorda le sue ultime 30 (build 157): con le
   liste corte e' la regola di prima (le ultime 3), con quelle di 20 e piu' frasi ne restano fuori 8.
-- Quante (build 157, mod 0.25): per ogni voce circa 120 frasi da preparare (domanda 22, ordine 20, sfogo 18, battuta 18,
-  chiacchiera 24, lunga 18) e 10 modelli di eco, nel carattere di ciascuno: piu' parole che versi, i versi («Mh.»,
+- Quante (15/10/2026, richiesta di Andrea: almeno 50 per posto): per ogni voce 300 frasi da preparare, 50 per gruppo
+  (domanda, ordine, sfogo, battuta, chiacchiera, lunga), e 50 modelli di eco; i ritorni di Moony sono 50. 300 e' anche il
+  tetto del Nucleo per richiesta (`VoceScalda.maxTesti`): un gruppo non supera 50. Nel carattere di ciascuno: piu' parole che versi, i versi («Mh.»,
   «Allora.») restano una minoranza. Circa una su dieci ha un tag di voce dai `toni` di chi la dice (`[sighs] Ok, ci
   penso.`), che si sente ma non si legge: si prepara una volta e suona sempre uguale, ma fra tante frasi non stanca.
 - Tempi, da quando la domanda parte verso il modello: a 900 ms la prima frase (intenzione), a 5 s e a 10 s una frase
@@ -2762,7 +2774,7 @@ i suoi riempitivi: non e' un personaggio, non entra nell'elenco e non si chiama.
 - Voce: un riempitivo e' un turno di voce intero, con la voce di chi parla (`final: true`). Il Nucleo ne tiene l'audio
   gia' pronto (modalita' isola, `POST /scalda`; servizio, `voice.scalda`), cosi' parte senza aspettare ElevenLabs. La
   barra chiede `voice.scalda` una voce per richiesta: il Nucleo ne prende al piu' 300 testi a richiesta, e le quattro
-  voci insieme sono quasi 500.
+  voci insieme sono 1.200.
   L'iPhone ha una sua copia in `Caches/riempitivi/`. Le frasi di `eco` cambiano ogni volta e vanno dal vivo.
 
 #### La sfera di chi parla (9 ottobre 2026)
@@ -2774,6 +2786,33 @@ quella del Nucleo in Metal (isola e sfera sullo schermo, `nucleo/Sources/Orb/`),
 ripiego Canvas 2D. E' lo stesso aspetto della sfera di Avo Agency AI (`VoiceOrbShaders.metal`): chi cambia una regola qui
 la cambia anche li'. Dal 13 ottobre (build 158) Darlene e Krista hanno le figure di Avo del 10 ottobre: prima qui erano
 ancora una stella e un rombo.
+
+**La luna di Moony (15 ottobre 2026).** La sfera senza forma non e' piu' blu: e' una luna, la stessa di Avo
+(`moony_*` in `VoiceOrbShaders.metal`). Il peso `luna` = 1 - (codice + rombo + stella), quindi vale 1 per Moony, 0 per
+Darlene, Krista ed Elliot (invariati) e scorre nei passaggi, cosi' la luna si scioglie nella figura dell'altro. Dove:
+`moony_*` in `nucleo/Sources/Orb/OrbShaders.metal` (isola, sfera sullo schermo, iPhone), `lunaTavolozza`, `crateri`,
+`superficieLuna` in `media/motore/sfera-gpu.js` (WGSL), `aspetto.luna2D` per il ripiego Canvas 2D. Superficie: mari scuri
+dal rumore, altipiani argento, crateri da un voronoi 3D a due scale (conca, bordo rialzato, ombra portata verso il
+terminatore, raggiere chiare sui giovani), luce laterale fredda da sinistra (Lommel-Seeliger, niente scurimento al bordo),
+terminatore morbido, luce cinerea sul lato in ombra, rotazione lenta (0,025 rad/s). Tavolozza di stato argento: riposo
+(0,74, 0,75, 0,78), ascolto (0,70, 0,74, 0,80), pensiero (0,76, 0,73, 0,82), parla (0,86, 0,80, 0,70), errore il sodio
+(0,92, 0,74, 0,48). Effetti conservati in argento: il fondo dei crateri si accende a ogni sillaba e pulsa a onde quando
+pensa, bordo che segue lo spettro, filamenti al bordo, scintille, alone, corona e campo che partono dal bordo
+(`fuoriDisco`), onde della voce a meta' e rilievo organico al 20% (la luna resta tonda), scintille delle particelle
+argento senza tinta di personaggio, striscia del bloom argento (`b1.w` del composito = peso luna).
+
+**La superluna, umori e stati (15 ottobre 2026, sera).** Copiata riga per riga da Avo (`MoonyAspetto`, `moony_aspetto`,
+`moony_raggi`, `moony_superficie`, `moony_aureola`): mari ai posti dei bacini veri, raggi, eclissi, aureola, e il rumore
+della luna di Avo (MoonyNoise, 64^3, lo stesso hash) legato al posto del volume ricco quando `luna` >= 0,5. Uniformi: nel
+Nucleo `p9` = (fase, eclissi, raccolto, aureola) e `p10` = (fermo, ascolta, pensa, parla); nel WGSL `p10` e `p11` (in Avo
+`p7` e `p8`); tutto 0 = la luna d'argento a riposo. L'umore che la luna mostra: riposo ed errore `calma`, ascolto
+`curiosa`, pensiero `concentrata`, mentre parla quello del testo detto nel turno (primi 400 caratteri, lessico di Avo,
+`OrbMoodDirector.classify`). Chiavi `calma`, `concentrata`, `curiosa`, `calore`, `gioia`, `meraviglia`, `malinconia`,
+`allarme`, con la tabella delle lune di Avo (`OrbIdentita.lunaPerUmore`): in `UmoreLuna` (Nucleo, `OrbAspetto.swift`),
+`umoreLunaDi` (`src/sfera-aspetto.ts`, che lo scrive nel campo `umore` dello stato dell'assistente) e `LUNE` in
+`sfera-gpu.js`. L'umore va verso la sua luna con k = dt x 0,8, gli stati con k = dt x 1,6; con riduci movimento si salta
+e la luna non dondola. Sulla luna il bloom e' piu' contenuto (`b1.y` x (1 - 0,55 luna)) e la striscia ha il guadagno di
+Avo (0,55). Sull'iPhone arrivano gli stati, non l'umore del testo (la vista non lo passa).
 
 - **Fonte unica**: il campo facoltativo `"sfera": {"forma": "...", "colore": "#RRGGBB"}` nel file del personaggio
   (`personaggi/LEGGIMI.md`). Forme valide: `sfera`, `codice`, `rombo`, `stella`; `cubo` si accetta ancora e vale

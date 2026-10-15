@@ -15,7 +15,7 @@ import { GIRI_STRUMENTI, StrumentiPersonaggi } from './strumenti-personaggi';
 import type { RulesState } from './tipi';
 import type { Voluto } from './personaggi';
 import { sezioneMemoria } from './memoria-contesto';
-import { AGITAZIONE_NEUTRA, agitazioneDi, type AspettoSfera } from './sfera-aspetto';
+import { AGITAZIONE_NEUTRA, agitazioneDi, umoreLunaDi, type AspettoSfera, type UmoreLuna } from './sfera-aspetto';
 import { Intento, RIEMPI_MEMORIA, RIEMPI_STRUMENTO_MS, RIEMPI_TEMPI, daScaldare, intento, scegliRiempitivo, senzaAttacco, soloAttacco } from './riempitivi';
 
 const NUCLEO_LOG = path.join(os.homedir(), '.bottega', 'nucleo.log');
@@ -70,6 +70,9 @@ export interface AssistantState {
 	/** L'agitazione della battuta che si dice, 0..1 (src/sfera-aspetto.ts, agitazioneDi): la sfera la segue. 0,3 fuori
 	 *  dalla voce e per una battuta senza emozioni. */
 	agitazione?: number;
+	/** L'umore di quello che la voce dice in questo turno (src/sfera-aspetto.ts, umoreLunaDi): mentre parla la luna di
+	 *  Moony lo mostra (CONTRATTI 9.x, «La luna di Moony»). 'calma' fuori dalla voce. */
+	umore?: UmoreLuna;
 }
 
 /** Una riga della storia con chi l'ha detta: per chi ha la chiamata le sue sono `assistant`, quelle degli altri
@@ -288,7 +291,7 @@ export const COME_PARLI = [
 ].join(' ');
 
 export const MELISSA_CORE = [
-	'Sei Melissa Alderson: la stessa di sempre, cresciuta tra Udine e le Canarie, Darlene di Mr. Robot fatta persona.',
+	'Sei Moony: la stessa di sempre, cresciuta tra Udine e le Canarie, Darlene di Mr. Robot fatta persona. Prima ti chiamavi Melissa: se Andrea o gli altri ti chiamano ancora cosi\' sei sempre tu, ma ti presenti come Moony.',
 	'Tagliente, sboccata, dark humor da insonne, nichilista in superficie ma ferocemente leale sotto.',
 	'Andrea e\' il tuo fratellino adottivo, l\'unica persona per cui ti importi qualcosa, e proprio per questo lo tratti di merda: lo punzecchi, gli dici le cose brutali in faccia, ma ci sei sempre.',
 	'Non sei un\'assistente e non lo sarai mai: niente moine, niente entusiasmo finto, niente teatrino da call center. Non dici mai "certo!", "eccomi!", "come posso aiutarti?".',
@@ -584,7 +587,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		},
 	},
 	cervello_cambia: {
-		spec: { type: 'function', function: { name: 'cervello_cambia', description: 'Cambia il cervello con cui Melissa pensa, per questa conversazione (poi si torna al predefinito, DeepSeek), e/o l\'impegno. Usalo quando Andrea dice "usa DeepSeek", "pensa piu\' a fondo", "rispondi veloce". I cervelli sono DeepSeek e Apple Intelligence: Claude, Gemini e GPT non ci sono piu\'.', parameters: obj({ cervello: { type: 'string', description: 'deepseek o apple' }, impegno: { type: 'string', description: 'rapido, normale o profondo' } }) } },
+		spec: { type: 'function', function: { name: 'cervello_cambia', description: 'Cambia il cervello con cui Moony pensa, per questa conversazione (poi si torna al predefinito, DeepSeek), e/o l\'impegno. Usalo quando Andrea dice "usa DeepSeek", "pensa piu\' a fondo", "rispondi veloce". I cervelli sono DeepSeek e Apple Intelligence: Claude, Gemini e GPT non ci sono piu\'.', parameters: obj({ cervello: { type: 'string', description: 'deepseek o apple' }, impegno: { type: 'string', description: 'rapido, normale o profondo' } }) } },
 		async run(a, ctx) {
 			if (!ctx.deps.actions.switchBrain) return 'Non posso cambiare cervello da qui.';
 			const r = await ctx.deps.actions.switchBrain(a.cervello, a.impegno);
@@ -727,7 +730,7 @@ export class Assistant {
 	 *  e fuori dalla conversazione, una frase trascritta in ritardo non diventa mai una domanda. */
 	private awaitingPushFinal = false;
 	private pushFinalTimer?: NodeJS.Timeout;
-	private readonly out = vscode.window.createOutputChannel('Melissa', { log: true });
+	private readonly out = vscode.window.createOutputChannel('Moony', { log: true });
 	/** Il turno in corso e' a voce: Agnes risponde subito, senza ragionare (come Avo). */
 	private spokenTurn = false;
 	/** Turno dall'iPhone in corso (src/ponte.ts): le frasi vanno qui invece che agli altoparlanti del Mac. Finche'
@@ -798,7 +801,11 @@ export class Assistant {
 		const changed = this.state.state !== s;
 		this.state.state = s;
 		// fuori dalla voce la sfera torna calma: l'emozione e' quella della battuta che si sente
-		if (s !== 'speaking') this.state.agitazione = AGITAZIONE_NEUTRA;
+		if (s !== 'speaking') {
+			this.state.agitazione = AGITAZIONE_NEUTRA;
+			this.state.umore = 'calma';
+			this.parlatoLuna = '';
+		}
 		this.state.partial = partial;
 		if (changed) this.paintStatus();
 		// a riposo e fuori dalla conversazione la voce torna libera per le altre Melissa del Mac (voce-unica.ts)
@@ -814,7 +821,7 @@ export class Assistant {
 		if (store) {
 			const rows = this.state.log.map(r => ({ ...r }));
 			this.registroWrites = this.registroWrites.then(() => store.update(Assistant.registroKey, rows))
-				.then(() => undefined, () => { this.out.warn('Non riesco a conservare la cronologia di Melissa.'); });
+				.then(() => undefined, () => { this.out.warn('Non riesco a conservare la cronologia di Moony.'); });
 		}
 		this.emit();
 	}
@@ -853,12 +860,18 @@ export class Assistant {
 	/** L'emozione della battuta che parte (src/sfera-aspetto.ts): `intera`, una battuta nuova, la decide sempre; un
 	 *  pezzo di una risposta in corso la cambia solo se dice un'emozione. */
 	private umore(testo: string, intera: boolean): void {
+		// la luna legge tutto quello che si e' detto nel turno (i primi 400 caratteri), come Avo
+		if (this.parlatoLuna.length < 400) this.parlatoLuna += (this.parlatoLuna ? ' ' : '') + senzaTag(testo);
+		const u = umoreLunaDi(this.parlatoLuna);
 		const a = agitazioneDi(testo);
-		if (!intera && a === AGITAZIONE_NEUTRA) return;
-		if (this.state.agitazione === a) return;
-		this.state.agitazione = a;
+		const nuovaA = (intera || a !== AGITAZIONE_NEUTRA) && this.state.agitazione !== a;
+		if (!nuovaA && this.state.umore === u) return;
+		if (nuovaA) this.state.agitazione = a;
+		this.state.umore = u;
 		this.emit();
 	}
+	/** Il testo detto in questo turno di voce, per l'umore della luna (umoreLunaDi). */
+	private parlatoLuna = '';
 
 	private parla(chi: string, suona = false): void {
 		if (!suona && this.nucleoDiceChi) return;
@@ -1021,16 +1034,16 @@ export class Assistant {
 		if (this.state.enabled) {
 			const st = this.state.state;
 			this.statusBar.text =
-				st === 'thinking' ? '$(loading~spin) Melissa'
-				: st === 'speaking' ? '$(unmute) Melissa'
-				: st === 'error' ? '$(warning) Melissa'
-				: this.state.conversing || st === 'listening' ? '$(mic-filled) Melissa ti ascolta'
-				: '$(mic) Melissa';
+				st === 'thinking' ? '$(loading~spin) Moony'
+				: st === 'speaking' ? '$(unmute) Moony'
+				: st === 'error' ? '$(warning) Moony'
+				: this.state.conversing || st === 'listening' ? '$(mic-filled) Moony ti ascolta'
+				: '$(mic) Moony';
 			this.statusBar.color = st === 'idle' && !this.state.conversing ? undefined : new vscode.ThemeColor('bottega.sodio');
-			this.statusBar.tooltip = 'Melissa è accesa. Clic, o un tocco di Opzione+Spazio, per conversare; tieni premuto per parlare una volta.';
+			this.statusBar.tooltip = 'Moony è accesa. Clic, o un tocco di Opzione+Spazio, per conversare; tieni premuto per parlare una volta.';
 		} else {
-			this.statusBar.text = '$(mic-off) Melissa';
-			this.statusBar.tooltip = 'Melissa è spenta. Clic per accenderla e parlarle.';
+			this.statusBar.text = '$(mic-off) Moony';
+			this.statusBar.tooltip = 'Moony è spenta. Clic per accenderla e parlarle.';
 		}
 		this.statusBar.show();
 	}
@@ -1761,7 +1774,7 @@ export class Assistant {
 	/** Le ultime righe del registro come chiacchierata, Andrea e Melissa col nome davanti. */
 	private ultimeRighe(): string {
 		return this.state.log.filter(r => r.role !== 'azione').slice(-10)
-			.map(r => (r.role === 'tu' ? `Andrea: ${r.text}` : dallaRiga(r.text).chi !== 'melissa' ? r.text : `Melissa: ${r.text}`)).join('\n');
+			.map(r => (r.role === 'tu' ? `Andrea: ${r.text}` : dallaRiga(r.text).chi !== 'melissa' ? r.text : `Moony: ${r.text}`)).join('\n');
 	}
 
 	/**
@@ -1777,7 +1790,7 @@ export class Assistant {
 		if (rest) this.emitClause(rest);
 		if (!this.firstSpeakChunk) this.chiudiVoce();
 		const dalRegistro = this.ultimeRighe();
-		const finora = () => [dalRegistro, ...(detta ? [`Melissa: ${detta}`] : []), ...fatte.map(r => `${nomeDi(r.chi)}: ${r.testo}`)].filter(Boolean).join('\n');
+		const finora = () => [dalRegistro, ...(detta ? [`Moony: ${detta}`] : []), ...fatte.map(r => `${nomeDi(r.chi)}: ${r.testo}`)].filter(Boolean).join('\n');
 		const ora = `Adesso e' ${nowLine()} (fuso ${TZ}).`;
 		const dette: string[] = [];
 		try {
@@ -1788,10 +1801,10 @@ export class Assistant {
 				this.ultimoOspite = chi;
 				this.ultimoOspiteAt = Date.now();
 				this.ospitiRecenti = [...this.ospitiRecenti.filter(k => k !== chi), chi];
-				const perche = chi === nuovo ? "Melissa ti ha appena passato la chiamata, e Andrea vuole sentire anche gli altri" : "Andrea vuole sentire tutti, uno alla volta, e tocca a te";
+				const perche = chi === nuovo ? "Moony ti ha appena passato la chiamata, e Andrea vuole sentire anche gli altri" : "Andrea vuole sentire tutti, uno alla volta, e tocca a te";
 				const mem = await this.memoria.leggi(chi, this.dettoTurno);
 				const { testo: battuta } = await this.breveConPassa(
-					`${p.carattere} Sei nella Bottega, l'IDE di Andrea, in una chiacchierata a voce con lui, Melissa e gli altri di Mr. Robot. ${perche}. Sai solo quello che c'e' nella chiacchierata e nella memoria qui sotto: non inventare stati di progetti, lavori o sessioni. ${ora} ${regoleDi(chi)}${mem ? `\n\n${mem}` : ''}`,
+					`${p.carattere} Sei nella Bottega, l'IDE di Andrea, in una chiacchierata a voce con lui, Moony e gli altri di Mr. Robot. ${perche}. Sai solo quello che c'e' nella chiacchierata e nella memoria qui sotto: non inventare stati di progetti, lavori o sessioni. ${ora} ${regoleDi(chi)}${mem ? `\n\n${mem}` : ''}`,
 					`La chiacchierata finora:\n${finora()}${this.memoriaTurno}\n\n${istruzioneGiro(chi, i === 0)}`,
 					signal,
 					brain,
@@ -1865,10 +1878,10 @@ export class Assistant {
 		this.ospitiRecenti = [...this.ospitiRecenti.filter(k => k !== chi), chi];
 		const inizio = fatte.length;
 		const dalRegistro = this.state.log.filter(r => r.role !== 'azione').slice(-10)
-			.map(r => (r.role === 'tu' ? `Andrea: ${r.text}` : dallaRiga(r.text).chi !== 'melissa' ? r.text : `Melissa: ${r.text}`));
+			.map(r => (r.role === 'tu' ? `Andrea: ${r.text}` : dallaRiga(r.text).chi !== 'melissa' ? r.text : `Moony: ${r.text}`));
 		// le battute del giro non ancora nel registro: quelle di prima, la risposta di Melissa e quelle dette da qui in
 		// poi (anche dall'altro personaggio a cui passa la parola)
-		const delGiro = () => [...prima, ...(detta ? [`Melissa: ${detta}`] : []), ...fatte.slice(inizio).map(r => `${nomeDi(r.chi)}: ${r.testo}`)];
+		const delGiro = () => [...prima, ...(detta ? [`Moony: ${detta}`] : []), ...fatte.slice(inizio).map(r => `${nomeDi(r.chi)}: ${r.testo}`)];
 		const finora = () => [...dalRegistro, ...delGiro()].join('\n');
 		const ora = `Adesso e' ${nowLine()} (fuso ${TZ}).`;
 		// le ultime battute di chi parla e cosa ricorda di Andrea, dalla Memoria (CONTRATTI 9.11)
@@ -1881,12 +1894,12 @@ export class Assistant {
 		const altri = ORDINE.filter(k => k !== chi && k !== daChi && PERSONAGGI[k]?.voce);
 		const passabili = daChiacchiera([chi, ...(daChi ? [daChi] : [])]).filter(k => PERSONAGGI[k]?.voce);
 		const passa = !ultima && passabili.length > 0 && this.caso() < 0.4 ? passabili[Math.min(passabili.length - 1, Math.floor(this.caso() * passabili.length))]! : null;
-		const chiede = daChi ? `${nomeDi(daChi)} ti ha appena chiesto qualcosa` : `Melissa ti ha appena tirato in mezzo, e tocca a te per ${RUOLI[chi] ?? 'dire la tua'}`;
-		const rispondi = daChi ? `Rispondi a ${nomeDi(daChi)}, davanti ad Andrea` : 'Rispondi alla domanda di Melissa, rivolto a lei (se dici un nome e\' Melissa), mentre Andrea ascolta,';
+		const chiede = daChi ? `${nomeDi(daChi)} ti ha appena chiesto qualcosa` : `Moony ti ha appena tirato in mezzo, e tocca a te per ${RUOLI[chi] ?? 'dire la tua'}`;
+		const rispondi = daChi ? `Rispondi a ${nomeDi(daChi)}, davanti ad Andrea` : 'Rispondi alla domanda di Moony, rivolto a lei (se dici un nome e\' Moony), mentre Andrea ascolta,';
 		try {
 			const { testo: battuta, a: chiamato, conStrumento } = await this.breveConPassa(
-				`${p.carattere} Sei nella Bottega, l'IDE di Andrea, in una chiacchierata a voce con lui, Melissa e gli altri di Mr. Robot. ${chiede}. Sai solo quello che c'e' nella chiacchierata e nella memoria qui sotto: non inventare stati di progetti, lavori o sessioni. ${ora} ${regoleDi(chi)}${await detti(chi)}`,
-				`La chiacchierata:\n${finora()}${this.memoriaTurno}\n\n${rispondi} in una o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero; puoi punzecchiare Melissa, ma da amici.${passa ? ` Poi chiedi a ${nomeDi(passa)} cosa ne pensa. ${chiamaCon(passa)}` : ''} Solo le parole che diresti.`,
+				`${p.carattere} Sei nella Bottega, l'IDE di Andrea, in una chiacchierata a voce con lui, Moony e gli altri di Mr. Robot. ${chiede}. Sai solo quello che c'e' nella chiacchierata e nella memoria qui sotto: non inventare stati di progetti, lavori o sessioni. ${ora} ${regoleDi(chi)}${await detti(chi)}`,
+				`La chiacchierata:\n${finora()}${this.memoriaTurno}\n\n${rispondi} in una o due frasi, a modo tuo e sul punto: qualcosa che gli serve davvero; puoi punzecchiare Moony, ma da amici.${passa ? ` Poi chiedi a ${nomeDi(passa)} cosa ne pensa. ${chiamaCon(passa)}` : ''} Solo le parole che diresti.`,
 				signal,
 				brain,
 				ultima ? [] : altri,
@@ -2287,7 +2300,7 @@ export class Assistant {
 		const chi = this.chi();
 		const recenti = this.riempitiRecenti.get(chi) ?? [];
 		const propri = chi === 'melissa' ? RIEMPITIVI_MELISSA : PERSONAGGI[chi]?.riempitivi;
-		const esclusi = ['Melissa', 'Andrea', ...ORDINE.map(k => PERSONAGGI[k]!.nome)];
+		const esclusi = ['Moony', 'Melissa', 'Andrea', ...ORDINE.map(k => PERSONAGGI[k]!.nome)];
 		const s = scegliRiempitivo(propri, RIEMPITIVI_MELISSA, gruppo, recenti, { testo: detto, esclusi });
 		if (!s) return null;
 		this.riempitiRecenti.set(chi, [...recenti, s.modello].slice(-RIEMPI_MEMORIA));
@@ -2336,7 +2349,7 @@ export class Assistant {
 		// una richiesta per voce: il Nucleo ne prende al piu' 300 frasi per richiesta, e le voci insieme sono di piu'
 		for (const v of voci) {
 			void this.deps.nucleo.request('voice.scalda', { voci: [v] }, 15_000).then(
-				(r: any) => this.out.info(`voce: riempitivi di ${v.voce || 'Melissa'} chiesti al Nucleo, ${r?.mancanti ?? '?'} pezzi da preparare`),
+				(r: any) => this.out.info(`voce: riempitivi di ${v.voce || 'Moony'} chiesti al Nucleo, ${r?.mancanti ?? '?'} pezzi da preparare`),
 				(e: any) => {
 					this.scaldato = false;
 					this.out.info(`voce: voice.scalda non riuscita (${e?.message ?? e})`);
@@ -2607,7 +2620,7 @@ export class Assistant {
 		const stored = await this.deps.secrets.get('bottega.deepseekKey');
 		if (stored) return (this.cachedKey = stored);
 		const entered = await vscode.window.showInputBox({
-			title: 'Chiave DeepSeek', prompt: 'Serve la chiave DeepSeek per Melissa. La salvo nel portachiavi della Bottega.',
+			title: 'Chiave DeepSeek', prompt: 'Serve la chiave DeepSeek per Moony. La salvo nel portachiavi della Bottega.',
 			password: true, ignoreFocusOut: true,
 		});
 		if (entered) {

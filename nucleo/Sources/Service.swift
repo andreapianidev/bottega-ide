@@ -94,7 +94,7 @@ enum Service {
                 r.respond()
 
             case "wake.enable":
-                try await Listener.shared.wakeEnable(phrase: r.string("phrase") ?? "melissa", locale: r.string("locale"))
+                try await Listener.shared.wakeEnable(phrase: r.string("phrase") ?? "", locale: r.string("locale"))
                 r.respond()
 
             case "wake.disable":

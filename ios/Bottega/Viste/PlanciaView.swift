@@ -65,7 +65,7 @@ struct PlanciaView: View {
                 else { CervelloFoglio(ponte: ponte) }
             }.presentationDetents([.medium, .large])
         }
-        .alert("Melissa", isPresented: Binding(get: { melissa.avviso != nil }, set: { if !$0 { melissa.avviso = nil } })) {
+        .alert("Moony", isPresented: Binding(get: { melissa.avviso != nil }, set: { if !$0 { melissa.avviso = nil } })) {
             Button("Va bene", role: .cancel) {}
         } message: {
             Text(melissa.avviso ?? "")
@@ -115,8 +115,8 @@ struct PlanciaView: View {
                 .onTapGesture { melissa.tocca() }
                 // tocco lungo: il selettore del cervello (CervelloView.swift)
                 .onLongPressGesture(minimumDuration: 0.5) { cervello = true }
-                .accessibilityLabel("Sfera di Melissa")
-                .accessibilityHint(melissa.sfera == .ascolta ? "Tocca per mandare la frase" : "Tocca per parlare con Melissa")
+                .accessibilityLabel("Sfera di Moony")
+                .accessibilityHint(melissa.sfera == .ascolta ? "Tocca per mandare la frase" : "Tocca per parlare con Moony")
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction(named: "Scegli il cervello") { cervello = true }
             CervelloNome(scelta: sceltaVisibile, acceso: true) { cervello = true }
@@ -140,7 +140,7 @@ struct PlanciaView: View {
 
     private var scrivi: some View {
         HStack(spacing: 10) {
-            TextField("Scrivi a Melissa", text: $testo, axis: .vertical)
+            TextField("Scrivi a Moony", text: $testo, axis: .vertical)
                 .lineLimit(1...4)
                 .focused($scrivendo)
                 .submitLabel(.send)
@@ -237,7 +237,7 @@ struct PlanciaView: View {
         switch melissa.sfera {
         case .ascolta: melissa.parziale.isEmpty ? "Ti ascolto" : melissa.parziale
         case .pensa: "Ci penso…"
-        case .parla: melissa.parlante == "Melissa" ? "Tocca la sfera per interrompermi" : "Parla \(melissa.parlante). Tocca la sfera per interrompere"
+        case .parla: melissa.parlante == "Moony" ? "Tocca la sfera per interrompermi" : "Parla \(melissa.parlante). Tocca la sfera per interrompere"
         case .errore: "Qualcosa non è andato. Tocca la sfera per riprovare."
         case .riposo:
             switch ponte.stato?.melissa.stato {
@@ -245,7 +245,7 @@ struct PlanciaView: View {
             case "speaking"?: personaggioMac.map { "Sul Mac sta parlando \($0)" } ?? "Sto parlando sul Mac"
             case "listening"?: "Sul Mac ti sto ascoltando"
             default: melissa.chiParla == "melissa" ? "Tocca la sfera per parlarmi"
-                : "Sei con \(Personaggi.nome(melissa.chiParla)). «Ridammi Melissa» per tornare da me"
+                : "Sei con \(Personaggi.nome(melissa.chiParla)). «Ridammi Moony» per tornare da me"
             }
         }
     }

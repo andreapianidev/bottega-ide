@@ -234,7 +234,7 @@ final class OrbPanel: NSObject, NSWindowDelegate {
         p.isReleasedWhenClosed = false
         p.hidesOnDeactivate = false
         p.animationBehavior = .none
-        p.title = "Melissa"
+        p.title = "Moony"
         p.delegate = self
         // Reduce motion, the load: the engine says when the rhythm may have changed.
         NotificationCenter.default.addObserver(forName: MetalEngine.didChange, object: nil, queue: .main) { _ in

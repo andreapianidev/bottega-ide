@@ -87,7 +87,7 @@ export class BarraView implements vscode.WebviewViewProvider {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${view.webview.cspSource}; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="${css}">
-<title>Melissa</title>
+<title>Moony</title>
 </head>
 <body><main id="barra"></main>${gpu}<script nonce="${nonce}" src="${js}"></script></body>
 </html>`;

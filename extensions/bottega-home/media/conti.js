@@ -39,7 +39,7 @@
 			<dl class="cifre conti-cifre" id="conti-cifre"></dl>
 			<div class="sez-testa"><h3 id="conti-spesa-titolo">Spesa per giorno</h3><ul class="legenda" id="conti-legenda"></ul></div>
 			<div class="grafico" id="conti-spesa" role="img"></div>
-			<div class="sez-testa"><h3 id="conti-voce-titolo">Voce di Melissa, caratteri per giorno</h3></div>
+			<div class="sez-testa"><h3 id="conti-voce-titolo">Voce di Moony, caratteri per giorno</h3></div>
 			<div class="grafico" id="conti-voce" role="img"></div>
 			<p class="nota" id="conti-piede"></p>
 			<div class="tabella-blocco" id="conti-tabella"></div>`;

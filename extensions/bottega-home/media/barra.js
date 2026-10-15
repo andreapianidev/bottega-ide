@@ -100,13 +100,13 @@
 		<header class="testa">
 			<div class="cervello">
 				<button type="button" class="cervello-tasto" id="cervello" aria-haspopup="listbox" aria-expanded="false" aria-controls="cervelli">
-					<span class="sr">Cervello di Melissa: </span><span class="cervello-nome" id="cervello-nome">Nessun cervello</span><span class="cervello-nota" id="cervello-nota"></span><span class="cervello-freccia" aria-hidden="true"></span>
+					<span class="sr">Cervello di Moony: </span><span class="cervello-nome" id="cervello-nome">Nessun cervello</span><span class="cervello-nota" id="cervello-nota"></span><span class="cervello-freccia" aria-hidden="true"></span>
 				</button>
-				<ul class="cervelli" id="cervelli" role="listbox" aria-label="Scegli il cervello di Melissa" tabindex="-1" hidden></ul>
+				<ul class="cervelli" id="cervelli" role="listbox" aria-label="Scegli il cervello di Moony" tabindex="-1" hidden></ul>
 			</div>
-			<fieldset class="impegno personaggi" id="personaggi" title="Con chi parli: Melissa, o un personaggio di Mr. Robot con la sua voce e gli stessi strumenti">
+			<fieldset class="impegno personaggi" id="personaggi" title="Con chi parli: Moony, o un personaggio di Mr. Robot con la sua voce e gli stessi strumenti">
 				<legend class="sr">Con chi parli</legend>
-				<label><input type="radio" name="personaggio" value="melissa" checked><span>Melissa</span></label>
+				<label><input type="radio" name="personaggio" value="melissa" checked><span>Moony</span></label>
 			</fieldset>
 			<div class="testa-riga">
 				<fieldset class="impegno" id="impegno">
@@ -116,8 +116,8 @@
 					<label title="Pensa a fondo, ci mette di più"><input type="radio" name="impegno" value="profondo"><span>profondo</span></label>
 				</fieldset>
 				<label class="sempre" title="Il cervello scelto resta anche dopo questa conversazione, come dall'iPhone; tolto, si torna a DeepSeek"><input type="checkbox" id="sempre"><span>sempre</span></label>
-				<button type="button" class="racconta" id="racconta" title="Melissa legge quello che hai davanti (il file di codice o la stanza della Home), lo fa analizzare a DeepSeek e te lo racconta a voce">racconta</button>
-				<button type="button" class="racconta avviso" id="avviso" aria-pressed="false" title="Melissa ti dice a voce quando Claude Code, Codex, Cline o un comando lungo del terminale hanno finito, e se aspettano qualcosa da te. È lo stesso interruttore del pulsante «avviso fine» nella mod di Claude Code">avviso fine</button>
+				<button type="button" class="racconta" id="racconta" title="Moony legge quello che hai davanti (il file di codice o la stanza della Home), lo fa analizzare a DeepSeek e te lo racconta a voce">racconta</button>
+				<button type="button" class="racconta avviso" id="avviso" aria-pressed="false" title="Moony ti dice a voce quando Claude Code, Codex, Cline o un comando lungo del terminale hanno finito, e se aspettano qualcosa da te. È lo stesso interruttore del pulsante «avviso fine» nella mod di Claude Code">avviso fine</button>
 			</div>
 			<details class="conti" id="conti" hidden>
 				<summary><i class="conto-punto" id="conti-punto" aria-hidden="true"></i><span id="conti-riassunto"></span></summary>
@@ -127,10 +127,10 @@
 			<div hidden>
 			</div>
 		</header>
-		<section class="notte" id="notte" aria-label="Melissa">
+		<section class="notte" id="notte" aria-label="Moony">
 			<button type="button" class="sfera-tasto" id="sfera-tasto" aria-pressed="false">
 				<canvas id="sfera" aria-hidden="true"></canvas>
-				<span class="sr" id="sfera-etichetta">Parla con Melissa</span>
+				<span class="sr" id="sfera-etichetta">Parla con Moony</span>
 			</button>
 			<div class="notte-testo">
 				<p class="stato" id="stato">Tocca la sfera per parlare</p>
@@ -138,16 +138,16 @@
 				<button type="button" class="voce" id="voce" hidden></button>
 			</div>
 		</section>
-		<section class="terminale-m" id="attivita" aria-label="Cosa sta facendo Melissa, in diretta">
+		<section class="terminale-m" id="attivita" aria-label="Cosa sta facendo Moony, in diretta">
 			<ol class="terminale-righe" id="attivita-righe" role="log" aria-live="polite"></ol>
 		</section>
 		<section class="dialogo" aria-labelledby="dialogo-titolo">
 			<h2 class="sr" id="dialogo-titolo">Conversazione</h2>
-			<ol class="registro" id="registro" role="log" aria-live="off" aria-label="Conversazione con Melissa" tabindex="0"></ol>
+			<ol class="registro" id="registro" role="log" aria-live="off" aria-label="Conversazione con Moony" tabindex="0"></ol>
 			<p class="vuoto" id="registro-vuoto">Silenzio, per ora. Tocca la sfera o scrivimi qui sotto.</p>
 			<form class="chiedi" id="chiedi" autocomplete="off">
-				<label class="sr" for="domanda">Scrivi a Melissa</label>
-				<input id="domanda" type="text" placeholder="Scrivi a Melissa" spellcheck="false">
+				<label class="sr" for="domanda">Scrivi a Moony</label>
+				<input id="domanda" type="text" placeholder="Scrivi a Moony" spellcheck="false">
 				<button type="submit" class="manda">Manda</button>
 			</form>
 		</section>
@@ -190,10 +190,11 @@
 	// Canvas 2D qui sotto, su un canvas nuovo (quello di WebGPU non accetta piu' un contesto 2D). Idem se mount lancia.
 	const makeOrb2D = () => (() => {
 		const LIN = {
-			idle: [0.26, 0.74, 1.0],
-			listening: [0.16, 0.86, 0.86],
-			thinking: [0.6, 0.38, 0.98],
-			speaking: [0.42, 0.88, 0.52],
+			// la luna di Moony: argento, niente blu (uguale a lunaTavolozza in motore/sfera-gpu.js e al Nucleo)
+			idle: [0.74, 0.75, 0.78],
+			listening: [0.70, 0.74, 0.80],
+			thinking: [0.76, 0.73, 0.82],
+			speaking: [0.86, 0.80, 0.70],
 			error: [0.905, 0.402, 0.045], // il sodio della palette, #f4ab3c, in lineare
 		};
 		const GREY = [0.16, 0.18, 0.24];
@@ -291,6 +292,10 @@
 			ctx.fillStyle = g;
 			ctx.fillRect(0, 0, S, S);
 
+			// Moony: la luna sopra il corpo, quanto manca ai pesi delle forme dei personaggi
+			const luna = mol ? Math.max(0, 1 - mol.pesi[0] - mol.pesi[1] - mol.pesi[2]) : 1;
+			if (A && A.luna2D) A.luna2D(ctx, c, c, Rc, luna * (1 - dim * 0.5), performance.now() / 1000, level, C, mol ? mol.luna : null);
+
 			// plasma: cinque correnti che girano piano e si sommano
 			ctx.globalCompositeOperation = 'lighter';
 			for (let i = 0; i < 5; i++) {
@@ -301,7 +306,7 @@
 				const br = Rc * (0.5 + 0.16 * Math.sin(phase * 1.1 + i * 2));
 				const hue = i % 2 ? C : mixC(C, [1, 1, 1], 0.3);
 				g = ctx.createRadialGradient(x, y, 0, x, y, br);
-				g.addColorStop(0, rgba(hue, 0.1 + 0.42 * E));
+				g.addColorStop(0, rgba(hue, (0.1 + 0.42 * E) * (1 - 0.8 * luna)));
 				g.addColorStop(1, rgba(hue, 0));
 				ctx.fillStyle = g;
 				ctx.fillRect(0, 0, S, S);
@@ -312,8 +317,8 @@
 			const cy = c + Math.cos(phase * 0.7) * Rc * 0.05;
 			const cr = Rc * (0.38 + 0.2 * pulse);
 			g = ctx.createRadialGradient(cx, cy, 0, cx, cy, cr);
-			g.addColorStop(0, `rgba(255,255,255,${(0.55 + 0.4 * (1 - dim)).toFixed(3)})`);
-			g.addColorStop(0.35, rgba(mixC(C, [1, 1, 1], 0.55), 0.6));
+			g.addColorStop(0, `rgba(255,255,255,${((0.55 + 0.4 * (1 - dim)) * (1 - 0.85 * luna)).toFixed(3)})`);
+			g.addColorStop(0.35, rgba(mixC(C, [1, 1, 1], 0.55), 0.6 * (1 - 0.85 * luna)));
 			g.addColorStop(1, rgba(C, 0));
 			ctx.fillStyle = g;
 			ctx.fillRect(0, 0, S, S);
@@ -322,7 +327,7 @@
 			ctx.globalCompositeOperation = 'source-over';
 			g = ctx.createRadialGradient(c, c, Rc * 0.6, c, c, Rc);
 			g.addColorStop(0, 'rgba(3,6,16,0)');
-			g.addColorStop(1, 'rgba(3,6,16,0.62)');
+			g.addColorStop(1, `rgba(3,6,16,${(0.62 * (1 - 0.7 * luna)).toFixed(3)})`); // la luna non scurisce al bordo
 			ctx.fillStyle = g;
 			ctx.fillRect(0, 0, S, S);
 			ctx.globalCompositeOperation = 'lighter';
@@ -349,8 +354,12 @@
 			return mixC(base, scale(mol.colore, A.luce(mol.agit)), mol.tinta);
 		}
 
+		/** lo stato in numero, come la sfera WebGPU: per l'umore della luna di Moony nel ripiego 2D */
+		function numStato(t) {
+			return t === 'listening' ? 1 : t === 'thinking' ? 2 : t === 'speaking' ? 3 : t === 'error' ? 4 : 0;
+		}
 		function step(dt) {
-			if (mol) mol.passo(dt);
+			if (mol) mol.passo(dt, numStato(target));
 			const want = voluto();
 			const m = MOTO[target] || MOTO.idle;
 			const k = 1 - Math.exp(-dt * 4);
@@ -380,7 +389,7 @@
 		}
 
 		function snapTo() {
-			if (mol) mol.salta();
+			if (mol) mol.salta(numStato(target));
 			col = voluto().slice();
 			const m = MOTO[target] || MOTO.idle;
 			e = m.e;
@@ -660,7 +669,7 @@
 
 	// ---------- la sfera e la conversazione ----------
 
-	/** @type {Record<string, string>} */ let NOMI = { melissa: 'Melissa' };
+	/** @type {Record<string, string>} */ let NOMI = { melissa: 'Moony' };
 
 	// i pulsanti di chi parla: Melissa sempre per prima, poi i personaggi caricati, in ordine (AssistantState.personaggi)
 	function renderPersonaggi(lista) {
@@ -668,7 +677,7 @@
 		const firma = JSON.stringify(validi.map(p => [p.chiave, p.nome, p.ruolo]));
 		if (firma === sig.personaggi) return;
 		sig.personaggi = firma;
-		NOMI = { melissa: 'Melissa' };
+		NOMI = { melissa: 'Moony' };
 		const campo = $('personaggi');
 		campo.querySelectorAll('label:not(:first-of-type)').forEach(l => l.remove());
 		for (const p of validi) {
@@ -742,7 +751,7 @@
 		$('notte').classList.toggle('viva', !!(on && a && (a.conversing || a.state !== 'idle')));
 		renderPersonaggi(a && a.personaggi);
 		const chi = (a && a.personaggio) || 'melissa';
-		const nome = NOMI[chi] || 'Melissa';
+		const nome = NOMI[chi] || 'Moony';
 		setText($('sfera-etichetta'), a && a.conversing ? `Chiudi la conversazione con ${nome}` : `Parla con ${nome}`);
 		root.querySelectorAll('#personaggi input').forEach(i => {
 			const r = /** @type {HTMLInputElement} */ (i);
@@ -751,7 +760,7 @@
 		});
 		// mentre parla un personaggio (nel giro a tre, o con la chiamata) l'etichetta e' sua, non di Melissa
 		const voce = st === 'speaking' && a && a.parla && a.parla !== 'melissa' ? NOMI[a.parla] : '';
-		setText($('stato'), !a ? WORD.idle : !on ? 'Melissa è spenta' : a.conversing && st === 'listening' ? 'In conversazione, ti ascolto' : voce ? `Parla ${voce}` : WORD[st] || '');
+		setText($('stato'), !a ? WORD.idle : !on ? 'Moony è spenta' : a.conversing && st === 'listening' ? 'In conversazione, ti ascolto' : voce ? `Parla ${voce}` : WORD[st] || '');
 		setText($('parziale'), (a && a.partial) || '');
 		const tastoVoce = $('voce');
 		show(tastoVoce, !!a);
@@ -796,12 +805,12 @@
 	function rigaNuova(r) {
 		if (r.role === 'azione')
 			return /** @type {HTMLLIElement} */ (
-				h('li', { class: 'riga azione' }, h('span', { class: 'sr', text: 'Azione di Melissa: ' }), h('time', { datetime: new Date(r.at).toISOString(), text: clock(r.at) }), h('span', { class: 'testo' }))
+				h('li', { class: 'riga azione' }, h('span', { class: 'sr', text: 'Azione di Moony: ' }), h('time', { datetime: new Date(r.at).toISOString(), text: clock(r.at) }), h('span', { class: 'testo' }))
 			);
 		const tu = r.role === 'tu';
 		// la riga di un personaggio comincia col suo nome ("Elliot: ..."): e' sua, non di Melissa
-		const suo = tu ? '' : Object.values(NOMI).find(n => n !== 'Melissa' && String(r.text || '').startsWith(`${n}: `)) || '';
-		return /** @type {HTMLLIElement} */ (h('li', { class: `riga ${tu ? 'tu' : 'melissa'}${suo ? ' personaggio' : ''}` }, h('span', { class: 'sr', text: tu ? 'Tu: ' : suo ? '' : 'Melissa: ' }), h('span', { class: 'testo' })));
+		const suo = tu ? '' : Object.values(NOMI).find(n => n !== 'Moony' && String(r.text || '').startsWith(`${n}: `)) || '';
+		return /** @type {HTMLLIElement} */ (h('li', { class: `riga ${tu ? 'tu' : 'melissa'}${suo ? ' personaggio' : ''}` }, h('span', { class: 'sr', text: tu ? 'Tu: ' : suo ? '' : 'Moony: ' }), h('span', { class: 'testo' })));
 	}
 
 	$('sfera-tasto').addEventListener('click', () => post({ type: 'converse' }));

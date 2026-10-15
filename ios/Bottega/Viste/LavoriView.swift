@@ -87,7 +87,7 @@ struct LavoriView: View {
                     else { riassunto.ferma() }
                 } label: {
                     HStack(spacing: 10) {
-                        Label(riassunto.stato == .fermo ? "Racconta con Melissa" : "Ferma Melissa",
+                        Label(riassunto.stato == .fermo ? "Racconta con Moony" : "Ferma Moony",
                               systemImage: riassunto.stato == .fermo ? "waveform" : "stop.fill")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Tinte.ambra)
@@ -101,7 +101,7 @@ struct LavoriView: View {
 
                 if riassunto.stato != .fermo || !riassunto.testo.isEmpty || riassunto.errore != nil {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Melissa racconta")
+                        Text("Moony racconta")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(Tinte.ambra)
                         Text(riassunto.errore ?? (riassunto.testo.isEmpty ? "Preparo il racconto e la voce…" : riassunto.testo))

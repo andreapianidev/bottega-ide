@@ -101,7 +101,7 @@ struct SessioneView: View {
     private var titoloRiassunto: String {
         switch riassunto.stato {
         case .fermo: "Racconta"
-        case .pensa: "Melissa legge…"
+        case .pensa: "Moony legge…"
         case .parla: "Fermala"
         }
     }
@@ -129,7 +129,7 @@ struct SessioneView: View {
     @ViewBuilder
     private func contenuto(_ s: SchedaSessione) -> some View {
         if riassunto.stato != .fermo || !riassunto.testo.isEmpty || riassunto.errore != nil {
-            Riquadro(titolo: "Melissa") {
+            Riquadro(titolo: "Moony") {
                 Text(riassunto.errore ?? (riassunto.testo.isEmpty ? "Sta leggendo la sessione…" : riassunto.testo))
                     .font(.callout)
                     .foregroundStyle(riassunto.errore == nil ? Tinte.testo : Tinte.rosso)

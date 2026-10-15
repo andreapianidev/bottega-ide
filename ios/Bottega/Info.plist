@@ -70,9 +70,9 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>La Bottega parla con il tuo Mac attraverso Tailscale.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Melissa ti ascolta solo mentre la sfera è accesa.</string>
+	<string>Moony ti ascolta solo mentre la sfera è accesa.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Quello che dici a Melissa diventa testo sull'iPhone, con il riconoscimento vocale di Apple.</string>
+	<string>Quello che dici a Moony diventa testo sull'iPhone, con il riconoscimento vocale di Apple.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

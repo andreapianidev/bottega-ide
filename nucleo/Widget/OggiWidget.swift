@@ -239,7 +239,7 @@ private struct Pulsanti: View {
     var corti = false
 
     private static let voci: [(titolo: String, corto: String, icona: String, via: String)] = [
-        ("Parla con Melissa", "Melissa", "waveform", "melissa"),
+        ("Parla con Moony", "Moony", "waveform", "melissa"),
         ("Apri la plancia", "Plancia", "square.grid.2x2", "plancia"),
         ("Nuovo lavoro", "Lavoro", "hammer", "lavoro"),
     ]

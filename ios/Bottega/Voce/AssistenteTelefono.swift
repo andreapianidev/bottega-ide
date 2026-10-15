@@ -36,7 +36,7 @@ enum SegretiTelefono {
         q[kSecValueData as String] = data
         q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let status = SecItemAdd(q as CFDictionary, nil)
-        guard status == errSecSuccess else { throw ErrorePonte(messaggio: "Il portachiavi dell'iPhone non ha salvato Melissa (\(status)).") }
+        guard status == errSecSuccess else { throw ErrorePonte(messaggio: "Il portachiavi dell'iPhone non ha salvato Moony (\(status)).") }
     }
 
     static func cancella() { SecItemDelete(query as CFDictionary) }
@@ -130,7 +130,7 @@ final class AssistenteTelefono {
             _ = try await ponte.scegliCervello(provider: provider, impegno: impegno, sempre: true)
             sceltaInAttesa = false
             UserDefaults.standard.set(false, forKey: "melissa.telefono.sceltaInAttesa")
-        } catch { Log.warn("Melissa iPhone: scelta del cervello in attesa del Mac (\(error.localizedDescription))") }
+        } catch { Log.warn("Moony iPhone: scelta del cervello in attesa del Mac (\(error.localizedDescription))") }
     }
 
     private static func valida(_ config: ConfigurazioneTelefono?) -> Bool {
@@ -180,7 +180,7 @@ final class AssistenteTelefono {
                 inviati = true
             }
             if inviati { await ponte.aggiornaStato() }
-        } catch { Log.warn("Melissa iPhone: la storia si sincronizza al prossimo collegamento (\(error.localizedDescription))") }
+        } catch { Log.warn("Moony iPhone: la storia si sincronizza al prossimo collegamento (\(error.localizedDescription))") }
     }
 
     /// Melissa risponde, come sempre (Siri e la conversazione).
@@ -277,13 +277,13 @@ final class AssistenteTelefono {
 
     private func configurazione(voce: Bool) throws -> ConfigurazioneTelefono {
         guard let config = SegretiTelefono.leggi() else {
-            throw ErrorePonte(messaggio: "Melissa sull'iPhone non è configurata. Accendi il Mac e importa le chiavi dalle impostazioni.")
+            throw ErrorePonte(messaggio: "Moony sull'iPhone non è configurata. Accendi il Mac e importa le chiavi dalle impostazioni.")
         }
         guard !voce || (config.elevenlabs?.isEmpty == false) else {
-            throw ErrorePonte(messaggio: "Manca la chiave ElevenLabs sull'iPhone: non posso parlare con la voce di Melissa.")
+            throw ErrorePonte(messaggio: "Manca la chiave ElevenLabs sull'iPhone: non posso parlare con la voce di Moony.")
         }
         guard !voce || !config.voiceID.isEmpty else {
-            throw ErrorePonte(messaggio: "Manca la voce di Melissa sull'iPhone: importa di nuovo la configurazione dal Mac.")
+            throw ErrorePonte(messaggio: "Manca la voce di Moony sull'iPhone: importa di nuovo la configurazione dal Mac.")
         }
         return config
     }

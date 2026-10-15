@@ -171,6 +171,10 @@ final class Listener {
 
     // Wake
     private var wakePhrase: String?
+    /// The words that wake: the phrase asked for, or by default Moony, the likely Italian transcriptions of it and the
+    /// old name, Melissa (CONTRATTI 9.11). Single words match whole words only: "muni" must not fire on "comunicare".
+    private var wakeWords: [String] = []
+    static let paroleMoony = ["moony", "mooney", "mooni", "muny", "muni", "melissa"]
     private var lastWake = Date.distantPast
 
     private init() {
@@ -390,7 +394,9 @@ final class Listener {
     // MARK: - Wake word
 
     func wakeEnable(phrase: String, locale loc: String?) async throws {
-        wakePhrase = Self.fold(phrase.isEmpty ? "melissa" : phrase)
+        let p = Self.fold(phrase)
+        wakeWords = p.isEmpty ? Self.paroleMoony : [p]
+        wakePhrase = wakeWords[0]
         if let loc { locale = loc }
         if mode == nil, !Speaker.shared.isSpeaking { try await openWake() }
     }
@@ -739,7 +745,7 @@ final class Listener {
     }
 
     private func checkWake(_ text: String) {
-        guard let phrase = wakePhrase, Self.fold(text).contains(phrase),
+        guard wakePhrase != nil, let phrase = Self.wakeMatch(Self.fold(text), words: wakeWords),
               Date().timeIntervalSince(lastWake) > 2 else { return }
         lastWake = Date()
         Out.event("wake.detected", ["phrase": phrase, "text": text])
@@ -784,7 +790,7 @@ final class Listener {
         mic = nil
         micPaused = true
         AudioLevels.shared.reset(.mic)
-        Log.info("microfono chiuso: Melissa pensa e risponde")
+        Log.info("microfono chiuso: Moony pensa e risponde")
     }
 
     /// The reply is over (voice ended, or the extension says the turn closed without voice):
@@ -881,6 +887,12 @@ final class Listener {
         let saidSet = Set(said)
         let overlap = Double(heard.filter { saidSet.contains($0) }.count) / Double(heard.count)
         return overlap > 0.66
+    }
+
+    /// The first wake word heard in `t` (already folded): a phrase of several words anywhere, a single word only whole.
+    static func wakeMatch(_ t: String, words: [String]) -> String? {
+        let parole = t.split { !$0.isLetter }.map(String.init)
+        return words.first { $0.contains(" ") ? t.contains($0) : parole.contains($0) }
     }
 
     static func fold(_ s: String) -> String {

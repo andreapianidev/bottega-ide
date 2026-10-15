@@ -25,6 +25,12 @@
 //    p8 = (0, colour light, 0, 0)                       star = Darlene's neon core and rings (the names
 //                                                       are the file keys); tint 0.85 for a character,
 //                                                       0 for Melissa
+//    p9 = (phase, eclipse, harvest, halo ring)          Moony's mood (OrbMolla.luna, from UmoreLuna): 0 = silver
+//    p10 = (still, listening, thinking, speaking)       Reduce motion and the voice states, eased (renderer)
+//  With all three shape weights at 0 the sphere is Moony's moon (moony_*, October 2026): the
+//  same super moon Avo draws (VoiceOrbShaders.metal, p7/p8 there are p9/p10 here), with the
+//  mood choosing which moon it is tonight and the voice state moving its light. The
+//  characters, and every effect around the disc, stay as they were.
 //  Output is LINEAR EXTENDED for an EDR rgba16Float target, premultiplied alpha.
 //
 
@@ -45,6 +51,8 @@ struct OrbUniforms {
     float4 p6;            // (code, rhombus, star, tint)
     float4 p7;            // (colour rgb, agitation)
     float4 p8;            // (0, light, 0, 0)
+    float4 p9;            // (phase, eclipse, harvest, halo ring): Moony's mood, 0 = the silver moon
+    float4 p10;           // (still, listening, thinking, speaking): Reduce motion and the eased voice states
 };
 
 struct OrbVSOut { float4 pos [[position]]; float2 uv; };
@@ -93,6 +101,7 @@ struct OrbDrive {
     // the characters' weights (the sphere is what is left; the code is a sphere): rhombus = Krista, star = Darlene
     float romb;
     float star;
+    float onde;   // how much the voice waves bend the surface: 1 for everyone, half on Moony's moon
 };
 
 static inline float orb_displacement(float3 dir, OrbDrive d, texture3d<float> tex, sampler s) {
@@ -104,8 +113,8 @@ static inline float orb_displacement(float3 dir, OrbDrive d, texture3d<float> te
     float theta = acos(clamp(dir.y, -1.0, 1.0));
     float phi   = atan2(dir.z, dir.x);
     float wave  = d.flowSign * d.time * 1.6;
-    h += d.bass * 0.11 * sin(3.0 * phi + wave)                 * sin(2.0 * theta);
-    h += d.mid  * 0.06 * sin(6.0 * phi - wave * 1.3 + n * 4.0) * sin(4.0 * theta);
+    h += d.bass * 0.11 * d.onde * sin(3.0 * phi + wave)                 * sin(2.0 * theta);
+    h += d.mid  * 0.06 * d.onde * sin(6.0 * phi - wave * 1.3 + n * 4.0) * sin(4.0 * theta);
     return h * d.reveal;
 }
 
@@ -219,6 +228,278 @@ static inline float3 orb_bumpGrad(float3 p, float freq, texture3d<float> tex, sa
     return float3(dx, dy, dz) / (2.0 * e);
 }
 
+// ---------------------------------------------------------------------------
+// MOONY: THE MOON (Andrea, 15/10/2026: the sphere is no longer blue, it has the face and the craters of the moon).
+// Same surface as Avo (VoiceOrbShaders.metal, moony_*), so the two moons look alike. Only the sphere with no shape
+// (Melissa before, Moony now) becomes the moon: `luna` is 1 when no shape weight is on and 0 for Darlene, Krista and
+// Elliot, who do not change. Craters from a procedural 3D voronoi (no texture), seas from the noise already in use,
+// all computed once per hit pixel: cheaper than the volumetric plasma it replaces.
+// ---------------------------------------------------------------------------
+
+// Moon palette per state: silver at rest, cold silver listening, lilac silver thinking, warm pearl speaking, and the
+// sodium of the Bottega for the error. Low saturation on purpose: the moon stays a moon in every state.
+static inline float3 moony_palette(int state) {
+    if (state == 1) return float3(0.70, 0.74, 0.80);
+    if (state == 2) return float3(0.76, 0.73, 0.82);
+    if (state == 3) return float3(0.86, 0.80, 0.70);
+    if (state == 4) return float3(0.92, 0.74, 0.48);
+    return float3(0.74, 0.75, 0.78);
+}
+
+static inline float4 moony_hash43(float3 p) {
+    float4 q = fract(float4(p.xyzx) * float4(0.1031, 0.1030, 0.0973, 0.1099));
+    q += dot(q, q.wzxy + 33.33);
+    return fract((q.xxyz + q.yzzw) * q.zywx);
+}
+
+struct MoonyCrateri {
+    float3 grad;     // slope of the relief (moon space)
+    float  fondo;    // 1 on the crater floors (the voice lights them)
+    float  ombra;    // 1 where the rim towards the light casts a shadow on the floor
+    float  raggiera; // bright rays around the young craters
+};
+
+// Craters: a 3D voronoi on the surface. Each cell may hold a crater: bowl, raised rim, a shadow cast from the rim
+// towards the light that grows longer near the terminator. Neighbours add up, so craters overlap without seams.
+static inline MoonyCrateri moony_crateri(float3 p, float3 nrm, float3 luce, float densita) {
+    MoonyCrateri c;
+    c.grad = float3(0.0); c.fondo = 0.0; c.ombra = 0.0; c.raggiera = 0.0;
+    float3 ip = floor(p), fp = fract(p);
+    float3 lt = luce - nrm * dot(luce, nrm);
+    float  ltl = length(lt);
+    float3 ld = ltl > 1e-4 ? lt / ltl : float3(1.0, 0.0, 0.0);
+    float  alto = clamp(dot(nrm, luce), 0.0, 1.0);                 // height of the light over the local horizon
+    float  lungaOmbra = 0.20 + 1.70 * (1.0 - alto);
+    for (int z = -1; z <= 1; z++)
+    for (int y = -1; y <= 1; y++)
+    for (int x = -1; x <= 1; x++) {
+        float3 g = float3(x, y, z);
+        float4 h = moony_hash43(ip + g);
+        if (h.z > densita) continue;                                // a cell with no crater
+        float3 off = fp - (g + 0.15 + 0.70 * h.xyz);
+        float  r   = 0.12 + 0.30 * h.y * h.y;
+        float3 ot  = off - nrm * dot(off, nrm);                     // on the tangent plane
+        float  dd  = length(ot);
+        float  q   = dd / r;
+        if (q > 1.7) continue;
+        float  bowl  = q < 1.0 ? 0.70 * q : 0.0;                    // derivative of the bowl 0.35 (q^2 - 1)
+        float  e     = (q - 1.0) / 0.26;
+        float  rim   = 0.11 * exp(-e * e);
+        float  drim  = rim * (-2.0 * e / 0.26);
+        c.grad += (bowl + drim) * (ot / max(dd, 1e-4));
+        c.fondo = max(c.fondo, smoothstep(0.95, 0.45, q) * (0.5 + 0.5 * h.w));
+        if (q < 1.0) {
+            float2 v = float2(dot(ot, ld), length(ot - ld * dot(ot, ld))) / r;
+            float  bordo = sqrt(max(1.0 - v.y * v.y, 0.0));         // where the rim towards the light is
+            float  s = 1.0 - smoothstep(lungaOmbra * 0.65, lungaOmbra, bordo - v.x);
+            c.ombra = max(c.ombra, s * smoothstep(1.0, 0.92, q));
+        }
+        if (h.w > 0.82) c.raggiera = max(c.raggiera, exp(-max(q - 1.0, 0.0) * 2.4) * (q > 0.85 ? 1.0 : 0.6));
+    }
+    return c;
+}
+
+// Copied verbatim from Avo (VoiceOrbShaders.metal, from «LA SUPERLUNA» to moony_aureola), only the uniform names
+// change: Avo's p7/p8 are p9/p10 here. Keep it a plain copy, so a diff against Avo shows nothing else.
+
+// LA SUPERLUNA (owner 15/10/2026: «grafica iper realistica, animazioni quando parla, pensa, stato d'animo: che si
+// capisca quando cambia»). Due assi separati, cosi' si leggono anche sulla sfera piccola:
+//   - l'UMORE decide che luna e' stanotte (fase e colore): argento, miele, raccolto dorato, falce fredda, mezza luna
+//     radente, luna di sangue, aureola di ghiaccio. Arriva in p9 (p7 in Avo), gia' ammorbidito in OrbIdentita (secondi).
+//   - lo STATO della voce decide come si muove la luce: ascolta = la luce le sale in faccia, pensa = le fasi passano
+//     avanti e indietro, parla = alone e fondi dei crateri battono con le sillabe. Arriva in p10 (p8 in Avo), ammorbidito nel renderer.
+// p9 = p10 = 0 (p7, p8 in Avo) e' la luna d'argento approvata, a riposo.
+struct MoonyAspetto {
+    float3 L;          // luce del sole nello spazio della vista (la fase)
+    float  eclissi;    // 1 = luna di sangue (allarme)
+    float  raccolto;   // 1 = luna del raccolto, dorata (gioia); ~0,5 miele (calore)
+    float  freddo;     // 1 = argento freddo (malinconia); un poco anche la meraviglia
+    float  cinerea;    // luce cinerea sul lato in ombra: cresce quando la luna e' una falce, come in cielo
+    float  ascolta;    // 0..1: la luna si accende verso chi parla
+    float  libra;      // dondolio lento dell'asse (librazione), 0 con «riduci movimento»
+    float  falce;      // 0..1 quanto la luna e' ridotta a falce: il bordo in ombra si spegne
+};
+
+static inline float3 moony_rotX(float3 p, float a) {
+    float s = sin(a), c = cos(a);
+    return float3(p.x, c * p.y - s * p.z, s * p.y + c * p.z);
+}
+
+static inline MoonyAspetto moony_aspetto(constant OrbUniforms& u, float time) {
+    MoonyAspetto a;
+    float mossa   = 1.0 - clamp(u.p10.x, 0.0, 1.0);            // p10.x = 1 con «riduci movimento»
+    a.ascolta     = clamp(u.p10.y, 0.0, 1.0);
+    float pensa   = clamp(u.p10.z, 0.0, 1.0);
+    float fase    = clamp(u.p9.x, -1.0, 1.2);                  // <0 verso la piena, >0 verso la falce
+    a.eclissi     = clamp(u.p9.y, 0.0, 1.0);
+    a.raccolto    = clamp(u.p9.z, 0.0, 1.0);
+    float aureola = clamp(u.p9.w, 0.0, 1.0);
+    // angolo fra il sole e chi guarda: 1,15 rad e' la luna approvata (gibbosa, luce da sinistra)
+    float theta = 1.15 + 1.30 * fase
+                - 0.55 * a.ascolta                                       // ascolta: si gira verso di te, si riempie
+                + pensa * (0.35 + 0.55 * sin(time * 0.70) * mossa);      // pensa: il terminatore scorre avanti e indietro
+    theta = clamp(theta, 0.10, 2.70);
+    a.L = normalize(float3(-sin(theta) * 0.95, 0.30, cos(theta)));
+    a.freddo  = clamp(smoothstep(0.45, 1.0, fase) + 0.35 * aureola, 0.0, 1.0);
+    a.falce   = smoothstep(1.6, 2.4, theta);
+    a.cinerea = 0.022 + 0.030 * a.falce;
+    a.libra   = 0.07 * sin(time * 0.13) * mossa;
+    return a;
+}
+
+// Un sistema di raggi (come Tycho e Copernico): strisce chiare che partono da un cratere giovane e corrono per
+// centinaia di km, spezzate. Si vedono quando il sole e' alto e spariscono verso il terminatore, come in cielo.
+static inline float moony_raggi(float3 mp, float3 c, float seme, texture3d<float> tex, sampler s) {
+    float cd = dot(mp, c);
+    if (cd < 0.15) return 0.0;
+    float  d  = acos(min(cd, 1.0));                              // distanza angolare dal cratere
+    float3 t1 = normalize(cross(c, float3(0.0, 1.0, 0.0)));
+    float3 t2 = cross(c, t1);
+    float  an = atan2(dot(mp, t2), dot(mp, t1));
+    float3 giro = float3(cos(an), sin(an), 0.0);                 // sul cerchio: nessuna cucitura a +-pi
+    float  r1 = orb_vnoise3(giro * 7.0 + float3(0.0, 0.0, seme), tex, s);
+    float  r2 = orb_vnoise3(giro * 19.0 + float3(5.0, 3.0, seme), tex, s);
+    float  raggi = smoothstep(0.60, 0.92, r1) * 0.85 + smoothstep(0.66, 0.95, r2) * 0.55;
+    raggi *= smoothstep(0.30, 0.70, orb_vnoise3(mp * 13.0 + seme, tex, s));   // si spezzano lungo la strada
+    float lungo  = exp(-d * 2.2) * smoothstep(0.04, 0.12, d);
+    float nimbo  = exp(-(d * d) / 0.0045);                        // l'alone chiaro attorno al cratere
+    return raggi * lungo + 0.75 * nimbo;
+}
+
+// La superficie della luna in un punto colpito dal raymarch. `N` e' la normale della forma (senza il rilievo della
+// sfera); restituisce il colore lineare. Luce di Lommel-Seeliger (la luna non scurisce al bordo), mari dalle forme
+// frastagliate, crateri con ombre che si allungano verso il terminatore, raggi, luce cinerea, e sopra gli effetti
+// della voce in argento: bordo che segue lo spettro, filamenti sulle sillabe, fondi dei crateri che si accendono.
+static inline float3 moony_superficie(float3 pos, float3 N, float pr, float time, int state, float flowSign,
+                                      float loud, float onset, float heart, float flow, float glowGain,
+                                      float treble, float3 baseCol, MoonyAspetto a, constant OrbUniforms& u,
+                                      texture3d<float> tex, sampler s) {
+    const float3 V = float3(0.0, 0.0, 1.0);
+    const float3 L = a.L;
+    float  giro = time * 0.025 + 0.8;                            // la luna gira piano su se stessa
+    float3 sp = normalize(pos);
+    float3 mp = moony_rotX(orb_rotY(sp, giro), a.libra);         // il punto sulla luna, che ruota e dondola con lei
+    float3 Lm = moony_rotX(orb_rotY(L, giro), a.libra);
+    float3 Vm = moony_rotX(orb_rotY(V, giro), a.libra);
+    float3 Nm = moony_rotX(orb_rotY(N, giro), a.libra);
+
+    // mari: i bacini da impatto della faccia visibile (Imbrium, Serenitatis, Tranquillitatis...), tondi e larghi, con
+    // i bordi frastagliati dal rumore; la faccia nascosta, quando la luna gira, e' quasi tutta altipiano, come in cielo.
+    // Il rumore MoonyNoise ha mediana ~0,40 (misurata): `bordo` e' centrato li'.
+    float  grana = orb_vnoise3(mp * 22.0, tex, s);
+    float  mare  = orb_fbm3(mp * 2.2 + float3(13.0, 5.0, 2.0), tex, s);
+    float  bordo = (mare - 0.405) * 1.4 + 0.03 * (grana - 0.5);
+    float  mari  = 0.0;
+    mari = max(mari, smoothstep(0.42, 0.33, length(mp - float3(0.835, 0.530, 0.147)) + bordo));   // Imbrium
+    mari = max(mari, smoothstep(0.25, 0.16, length(mp - float3(0.775, 0.407, -0.484)) + bordo));   // Serenitatis
+    mari = max(mari, smoothstep(0.30, 0.21, length(mp - float3(0.705, 0.070, -0.705)) + bordo));   // Tranquillitatis
+    mari = max(mari, smoothstep(0.16, 0.07, length(mp - float3(0.298, 0.259, -0.919)) + bordo));   // Crisium
+    mari = max(mari, smoothstep(0.49, 0.40, length(mp - float3(0.811, 0.139, 0.568)) + bordo));   // Procellarum
+    mari = max(mari, smoothstep(0.22, 0.13, length(mp - float3(0.933, -0.342, -0.115)) + bordo));   // Nubium
+    mari = max(mari, smoothstep(0.18, 0.09, length(mp - float3(0.857, -0.242, -0.456)) + bordo));   // Nectaris
+
+    // crateri: grandi e piccoli, lo stesso voronoi a due scale
+    MoonyCrateri cg = moony_crateri(mp * 3.2, mp, Lm, 0.40);
+    MoonyCrateri cp = moony_crateri(mp * 8.5 + 17.0, mp, Lm, 0.30);
+    float3 g = (cg.grad * (1.0 - 0.45 * mari) + 0.7 * cp.grad * (1.0 - 0.6 * mari)  // i mari sono lisci
+             + orb_bumpGrad(mp, 16.0, tex, s) * 0.03);
+    g -= Nm * dot(g, Nm);
+    float3 Nb = normalize(Nm - g * 0.9);
+
+    // luce: Lommel-Seeliger con un terminatore morbido
+    float ndl  = dot(Nb, Lm);
+    float ndv  = clamp(dot(Nb, Vm), 0.0, 1.0);
+    float ndlG = dot(Nm, Lm);
+    float wrap = clamp((ndl + 0.10) / 1.10, 0.0, 1.0);
+    float ls   = max(ndl, 0.0) / (max(ndl, 0.0) + ndv + 0.05);
+    float diff = mix(wrap, 2.0 * ls, 0.5) * smoothstep(-0.25, 0.20, ndlG);
+    diff *= 1.0 - 0.85 * max(cg.ombra, 0.8 * cp.ombra);
+
+    // colore: altipiani appena caldi, mari fra il bluastro (titanio) e il bruno, grana, raggiere e raggi
+    float  tipo   = orb_vnoise3(mp * 3.0 + 31.0, tex, s);
+    float3 mareCol = mix(float3(0.135, 0.146, 0.172), float3(0.170, 0.160, 0.146), tipo);
+    float3 alb = mix(float3(0.40, 0.395, 0.40), mareCol, mari) * (0.86 + 0.28 * grana);
+    alb += float3(0.12) * max(cg.raggiera, 0.6 * cp.raggiera) * (1.0 - 0.5 * mari);
+    float  sole   = clamp(ndlG, 0.0, 1.0);
+    float  piena  = smoothstep(0.25, 0.95, dot(L, V));
+    // tre crateri a raggiera a 120 gradi di longitudine: mentre la luna gira, uno e' quasi sempre in vista
+    float  raggi  = moony_raggi(mp, float3(0.869, -0.469, -0.153), 3.0, tex, s)
+                  + 0.7 * moony_raggi(mp, float3(-0.604, 0.342, -0.720), 11.0, tex, s)
+                  + 0.6 * moony_raggi(mp, float3(-0.280, 0.574, 0.770), 23.0, tex, s);
+    alb += float3(0.17) * raggi * smoothstep(0.05, 0.55, sole) * mix(0.45, 1.0, piena) * (1.0 - 0.25 * mari);
+    float  lb = max(dot(baseCol, float3(0.2126, 0.7152, 0.0722)), 1e-3);
+    alb *= mix(float3(1.0), baseCol / lb, 0.35);
+    alb *= mix(float3(1.0), float3(1.20, 0.90, 0.58), a.raccolto);       // raccolto: oro e arancio, bassa sull'orizzonte
+    alb *= mix(float3(1.0), float3(0.90, 0.96, 1.10), a.freddo);         // malinconia: argento freddo
+    const float3 luceCol = float3(0.95, 0.98, 1.03);
+    float3 col = alb * luceCol * diff * 1.30 * (1.0 + 0.18 * a.ascolta);
+    col += alb * float3(0.78, 0.86, 1.0) * a.cinerea * (1.0 - clamp(diff, 0.0, 1.0));   // luce cinerea
+
+    // eclissi: l'ombra della Terra tinge la luna di rame, piu' chiara verso il bordo dell'ombra, con il filo
+    // turchese dell'ozono proprio sul bordo (si vede nelle foto vere delle eclissi)
+    if (a.eclissi > 0.0) {
+        float  bo   = dot(sp.xy, float2(-0.60, 0.80));
+        float3 rame = mix(float3(0.10, 0.016, 0.010), float3(1.05, 0.30, 0.09), smoothstep(-0.95, 1.05, bo));
+        float3 albE = mix(alb, float3(dot(alb, float3(0.3333))), 0.55);       // nell'ombra i mari si attenuano
+        float3 sangue = albE * rame * (0.80 + 0.20 * clamp(diff, 0.0, 1.0));
+        sangue += albE * float3(0.10, 0.30, 0.34) * smoothstep(0.82, 0.99, bo) * 0.30;
+        col = mix(col, sangue, a.eclissi);
+    }
+
+    // la voce: a ogni sillaba tutta la luna si schiarisce un poco (come una nube sottile che passa via) e il fondo
+    // dei crateri grandi si accende appena; il pensiero lo fa pulsare a onde che salgono
+    col *= 1.0 + 0.22 * onset + 0.12 * loud;
+    float fondo  = max(cg.fondo, 0.25 * cp.fondo);
+    float accesa = 0.02 + 0.02 * heart + 0.45 * loud + 0.60 * onset;
+    if (state == 2) accesa += 0.16 * smoothstep(0.55, 1.0, sin(time * 2.2 - mp.y * 5.0));
+    float3 luceVoce = mix(baseCol, float3(1.0), 0.45);
+    col += luceVoce * fondo * accesa * 0.28 * (1.0 - 0.6 * a.eclissi);
+
+    // onde di luce che corrono sulla superficie (verso il centro in ascolto, verso fuori quando parla)
+    float rip = 0.5 + 0.5 * sin(pr * 15.0 - flowSign * time * 5.0);
+    col += baseCol * rip * flow * 0.06;
+
+    // bordo d'argento che segue lo spettro, con un velo di madreperla
+    float ang = atan2(sp.y, sp.x);
+    int   bi  = int((ang / (2.0 * M_PI_F) + 0.5) * float(ORB_BANDS)) & (ORB_BANDS - 1);
+    float eq  = orb_band(u, bi);
+    float nz  = clamp(N.z, 0.0, 1.0);
+    float fres = pow(1.0 - nz, 3.0);
+    float3 rimCol = mix(baseCol, float3(1.0), 0.55 * (1.0 - 0.7 * a.eclissi));
+    // il bordo si accende dalla parte del sole: sulla falce il lato in ombra quasi sparisce
+    rimCol *= mix(0.45 * (1.0 - 0.75 * a.falce), 1.0, smoothstep(-0.35, 0.35, ndlG));
+    col += rimCol * fres * (0.30 + 0.25 * glowGain) * (0.8 + 0.6 * eq + 0.35 * treble);
+    float3 irid = 0.5 + 0.5 * cos(6.2831853 * (fres * 2.6 + time * 0.05 + float3(0.0, 0.33, 0.66)));
+    irid = mix(float3(dot(irid, float3(0.3333))), irid, 0.35);
+    col += irid * fres * 0.10;
+
+    // filamenti di polvere al bordo sulle sillabe
+    float fil  = orb_fbm3(sp * 6.0 + float3(0.0, time * 0.30, 0.0), tex, s);
+    float prom = smoothstep(0.62, 0.92, fil) * pow(fres, 1.5);
+    col += rimCol * prom * (0.20 + 1.2 * onset + 0.6 * loud);
+
+    // scintille sul lato illuminato
+    float spk   = orb_fbm3(pos * 26.0 - time * 0.6, tex, s);
+    float twk   = 0.5 + 0.5 * sin(time * 3.0 + spk * 28.0);
+    float glint = smoothstep(0.78, 0.93, spk) * (0.30 + 0.70 * twk * twk) * clamp(ndl, 0.0, 1.0);
+    col += luceCol * glint * (0.25 + 0.25 * glowGain) * (1.0 - a.eclissi);
+
+    // filo di luce sottile al limbo
+    float chromo = smoothstep(0.16, 0.0, nz) * smoothstep(0.0, 0.05, nz);
+    col += rimCol * chromo * (0.5 + 0.4 * glowGain);
+    return col;
+}
+
+// Aureola di ghiaccio (meraviglia): l'anello di 22 gradi che si vede attorno alla luna con i cirri, rossiccio
+// dentro e azzurro fuori, appena accennato. Solo fuori dal disco.
+static inline float3 moony_aureola(float pr, float Rvis, float time) {
+    float rr = pr / max(Rvis, 1e-3);
+    float anello = exp(-pow((rr - 1.78) / 0.075, 2.0));
+    float3 iride = mix(float3(1.0, 0.62, 0.45), float3(0.55, 0.78, 1.0), smoothstep(1.70, 1.88, rr));
+    float velo = smoothstep(1.05, 1.70, rr) * smoothstep(2.10, 1.80, rr) * 0.10;
+    return iride * (anello * 0.30 + velo * 0.25) * (0.92 + 0.08 * sin(time * 0.5));
+}
+
 fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
                              constant OrbUniforms& u [[buffer(0)]],
                              texture3d<float> noiseTex [[texture(0)]],
@@ -295,6 +576,12 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
     d.reveal = reveal;
     d.romb = u.p6.y; d.star = u.p6.z;
     float code = clamp(u.p6.x, 0.0, 1.0);
+    // Moony: 1 when no shape is on (her moon), 0 for Darlene, Krista and Elliot. In the morph from one to the other it
+    // moves with the weights, so the moon dissolves into the other's figure.
+    float luna = clamp(1.0 - (u.p6.x + u.p6.y + u.p6.z), 0.0, 1.0);
+    if (luna < 0.001) luna = 0.0;
+    d.onde = 1.0 - 0.5 * luna;
+    MoonyAspetto aspetto = moony_aspetto(u, time);
     float coreGain = 1.0, glowGain = 1.0;
     float flow = 0.0;
 
@@ -339,8 +626,17 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
         coreGain  = 1.10 + 0.50 * burst;
     }
 
-    // the agitation of the line deforms more, up to 60%
-    d.amp    *= 1.0 + 0.6 * agit;
+    // the super moon: the halo of the mood (the harvest moon shines, the eclipse dims, the crescent pulls in) and the
+    // light that rises while listening. With luna = 0 the factor is exactly 1: the characters do not change.
+    if (luna > 0.0) {
+        float aloneLuna = (1.0 + 0.40 * aspetto.raccolto) * (1.0 - 0.55 * aspetto.eclissi)
+                        * (1.0 - 0.35 * smoothstep(0.6, 1.1, u.p9.x)) * (1.0 + 0.25 * aspetto.ascolta);
+        glowGain *= mix(1.0, aloneLuna, luna);
+    }
+
+    // the agitation of the line deforms more, up to 60% (on the moon Avo's own rule, so the two moons match)
+    d.amp    *= mix(1.0 + 0.6 * agit, 0.75 + 0.60 * agit, luna);
+    d.amp    *= 1.0 - 0.80 * luna;                // the moon stays round: the craters make the relief
     d.baseR  += heart * 0.012 + impulse * 0.05;
     glowGain += heart * 0.08  + onset * 0.45;
     flow     += onset * 0.5;
@@ -360,6 +656,18 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
         float warmDir = (state == 3) ? 1.0 : -1.0;
         baseCol = orb_hueRotate(baseCol, (energy - 0.30) * 0.55 * warmDir);
     }
+    // Moony: the state palette becomes moon silver (no blue), brightened by the voice on its peaks
+    if (luna > 0.0) {
+        float3 lunaCol = mix(moony_palette(pstate), moony_palette(state), smix);
+        if (state == 1 || state == 3) {
+            float energiaL = clamp(loud * 0.70 + mid * 0.55 + bass * 0.35, 0.0, 1.0);
+            lunaCol *= 1.0 + 0.22 * energiaL;
+        }
+        lunaCol *= mix(float3(1.0), float3(1.18, 0.92, 0.62), aspetto.raccolto);   // golden halo and rim
+        lunaCol *= mix(float3(1.0), float3(0.88, 0.96, 1.12), aspetto.freddo);
+        lunaCol *= mix(float3(1.0), float3(0.95, 0.34, 0.20), aspetto.eclissi);    // copper halo, dimmed
+        baseCol = mix(baseCol, lunaCol, luna);
+    }
     // the colour of who speaks, with the light of the emotion: of the palette's drift only a trace stays
     baseCol = mix(baseCol, u.p7.xyz * u.p8.y, clamp(u.p6.w, 0.0, 1.0));
 
@@ -372,6 +680,8 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
     float  krista = clamp(d.romb, 0.0, 1.0);
     float  Rvis = R * (1.0 - 0.40 * clamp(d.star, 0.0, 1.0) - 0.50 * krista);
     float  pxWorld = 2.0 * zoom / res.y;
+    // on the moon halo, corona and background field start from the edge: over the disc they would cover seas and craters
+    float  fuoriDisco = luna > 0.0 ? mix(1.0, smoothstep(Rvis * 0.90, Rvis * 1.03, pr), luna) : 1.0;
     const float stepK = 0.72;
     const int outSteps = 80;
 
@@ -395,7 +705,9 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
 
         if (hit) {
             float3 N = orb_normal(pos, d, noiseTex, noiseSamp);
-
+            float3 Ngeo = N;
+            float3 body = float3(0.0);
+            if (luna < 0.999) {                  // the usual sphere (Darlene, Krista, Elliot and the morphs)
             float3 flowField = orb_curl(pos * 5.5 + float3(0.0, time * 0.10, 0.0), noiseTex, noiseSamp);
             float3 flowPos   = pos + flowField * 0.12;
 
@@ -423,7 +735,7 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
             float central = smoothstep(R, 0.0, pr);
 
             float3 deep = baseCol * 0.22;
-            float3 body = mix(deep, baseCol, diff * 0.85 + 0.15);
+            body = mix(deep, baseCol, diff * 0.85 + 0.15);
             body *= mix(float3(1.0), keyCol, 0.45);
             body += baseCol * mix(ambCol, baseCol, 0.5) * (N.y * 0.5 + 0.5) * 0.10;
             body += baseCol * rip * flow * 0.22;
@@ -484,6 +796,12 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
             body *= mix(0.72, 1.0, pow(ndv, 0.55));
             float chromo = smoothstep(0.16, 0.0, ndv) * smoothstep(0.0, 0.05, ndv);
             body += orb_starEmission(0.92, baseCol) * chromo * (1.1 + 0.6 * glowGain);
+            }
+            if (luna > 0.0) {
+                float3 lunaBody = moony_superficie(pos, Ngeo, pr, time, state, d.flowSign, loud, onset, heart,
+                                                   flow, glowGain, treble, baseCol, aspetto, u, noiseTex, noiseSamp);
+                body = luna >= 0.999 ? lunaBody : mix(body, lunaBody, luna);
+            }
 
             col   = body;
             alpha = 1.0;
@@ -491,7 +809,7 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
             float cov = 1.0 - smoothstep(0.0, 1.6 * pxWorld, minDist);
             if (cov > 0.0) {
                 float3 rimCol = mix(baseCol, float3(1.0), 0.55);
-                col   = rimCol * (0.9 + glowGain);
+                col   = rimCol * (0.9 + glowGain) * (1.0 - 0.5 * luna);   // on the moon a silver thread
                 alpha = cov;
             }
         }
@@ -543,8 +861,15 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
     // soft outer halo
     {
         float halo = orb_halo(pr, Rvis, glowGain * (1.0 - 0.25 * night) * (1.0 - 0.55 * krista), loud);
-        col   += baseCol * halo;
+        col   += baseCol * halo * fuoriDisco;
         alpha  = max(alpha, halo);
+    }
+
+    // Moony's wonder: the ice halo ring around the moon (outside the disc only)
+    if (luna > 0.0 && u.p9.w > 0.002) {
+        float3 aur = moony_aureola(pr, Rvis, time) * clamp(u.p9.w, 0.0, 1.0) * luna;
+        col   += aur;
+        alpha  = max(alpha, dot(aur, float3(0.3333)) * 0.8);
     }
 
     // corona + long rays, gated per angle by the matching spectrum band
@@ -559,6 +884,7 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
         float s2  = pow(0.5 + 0.5 * sin(cang * 41.0 - time * 0.55 + cn2 * 6.2831853), 5.0);
         float corona = (s1 + 0.6 * s2) * exp(-outR * 4.0) * (0.05 + 0.10 * loud + 0.18 * onset);
         corona *= 1.0 - 0.85 * krista;                   // Krista is calm: no sizzling corona
+        corona *= fuoriDisco;
         col   += orb_starEmission(0.7, baseCol) * corona;
         alpha  = max(alpha, corona * 0.6);
         float rayN = pow(0.5 + 0.5 * sin(cang * 9.0 + cn1 * 4.0 + time * 0.22), 6.0);
@@ -670,7 +996,7 @@ fragment float4 orb_fragment(OrbVSOut in [[stage_in]],
 
     if (cine > 0.5) {
         float ring  = 0.5 + 0.5 * sin(pr * 10.0 - d.flowSign * time * 2.5);
-        float field = exp(-pr * 1.3) * ring * (0.04 + 0.10 * loud + 0.22 * onset);
+        float field = exp(-pr * 1.3) * ring * (0.04 + 0.10 * loud + 0.22 * onset) * fuoriDisco;
         col   += baseCol * field;
         alpha  = max(alpha, field * 0.5);
     }
@@ -718,9 +1044,15 @@ static inline float3 pr_stateColor(int state) {
     return float3(0.60, 0.80, 0.95);
 }
 
-// the sparks take the colour of who speaks too
+// the sparks take the colour of who speaks too. Moony (no character tint, tint.w = 0): silver dust; with a
+// character's full tint (0.85) the colours are the old ones, so for them nothing changes. The error stays amber.
 static inline float3 pr_color(int state, float4 tint) {
-    return mix(pr_stateColor(state), tint.xyz, clamp(tint.w, 0.0, 1.0));
+    float  ta   = clamp(tint.w, 0.0, 1.0);
+    float  luna = state == 4 ? 0.0 : 1.0 - clamp(ta / 0.85, 0.0, 1.0);
+    float3 argento = state == 1 ? float3(0.76, 0.80, 0.86) : (state == 3 ? float3(0.92, 0.87, 0.78)
+                   : (state == 2 ? float3(0.82, 0.80, 0.88) : float3(0.84, 0.85, 0.88)));
+    float3 col = mix(pr_stateColor(state), argento, luna);
+    return mix(col, tint.xyz, ta);
 }
 
 kernel void orb_particle_update(device OrbParticle* parts [[buffer(0)]],
@@ -853,7 +1185,7 @@ fragment float4 orb_particle_trail_fragment(ParticleTrailVSOut in [[stage_in]]) 
 
 struct BloomUniforms {
     float4 b0;   // (texelW, texelH, dirX, dirY)
-    float4 b1;   // (threshold, intensity, streakGain, _)
+    float4 b1;   // (threshold, intensity, streakGain, moon weight for the composite)
 };
 
 struct FSOut { float4 pos [[position]]; float2 uv; };
@@ -951,9 +1283,11 @@ fragment float4 bloom_composite(FSOut in [[stage_in]],
     float4 sc = scene.sample(s, in.uv);
     float3 bl = bloom.sample(s, in.uv).rgb;
     float3 st = streak.sample(s, in.uv).rgb;
+    // on Moony's moon (u.b1.w = moon weight, from the renderer) the streak is neutral silver, not blue
     const float3 streakTint = float3(0.40, 0.72, 1.30);
+    float3 tintaScia = mix(streakTint, float3(0.92, 0.95, 1.02), clamp(u.b1.w, 0.0, 1.0));
     float2 q = abs(in.uv * 2.0 - 1.0);
     float edge = 1.0 - smoothstep(0.78, 0.99, max(q.x, q.y));
-    float3 add = (bl * u.b1.y + st * streakTint * u.b1.z) * edge;
+    float3 add = (bl * u.b1.y + st * tintaScia * u.b1.z) * edge;
     return float4(sc.rgb + add, sc.a);
 }

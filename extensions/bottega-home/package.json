@@ -69,13 +69,13 @@
       },
       {
         "command": "bottega.voice.toggle",
-        "title": "Accendi o spegni Melissa",
+        "title": "Accendi o spegni Moony",
         "category": "Bottega",
         "icon": "$(mic)"
       },
       {
         "command": "bottega.assistant.ask",
-        "title": "Chiedi a Melissa",
+        "title": "Chiedi a Moony",
         "category": "Bottega"
       },
       {
@@ -90,27 +90,27 @@
       },
       {
         "command": "bottega.openMelissa",
-        "title": "Apri Melissa",
+        "title": "Apri Moony",
         "category": "Bottega"
       },
       {
         "command": "bottega.racconta",
-        "title": "Melissa, racconta quello che ho davanti",
+        "title": "Moony, racconta quello che ho davanti",
         "category": "Bottega"
       },
       {
         "command": "bottega.avviso.toggle",
-        "title": "Melissa, avviso di fine a voce: accendi o spegni",
+        "title": "Moony, avviso di fine a voce: accendi o spegni",
         "category": "Bottega"
       },
       {
         "command": "bottega.raccontaFerma",
-        "title": "Melissa, ferma il racconto",
+        "title": "Moony, ferma il racconto",
         "category": "Bottega"
       },
       {
         "command": "bottega.spiegaCodice",
-        "title": "Spiega con Melissa",
+        "title": "Spiega con Moony",
         "icon": "$(comment-discussion)",
         "category": "Bottega"
       },
@@ -127,7 +127,7 @@
       },
       {
         "command": "bottega.voice.converse",
-        "title": "Parla con Melissa",
+        "title": "Parla con Moony",
         "category": "Bottega"
       },
       {
@@ -180,7 +180,7 @@
       },
       {
         "command": "bottega.barra.apri",
-        "title": "Apri la barra di Melissa",
+        "title": "Apri la barra di Moony",
         "category": "Bottega"
       },
       {
@@ -256,7 +256,7 @@
       "secondarySidebar": [
         {
           "id": "melissaBarra",
-          "title": "Melissa",
+          "title": "Moony",
           "icon": "media/melissa.svg"
         }
       ]
@@ -283,7 +283,7 @@
       "melissaBarra": [
         {
           "id": "bottega.barra",
-          "name": "Melissa",
+          "name": "Moony",
           "type": "webview"
         }
       ]
@@ -458,7 +458,7 @@
         "bottega.terminale.barra": {
           "type": "boolean",
           "default": true,
-          "description": "Il terminale come ultima voce della barra di destra, dopo Melissa, Claude Code e Cline. Si sposta una volta sola, alla prossima chiusura della Bottega: dopo decide Andrea."
+          "description": "Il terminale come ultima voce della barra di destra, dopo Moony, Claude Code e Cline. Si sposta una volta sola, alla prossima chiusura della Bottega: dopo decide Andrea."
         },
         "bottega.terminale.esterno": {
           "type": "string",
@@ -548,27 +548,27 @@
             "Mai: restano la Live Activity e i widget."
           ],
           "default": "lontano",
-          "description": "Quando la Bottega manda le notifiche all'iPhone (una sessione ti aspetta, un lavoro ha finito, Melissa chiede conferma, un progetto passa a rosso)."
+          "description": "Quando la Bottega manda le notifiche all'iPhone (una sessione ti aspetta, un lavoro ha finito, Moony chiede conferma, un progetto passa a rosso)."
         },
         "bottega.voice.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Accende Melissa, l'assistente a voce."
+          "description": "Accende Moony, l'assistente a voce."
         },
         "bottega.voice.hotkey": {
           "type": "string",
           "default": "option+space",
-          "description": "Scorciatoia globale di Melissa. Un tocco avvia o chiude la conversazione, tenerla premuta parla una volta sola."
+          "description": "Scorciatoia globale di Moony. Un tocco avvia o chiude la conversazione, tenerla premuta parla una volta sola."
         },
         "bottega.voice.model": {
           "type": "string",
           "default": "eleven_v4_turbo",
-          "description": "Il modello di voce usato dal Nucleo per la sintesi vocale di Melissa."
+          "description": "Il modello di voce usato dal Nucleo per la sintesi vocale di Moony."
         },
         "bottega.voice.orbAlwaysVisible": {
           "type": "boolean",
           "default": true,
-          "description": "Con la sfera sullo schermo (bottega.voice.sfera = schermo): la tiene sempre visibile, piccola, quando Melissa non parla."
+          "description": "Con la sfera sullo schermo (bottega.voice.sfera = schermo): la tiene sempre visibile, piccola, quando Moony non parla."
         },
         "bottega.italiano": {
           "type": "boolean",
@@ -582,11 +582,11 @@
             "schermo"
           ],
           "enumDescriptions": [
-            "La sfera di Melissa vive dentro la Bottega: barra laterale e barra di stato. Non copre le altre app.",
+            "La sfera di Moony vive dentro la Bottega: barra laterale e barra di stato. Non copre le altre app.",
             "La sfera galleggia sullo schermo, sopra tutte le finestre, anche con la Bottega in secondo piano."
           ],
           "default": "ide",
-          "description": "Dove sta la sfera di Melissa."
+          "description": "Dove sta la sfera di Moony."
         },
         "bottega.briefing.calendario": {
           "type": "boolean",
@@ -610,7 +610,7 @@
         "bottega.briefing.voce": {
           "type": "boolean",
           "default": true,
-          "description": "Alla prima apertura della giornata Melissa dice il briefing a voce (una volta sola). Spento: resta la card nella Home."
+          "description": "Alla prima apertura della giornata Moony dice il briefing a voce (una volta sola). Spento: resta la card nella Home."
         },
         "bottega.notte.permessi": {
           "type": "string",

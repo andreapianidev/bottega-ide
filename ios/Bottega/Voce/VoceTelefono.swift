@@ -96,7 +96,7 @@ final class VoceTelefono {
         try Task.checkCancellation()
         if let errore { throw errore }
         guard !chiusuraRichiesta, !completato else {
-            throw ErrorePonte(messaggio: "La lettura di Melissa è già terminata.")
+            throw ErrorePonte(messaggio: "La lettura di Moony è già terminata.")
         }
         let text = testo.hasSuffix(" ") ? testo : testo + " "
         try await manda(["inputs": [["text": text, "voice_id": voiceID, "new_turn": primo]]])
