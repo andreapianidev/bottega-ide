@@ -13,6 +13,7 @@
 
 import Foundation
 import Observation
+import WidgetKit
 
 @MainActor
 @Observable
@@ -37,6 +38,11 @@ final class Navigazione {
             stanza = .lavori
         case "melissa":
             stanza = .melissa
+            // aperta dalla luna del widget: l'alone si accende sulla Home (IconaWidget, ToccoLuna)
+            if URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "da" && $0.value == "luna" }) == true {
+                Condiviso.preferenze.set(Date.now, forKey: "lunaToccata")
+                WidgetCenter.shared.reloadTimelines(ofKind: "com.andreapiani.bottega.ios.widget.icona")
+            }
             // da scollegati resterebbe armato e la sfera partirebbe da sola al collegamento
             if ponte.collegato,
                URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "ascolta" && $0.value == "1" }) == true {

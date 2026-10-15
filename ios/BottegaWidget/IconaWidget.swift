@@ -37,7 +37,7 @@ enum FaseLuna {
 
 struct VoceIcona: TimelineEntry {
     let date: Date
-    /// L'alone acceso dopo un tocco (ToccaLunaIntent).
+    /// L'alone acceso dopo un tocco (ToccoLuna, lo segna l'app quando si apre dalla luna).
     var acceso = false
     var cicli: Double { FaseLuna.cicli(date) }
 }
@@ -56,7 +56,7 @@ struct FornitoreIcona: TimelineProvider {
         let ora = Date.now
         var voci: [VoceIcona] = []
         var inizio = ora
-        if let tocco = Condiviso.preferenze.object(forKey: ToccaLunaIntent.chiave) as? Date,
+        if let tocco = Condiviso.preferenze.object(forKey: ToccoLuna.chiave) as? Date,
            ora.timeIntervalSince(tocco) < Self.aloneAcceso {
             voci.append(VoceIcona(date: ora, acceso: true))
             inizio = tocco.addingTimeInterval(Self.aloneAcceso)
@@ -73,17 +73,13 @@ struct FornitoreIcona: TimelineProvider {
     }
 }
 
-/// Il tocco sulla luna: accende l'alone (la timeline si ricarica da sola dopo un intento) e apre Moony in ascolto.
-struct ToccaLunaIntent: AppIntent {
-    static let title: LocalizedStringResource = "Parla con Moony"
-    static let description = IntentDescription("Accende l'alone della luna e apre Moony AI gia' in ascolto.")
-    static let isDiscoverable = false
+/// Il tocco sulla luna apre Moony in ascolto con un indirizzo (widgetURL), l'unico modo in cui un widget della
+/// schermata Home porta l'app in primo piano. Fino al 15/10/2026 la luna era un Button(intent:) che restituiva un
+/// OpenURLIntent: dalla Home l'intento gira in background, l'alone si accendeva ma l'app non si apriva.
+/// L'alone lo accende ora l'app quando si apre da qui (Navigazione, `da=luna`): al ritorno sulla Home e' acceso.
+enum ToccoLuna {
     static let chiave = "lunaToccata"
-
-    func perform() async throws -> some IntentResult & OpensIntent {
-        Condiviso.preferenze.set(Date.now, forKey: Self.chiave)
-        return .result(opensIntent: OpenURLIntent(ApriMelissaIntent.indirizzo))
-    }
+    static let indirizzo = URL(string: "bottega://melissa?ascolta=1&da=luna")!
 }
 
 struct IconaWidget: Widget {
@@ -143,36 +139,34 @@ struct VistaIcona: View {
         GeometryReader { g in
             let lato = min(g.size.width, g.size.height)
             let disco = lato * raggioLuna * 2
-            Button(intent: ToccaLunaIntent()) {
-                ZStack {
-                    Image("Icona")
-                        .resizable()
-                        .widgetAccentedRenderingMode(.fullColor)
-                        .scaledToFill()
-                        .frame(width: g.size.width, height: g.size.height)
-                    // l'alone che si accende al tocco: luce calda attorno alla luna, poi sfuma
-                    Circle()
-                        .fill(RadialGradient(colors: [Color(red: 1, green: 0.95, blue: 0.85).opacity(0.75), .clear],
-                                             center: .center, startRadius: disco * 0.45, endRadius: disco * 0.95))
-                        .frame(width: disco * 2, height: disco * 2)
-                        .opacity(voce.acceso ? 1 : 0)
-                        .scaleEffect(voce.acceso ? 1 : 0.8)
-                        .animation(.easeOut(duration: 0.8), value: voce.acceso)
-                    // l'ombra della fase, morbida sul terminatore e tenuta dentro il disco (un filo di luce cinerea)
-                    OmbraFase(cicli: voce.cicli)
-                        .fill(Color(red: 0.03, green: 0.031, blue: 0.04).opacity(0.86))
-                        .frame(width: disco * 1.03, height: disco * 1.03)
-                        .blur(radius: lato * 0.008)
-                        .mask(Circle().frame(width: disco * 1.03, height: disco * 1.03))
-                        .animation(.smooth(duration: 1.6), value: voce.cicli)
-                }
-                .frame(width: g.size.width, height: g.size.height)
+            ZStack {
+                Image("Icona")
+                    .resizable()
+                    .widgetAccentedRenderingMode(.fullColor)
+                    .scaledToFill()
+                    .frame(width: g.size.width, height: g.size.height)
+                // l'alone che si accende al tocco: luce calda attorno alla luna, poi sfuma
+                Circle()
+                    .fill(RadialGradient(colors: [Color(red: 1, green: 0.95, blue: 0.85).opacity(0.75), .clear],
+                                         center: .center, startRadius: disco * 0.45, endRadius: disco * 0.95))
+                    .frame(width: disco * 2, height: disco * 2)
+                    .opacity(voce.acceso ? 1 : 0)
+                    .scaleEffect(voce.acceso ? 1 : 0.8)
+                    .animation(.easeOut(duration: 0.8), value: voce.acceso)
+                // l'ombra della fase, morbida sul terminatore e tenuta dentro il disco (un filo di luce cinerea)
+                OmbraFase(cicli: voce.cicli)
+                    .fill(Color(red: 0.03, green: 0.031, blue: 0.04).opacity(0.86))
+                    .frame(width: disco * 1.03, height: disco * 1.03)
+                    .blur(radius: lato * 0.008)
+                    .mask(Circle().frame(width: disco * 1.03, height: disco * 1.03))
+                    .animation(.smooth(duration: 1.6), value: voce.cicli)
             }
-            .buttonStyle(.plain)
+            .frame(width: g.size.width, height: g.size.height)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Moony AI, \(FaseLuna.nome(voce.date).lowercased())")
         .accessibilityHint("Tocca per parlare con Moony")
+        .widgetURL(ToccoLuna.indirizzo)
         .containerBackground(for: .widget) { Tinte.sfondo }
     }
 }
