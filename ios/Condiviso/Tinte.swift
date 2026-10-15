@@ -18,6 +18,8 @@ enum Tinte {
     static let ambra = Color(red: 0xf4 / 255, green: 0xab / 255, blue: 0x3c / 255)
     static let rosso = Color(red: 0xee / 255, green: 0x7a / 255, blue: 0x6a / 255)
     static let verde = Color(red: 0x7f / 255, green: 0xd1 / 255, blue: 0x9b / 255)
+    /// Il bianco dei titoli di Moony AI, lo stesso del Mac (MoonyTheme.textPrimary, #ECEEF2).
+    static let luce = Color(red: 0xec / 255, green: 0xee / 255, blue: 0xf2 / 255)
     /// L'argento della luna: stelle, alone, la scelta accesa.
     static let argento = Color(red: 0xc9 / 255, green: 0xce / 255, blue: 0xd8 / 255)
     /// Le superfici sul nero: vetro appena acceso, con un filo chiaro attorno.

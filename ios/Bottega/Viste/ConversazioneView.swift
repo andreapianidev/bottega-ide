@@ -241,9 +241,8 @@ struct ConversazioneView: View {
         VStack(spacing: 6) {
             if vuota {
                 // il nome sta sotto il disco: l'alone della luna occupa i bordi della sua vista
-                Text(melissa.parlante)
-                    .font(.system(size: 34, weight: .regular, design: .serif))
-                    .foregroundStyle(Tinte.testo)
+                // come il Mac: «MOONY AI», o il nome di chi ha la chiamata
+                TitoloMoony(testo: melissa.parlante == "Moony" ? "MOONY AI" : melissa.parlante.uppercased(), corpo: 34)
                     .padding(.top, -grande * 0.10)
             }
             if vuota || melissa.sfera != .riposo || melissa.conversazione {

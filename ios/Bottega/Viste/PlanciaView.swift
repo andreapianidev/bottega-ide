@@ -2,7 +2,7 @@
 //  PlanciaView.swift
 //  Bottega per iPhone
 //
-//  La schermata dell'app, sul cielo nero (CieloView): in alto le tre stanze scritte come un indice e le impostazioni,
+//  La schermata dell'app, sul cielo nero (CieloView): in alto le tre stanze come un indice (SF Pro, come il Mac) e le impostazioni,
 //  sotto il Mac e la linea in una riga sola. Moony e' la chat sulla luna (ConversazioneView): luna, conversazione e
 //  barra di scrittura stanno li'; Lavori e Stanze usano tutto lo schermo, con il cielo piu' tenue sotto le liste.
 //
@@ -71,7 +71,7 @@ struct PlanciaView: View {
 
     // MARK: - pezzi
 
-    /// Le stanze come un indice, in serif: quella aperta accesa, le altre spente. Sotto, in piccolo, il Mac.
+    /// Le stanze come un indice, nel carattere del Mac: quella aperta accesa, le altre spente. Sotto, in piccolo, il Mac.
     private var testata: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 18) {
@@ -82,7 +82,7 @@ struct PlanciaView: View {
                     } label: {
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
                             Text(s.rawValue)
-                                .font(.system(size: 24, weight: scelta ? .semibold : .regular, design: .serif))
+                                .font(.system(size: 22, weight: scelta ? .bold : .regular))
                                 .foregroundStyle(scelta ? Tinte.testo : Tinte.tinta.opacity(0.75))
                             if s == .lavori, let n = inAttesa {
                                 Text("\(n)")

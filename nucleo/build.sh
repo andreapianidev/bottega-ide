@@ -182,10 +182,13 @@ fi
 
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" "$HERE/Info.plist" > "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
-# La stessa icona della Bottega: la vedono Comandi rapidi, il widget e le notifiche.
-if [[ -f "$ROOT/brand/Bottega.icns" ]]; then
-  cp "$ROOT/brand/Bottega.icns" "$APP/Contents/Resources/Bottega.icns"
-  /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string Bottega" "$APP/Contents/Info.plist" 2>/dev/null || true
+# La luna di Moony AI (scripts/icona-moony-mac.sh): la vedono le notifiche, Comandi rapidi e il widget. Dal 16/10/2026
+# non piu' l'icona della bottega, che resta a Moony IDE.
+ICONA=MoonyAI
+[[ -f "$ROOT/brand/$ICONA.icns" ]] || ICONA=Bottega
+if [[ -f "$ROOT/brand/$ICONA.icns" ]]; then
+  cp "$ROOT/brand/$ICONA.icns" "$APP/Contents/Resources/$ICONA.icns"
+  /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string $ICONA" "$APP/Contents/Info.plist" 2>/dev/null || true
 fi
 plutil -lint -s "$APP/Contents/Info.plist"
 
