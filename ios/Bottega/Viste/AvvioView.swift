@@ -2,8 +2,8 @@
 //  AvvioView.swift
 //  Bottega per iPhone
 //
-//  La schermata d'avvio di Moony AI: la luna vera di stasera che si accende (LunaAvvioView), nome, versione e
-//  build. La schermata di lancio di iOS e' statica (Info.plist, solo il colore Notte) e non puo' leggere il
+//  La schermata d'avvio di Moony AI: sul cielo nero (CieloView) la luna vera di stasera che si accende
+//  (LunaAvvioView), nome, beta e build. La schermata di lancio di iOS e' statica (Info.plist, solo il colore Notte, che dal 16/10/2026 e' nero) e non puo' leggere il
 //  bundle: questa ne prende il posto al primo fotogramma, sullo stesso fondo, e sfuma da sola. Non blocca
 //  niente: sotto l'app parte subito.
 //
@@ -15,30 +15,34 @@ import SwiftUI
 enum VersioneApp {
     static var versione: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?" }
     static var build: String { Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?" }
-    /// «0.1.1 (162)»
-    static var testo: String { "\(versione) (\(build))" }
-    /// «versione 0.1.1, build 162»
-    static var esteso: String { "versione \(versione), build \(build)" }
+    /// La beta di Moony AI che questa build porta all'iPhone (16/10/2026: la 6, dopo le 2-5 del Mac). Si alza a mano
+    /// quando una beta nuova arriva all'iPhone; le beta del Mac sono in AvoFase, nel repository di Moony AI.
+    static let fase = "4.0 beta 6"
+    /// «4.0 beta 6 (172)»
+    static var testo: String { "\(fase) (\(build))" }
+    /// «4.0 beta 6, build 172»
+    static var esteso: String { "\(fase), build \(build)" }
 }
 
 struct AvvioView: View {
     var body: some View {
         ZStack {
-            Color("Notte").ignoresSafeArea()
-            VStack(spacing: 18) {
+            Color.black.ignoresSafeArea()
+            CieloView(attivo: true).ignoresSafeArea()
+            VStack(spacing: 14) {
                 // la luna vera di stasera, che si accende mentre l'app si prepara (LunaAvvioView); senza Metal l'icona
                 if LunaAvvioView.disponibile {
                     LunaAvvioView(durata: 1.4)
-                        .frame(width: 190, height: 190)
+                        .frame(width: 280, height: 280)
                 } else {
                     Image("Luna")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 150, height: 150)
+                        .frame(width: 220, height: 220)
                         .shadow(color: .white.opacity(0.18), radius: 30)
                 }
                 Text("Moony AI")
-                    .font(.largeTitle.weight(.semibold))
+                    .font(.system(size: 38, weight: .regular, design: .serif))
                     .foregroundStyle(Tinte.testo)
                 Text(VersioneApp.esteso)
                     .font(.footnote.monospacedDigit())

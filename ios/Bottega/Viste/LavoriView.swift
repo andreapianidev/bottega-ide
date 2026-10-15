@@ -177,12 +177,15 @@ struct LavoriView: View {
         .scrollContentBackground(.hidden)
         .refreshable { await ponte.aggiornaStato() }
         .sheet(item: $scelta) { item in
-            switch item {
-            case .lavoro(let l):
-                if ponte.linea == .collegato { SessioneView(ponte: ponte, lavoro: l) }
-                else { SchedaLavoroSalvato(lavoro: l, ora: statoVisibile?.ora) }
-            case .attivita(let a): SchedaAttivita(ponte: ponte, iniziale: a)
+            Group {
+                switch item {
+                case .lavoro(let l):
+                    if ponte.linea == .collegato { SessioneView(ponte: ponte, lavoro: l) }
+                    else { SchedaLavoroSalvato(lavoro: l, ora: statoVisibile?.ora) }
+                case .attivita(let a): SchedaAttivita(ponte: ponte, iniziale: a)
+                }
             }
+            .presentationBackground(.black)
         }
         .onChange(of: fase) { _, nuova in if nuova == .background { riassunto.ferma() } }
         .onDisappear { riassunto.ferma() }

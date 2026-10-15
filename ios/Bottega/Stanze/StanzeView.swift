@@ -380,12 +380,15 @@ struct ConSessione<C: View>: View {
             .buttonStyle(.plain)
             .accessibilityHint("Apre la sessione registrata su \(l.progetto)")
             .sheet(item: $scelto) { scelta in
-                switch scelta {
-                case .lavoro(let lavoro):
-                    if ponte.linea == .collegato { SessioneView(ponte: ponte, lavoro: lavoro) }
-                    else { SchedaLavoroSalvato(lavoro: lavoro, ora: statoVisibile?.ora) }
-                case .attivita(let attivita): SchedaAttivita(ponte: ponte, iniziale: attivita)
+                Group {
+                    switch scelta {
+                    case .lavoro(let lavoro):
+                        if ponte.linea == .collegato { SessioneView(ponte: ponte, lavoro: lavoro) }
+                        else { SchedaLavoroSalvato(lavoro: lavoro, ora: statoVisibile?.ora) }
+                    case .attivita(let attivita): SchedaAttivita(ponte: ponte, iniziale: attivita)
+                    }
                 }
+                .presentationBackground(.black)
             }
         } else {
             contenuto

@@ -95,23 +95,35 @@ struct ConversazioneView: View {
     ]
 
     var body: some View {
-        VStack(spacing: 0) {
-            testata
-            if vuota { Spacer(minLength: 0) }
-            luna
-            sottoLaLuna
-            if vuota {
-                Spacer(minLength: 0)
-                pronte.padding(.bottom, 8)
-            } else {
-                trascrizione
+        GeometryReader { geo in
+            // la luna grande occupa quasi tutta la larghezza, ma lascia sempre spazio a nome, domande e barra
+            let grande = min(geo.size.width * 0.94, geo.size.height * 0.50, 440)
+            VStack(spacing: 0) {
+                ZStack(alignment: .top) {
+                    VStack(spacing: 0) {
+                        if vuota { Spacer(minLength: 0) }
+                        luna(lato: vuota ? grande : 92)
+                        sottoLaLuna(grande: grande)
+                        if vuota { Spacer(minLength: 0) }
+                    }
+                    .frame(maxWidth: .infinity)
+                    pulsanti
+                }
+                .frame(maxHeight: vuota ? .infinity : nil)
+                if vuota {
+                    pronte.padding(.bottom, 12)
+                } else {
+                    trascrizione
+                }
+                BarraMoony(melissa: melissa, apriCervello: apriCervello)
             }
-            BarraMoony(melissa: melissa, apriCervello: apriCervello)
         }
-        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: vuota)
+        .animation(.spring(response: 0.5, dampingFraction: 0.86), value: vuota)
         .sheet(isPresented: $conversazioni) {
             ConversazioniFoglio { nuovaChat() }
                 .presentationDetents([.medium, .large])
+                .presentationBackground(.black)
+                .scrollContentBackground(.hidden)
         }
         // il credito si rilegge all'apertura, dopo ogni risposta (Melissa.chiedi) e ogni 5 minuti, come sul Mac
         .task(id: davanti) {
@@ -124,25 +136,29 @@ struct ConversazioneView: View {
 
     // MARK: - testata e luna
 
-    private var testata: some View {
+    /// Le conversazioni a sinistra e la chat nuova a destra, sulla stessa riga della luna piccola.
+    private var pulsanti: some View {
         HStack {
             Button { conversazioni = true } label: {
-                Image(systemName: "line.3.horizontal")
-                    .font(.title3)
+                Image(systemName: "text.alignleft")
+                    .font(.system(size: 18))
                     .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel("Conversazioni")
             Spacer()
             Button(action: nuovaChat) {
                 Image(systemName: "square.and.pencil")
-                    .font(.title3)
+                    .font(.system(size: 18))
                     .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .disabled(melissa.occupata || righe.isEmpty)
+            .opacity(righe.isEmpty ? 0 : 1)
             .accessibilityLabel("Nuova chat")
         }
         .foregroundStyle(Tinte.tinta)
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 8)
     }
 
     private func nuovaChat() {
@@ -151,9 +167,7 @@ struct ConversazioneView: View {
         telefono.nuovaChat(righe: righe)
     }
 
-    private var lato: CGFloat { vuota ? 230 : 76 }
-
-    private var luna: some View {
+    private func luna(lato: CGFloat) -> some View {
         SferaView(stato: melissa.sfera, attiva: davanti, aspetto: AspettoPersonaggi.di(melissa))
             .frame(width: lato, height: lato)
             // la maschera radiale della barra sul Mac: piena fino al 62% del raggio, zero sul bordo
@@ -171,13 +185,14 @@ struct ConversazioneView: View {
             .accessibilityAction(named: "Scegli il cervello") { apriCervello() }
     }
 
-    @ViewBuilder
-    private var sottoLaLuna: some View {
-        VStack(spacing: 4) {
+    private func sottoLaLuna(grande: CGFloat) -> some View {
+        VStack(spacing: 6) {
             if vuota {
+                // il nome sta sotto il disco: l'alone della luna occupa i bordi della sua vista
                 Text(melissa.parlante)
-                    .font(.title3.weight(.semibold))
+                    .font(.system(size: 34, weight: .regular, design: .serif))
                     .foregroundStyle(Tinte.testo)
+                    .padding(.top, -grande * 0.10)
             }
             if vuota || melissa.sfera != .riposo || melissa.conversazione {
                 Text(fraseLuna)
@@ -185,6 +200,7 @@ struct ConversazioneView: View {
                     .foregroundStyle(melissa.sfera == .errore ? Tinte.rosso : Tinte.tinta)
                     .multilineTextAlignment(.center)
                     .lineLimit(vuota ? 3 : 2)
+                    .frame(maxWidth: 320)
                     .padding(.horizontal, 28)
                     .animation(.easeOut(duration: 0.2), value: fraseLuna)
             }
@@ -219,11 +235,11 @@ struct ConversazioneView: View {
             HStack(spacing: 8) {
                 ForEach(Self.pronte, id: \.0) { p in
                     Button(p.0) { melissa.scrivi(p.1) }
-                        .font(.footnote.weight(.medium))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(Capsule().fill(Tinte.notteFonda))
-                        .overlay(Capsule().stroke(Tinte.bordo))
+                        .font(.footnote)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(Tinte.vetro))
+                        .overlay(Capsule().stroke(Tinte.filo, lineWidth: 0.6))
                         .foregroundStyle(Tinte.testo)
                         .disabled(melissa.occupata)
                 }
@@ -289,7 +305,7 @@ struct RigaMoony: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
                 .background(Capsule().fill(Color.white.opacity(0.08)))
-                .overlay(Capsule().stroke(Tinte.bordo, lineWidth: 0.5))
+                .overlay(Capsule().stroke(Tinte.filo, lineWidth: 0.5))
                 .frame(maxWidth: .infinity, alignment: .trailing)
         } else {
             switch riga.chi {
@@ -505,8 +521,8 @@ struct BarraMoony: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color.white.opacity(0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(Tinte.bordo, lineWidth: 0.8))
+            .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Tinte.vetro))
+            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(Tinte.filo, lineWidth: 0.6))
             modelloECredito
             if conImmagini && telefono.configurato && telefono.modello != .vision {
                 Text("Le immagini le descrive la visione, poi risponde \(telefono.modello.nome)")
@@ -569,7 +585,7 @@ struct BarraMoony: View {
                 .foregroundStyle(Tinte.testo)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(Capsule().fill(Color.white.opacity(0.07)))
+                .background(Capsule().fill(Tinte.vetro))
             }
             .accessibilityLabel("Modello di Moony: \(nomeModello)")
             Spacer(minLength: 4)

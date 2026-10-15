@@ -2,8 +2,9 @@
 //  PlanciaView.swift
 //  Bottega per iPhone
 //
-//  La schermata dell'app: in alto il Mac e la linea, poi le stanze. Moony e' la chat sulla luna (ConversazioneView):
-//  luna, conversazione e barra di scrittura stanno li'; Lavori e Stanze usano tutto lo schermo.
+//  La schermata dell'app, sul cielo nero (CieloView): in alto le tre stanze scritte come un indice e le impostazioni,
+//  sotto il Mac e la linea in una riga sola. Moony e' la chat sulla luna (ConversazioneView): luna, conversazione e
+//  barra di scrittura stanno li'; Lavori e Stanze usano tutto lo schermo, con il cielo piu' tenue sotto le liste.
 //
 
 import SwiftUI
@@ -22,17 +23,12 @@ struct PlanciaView: View {
 
     var body: some View {
         ZStack {
-            Tinte.sfondo.ignoresSafeArea()
+            Color.black.ignoresSafeArea()
+            CieloView(attivo: davanti, luce: nav.stanza == .melissa ? 1 : 0.45)
+                .ignoresSafeArea()
+                .animation(.easeInOut(duration: 0.4), value: nav.stanza)
             VStack(spacing: 0) {
                 testata
-                Picker("Stanza", selection: $nav.stanza) {
-                    ForEach(Stanza.allCases, id: \.self) { s in
-                        Text(etichetta(s)).tag(s)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 8)
                 switch nav.stanza {
                 case .melissa: ConversazioneView(ponte: ponte, melissa: melissa, davanti: davanti) { cervello = true }
                 case .lavori: LavoriView(ponte: ponte)
@@ -54,12 +50,17 @@ struct PlanciaView: View {
         .sheet(isPresented: $impostazioni) {
             ImpostazioniView(ponte: ponte, melissa: melissa)
                 .presentationDetents([.medium, .large])
+                .presentationBackground(.black)
+                .scrollContentBackground(.hidden)
         }
         .sheet(isPresented: $cervello) {
             Group {
                 if AssistenteTelefono.shared.configurato { CervelloTelefonoFoglio() }
                 else { CervelloFoglio(ponte: ponte) }
-            }.presentationDetents([.medium, .large])
+            }
+            .presentationDetents([.medium, .large])
+            .presentationBackground(.black)
+                .scrollContentBackground(.hidden)
         }
         .alert("Moony", isPresented: Binding(get: { melissa.avviso != nil }, set: { if !$0 { melissa.avviso = nil } })) {
             Button("Va bene", role: .cancel) {}
@@ -70,39 +71,70 @@ struct PlanciaView: View {
 
     // MARK: - pezzi
 
+    /// Le stanze come un indice, in serif: quella aperta accesa, le altre spente. Sotto, in piccolo, il Mac.
     private var testata: some View {
-        HStack(spacing: 10) {
-            Circle().fill(coloreLinea).frame(width: 9, height: 9)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(ponte.collegamento?.nomeMac ?? "Mac")
-                    .font(.headline)
-                    .foregroundStyle(Tinte.testo)
-                Text(fraseLinea)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 18) {
+                ForEach(Stanza.allCases, id: \.self) { s in
+                    let scelta = nav.stanza == s
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.25)) { nav.stanza = s }
+                    } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Text(s.rawValue)
+                                .font(.system(size: 24, weight: scelta ? .semibold : .regular, design: .serif))
+                                .foregroundStyle(scelta ? Tinte.testo : Tinte.tinta.opacity(0.75))
+                            if s == .lavori, let n = inAttesa {
+                                Text("\(n)")
+                                    .font(.caption.weight(.semibold).monospacedDigit())
+                                    .foregroundStyle(Tinte.ambra)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(etichetta(s))
+                    .accessibilityAddTraits(scelta ? [.isSelected, .isHeader] : [])
+                }
+                Spacer(minLength: 0)
+                Button {
+                    impostazioni = true
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 17))
+                        .foregroundStyle(Tinte.tinta)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Impostazioni")
+            }
+            HStack(spacing: 7) {
+                Circle().fill(coloreLinea).frame(width: 6, height: 6)
+                Text("\(ponte.collegamento?.nomeMac ?? "Mac"), \(fraseLinea.prefix(1).lowercased() + fraseLinea.dropFirst())")
                     .font(.caption)
                     .foregroundStyle(Tinte.tinta)
-                    .lineLimit(2)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
-            Spacer()
-            Button {
-                impostazioni = true
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.title3)
-                    .foregroundStyle(Tinte.tinta)
-                    .frame(width: 44, height: 44)
-            }
-            .accessibilityLabel("Impostazioni")
+            .accessibilityElement(children: .combine)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 6)
+        .padding(.leading, 20)
+        .padding(.trailing, 8)
+        .padding(.top, 4)
+        .padding(.bottom, 6)
+    }
+
+    /// Chi ti aspetta nei lavori, accanto alla parola Lavori.
+    private var inAttesa: Int? {
+        guard let c = statoVisibile?.conteggiAttivita, c.tiAspetta > 0 else { return nil }
+        return c.tiAspetta
     }
 
     // MARK: - frasi
 
     private func etichetta(_ s: Stanza) -> String {
-        guard s == .lavori, let c = statoVisibile?.conteggiAttivita, c.tiAspetta > 0 else { return s.rawValue }
-        // nel segmentato a tre la frase intera non ci sta: solo il numero di chi ti aspetta
-        return "Lavori · \(c.tiAspetta)"
+        guard s == .lavori, let n = inAttesa else { return s.rawValue }
+        return "Lavori, \(n) ti \(n == 1 ? "aspetta" : "aspettano")"
     }
 
     private var coloreLinea: Color {

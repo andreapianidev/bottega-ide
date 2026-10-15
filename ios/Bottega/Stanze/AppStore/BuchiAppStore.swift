@@ -208,9 +208,11 @@ struct SchedaBuco: View {
         }
         .sheet(isPresented: $componi) {
             ComposizioneLavoro(buco: buco, attivo: attivo, azioni: azioni)
+                .presentationBackground(.black)
         }
         .sheet(isPresented: $ignora) {
             IgnoraBuco(buco: buco, attivo: attivo, azioni: azioni, ricarica: ricarica)
+                .presentationBackground(.black)
         }
     }
 

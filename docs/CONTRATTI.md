@@ -2364,7 +2364,7 @@ cercava il nome nel testo.
   prima le descrive la visione e la descrizione entra come un altro turno esterno, poi risponde il modello scelto.
   I turni esterni nascono sincronizzati: non vanno mai a `/v1/assistente/storia` (il ponte accetta 2000 caratteri e
   `tu|melissa`, e un file non deve diventare parole di Andrea nella memoria). Verso il Mac ogni testo si taglia a 2000
-  caratteri, perche' un turno piu' lungo farebbe rifiutare l'intero lotto. «Nuova chat» sposta `inizioChat`: la chat
+  unita' UTF-16 (come conta `length` del ponte, senza spezzare un carattere), perche' un turno piu' lungo farebbe rifiutare l'intero lotto. «Nuova chat» sposta `inizioChat`: la chat
   mostra e il modello vede solo i turni da li' in poi, e quella chiusa va in `moony-chat-passate.json` (Application
   Support, al piu' 40, solo da leggere). Il Mac conserva la sua storia di sempre.
 

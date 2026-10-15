@@ -55,7 +55,7 @@ struct SessioneView: View {
                 }
             }
             .sheet(isPresented: $scrivi) {
-                ScriviLavoroView(ponte: ponte, lavoro: lavoro).presentationDetents([.medium])
+                ScriviLavoroView(ponte: ponte, lavoro: lavoro).presentationDetents([.medium]).presentationBackground(.black)
             }
         }
         .tint(Tinte.ambra)
