@@ -69,6 +69,10 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Moony AI parla con il tuo Mac attraverso Tailscale.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Con «Sempre» Moony sa quando esci e rientri anche con l'app chiusa. Le posizioni vanno solo alla tua memoria, sul tuo server, mai a terzi.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Moony sa se sei a casa o fuori, e dove ti sei fermato, per risponderti sapendo dove sei.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Moony ti ascolta solo mentre la sfera è accesa.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

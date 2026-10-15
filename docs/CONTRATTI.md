@@ -1789,6 +1789,7 @@ iPhone e Mac si parlano direttamente dentro Tailscale (WireGuard, gia' cifrato).
 - `GET /v1/assistente/config`: **solo HTTPS**, gettone obbligatorio, `Cache-Control: no-store`. Restituisce le chiavi
   Agnes, DeepSeek ed ElevenLabs disponibili sul Mac, `voiceID` e il prompt di Melissa per l'iPhone. Su HTTP torna 403;
   non entra nel QR, negli eventi, nei log o nei widget. L'app conserva le chiavi nel portachiavi del solo iPhone.
+- `GET /v1/dove/config`: **solo HTTPS**, il gettone ristretto per la posizione di Andrea (9.12).
 - `POST /v1/assistente/storia {turns:[{id,chi,testo}]}`: importa al massimo 24 turni completi fatti offline nel registro
   e nella storia di Melissa sul Mac. ID UUID, `chi` in `tu|melissa`, testo fino a 2000 caratteri. Gli ID importati
   sono ricordati in `~/.bottega/telefono-turni-importati.json` (600), per non duplicare un turno dopo un retry.
@@ -2915,6 +2916,28 @@ Avo (0,55). Sull'iPhone arrivano gli stati, non l'umore del testo (la vista non 
   2,4 a riposo e 3,6 mentre parla, Elliot 2,6 e 3,3, Darlene 2,4 e 1,9, Krista 0,8 e 1,2; agganciata a riposo da 0,1 a
   0,6. Le figure non cambiano i ritmi: ferma a riposo, 12 fotogrammi mentre pensa, 30 in ascolto o mentre parla.
 - **Fuori**: la mod melissa non ha ancora la sfera per personaggio; il campo nei file per lei e' in piu' e lo ignora.
+
+### 9.12 Dov'e' Andrea: la posizione dall'iPhone (`ios/Bottega/Posizione/Posizione.swift`, `src/ponte.ts`)
+
+L'iPhone e' il dispositivo che Andrea ha addosso: quando esce e il Mac resta a casa, anche per giorni, la
+posizione buona arriva da li'. A decidere "casa o fuori" e' la memoria di Moony sulla VM1 (repository Avo Agency AI,
+`segretaria-cloud/dove.py`), non l'app e non il Mac.
+
+- `GET /v1/dove/config`: **solo HTTPS**, gettone obbligatorio. Restituisce `{url, url_ip?, token}` letti da
+  `~/.secrets/segretaria-dove.env` (`DOVE_URL`, `DOVE_URL_IP`, `DOVE_TOKEN`); 404 se il file manca. Il gettone e'
+  RISTRETTO: sulla VM apre solo `POST /dove/segnale` e `GET /dove`, non la memoria. Non entra nel QR, negli eventi,
+  nei log o nei widget. Il `Ponte` lo importa alla prima risposta HTTPS del Mac se manca; scollegare l'iPhone lo
+  cancella e spegne i servizi di posizione.
+- App: con la configurazione chiede "mentre usi l'app" e poi "sempre". Usa solo servizi che costano poca batteria e
+  rilanciano l'app da chiusa: soste (`startMonitoringVisits`, sotto i 10 minuti si scartano), spostamenti
+  significativi, zona casa (`CLCircularRegion` col centro e il raggio di `GET /dove`; entrata e uscita da
+  `didDetermineState`, un segnale per passaggio). Nessuna traccia continua. `AppDelegate` avvia `Posizione` in
+  `didFinishLaunching`, perche' un evento di posizione rilancia l'app dietro e arriva solo a un delegato gia' messo.
+- Invio: direttamente alla VM su Tailscale, `POST <url>/dove/segnale {device: "iphone", segnali: [{tipo: fix|zona|
+  visita, at, lat?, lon?, acc?, luogo?, evento?, arrivo?, partenza?}]}`, con `url_ip` se il nome non risolve. Coda su
+  disco (`posizione-coda.json`, al massimo 300), svuotata a ogni segnale dentro un'attivita' in background.
+- Il nome del posto lo trova l'iPhone (MapKit): per una sosta il punto d'interesse entro 80 m o l'indirizzo, per uno
+  spostamento il paese. Coordinate e nomi non stanno mai in questo repository.
 
 ## 10. Gli aggiornamenti: VS Code solo quando serve, Claude Code sempre
 

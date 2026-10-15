@@ -24,6 +24,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         MainActor.assumeIsolated {
             Avvisi.shared.osserva()
             OrologioTelefono.shared.avvia()
+            // anche rilanciata dietro da una sosta o dalla zona casa: il delegato deve esserci subito
+            Posizione.shared.avvia()
         }
         return true
     }

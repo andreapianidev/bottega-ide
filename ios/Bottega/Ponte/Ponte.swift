@@ -76,6 +76,7 @@ final class Ponte {
     private var usaIP = false
     private var ultimoSuccesso: Date?
     private var importandoAssistente = false
+    private var importandoDove = false
     private var sincronizzandoAssistente = false
     private var sincronizzandoScelta = false
     @ObservationIgnored private var preparandoHttps: Task<Bool, Never>?
@@ -148,6 +149,7 @@ final class Ponte {
         linea = .scollegato
         Avvisi.shared.dimentica()
         AssistenteTelefono.shared.cancella()
+        Posizione.shared.dimentica()
     }
 
     /// Il portachiavi non si legge prima del primo sblocco dopo l'accensione: se all'avvio il gettone non c'era,
@@ -270,6 +272,13 @@ final class Ponte {
             Task {
                 defer { importandoAssistente = false }
                 try? await importaConfigurazioneAssistente()
+            }
+        }
+        if !Posizione.shared.configurata && s.sicuro != nil && !importandoDove {
+            importandoDove = true
+            Task {
+                defer { importandoDove = false }
+                try? await importaConfigurazioneDove()
             }
         }
         if AssistenteTelefono.shared.turni.contains(where: { !$0.sincronizzato }) && !sincronizzandoAssistente {
@@ -517,6 +526,13 @@ final class Ponte {
         }
         let config: ConfigurazioneTelefono = try await prendi("/v1/assistente/config")
         try AssistenteTelefono.shared.importa(config)
+    }
+
+    /// La posizione di Andrea (CONTRATTI 9.12): indirizzo della VM e gettone ristretto, solo in HTTPS.
+    func importaConfigurazioneDove() async throws {
+        guard collegamento?.schema == "https" else { return }
+        let config: ConfigDove = try await prendi("/v1/dove/config")
+        try Posizione.shared.importa(config)
     }
 
     /// La memoria e le letture di un ospite dal Mac (POST /v1/personaggio, docs/CONTRATTI.md 9.11): le sue ultime

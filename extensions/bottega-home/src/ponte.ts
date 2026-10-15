@@ -154,6 +154,8 @@ export interface PonteDeps {
 	cervelli?: RotteCervelli;
 	/** Configurazione per Melissa autonoma, mai servita sul ponte HTTP. */
 	configTelefono?(): Promise<{ agnes?: string; deepseek?: string; elevenlabs?: string; voiceID: string; prompt: string }>;
+	/** La posizione di Andrea (9.12): indirizzo della VM e gettone ristretto a /dove, mai sul ponte HTTP. */
+	configDove?(): { url: string; url_ip?: string; token: string } | undefined;
 	/** Turni completati offline; il ponte conserva gli ID per non importarli due volte. */
 	importaTurniTelefono?(turns: { id: string; chi: 'tu' | 'melissa'; testo: string }[]): void;
 	/** La memoria e le letture di un personaggio per l'iPhone (9.11): POST /v1/personaggio {chi, frase}. */
@@ -510,6 +512,12 @@ export class Ponte {
 				if (req.method !== 'GET') return json(405, { errore: 'La configurazione si legge con GET.' });
 				if (!('encrypted' in req.socket) || !req.socket.encrypted) return json(403, { errore: 'La configurazione richiede HTTPS.' });
 				return json(200, await this.deps.configTelefono());
+			}
+			if (url === '/v1/dove/config' && this.deps.configDove) {
+				if (req.method !== 'GET') return json(405, { errore: 'La configurazione si legge con GET.' });
+				if (!('encrypted' in req.socket) || !req.socket.encrypted) return json(403, { errore: 'La configurazione richiede HTTPS.' });
+				const c = this.deps.configDove();
+				return c ? json(200, c) : json(404, { errore: 'Sul Mac manca ~/.secrets/segretaria-dove.env.' });
 			}
 			if (url === '/v1/personaggio' && this.deps.personaggio) {
 				if (req.method !== 'POST') return json(405, { errore: 'Il personaggio si chiede con POST.' });
