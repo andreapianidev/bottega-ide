@@ -76,6 +76,8 @@ final class Ponte {
     private var usaIP = false
     private var ultimoSuccesso: Date?
     private var importandoAssistente = false
+    /// In questo avvio si e' gia' chiesta al Mac la configurazione per la chiave Mistral.
+    private var mistralCercato = false
     private var importandoDove = false
     private var sincronizzandoAssistente = false
     private var sincronizzandoScelta = false
@@ -267,8 +269,12 @@ final class Ponte {
                 await AssistenteTelefono.shared.sincronizzaScelta(con: self)
             }
         }
-        if !AssistenteTelefono.shared.configurato && s.sicuro != nil && !importandoAssistente {
+        // anche una volta per avvio se nelle chiavi salvate manca Mistral (arrivato con la 4.0 beta 9): se il Mac
+        // non ce l'ha, si riprova solo al prossimo avvio
+        let senzaMistral = !mistralCercato && SegretiTelefono.leggi()?.mistral == nil
+        if (!AssistenteTelefono.shared.configurato || senzaMistral) && s.sicuro != nil && !importandoAssistente {
             importandoAssistente = true
+            if AssistenteTelefono.shared.configurato { mistralCercato = true }
             Task {
                 defer { importandoAssistente = false }
                 try? await importaConfigurazioneAssistente()

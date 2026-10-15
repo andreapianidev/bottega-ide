@@ -131,7 +131,7 @@ final class Melissa {
             let telefono = AssistenteTelefono.shared
             // Vision guarda le immagini e risponde; con Flash o Pro le descrive prima la visione, poi risponde il
             // modello scelto (come Moony AI sul Mac)
-            if !immagini.isEmpty, telefono.modello != .vision {
+            if !immagini.isEmpty, !telefono.modello.vede {
                 sfera = .pensa
                 parziale = t
                 do {

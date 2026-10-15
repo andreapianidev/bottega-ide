@@ -7,11 +7,12 @@
 //  scorre sotto. La domanda di Andrea a destra in un fumetto scuro, la risposta di Moony a sinistra senza fumetto, in
 //  markdown, con il pulsante per copiarla; i turni nati a voce hanno il microfono. In basso la barra: "+" per
 //  allegare (foto, fotocamera, file), "Chiedi a Moony", il microfono che passa alla voce di sempre, invia. Sotto il
-//  campo il modello (Flash, Pro, Vision), con chi parli e il credito DeepSeek, come sul Mac (4.0 beta 3).
+//  campo il modello (DeepSeek Flash, Pro, Vision e i Mistral, dalla 4.0 beta 9), con chi parli e il credito, come sul
+//  Mac. In alto le schede: una per chat aperta, «x» la chiude, «+» ne apre una nuova, i recenti a sinistra.
 //
-//  Il cervello e la memoria sono quelli di sempre (Melissa, AssistenteTelefono, il ponte): le righe sono il registro
-//  del Mac piu' i turni dell'iPhone non ancora arrivati. «Nuova chat» e le conversazioni passate restano
-//  sull'iPhone (docs/CONTRATTI.md, 9.10).
+//  Il cervello e la memoria sono quelli di sempre (Melissa, AssistenteTelefono, il ponte): le righe sono i turni
+//  della chat sull'iPhone piu' quelle che conosce solo il Mac. Chat e schede restano sull'iPhone
+//  (docs/CONTRATTI.md, 9.10).
 //
 
 import PhotosUI
@@ -38,27 +39,24 @@ struct ChatPassata: Codable, Identifiable {
 }
 
 enum RigheChat {
-    /// La chat di adesso: il registro del Mac piu' i turni dell'iPhone ancora in attesa (o tutti, da scollegati),
-    /// dall'ultima «Nuova chat». Gli allegati restano sull'iPhone e si vedono sempre.
+    /// La chat della scheda aperta: i suoi turni dell'iPhone (allegati compresi) piu' le righe che conosce solo il Mac
+    /// (dette sul Mac, o risposte dal Mac quando l'iPhone non ha le chiavi), messe nella chat nata per ultima prima
+    /// di loro. Le copie sul Mac dei turni dell'iPhone non si mostrano: il turno locale porta voce, allegati e chat.
     @MainActor
-    static func attuali(stato: StatoMac?, online: Bool) -> [RigaChat] {
+    static func attuali(stato: StatoMac?) -> [RigaChat] {
         let telefono = AssistenteTelefono.shared
-        let mac = stato?.melissa.registro ?? []
-        // Il server assegna il proprio orario ai turni importati: dei locali solo quelli non ancora nel registro.
-        let locali = telefono.turni.filter { t in
-            t.esterno == true || !t.sincronizzato
-                || (!online && !mac.contains { $0.chi == t.riga.chi && $0.testo == t.riga.testo })
-        }
-        let dalMac = mac.map { r in
-            RigaChat(id: r.id, chi: r.chi, testo: r.testo, alle: r.alle,
-                     voce: telefono.turni.contains { $0.voce == true && $0.riga.chi == r.chi && $0.riga.testo == r.testo })
-        }
-        let dalTelefono = locali.map { t in
+        let attiva = telefono.attiva
+        // i turni dell'iPhone come li conosce il Mac: stesso `chi`, testo tagliato come al ponte
+        let noti = Set(telefono.turni.map { "\($0.riga.chi)|\(Ponte.taglia($0.riga.testo))" })
+        let dalMac = (stato?.melissa.registro ?? []).filter { r in
+            !noti.contains("\(r.chi)|\(r.testo)") && telefono.chat(perRigaDelle: r.alle) == attiva
+        }.map { RigaChat(id: $0.id, chi: $0.chi, testo: $0.testo, alle: $0.alle) }
+        let dalTelefono = telefono.turni.filter { $0.chat == attiva }.map { t in
             RigaChat(id: t.id.uuidString, chi: t.riga.chi,
                      testo: t.esterno == true ? (AllegatoMoony.nome(in: t.testo) ?? "Allegato") : t.riga.testo,
                      alle: t.alle, voce: t.voce == true, allegato: t.esterno == true)
         }
-        return (dalMac + dalTelefono).filter { $0.alle >= telefono.inizioChat }.sorted { $0.alle < $1.alle }
+        return (dalMac + dalTelefono).sorted { $0.alle < $1.alle }
     }
 }
 
@@ -80,7 +78,7 @@ struct ConversazioneView: View {
 
     private var online: Bool { ponte.linea == .collegato }
     private var statoVisibile: StatoMac? { ponte.stato ?? StatoMac.ultimo() }
-    private var righe: [RigaChat] { RigheChat.attuali(stato: statoVisibile, online: online) }
+    private var righe: [RigaChat] { RigheChat.attuali(stato: statoVisibile) }
     private var parzialeMac: String? {
         guard online, let p = ponte.stato?.melissa.risposta, !p.isEmpty else { return nil }
         return p
@@ -120,7 +118,7 @@ struct ConversazioneView: View {
         }
         .animation(.spring(response: 0.5, dampingFraction: 0.86), value: vuota)
         .sheet(isPresented: $conversazioni) {
-            ConversazioniFoglio { nuovaChat() }
+            ConversazioniFoglio(nuova: nuovaChat, apri: apri)
                 .presentationDetents([.medium, .large])
                 .presentationBackground(.black)
                 .scrollContentBackground(.hidden)
@@ -136,35 +134,89 @@ struct ConversazioneView: View {
 
     // MARK: - testata e luna
 
-    /// Le conversazioni a sinistra e la chat nuova a destra, sulla stessa riga della luna piccola.
+    /// I recenti a sinistra, poi una scheda per ogni chat aperta (titolo e «x»), poi «+» per una chat nuova. Mentre
+    /// Moony risponde le schede non si cambiano: la risposta va nella chat della domanda.
     private var pulsanti: some View {
-        HStack {
+        HStack(spacing: 4) {
             Button { conversazioni = true } label: {
                 Image(systemName: "text.alignleft")
-                    .font(.system(size: 18))
-                    .frame(width: 44, height: 44)
+                    .font(.system(size: 17))
+                    .frame(width: 40, height: 40)
                     .contentShape(Rectangle())
             }
-            .accessibilityLabel("Conversazioni")
-            Spacer()
+            .accessibilityLabel("Conversazioni recenti")
+            ScrollViewReader { scorri in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(telefono.schede, id: \.self) { id in
+                            scheda(id).id(id)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                .onChange(of: telefono.attiva) { _, id in withAnimation(.easeOut(duration: 0.2)) { scorri.scrollTo(id) } }
+                .onAppear { scorri.scrollTo(telefono.attiva) }
+            }
             Button(action: nuovaChat) {
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 18))
-                    .frame(width: 44, height: 44)
+                Image(systemName: "plus")
+                    .font(.system(size: 17, weight: .medium))
+                    .frame(width: 40, height: 40)
                     .contentShape(Rectangle())
             }
-            .disabled(melissa.occupata || righe.isEmpty)
-            .opacity(righe.isEmpty ? 0 : 1)
             .accessibilityLabel("Nuova chat")
         }
         .foregroundStyle(Tinte.tinta)
+        .disabled(melissa.occupata)
         .padding(.horizontal, 8)
+    }
+
+    private func scheda(_ id: UUID) -> some View {
+        let accesa = telefono.attiva == id
+        let nome = telefono.chat.first { $0.id == id }?.nomeScheda ?? "Nuova chat"
+        return HStack(spacing: 4) {
+            Button { apri(id) } label: {
+                Text(nome)
+                    .font(.footnote.weight(accesa ? .semibold : .regular))
+                    .foregroundStyle(accesa ? Tinte.testo : Tinte.tinta)
+                    .lineLimit(1)
+                    .frame(maxWidth: 132, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Chat \(nome)")
+            .accessibilityAddTraits(accesa ? .isSelected : [])
+            Button { chiudi(id) } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Tinte.tinta)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Chiudi la scheda \(nome)")
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 6)
+        .padding(.vertical, 6)
+        .background(Capsule().fill(accesa ? Tinte.vetro : .clear))
+        .overlay(Capsule().stroke(accesa ? Tinte.filo : Tinte.filo.opacity(0.5), lineWidth: 0.6))
     }
 
     private func nuovaChat() {
         guard !melissa.occupata else { return }
         if melissa.conversazione { melissa.chiudiConversazione() }
-        telefono.nuovaChat(righe: righe)
+        withAnimation(.easeInOut(duration: 0.25)) { telefono.nuovaChat() }
+    }
+
+    private func apri(_ id: UUID) {
+        guard !melissa.occupata, id != telefono.attiva else { return }
+        if melissa.conversazione { melissa.chiudiConversazione() }
+        withAnimation(.easeInOut(duration: 0.25)) { telefono.apri(id) }
+    }
+
+    private func chiudi(_ id: UUID) {
+        guard !melissa.occupata else { return }
+        if id == telefono.attiva, melissa.conversazione { melissa.chiudiConversazione() }
+        withAnimation(.easeInOut(duration: 0.25)) { telefono.chiudi(scheda: id) }
     }
 
     private func luna(lato: CGFloat) -> some View {
@@ -524,7 +576,7 @@ struct BarraMoony: View {
             .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Tinte.vetro))
             .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(Tinte.filo, lineWidth: 0.6))
             modelloECredito
-            if conImmagini && telefono.configurato && telefono.modello != .vision {
+            if conImmagini && telefono.configurato && !telefono.modello.vede {
                 Text("Le immagini le descrive la visione, poi risponde \(telefono.modello.nome)")
                     .font(.caption2)
                     .foregroundStyle(Tinte.tinta)
@@ -554,17 +606,31 @@ struct BarraMoony: View {
 
     // MARK: pezzi
 
-    /// Il modello (e con chi parli) a sinistra, il credito DeepSeek a destra.
+    /// Il modello (e con chi parli) a sinistra, il credito a destra. I modelli sono raggruppati per fornitore; un
+    /// fornitore senza chiave resta in elenco, spento, e lo dice.
     private var modelloECredito: some View {
         HStack(spacing: 8) {
             Menu {
                 if telefono.configurato {
-                    Picker("Modello", selection: Binding(get: { telefono.modello }, set: { telefono.scegli($0) })) {
-                        ForEach(AssistenteTelefono.Modello.allCases) { m in
-                            Label(m.nome, systemImage: m.simbolo).tag(m)
+                    ForEach(ModelloChat.Fornitore.allCases, id: \.self) { f in
+                        let chiave = telefono.haChiave(f)
+                        Section(chiave ? f.nome : "\(f.nome), manca la chiave") {
+                            ForEach(ModelloChat.catalogo.filter { $0.fornitore == f }) { m in
+                                Button { telefono.scegli(m) } label: {
+                                    Label {
+                                        Text(m.nome)
+                                        Text(m.dettaglio)
+                                    } icon: {
+                                        Image(systemName: telefono.modello == m ? "checkmark" : m.simbolo)
+                                    }
+                                }
+                                .disabled(!chiave)
+                            }
                         }
                     }
-                    Text(telefono.modello.dettaglio)
+                    Section {
+                        Text("La voce usa sempre DeepSeek Flash")
+                    }
                     if !Personaggi.ordine.isEmpty {
                         Picker("Con chi parli", selection: Binding(get: { melissa.chiParla }, set: { melissa.passaChiamata(a: $0) })) {
                             ForEach(["melissa"] + Personaggi.ordine, id: \.self) { k in Text(Personaggi.nome(k)).tag(k) }
@@ -578,7 +644,7 @@ struct BarraMoony: View {
                 HStack(spacing: 5) {
                     Image(systemName: telefono.configurato ? telefono.modello.simbolo : "desktopcomputer")
                     Text(nomeModello)
-                    if melissa.chiParla != "melissa" { Text("· \(Personaggi.nome(melissa.chiParla))") }
+                    if melissa.chiParla != "melissa" { Text("con \(Personaggi.nome(melissa.chiParla))") }
                     Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
                 }
                 .font(.caption.weight(.medium))
@@ -592,11 +658,12 @@ struct BarraMoony: View {
             Button { Task { await telefono.aggiornaCredito() } } label: {
                 Text(credito)
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(telefono.creditoBasso ? Tinte.ambra : Tinte.tinta)
+                    .foregroundStyle(creditoBasso ? Tinte.ambra : Tinte.tinta)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Credito DeepSeek: \(credito). Tocca per aggiornarlo")
+            .accessibilityLabel("\(credito). Tocca per aggiornarlo")
         }
         .padding(.horizontal, 6)
     }
@@ -606,10 +673,14 @@ struct BarraMoony: View {
         return Ponte.shared.stato?.melissa.scelta?.nome ?? "Mac"
     }
 
+    /// DeepSeek dal saldo vero; Mistral non ha un'API del saldo e il credito e' quello di Nora (come sul Mac).
     private var credito: String {
         guard telefono.configurato else { return "Credito: chiavi sul Mac" }
+        if telefono.modello.fornitore == .mistral { return "Mistral: credito condiviso con Nora" }
         return "Credito " + (telefono.credito ?? "…")
     }
+
+    private var creditoBasso: Bool { telefono.modello.fornitore == .deepseek && telefono.creditoBasso }
 
     private var piu: some View {
         Menu {
@@ -757,10 +828,12 @@ struct FotocameraView: UIViewControllerRepresentable {
 
 // MARK: - le conversazioni
 
-/// «Nuova chat» e le conversazioni passate, divise per giorno. Su uno schermo stretto non c'e' posto per una
-/// colonna come sul Mac: e' un foglio che si apre dal pulsante in alto a sinistra.
+/// «Nuova chat» e le chat recenti, divise per giorno: un tocco apre la chat nella sua scheda (o in una nuova). Su uno
+/// schermo stretto non c'e' posto per una colonna come sul Mac: e' un foglio che si apre dal pulsante in alto a
+/// sinistra. In fondo, da leggere soltanto, le conversazioni archiviate prima delle schede.
 struct ConversazioniFoglio: View {
     let nuova: () -> Void
+    let apri: (UUID) -> Void
     @State private var telefono = AssistenteTelefono.shared
     @Environment(\.dismiss) private var chiudi
 
@@ -775,25 +848,47 @@ struct ConversazioniFoglio: View {
                         Label("Nuova chat", systemImage: "square.and.pencil")
                     }
                 } footer: {
-                    if telefono.passate.isEmpty {
-                        Text("Le conversazioni chiuse con «Nuova chat» restano qui, su questo iPhone.")
+                    if telefono.recenti.isEmpty {
+                        Text("Le chat restano qui, su questo iPhone, anche quando chiudi la loro scheda.")
                     }
                 }
-                ForEach(Self.gruppi(telefono.passate), id: \.etichetta) { g in
+                ForEach(Self.gruppi(telefono.recenti, quando: { $0.ultima }), id: \.etichetta) { g in
                     Section(g.etichetta) {
-                        ForEach(g.chat) { c in
-                            NavigationLink {
-                                ChatPassataView(chat: c)
+                        ForEach(g.voci) { c in
+                            Button {
+                                apri(c.id)
+                                chiudi()
                             } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(c.titolo).lineLimit(1)
-                                    Text(Date(timeIntervalSince1970: c.inizio / 1000).formatted(date: .abbreviated, time: .shortened))
-                                        .font(.caption)
-                                        .foregroundStyle(Tinte.tinta)
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(c.nomeScheda).lineLimit(1).foregroundStyle(Tinte.testo)
+                                        Text(Date(timeIntervalSince1970: c.ultima / 1000).formatted(date: .abbreviated, time: .shortened))
+                                            .font(.caption)
+                                            .foregroundStyle(Tinte.tinta)
+                                    }
+                                    Spacer()
+                                    if telefono.schede.contains(c.id) {
+                                        Image(systemName: "rectangle.stack")
+                                            .font(.caption)
+                                            .foregroundStyle(Tinte.tinta)
+                                            .accessibilityLabel("Aperta in una scheda")
+                                    }
                                 }
                             }
                         }
-                        .onDelete { i in i.map { g.chat[$0].id }.forEach(telefono.togli(passata:)) }
+                        .onDelete { i in i.map { g.voci[$0].id }.forEach(telefono.togli(chat:)) }
+                    }
+                }
+                if !telefono.passate.isEmpty {
+                    Section("Archiviate prima delle schede") {
+                        ForEach(telefono.passate) { c in
+                            NavigationLink {
+                                ChatPassataView(chat: c)
+                            } label: {
+                                Text(c.titolo).lineLimit(1)
+                            }
+                        }
+                        .onDelete { i in i.map { telefono.passate[$0].id }.forEach(telefono.togli(passata:)) }
                     }
                 }
             }
@@ -803,13 +898,13 @@ struct ConversazioniFoglio: View {
         }
     }
 
-    struct Gruppo { let etichetta: String; let chat: [ChatPassata] }
+    struct Gruppo<V> { let etichetta: String; let voci: [V] }
 
-    static func gruppi(_ elenco: [ChatPassata], adesso: Date = .now) -> [Gruppo] {
+    static func gruppi<V>(_ elenco: [V], quando: (V) -> Double, adesso: Date = .now) -> [Gruppo<V>] {
         let cal = Calendar.current
         let oggi = cal.startOfDay(for: adesso)
-        func etichetta(_ c: ChatPassata) -> String {
-            let giorno = cal.startOfDay(for: Date(timeIntervalSince1970: c.inizio / 1000))
+        func etichetta(_ v: V) -> String {
+            let giorno = cal.startOfDay(for: Date(timeIntervalSince1970: quando(v) / 1000))
             switch cal.dateComponents([.day], from: giorno, to: oggi).day ?? 0 {
             case ..<1: return "Oggi"
             case 1: return "Ieri"
@@ -818,13 +913,13 @@ struct ConversazioniFoglio: View {
             default: return "Prima"
             }
         }
-        var out: [Gruppo] = []
-        for c in elenco {
-            let e = etichetta(c)
+        var out: [Gruppo<V>] = []
+        for v in elenco {
+            let e = etichetta(v)
             if let ultimo = out.last, ultimo.etichetta == e {
-                out[out.count - 1] = Gruppo(etichetta: e, chat: ultimo.chat + [c])
+                out[out.count - 1] = Gruppo(etichetta: e, voci: ultimo.voci + [v])
             } else {
-                out.append(Gruppo(etichetta: e, chat: [c]))
+                out.append(Gruppo(etichetta: e, voci: [v]))
             }
         }
         return out

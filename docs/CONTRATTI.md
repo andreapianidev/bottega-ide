@@ -2367,6 +2367,22 @@ cercava il nome nel testo.
   unita' UTF-16 (come conta `length` del ponte, senza spezzare un carattere), perche' un turno piu' lungo farebbe rifiutare l'intero lotto. «Nuova chat» sposta `inizioChat`: la chat
   mostra e il modello vede solo i turni da li' in poi, e quella chiusa va in `moony-chat-passate.json` (Application
   Support, al piu' 40, solo da leggere). Il Mac conserva la sua storia di sempre.
+- Modelli e schede (build 173, Moony AI 4.0 beta 9, come la beta 8 sul Mac). La chat scritta sceglie fra
+  `ModelloChat.catalogo`, raggruppato per fornitore: DeepSeek «Flash» (`deepseek-flash`), «Pro» (`deepseek-v4-pro`),
+  «Vision» (`deepseek-flash` che guarda); Mistral «Mistral Small», «Mistral Medium», «Mistral Large», «Codestral»
+  (`*-latest`, `https://api.mistral.ai/v1/chat/completions`). Verso Mistral niente `reasoning_effort`, un solo
+  messaggio di sistema in testa, nessun messaggio assistant con sole `tool_calls`. La voce non segue la scelta: parla
+  sempre con DeepSeek Flash. Un fornitore senza chiave resta nel menu, spento («manca la chiave»). Credito: DeepSeek da
+  `/user/balance`, con Mistral «Mistral: credito condiviso con Nora» (Mistral non ha un'API del saldo). Agnes non c'e':
+  resta ritirata sulla Bottega finche' Andrea non dice altrimenti.
+  `GET /v1/assistente/config` (solo HTTPS) porta anche `mistral`, da `MISTRAL_API_KEY` o `~/.secrets/avo-mistral.env`
+  (la chiave di Moony AI sul Mac e di Nora). L'iPhone la richiede una volta per avvio se nelle chiavi salvate manca.
+  Schede: ogni turno ha `chat` (UUID); `moony-chat-schede.json` (Application Support) tiene le chat (titolo, inizio,
+  ultimo turno), le schede aperte (al piu' 8: la nona chiude la piu' vecchia non attiva) e quella attiva. Il modello
+  vede solo i turni della scheda aperta; la risposta va nella chat della domanda. «x» chiude la scheda, la chat resta
+  nei recenti; «+» apre una chat nuova; aprire dai recenti va alla sua scheda o ne apre una. Le righe che conosce
+  solo il Mac vanno nella chat nata per ultima prima di loro. La storia dell'iPhone tiene 300 turni in tutto. La
+  chat aperta prima della beta 9 (da `moony.chat.inizio`) diventa la prima scheda.
 
 ### 9.11 Chi risponde quando Melissa chiama, e cosa si dice mentre si pensa (build 126, mod 0.15)
 

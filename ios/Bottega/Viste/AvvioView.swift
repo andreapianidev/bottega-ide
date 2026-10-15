@@ -15,9 +15,9 @@ import SwiftUI
 enum VersioneApp {
     static var versione: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?" }
     static var build: String { Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?" }
-    /// La beta di Moony AI che questa build porta all'iPhone (16/10/2026: la 6, dopo le 2-5 del Mac). Si alza a mano
-    /// quando una beta nuova arriva all'iPhone; le beta del Mac sono in AvoFase, nel repository di Moony AI.
-    static let fase = "4.0 beta 6"
+    /// La beta di Moony AI che questa build porta all'iPhone. I numeri sono unici fra Mac e iPhone: la 6 e la 9 sono
+    /// dell'iPhone, le altre del Mac (AvoFase, nel repository di Moony AI). Si alza a mano, d'accordo con il Mac.
+    static let fase = "4.0 beta 9"
     /// «4.0 beta 6 (172)»
     static var testo: String { "\(fase) (\(build))" }
     /// «4.0 beta 6, build 172»
