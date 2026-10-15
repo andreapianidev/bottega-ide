@@ -76,8 +76,8 @@ final class Ponte {
     private var usaIP = false
     private var ultimoSuccesso: Date?
     private var importandoAssistente = false
-    /// In questo avvio si e' gia' chiesta al Mac la configurazione per la chiave Mistral.
-    private var mistralCercato = false
+    /// L'ultima volta che si e' chiesta al Mac la configurazione perche' mancava una chiave della chat.
+    private var chiaviChieste = Date.distantPast
     private var importandoDove = false
     private var sincronizzandoAssistente = false
     private var sincronizzandoScelta = false
@@ -269,12 +269,13 @@ final class Ponte {
                 await AssistenteTelefono.shared.sincronizzaScelta(con: self)
             }
         }
-        // anche una volta per avvio se nelle chiavi salvate manca Mistral (arrivato con la 4.0 beta 9): se il Mac
-        // non ce l'ha, si riprova solo al prossimo avvio
-        let senzaMistral = !mistralCercato && SegretiTelefono.leggi()?.mistral == nil
-        if (!AssistenteTelefono.shared.configurato || senzaMistral) && s.sicuro != nil && !importandoAssistente {
+        // anche con le chiavi gia' salvate, se manca quella di un fornitore della chat (Agnes e Mistral, dalla 4.0 beta 9):
+        // si richiede al Mac al piu' una volta al minuto, finche' non arriva (il Mac puo' essere ancora alla build di prima)
+        let mancaUna = ModelloChat.Fornitore.allCases.contains { !AssistenteTelefono.shared.haChiave($0) }
+        let richiedi = !AssistenteTelefono.shared.configurato || (mancaUna && Date().timeIntervalSince(chiaviChieste) > 60)
+        if richiedi && s.sicuro != nil && !importandoAssistente {
             importandoAssistente = true
-            if AssistenteTelefono.shared.configurato { mistralCercato = true }
+            chiaviChieste = Date()
             Task {
                 defer { importandoAssistente = false }
                 try? await importaConfigurazioneAssistente()

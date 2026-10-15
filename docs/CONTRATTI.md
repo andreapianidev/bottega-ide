@@ -2373,10 +2373,12 @@ cercava il nome nel testo.
   (`*-latest`, `https://api.mistral.ai/v1/chat/completions`). Verso Mistral niente `reasoning_effort`, un solo
   messaggio di sistema in testa, nessun messaggio assistant con sole `tool_calls`. La voce non segue la scelta: parla
   sempre con DeepSeek Flash. Un fornitore senza chiave resta nel menu, spento («manca la chiave»). Credito: DeepSeek da
-  `/user/balance`, con Mistral «Mistral: credito condiviso con Nora» (Mistral non ha un'API del saldo). Agnes non c'e':
-  resta ritirata sulla Bottega finche' Andrea non dice altrimenti.
-  `GET /v1/assistente/config` (solo HTTPS) porta anche `mistral`, da `MISTRAL_API_KEY` o `~/.secrets/avo-mistral.env`
-  (la chiave di Moony AI sul Mac e di Nora). L'iPhone la richiede una volta per avvio se nelle chiavi salvate manca.
+  `/user/balance`, con Agnes «Agnes: gratis», con Mistral «Mistral: credito condiviso con Nora» (Mistral non ha
+  un'API del saldo). Agnes (build 174, Andrea il 16/10/2026): solo «Agnes 3.0 Flash» e «Agnes 2.5 Flash», gratuiti,
+  `https://apihub.agnes-ai.com/v1/chat/completions`, sul filo come DeepSeek; con un 429 si riprova piano.
+  `GET /v1/assistente/config` (solo HTTPS) porta anche `agnes` (`AGNES_API_KEY` o `~/.secrets/agnes-ai.env`) e
+  `mistral` (`MISTRAL_API_KEY` o `~/.secrets/avo-mistral.env`, la chiave di Moony AI sul Mac e di Nora). Finche'
+  manca la chiave di un fornitore della chat, l'iPhone richiede la configurazione al piu' una volta al minuto.
   Schede: ogni turno ha `chat` (UUID); `moony-chat-schede.json` (Application Support) tiene le chat (titolo, inizio,
   ultimo turno), le schede aperte (al piu' 8: la nona chiude la piu' vecchia non attiva) e quella attiva. Il modello
   vede solo i turni della scheda aperta; la risposta va nella chat della domanda. «x» chiude la scheda, la chat resta

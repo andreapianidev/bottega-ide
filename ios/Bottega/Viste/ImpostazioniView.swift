@@ -25,7 +25,7 @@ struct ImpostazioniView: View {
                 Section("Moony") {
                     Toggle("Risponde a voce", isOn: $melissa.voceAccesa)
                     LabeledContent("Sul telefono", value: telefono.configurato ? "pronta anche senza Mac" : "da configurare")
-                    Button(importando ? "Importo…" : "Importa Agnes, DeepSeek e ElevenLabs dal Mac") {
+                    Button(importando ? "Importo…" : "Importa le chiavi dal Mac (DeepSeek, Agnes, Mistral, ElevenLabs)") {
                         importando = true
                         Task {
                             defer { importando = false }

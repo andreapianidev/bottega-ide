@@ -70,11 +70,22 @@ struct TurnoTelefono: Codable, Identifiable {
 /// La voce non segue la scelta: parla sempre DeepSeek Flash.
 struct ModelloChat: Identifiable, Equatable {
     enum Fornitore: String, CaseIterable {
-        case deepseek, mistral
-        var nome: String { self == .deepseek ? "DeepSeek" : "Mistral" }
+        case deepseek, agnes, mistral
+        var nome: String {
+            switch self {
+            case .deepseek: "DeepSeek"
+            case .agnes: "Agnes"
+            case .mistral: "Mistral"
+            }
+        }
         var url: String {
-            // Mistral: l'endpoint europeo
-            self == .deepseek ? "https://api.deepseek.com/chat/completions" : "https://api.mistral.ai/v1/chat/completions"
+            switch self {
+            case .deepseek: "https://api.deepseek.com/chat/completions"
+            // solo i modelli del piano free, circa 20 richieste al minuto per tutto l'account
+            case .agnes: "https://apihub.agnes-ai.com/v1/chat/completions"
+            // l'endpoint europeo
+            case .mistral: "https://api.mistral.ai/v1/chat/completions"
+            }
         }
     }
 
@@ -95,6 +106,10 @@ struct ModelloChat: Identifiable, Equatable {
                     dettaglio: "DeepSeek V4 Pro: più preciso, più lento, costa circa 4 volte Flash"),
         ModelloChat(id: "vision", nome: "Vision", fornitore: .deepseek, modello: "deepseek-flash", simbolo: "eye.fill",
                     dettaglio: "Flash che guarda: le immagini allegate le vede e risponde lei"),
+        ModelloChat(id: "agnes-3.0-flash", nome: "Agnes 3.0 Flash", fornitore: .agnes, modello: "agnes-3.0-flash",
+                    simbolo: "sparkles", dettaglio: "gratis, piano free: più lento di DeepSeek, circa 20 richieste al minuto"),
+        ModelloChat(id: "agnes-2.5-flash", nome: "Agnes 2.5 Flash", fornitore: .agnes, modello: "agnes-2.5-flash",
+                    simbolo: "sparkles", dettaglio: "gratis, la generazione precedente di Agnes"),
         ModelloChat(id: "mistral-small", nome: "Mistral Small", fornitore: .mistral, modello: "mistral-small-latest",
                     simbolo: "wind", dettaglio: "veloce ed economico, dati in Europa"),
         ModelloChat(id: "mistral-medium", nome: "Mistral Medium", fornitore: .mistral, modello: "mistral-medium-latest",
@@ -231,9 +246,23 @@ final class AssistenteTelefono {
 
     var modello: ModelloChat { ModelloChat.con(modelloID) }
 
-    func haChiave(_ f: ModelloChat.Fornitore) -> Bool {
-        let c = SegretiTelefono.leggi()
-        return (f == .deepseek ? c?.deepseek : c?.mistral)?.isEmpty == false
+    /// I fornitori di cui l'iPhone ha la chiave. Osservato: quando arriva una chiave dal Mac il menu si accende subito.
+    private(set) var conChiave: Set<ModelloChat.Fornitore> = AssistenteTelefono.fornitori(SegretiTelefono.leggi())
+
+    func haChiave(_ f: ModelloChat.Fornitore) -> Bool { conChiave.contains(f) }
+
+    static func chiave(_ f: ModelloChat.Fornitore, in c: ConfigurazioneTelefono?) -> String? {
+        let k: String?
+        switch f {
+        case .deepseek: k = c?.deepseek
+        case .agnes: k = c?.agnes
+        case .mistral: k = c?.mistral
+        }
+        return k?.isEmpty == false ? k : nil
+    }
+
+    private static func fornitori(_ c: ConfigurazioneTelefono?) -> Set<ModelloChat.Fornitore> {
+        Set(ModelloChat.Fornitore.allCases.filter { chiave($0, in: c) != nil })
     }
 
     /// Pro e' l'impegno «profondo», che si sincronizza col Mac come prima; gli altri lasciano l'impegno com'e',
@@ -445,11 +474,13 @@ final class AssistenteTelefono {
     func importa(_ config: ConfigurazioneTelefono) throws {
         try SegretiTelefono.salva(config)
         configurato = Self.valida(config)
+        conChiave = Self.fornitori(config)
     }
 
     func cancella() {
         SegretiTelefono.cancella()
         configurato = false
+        conChiave = []
         turni = []
         credito = nil
         passate = []
@@ -629,7 +660,7 @@ final class AssistenteTelefono {
         let guarda = scelto.vede || !immagini.isEmpty
         let m = guarda ? ModelloChat.con("vision") : scelto
         let fornitore = m.fornitore.nome
-        guard let key = m.fornitore == .mistral ? config.mistral : config.deepseek, !key.isEmpty else {
+        guard let key = Self.chiave(m.fornitore, in: config) else {
             throw ErrorePonte(messaggio: "Manca la chiave \(fornitore) sull'iPhone: importala di nuovo dal Mac nelle Impostazioni.")
         }
         let storia = storia(per: chi)
@@ -684,8 +715,9 @@ final class AssistenteTelefono {
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var corpo: [String: Any] = ["model": model, "messages": messages, "stream": true]
-        // Mistral rifiuta i campi che non conosce, e il sistema e' gia' un messaggio solo in testa
-        if m.fornitore == .deepseek { corpo["reasoning_effort"] = effort }
+        // Mistral rifiuta i campi che non conosce, e il sistema e' gia' un messaggio solo in testa; Agnes parla come
+        // DeepSeek (come sul Mac)
+        if m.fornitore != .mistral { corpo["reasoning_effort"] = effort }
         if !passaA.isEmpty {
             corpo["tools"] = [Personaggi.strumentoPassaParola(passaA)]
             corpo["tool_choice"] = "auto"
@@ -696,8 +728,8 @@ final class AssistenteTelefono {
             var result: (URLSession.AsyncBytes, URLResponse)?
             for attempt in 0..<3 {
                 let candidate = try await URLSession.shared.bytes(for: request)
-                // Mistral, sul credito condiviso, puo' rispondere 429 se le richieste si accavallano
-                if m.fornitore == .mistral, (candidate.1 as? HTTPURLResponse)?.statusCode == 429, attempt < 2 {
+                // Agnes (piano free, 20 al minuto) e Mistral (credito condiviso) possono rispondere 429: si riprova piano
+                if m.fornitore != .deepseek, (candidate.1 as? HTTPURLResponse)?.statusCode == 429, attempt < 2 {
                     try await Task.sleep(for: .seconds(Double(2 << attempt)))
                     continue
                 }

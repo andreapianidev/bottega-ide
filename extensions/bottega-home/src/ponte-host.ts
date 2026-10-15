@@ -141,7 +141,8 @@ export function registerPonte(ctx: vscode.ExtensionContext, deps: PonteHostDeps)
 		// il cervello di Melissa (9.8): gli stessi metodi della barra del Mac
 		cervelli: deps.cervelli ? rotteCervelli(deps.cervelli) : undefined,
 		configTelefono: async () => ({
-			// Le credenziali Agnes storiche non vengono piu esportate all'iPhone.
+			// Agnes torna solo come modello gratuito della chat scritta (Andrea, 16/10/2026), dalla chiave del vault
+			agnes: process.env.AGNES_API_KEY || segreto('agnes-ai.env', 'AGNES_API_KEY'),
 			deepseek: deps.cervelli?.()?.key('deepseek'),
 			// i modelli Mistral della chat scritta (CONTRATTI 9.10): la stessa chiave di Moony AI sul Mac
 			mistral: process.env.MISTRAL_API_KEY || segreto('avo-mistral.env', 'MISTRAL_API_KEY'),

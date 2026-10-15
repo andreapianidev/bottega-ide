@@ -24,8 +24,10 @@ VS Code compilato dai sorgenti (tag in `bottega.json`), piu' estensioni proprie.
   gli hook devono restare sotto i 150 ms e uscire sempre con 0. Per provare usa
   `BOTTEGA_HOME` e `CLAUDE_SETTINGS` verso una cartella di prova, mai i file veri.
 - Provider testuale e riassunti: DeepSeek (`deepseek-flash`), chiave `DEEPSEEK_API_KEY` o
-  `~/.secrets/deepseek-harness.env`; Apple Intelligence resta la riserva locale. Agnes e' ritirato:
-  non usare le sue credenziali storiche. ElevenLabs legge `~/.secrets/elevenlabs.env`. I test
+  `~/.secrets/deepseek-harness.env`; Apple Intelligence resta la riserva locale. Agnes non e' piu' un cervello
+  della Bottega (ne' a voce ne' nei riassunti); dal 16/10/2026, per volonta' di Andrea, solo i suoi modelli gratuiti
+  (`agnes-3.0-flash`, `agnes-2.5-flash`) si scelgono nella chat scritta di Moony AI per iPhone, con la chiave di
+  `~/.secrets/agnes-ai.env`, come Mistral con `~/.secrets/avo-mistral.env`. ElevenLabs legge `~/.secrets/elevenlabs.env`. I test
   ordinari usano rete e Nucleo finti; chiamate reali a pagamento solo su richiesta esplicita
   (`BOTTEGA_TEST_REALE=1 npm test`).
 - Il Nucleo si compila con `nucleo/build.sh` (leggero); da fermo deve restare a 0% di CPU.

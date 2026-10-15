@@ -673,11 +673,15 @@ struct BarraMoony: View {
         return Ponte.shared.stato?.melissa.scelta?.nome ?? "Mac"
     }
 
-    /// DeepSeek dal saldo vero; Mistral non ha un'API del saldo e il credito e' quello di Nora (come sul Mac).
+    /// DeepSeek dal saldo vero; Agnes e' il piano gratuito; Mistral non ha un'API del saldo e il credito e' quello di
+    /// Nora (come sul Mac).
     private var credito: String {
         guard telefono.configurato else { return "Credito: chiavi sul Mac" }
-        if telefono.modello.fornitore == .mistral { return "Mistral: credito condiviso con Nora" }
-        return "Credito " + (telefono.credito ?? "…")
+        switch telefono.modello.fornitore {
+        case .agnes: return "Agnes: gratis"
+        case .mistral: return "Mistral: credito condiviso con Nora"
+        case .deepseek: return "Credito " + (telefono.credito ?? "…")
+        }
     }
 
     private var creditoBasso: Bool { telefono.modello.fornitore == .deepseek && telefono.creditoBasso }
