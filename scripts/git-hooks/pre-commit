@@ -20,7 +20,7 @@ def show(ref):
     r = subprocess.run(["git", "show", ref], capture_output=True, text=True)
     return r.stdout if r.returncode == 0 else ""
 def build_x(t):
-    m = re.search(r"^CURRENT_PROJECT_VERSION\s*=\s*(\d+)\s*$", t, re.M)
+    m = re.search(r"^CURRENT_PROJECT_VERSION[ \t]*=[ \t]*(\d+)[ \t]*$", t, re.M)
     return int(m.group(1)) if m else 0
 X = "ios/Version.xcconfig"
 vecchia = max(json.loads(show("HEAD:bottega.json"))["build"], build_x(show("HEAD:" + X)))
@@ -31,7 +31,7 @@ if attuale > vecchia:
 nuova = vecchia + 1
 d = json.loads(js); d["build"] = nuova
 nuovi = {"bottega.json": json.dumps(d, indent=2) + "\n",
-         X: re.sub(r"^CURRENT_PROJECT_VERSION\s*=\s*\d+\s*$", f"CURRENT_PROJECT_VERSION = {nuova}", xc, flags=re.M)}
+         X: re.sub(r"^CURRENT_PROJECT_VERSION[ \t]*=[ \t]*\d+[ \t]*$", f"CURRENT_PROJECT_VERSION = {nuova}", xc, flags=re.M)}
 for p, testo in nuovi.items():
     blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], input=testo, capture_output=True, text=True, check=True).stdout.strip()
     modo = subprocess.run(["git", "ls-files", "-s", "--", p], capture_output=True, text=True).stdout.split(" ")[0] or "100644"
@@ -42,7 +42,7 @@ for p, testo in nuovi.items():
         if p == "bottega.json":
             c = json.loads(cartella); c["build"] = nuova; cartella = json.dumps(c, indent=2) + "\n"
         else:
-            cartella = re.sub(r"^CURRENT_PROJECT_VERSION\s*=\s*\d+\s*$", f"CURRENT_PROJECT_VERSION = {nuova}", cartella, flags=re.M)
+            cartella = re.sub(r"^CURRENT_PROJECT_VERSION[ \t]*=[ \t]*\d+[ \t]*$", f"CURRENT_PROJECT_VERSION = {nuova}", cartella, flags=re.M)
         open(p, "w").write(cartella)
 print(f"pre-commit: build {vecchia} -> {nuova}")
 PY
