@@ -101,16 +101,19 @@ PL=$DIST/Contents/Info.plist
 
 # Il nome che si vede e' "Moony IDE", il file resta Bottega.app (dal 15/10/2026). Dock, Finder e Spotlight
 # mostrano il nome del file, a meno che l'app non dichiari un nome localizzato: CFBundleDisplayName resta uguale
-# al nome del file e InfoPlist.strings porta "Moony IDE". CFBundleName NON si cambia, nemmeno localizzato:
+# al nome del file e InfoPlist.strings porta "Moony IDE". CFBundleName nell'Info.plist resta "Bottega":
 # Electron cerca i processi di supporto come "<CFBundleName> Helper.app" e senza li trova si ferma all'avvio
-# (build 164, "Unable to find helper app"). Portachiavi ("Bottega Safe Storage") e ~/Library/Application
-# Support/Bottega dipendono da nameShort e dal name di package.json: non si toccano.
+# (build 164, "Unable to find helper app"). Lo legge pero' da [NSBundle infoDictionary], che non e' tradotto
+# (electron v43.7.3, shell/common/application_info_mac.mm), mentre il titolo del menu dell'app viene dal
+# CFBundleName tradotto: per questo InfoPlist.strings porta "Moony IDE" anche li'. Portachiavi ("Bottega
+# Safe Storage") e ~/Library/Application Support/Bottega dipendono da nameShort e dal name di
+# package.json: non si toccano.
 /usr/libexec/PlistBuddy -c "Set :CFBundleName Bottega" $PL
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Bottega" $PL 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Bottega" $PL
 /usr/libexec/PlistBuddy -c "Delete :LSHasLocalizedDisplayName" $PL 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Add :LSHasLocalizedDisplayName bool true" $PL
 for l in $DIST/Contents/Resources/*.lproj(N); do
-  printf '"CFBundleDisplayName" = "Moony IDE";\n' > $l/InfoPlist.strings
+  printf '"CFBundleDisplayName" = "Moony IDE";\n"CFBundleName" = "Moony IDE";\n' > $l/InfoPlist.strings
 done
 # Il riconoscimento vocale di Apple (come la Melissa di Avo) lo chiede il Nucleo, ma macOS legge la spiegazione
 # dall'app responsabile, cioe' la Bottega: senza questa chiave il Nucleo viene chiuso alla prima richiesta (2/10/2026).
