@@ -255,7 +255,13 @@ final class Melissa {
         parziale = testo
         defer {
             immaginiGiro = []
-            if AssistenteTelefono.shared.configurato { Task { await AssistenteTelefono.shared.aggiornaCredito() } }
+            if AssistenteTelefono.shared.configurato {
+                Task {
+                    await AssistenteTelefono.shared.aggiornaCredito()
+                    // la domanda e la risposta vanno subito nella memoria condivisa, per il Mac
+                    await MemoriaChat.shared.sincronizza(conversazioni: false)
+                }
+            }
         }
         do {
             if AssistenteTelefono.shared.configurato {

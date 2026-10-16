@@ -1,4 +1,4 @@
 // Scritto da scripts/bump-build.sh: Moony AI per iPhone ha la versione di Moony AI per Mac (moonyAI in
 // bottega.json) e la build della Bottega.
-MARKETING_VERSION = 4.0.2
-CURRENT_PROJECT_VERSION = 178
+MARKETING_VERSION = 4.0.3
+CURRENT_PROJECT_VERSION = 180

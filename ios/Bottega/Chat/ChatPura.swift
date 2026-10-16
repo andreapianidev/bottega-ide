@@ -12,7 +12,8 @@ import Foundation
 
 // MARK: - i modelli
 
-/// Un modello della chat scritta (lo stesso catalogo di Moony AI sul Mac, stessi nomi e stesso ordine). La voce non
+/// Un modello della chat scritta: lo stesso catalogo di Moony AI per Mac (ChatModelStore.catalog), stessi id, stessi
+/// nomi, stessi testi e stesso ordine (Andrea, 16/10/2026: «tutti come sul Mac, deve essere tutto uguale»). La voce non
 /// segue la scelta: parla sempre DeepSeek Flash.
 struct ModelloChat: Identifiable, Equatable {
     enum Fornitore: String, CaseIterable {
@@ -27,54 +28,191 @@ struct ModelloChat: Identifiable, Equatable {
         var url: String {
             switch self {
             case .deepseek: "https://api.deepseek.com/chat/completions"
-            // solo i modelli del piano free, circa 20 richieste al minuto per tutto l'account
+            // il piano free: circa 20 richieste al minuto per tutto l'account
             case .agnes: "https://apihub.agnes-ai.com/v1/chat/completions"
             // l'endpoint europeo
             case .mistral: "https://api.mistral.ai/v1/chat/completions"
             }
         }
-        /// Mistral rifiuta i campi che non conosce: niente `reasoning_effort`. Agnes parla come DeepSeek.
+        /// Mistral rifiuta i campi che non conosce: niente `reasoning_effort` ne' `stream_options` (i token li manda
+        /// comunque nell'ultimo pezzo). Agnes parla come DeepSeek.
         var ragiona: Bool { self != .mistral }
+
+        /// Il fornitore di un modello, dal nome (ConsumiAI.fornitore sul Mac).
+        static func di(modello: String) -> Fornitore {
+            let m = modello.lowercased()
+            if m.hasPrefix("agnes") { return .agnes }
+            if m.hasPrefix("mistral") || m.hasPrefix("codestral") || m.hasPrefix("ministral") || m.hasPrefix("magistral")
+                || m.hasPrefix("zai-") { return .mistral }
+            return .deepseek
+        }
     }
 
     let id: String
-    let nome: String
     let fornitore: Fornitore
     /// Il nome del modello sul filo.
     let modello: String
-    let simbolo: String
+    let nome: String
     let dettaglio: String
-    /// Vision: le immagini allegate vanno al modello, che le guarda.
-    var vede: Bool { id == "vision" }
+    let simbolo: String
+    /// Modo Vision: con immagini allegate risponde la visione di questo fornitore guardandole (senza strumenti);
+    /// senza immagini e' una chat normale con lo stesso modello.
+    var vede = false
 
     static let catalogo: [ModelloChat] = [
-        ModelloChat(id: "flash", nome: "Flash", fornitore: .deepseek, modello: "deepseek-flash", simbolo: "bolt.fill",
-                    dettaglio: "DeepSeek V4.1 Flash: risponde in 3-4 secondi e costa pochissimo"),
-        ModelloChat(id: "pro", nome: "Pro", fornitore: .deepseek, modello: "deepseek-v4-pro", simbolo: "brain.head.profile",
-                    dettaglio: "DeepSeek V4 Pro: più preciso, più lento, costa circa 4 volte Flash"),
-        ModelloChat(id: "vision", nome: "Vision", fornitore: .deepseek, modello: "deepseek-flash", simbolo: "eye.fill",
-                    dettaglio: "Flash che guarda: le immagini allegate le vede e risponde lei"),
-        ModelloChat(id: "agnes-3.0-flash", nome: "Agnes 3.0 Flash", fornitore: .agnes, modello: "agnes-3.0-flash",
-                    simbolo: "sparkles", dettaglio: "gratis, piano free: più lento di DeepSeek, circa 20 richieste al minuto"),
-        ModelloChat(id: "agnes-2.5-flash", nome: "Agnes 2.5 Flash", fornitore: .agnes, modello: "agnes-2.5-flash",
-                    simbolo: "sparkles", dettaglio: "gratis, la generazione precedente di Agnes"),
-        ModelloChat(id: "mistral-small", nome: "Mistral Small", fornitore: .mistral, modello: "mistral-small-latest",
-                    simbolo: "wind", dettaglio: "veloce ed economico, dati in Europa"),
-        ModelloChat(id: "mistral-medium", nome: "Mistral Medium", fornitore: .mistral, modello: "mistral-medium-latest",
-                    simbolo: "wind", dettaglio: "più capace di Small, costa di più"),
-        ModelloChat(id: "mistral-large", nome: "Mistral Large", fornitore: .mistral, modello: "mistral-large-latest",
-                    simbolo: "wind", dettaglio: "il più capace di Mistral, il più caro"),
-        ModelloChat(id: "codestral", nome: "Codestral", fornitore: .mistral, modello: "codestral-latest",
-                    simbolo: "chevron.left.forwardslash.chevron.right", dettaglio: "Mistral per il codice"),
+        // DeepSeek
+        ModelloChat(id: "deepseek-flash", fornitore: .deepseek, modello: "deepseek-flash", nome: "Flash",
+                    dettaglio: "DeepSeek V4.1 Flash: risponde in 3-4 secondi e costa pochissimo", simbolo: "bolt.fill"),
+        ModelloChat(id: "deepseek-v4-pro", fornitore: .deepseek, modello: "deepseek-v4-pro", nome: "Pro",
+                    dettaglio: "DeepSeek V4 Pro: più preciso, più lento, costa circa 4 volte Flash", simbolo: "brain.head.profile"),
+        ModelloChat(id: "vision", fornitore: .deepseek, modello: "deepseek-flash", nome: "Vision",
+                    dettaglio: "Flash che guarda: le immagini allegate le vede e risponde lei, senza strumenti", simbolo: "eye.fill",
+                    vede: true),
+        // Agnes
+        ModelloChat(id: "agnes-3.0-flash", fornitore: .agnes, modello: "agnes-3.0-flash", nome: "Agnes 3.0 Flash",
+                    dettaglio: "gratis, piano free: più lento di DeepSeek, circa 20 richieste al minuto", simbolo: "sparkles"),
+        ModelloChat(id: "agnes-3.0-pro", fornitore: .agnes, modello: "agnes-3.0-pro", nome: "Agnes 3.0 Pro",
+                    dettaglio: "a pagamento: risponde solo se il conto Agnes ha credito", simbolo: "sparkles"),
+        ModelloChat(id: "agnes-vision", fornitore: .agnes, modello: "agnes-3.0-flash", nome: "Agnes Vision",
+                    dettaglio: "Agnes 3.0 Flash che guarda le immagini allegate, gratis, senza strumenti", simbolo: "eye",
+                    vede: true),
+        ModelloChat(id: "agnes-2.5-flash", fornitore: .agnes, modello: "agnes-2.5-flash", nome: "Agnes 2.5 Flash",
+                    dettaglio: "gratis, la generazione precedente", simbolo: "sparkles"),
+        ModelloChat(id: "agnes-2.5-pro-beta", fornitore: .agnes, modello: "agnes-2.5-pro-beta", nome: "Agnes 2.5 Pro beta",
+                    dettaglio: "a pagamento, versione di prova", simbolo: "sparkles"),
+        ModelloChat(id: "agnes-2.5-pro-alpha", fornitore: .agnes, modello: "agnes-2.5-pro-alpha", nome: "Agnes 2.5 Pro alpha",
+                    dettaglio: "a pagamento, versione di prova", simbolo: "sparkles"),
+        // Mistral
+        ModelloChat(id: "mistral-small-latest", fornitore: .mistral, modello: "mistral-small-latest", nome: "Mistral Small",
+                    dettaglio: "Small 4: veloce ed economico, dati in Europa", simbolo: "wind"),
+        ModelloChat(id: "mistral-medium-latest", fornitore: .mistral, modello: "mistral-medium-latest", nome: "Mistral Medium",
+                    dettaglio: "Medium 3.5: il più caro di Mistral, circa 10 volte Small", simbolo: "wind"),
+        ModelloChat(id: "mistral-large-latest", fornitore: .mistral, modello: "mistral-large-latest", nome: "Mistral Large",
+                    dettaglio: "Large 3: molto capace e costa meno di Medium", simbolo: "wind"),
+        ModelloChat(id: "mistral-vision", fornitore: .mistral, modello: "mistral-small-latest", nome: "Mistral Vision",
+                    dettaglio: "Mistral Small che guarda le immagini allegate, senza strumenti", simbolo: "eye",
+                    vede: true),
+        ModelloChat(id: "codestral-latest", fornitore: .mistral, modello: "codestral-latest", nome: "Codestral",
+                    dettaglio: "Mistral per il codice", simbolo: "chevron.left.forwardslash.chevron.right"),
+        ModelloChat(id: "ministral-14b-latest", fornitore: .mistral, modello: "ministral-14b-latest", nome: "Ministral 14B",
+                    dettaglio: "piccolo e molto economico", simbolo: "wind"),
+        ModelloChat(id: "ministral-8b-latest", fornitore: .mistral, modello: "ministral-8b-latest", nome: "Ministral 8B",
+                    dettaglio: "più piccolo, quasi gratis", simbolo: "wind"),
+        ModelloChat(id: "ministral-3b-latest", fornitore: .mistral, modello: "ministral-3b-latest", nome: "Ministral 3B",
+                    dettaglio: "il più piccolo, per cose semplici", simbolo: "wind"),
+        ModelloChat(id: "zai-glm-latest", fornitore: .mistral, modello: "zai-glm-latest", nome: "GLM (Z.ai)",
+                    dettaglio: "modello di Z.ai servito da Mistral; costo stimato come Medium", simbolo: "wind"),
     ]
 
-    /// Il modello con questo id; uno sconosciuto (una scelta salvata da una versione diversa) vale Flash.
-    static func con(_ id: String) -> ModelloChat { catalogo.first { $0.id == id } ?? catalogo[0] }
+    static let predefinito = "deepseek-flash"
 
-    /// Chi risponde davvero: la voce sempre Flash, con un'immagine allegata Vision, altrimenti la scelta.
+    /// Gli id delle build 173-178, prima di prendere quelli del Mac.
+    static let vecchiID = ["flash": "deepseek-flash", "pro": "deepseek-v4-pro", "mistral-small": "mistral-small-latest",
+                           "mistral-medium": "mistral-medium-latest", "mistral-large": "mistral-large-latest",
+                           "codestral": "codestral-latest"]
+
+    /// Il modello con questo id (anche uno delle build di prima); uno sconosciuto vale Flash.
+    static func con(_ id: String) -> ModelloChat {
+        let vero = vecchiID[id] ?? id
+        return catalogo.first { $0.id == vero } ?? catalogo[0]
+    }
+
+    /// Chi risponde davvero: la voce sempre Flash; con le immagini mandate al modello la Vision scelta (o quella di
+    /// DeepSeek se la scelta non guarda: le immagini, allora, le ha gia' descritte la visione); altrimenti la scelta.
     static func risponde(scelto: ModelloChat, voce: Bool, immagini: Bool) -> ModelloChat {
-        let m = voce ? con("flash") : scelto
-        return m.vede || immagini ? con("vision") : m
+        if voce { return con(predefinito) }
+        if immagini, !scelto.vede { return con("vision") }
+        return scelto
+    }
+}
+
+// MARK: - i consumi
+
+/// Una chiamata a un modello fatta da questo iPhone, per i consumi (il registro delle chiamate di Avo sul Mac).
+struct ChiamataAI: Codable, Equatable {
+    /// In secondi dal 1970.
+    let at: Double
+    let modello: String
+    let input: Int
+    let output: Int
+}
+
+/// Quanto consuma ogni fornitore, per la barra della chat: ConsumiAI di Moony AI per Mac, stesse regole e stesse
+/// etichette. Solo le chiamate di questo iPhone: Agnes e Mistral non dicono quante ne fanno gli altri.
+enum ConsumiAI {
+    /// Il budget del workspace Mistral (10 euro al mese, condiviso con Nora).
+    static let budgetMistralEUR = 10.0
+    static let sogliaAvvisoMistral = 0.8
+    /// Il tetto del piano free di Agnes, per tutto l'account; giallo da 16.
+    static let tettoAgnesAlMinuto = 20
+    static let avvisoAgnesAlMinuto = 16
+    static let usdToEur = 0.92
+
+    /// Tariffe Mistral in USD per milione di token (ingresso, uscita), verificate il 16/10/2026. Uno sconosciuto vale
+    /// come Medium, il piu' caro.
+    static func tariffaMistral(_ modello: String) -> (input: Double, output: Double) {
+        let m = modello.lowercased()
+        if m.hasPrefix("mistral-small") { return (0.15, 0.60) }
+        if m.hasPrefix("mistral-large") { return (0.50, 1.50) }
+        if m.hasPrefix("codestral") { return (0.30, 0.90) }
+        if m.hasPrefix("ministral-3b") { return (0.10, 0.10) }
+        if m.hasPrefix("ministral-8b") { return (0.15, 0.15) }
+        if m.hasPrefix("ministral-14b") { return (0.20, 0.20) }
+        return (1.50, 7.50)
+    }
+
+    static func costoMistralUSD(modello: String, input: Int, output: Int) -> Double {
+        let t = tariffaMistral(modello)
+        return (Double(input) * t.input + Double(output) * t.output) / 1_000_000
+    }
+
+    struct Consumo: Equatable {
+        var chiamateOggi = 0
+        var tokenOggi = 0
+        var chiamateUltimoMinuto = 0
+        var spesaOggiUSD = 0.0
+        var spesaMeseUSD = 0.0
+    }
+
+    static func consumo(_ f: ModelloChat.Fornitore, chiamate: [ChiamataAI], adesso: Date = Date(),
+                        calendario: Calendar = .current) -> Consumo {
+        let oggi = calendario.startOfDay(for: adesso).timeIntervalSince1970
+        let mese = (calendario.dateInterval(of: .month, for: adesso)?.start ?? calendario.startOfDay(for: adesso)).timeIntervalSince1970
+        let ora = adesso.timeIntervalSince1970
+        var c = Consumo()
+        for x in chiamate where ModelloChat.Fornitore.di(modello: x.modello) == f && x.at <= ora {
+            let costo = f == .mistral ? costoMistralUSD(modello: x.modello, input: x.input, output: x.output) : 0
+            if x.at >= mese { c.spesaMeseUSD += costo }
+            if x.at >= oggi {
+                c.chiamateOggi += 1
+                c.tokenOggi += x.input + x.output
+                c.spesaOggiUSD += costo
+            }
+            if x.at >= ora - 60 { c.chiamateUltimoMinuto += 1 }
+        }
+        return c
+    }
+
+    static func formatEuro(_ eur: Double) -> String {
+        eur < 0.01 && eur > 0 ? "meno di 1 cent" : String(format: "%.2f €", eur).replacingOccurrences(of: ".", with: ",")
+    }
+
+    /// «Agnes 3/20 al min · 12 oggi», e se va in giallo.
+    static func etichettaAgnes(_ c: Consumo) -> (testo: String, avviso: Bool) {
+        ("Agnes \(c.chiamateUltimoMinuto)/\(tettoAgnesAlMinuto) al min · \(c.chiamateOggi) oggi",
+         c.chiamateUltimoMinuto >= avvisoAgnesAlMinuto)
+    }
+
+    /// «Mistral 0,04 € su 10 €» (spesa stimata da inizio mese), e se va in giallo.
+    static func etichettaMistral(_ c: Consumo) -> (testo: String, avviso: Bool) {
+        let eur = c.spesaMeseUSD * usdToEur
+        return ("Mistral \(formatEuro(eur)) su \(Int(budgetMistralEUR)) €", eur >= budgetMistralEUR * sogliaAvvisoMistral)
+    }
+
+    /// Il registro tiene 31 giorni.
+    static func pota(_ chiamate: [ChiamataAI], adesso: Date = Date()) -> [ChiamataAI] {
+        let limite = adesso.timeIntervalSince1970 - 31 * 86_400
+        return chiamate.filter { $0.at >= limite }
     }
 }
 
@@ -89,8 +227,14 @@ struct ChatMoony: Codable, Identifiable, Equatable {
     let inizio: Double
     /// L'ultimo turno, per ordinare i recenti.
     var ultima: Double
+    /// La conversazione sulla VM (stringa opaca, docs/CONTRATTI.md 9.10): quella di una chat nata altrove (il Mac,
+    /// anche la conversazione storica della voce); nil per una chat nata qui, che usa il suo UUID in minuscolo.
+    var vm: String? = nil
+    /// Quanti turni ha sulla VM, dall'ultimo elenco: una chat del Mac sta fra i recenti anche prima di aprirla.
+    var remoti: Int? = nil
 
     var nomeScheda: String { titolo.isEmpty ? "Nuova chat" : titolo }
+    var idVM: String { vm ?? id.uuidString.lowercased() }
 }
 
 /// Le chat dell'iPhone, le schede aperte (al piu' `massimo`) e quella attiva. `vuota(id)` dice se una chat non ha turni:
@@ -170,9 +314,88 @@ struct SchedeChat: Codable, Equatable {
         if chat[i].titolo.isEmpty, chi == "tu" { chat[i].titolo = TestoChat.titolo(testo) }
     }
 
+    /// L'elenco delle conversazioni della VM (GET /mem/conversations): una che l'iPhone non conosce diventa una chat
+    /// (fra i recenti, non in una scheda); di quelle note si aggiornano titolo, ultimo turno e numero di turni.
+    mutating func unisci(_ remote: [ConversazioneVM]) {
+        for c in remote where !c.conversation_id.isEmpty {
+            if let i = chat.firstIndex(where: { $0.idVM == c.conversation_id }) {
+                chat[i].ultima = max(chat[i].ultima, c.last_at * 1000)
+                chat[i].remoti = c.n
+                if chat[i].titolo.isEmpty, let t = c.title, !t.isEmpty { chat[i].titolo = TestoChat.titolo(t) }
+            } else {
+                // l'UUID della chat e' quello della VM quando lo e' (le chat nate su un'altra superficie con lo stesso
+                // contratto), altrimenti uno nuovo e l'id della VM si tiene a parte
+                let uuid = UUID(uuidString: c.conversation_id)
+                chat.append(ChatMoony(id: uuid ?? UUID(), titolo: TestoChat.titolo(c.title ?? ""), inizio: c.started_at * 1000,
+                                      ultima: c.last_at * 1000, vm: uuid == nil ? c.conversation_id : nil, remoti: c.n))
+            }
+        }
+    }
+
     /// La chat a cui va una riga arrivata solo dal Mac: quella nata per ultima prima della riga.
     func chat(perRigaDelle alle: Double) -> UUID? {
         chat.filter { $0.inizio <= alle }.max { $0.inizio < $1.inizio }?.id
+    }
+}
+
+// MARK: - la memoria condivisa (VM)
+
+/// Una conversazione della VM (GET /mem/conversations). Tempi in secondi unix.
+struct ConversazioneVM: Codable, Equatable {
+    let conversation_id: String
+    let title: String?
+    let started_at: Double
+    let last_at: Double
+    let n: Int
+    let last_source: String?
+}
+
+/// Un turno della VM (GET /mem/recent).
+struct RigaVM: Codable, Equatable {
+    let source: String?
+    let role: String
+    let content: String
+    let persona: String?
+    let speaker: String?
+    let event_id: String?
+    /// Secondi unix.
+    let created_at: Double
+}
+
+enum MemoriaVM {
+    /// Un turno dell'iPhone come lo conosce l'unione: id (anche event_id sulla VM), ruolo, testo, ora in secondi.
+    struct Locale: Equatable {
+        let id: String
+        let role: String
+        let content: String
+        let at: Double
+    }
+
+    /// I turni della VM che l'iPhone non ha: non quelli col suo event_id, e senza event_id non quelli con lo stesso
+    /// ruolo e testo entro 2 secondi (il Mac li scrive cosi', d'accordo con Moony AI per Mac). Vale anche fra loro.
+    static func nuovi(_ righe: [RigaVM], locali: [Locale]) -> [RigaVM] {
+        var ids = Set(locali.map { $0.id.lowercased() })
+        var visti = locali
+        var out: [RigaVM] = []
+        for r in righe.sorted(by: { $0.created_at < $1.created_at }) {
+            let content = r.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !content.isEmpty else { continue }
+            if let e = r.event_id?.lowercased(), !e.isEmpty {
+                if ids.contains(e) { continue }
+                ids.insert(e)
+            } else if visti.contains(where: { $0.role == r.role && $0.content == content && abs($0.at - r.created_at) <= 2 }) {
+                continue
+            }
+            visti.append(Locale(id: r.event_id ?? "", role: r.role, content: content, at: r.created_at))
+            out.append(r)
+        }
+        return out
+    }
+
+    /// Il testo che va sulla VM: un allegato solo con la sua riga d'intestazione (il contenuto e' esterno e grande).
+    static func contenuto(_ testo: String, esterno: Bool) -> String {
+        guard esterno, testo.hasPrefix(TestoChat.prefissoAllegato) else { return testo }
+        return String(testo.prefix { $0 != "\n" })
     }
 }
 

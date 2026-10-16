@@ -272,6 +272,7 @@ final class Ponte {
         // anche con le chiavi gia' salvate, se manca quella di un fornitore della chat (Agnes e Mistral, dalla 4.0 beta 9):
         // si richiede al Mac al piu' una volta al minuto, finche' non arriva (il Mac puo' essere ancora alla build di prima)
         let mancaUna = ModelloChat.Fornitore.allCases.contains { !AssistenteTelefono.shared.haChiave($0) }
+            || AssistenteTelefono.shared.configMemoria == nil
         let richiedi = !AssistenteTelefono.shared.configurato || (mancaUna && Date().timeIntervalSince(chiaviChieste) > 60)
         if richiedi && s.sicuro != nil && !importandoAssistente {
             importandoAssistente = true

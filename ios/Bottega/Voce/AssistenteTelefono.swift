@@ -8,9 +8,18 @@ struct ConfigurazioneTelefono: Codable {
     let deepseek: String?
     /// I modelli Mistral della chat scritta (dalla 4.0 beta 9). Assente nelle configurazioni importate prima.
     var mistral: String? = nil
+    /// La memoria condivisa sulla VM, per la continuita' delle chat con Moony AI per Mac (docs/CONTRATTI.md 9.10):
+    /// indirizzo Tailscale, IP e gettone ristretto a /mem/recent, /mem/add e /mem/conversations.
+    var memoria: ConfigMemoria? = nil
     let elevenlabs: String?
     let voiceID: String
     let prompt: String
+}
+
+struct ConfigMemoria: Codable, Equatable {
+    let url: String
+    let url_ip: String?
+    let token: String
 }
 
 enum SegretiTelefono {
@@ -57,6 +66,8 @@ struct TurnoTelefono: Codable, Identifiable {
     var esterno: Bool? = nil
     /// La chat (scheda) a cui appartiene. nil nei turni di prima della 4.0 beta 9 che non sono stati migrati.
     var chat: UUID? = nil
+    /// Gia' nella memoria condivisa sulla VM (scritto da qui, o arrivato da li').
+    var inVM: Bool? = nil
 
     /// Come la vede il Mac, che conosce solo `tu` e `melissa`: la battuta di un personaggio e' di Melissa, col nome
     /// davanti ("Darlene: ..."). Si mostra cosi' anche sull'iPhone.
@@ -86,6 +97,8 @@ final class AssistenteTelefono {
     private(set) var credito: String?
     /// Sotto un dollaro: la chat lo mostra giallo, come sul Mac.
     private(set) var creditoBasso = false
+    /// Le chiamate ai modelli fatte da questo iPhone negli ultimi 31 giorni, per i consumi (ConsumiAI).
+    private(set) var registroChiamate: [ChiamataAI]
     /// Il modello della chat scritta (ModelloChat.catalogo). Pro si sincronizza col Mac come impegno «profondo»;
     /// Vision e i modelli Mistral restano su questo iPhone.
     private(set) var modelloID: String
@@ -109,25 +122,50 @@ final class AssistenteTelefono {
             UserDefaults.standard.set(impegno, forKey: "melissa.telefono.impegno")
             if !applicandoSceltaMac { segnaScelta() }
             // l'impegno cambiato dal Mac o dal foglio del cervello sposta Flash e Pro, non Vision ne' Mistral
-            if modelloID == "flash" || modelloID == "pro" { impostaModello(impegno == "profondo" ? "pro" : "flash") }
+            if modelloID == "deepseek-flash" || modelloID == "deepseek-v4-pro" {
+                impostaModello(impegno == "profondo" ? "deepseek-v4-pro" : "deepseek-flash")
+            }
         }
     }
     private let archivio: URL
     private let archivioChat: URL
     private let archivioSchede: URL
+    private let archivioChiamate: URL
+
+    /// Una chiamata finita (i token se il fornitore li ha mandati), per i consumi della barra.
+    func registraChiamata(modello: String, input: Int, output: Int) {
+        registroChiamate = ConsumiAI.pota(registroChiamate + [ChiamataAI(at: Date().timeIntervalSince1970, modello: modello,
+                                                                          input: input, output: output)])
+        guard let data = try? JSONEncoder().encode(registroChiamate) else { return }
+        try? data.write(to: archivioChiamate, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+
+    /// I token di un pezzo SSE o di una risposta intera (`usage`), se ci sono.
+    nonisolated static func token(_ json: [String: Any]) -> (input: Int, output: Int)? {
+        guard let u = json["usage"] as? [String: Any] else { return nil }
+        return (u["prompt_tokens"] as? Int ?? 0, u["completion_tokens"] as? Int ?? 0)
+    }
 
     private init() {
         provider = "deepseek" // migrazione del provider Agnes ritirato; l’impegno resta invariato
         let impegnoSalvato = UserDefaults.standard.string(forKey: "melissa.telefono.impegno") ?? "normale"
         impegno = impegnoSalvato
         // la scelta di prima della beta 9: Vision era un interruttore, Flash e Pro l'impegno
-        modelloID = UserDefaults.standard.string(forKey: "moony.chat.modello")
+        // gli id sono quelli del Mac (ChatModelStore); quelli delle build 173-178 e la scelta di prima della beta 9 si
+        // convertono qui, una volta
+        let salvato = UserDefaults.standard.string(forKey: "moony.chat.modello")
             ?? (UserDefaults.standard.bool(forKey: "moony.chat.visione") ? "vision" : impegnoSalvato == "profondo" ? "pro" : "flash")
+        modelloID = ModelloChat.con(salvato).id
+        registroChiamate = []
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         archivio = dir.appendingPathComponent("melissa-telefono.json")
         archivioChat = dir.appendingPathComponent("moony-chat-passate.json")
         archivioSchede = dir.appendingPathComponent("moony-chat-schede.json")
+        archivioChiamate = dir.appendingPathComponent("moony-chiamate.json")
+        if let data = try? Data(contentsOf: archivioChiamate), let saved = try? JSONDecoder().decode([ChiamataAI].self, from: data) {
+            registroChiamate = ConsumiAI.pota(saved)
+        }
         if let data = try? Data(contentsOf: archivio), let saved = try? JSONDecoder().decode([TurnoTelefono].self, from: data) {
             turni = saved
         }
@@ -157,8 +195,7 @@ final class AssistenteTelefono {
         salvaSchede()
     }
 
-    var nome: String { modello.fornitore == .mistral ? modello.nome : modelloID == "vision" ? "DeepSeek Vision"
-        : modelloID == "pro" ? "DeepSeek V4 Pro" : "DeepSeek" }
+    var nome: String { modello.fornitore == .deepseek ? "DeepSeek " + modello.nome : modello.nome }
 
     // MARK: - modello e credito della chat
 
@@ -187,7 +224,7 @@ final class AssistenteTelefono {
     /// tranne Flash e Vision che tolgono il «profondo» (il ragionamento lungo e' di Pro).
     func scegli(_ m: ModelloChat) {
         guard haChiave(m.fornitore) else { return }
-        if m.id == "pro" { if impegno != "profondo" { impegno = "profondo" } }
+        if m.id == "deepseek-v4-pro" { if impegno != "profondo" { impegno = "profondo" } }
         else if m.fornitore == .deepseek, impegno == "profondo" { impegno = "normale" }
         impostaModello(m.id)
     }
@@ -237,6 +274,8 @@ final class AssistenteTelefono {
             "messages": [["role": "user", "content": parti]],
         ] as [String: Any])
         let (d, risposta) = try await URLSession.shared.data(for: r)
+        let usato = (try? JSONSerialization.jsonObject(with: d) as? [String: Any]).flatMap(Self.token)
+        registraChiamata(modello: "deepseek-flash", input: usato?.input ?? 0, output: usato?.output ?? 0)
         guard (risposta as? HTTPURLResponse)?.statusCode == 200,
               let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
               let testo = ((obj["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any])?["content"] as? String,
@@ -259,11 +298,60 @@ final class AssistenteTelefono {
     /// La chat aperta adesso.
     var chatAttiva: ChatMoony? { schedeChat.chatAttiva }
 
-    /// Le chat che hanno almeno un turno, dalla piu' recente: i recenti.
+    /// Le chat che hanno almeno un turno, qui o sulla VM, dalla piu' recente: i recenti.
     var recenti: [ChatMoony] {
         let piene = Set(turni.compactMap(\.chat))
-        return chat.filter { piene.contains($0.id) }.sorted { $0.ultima > $1.ultima }
+        return chat.filter { piene.contains($0.id) || ($0.remoti ?? 0) > 0 }.sorted { $0.ultima > $1.ultima }
     }
+
+    // MARK: - la memoria condivisa (MemoriaChat)
+
+    /// I turni dell'iPhone non ancora sulla VM, con la conversazione in cui vanno, dal piu' vecchio.
+    func daMandareAllaVM(massimo: Int = 30) -> [(turno: TurnoTelefono, conversazione: String)] {
+        turni.filter { $0.inVM != true && $0.chat != nil }.prefix(massimo).compactMap { t in
+            schedeChat.chat.first { $0.id == t.chat }.map { (t, $0.idVM) }
+        }
+    }
+
+    func segnaInVM(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        for i in turni.indices where ids.contains(turni[i].id) { turni[i].inVM = true }
+        salva()
+    }
+
+    /// I turni della chat come li confronta l'unione con la VM.
+    func locali(in chatID: UUID) -> [MemoriaVM.Locale] {
+        turni.filter { $0.chat == chatID }.map {
+            MemoriaVM.Locale(id: $0.id.uuidString.lowercased(), role: $0.chi == "tu" ? "user" : "assistant",
+                             content: MemoriaVM.contenuto($0.testo, esterno: $0.esterno == true), at: $0.alle / 1000)
+        }
+    }
+
+    /// I turni arrivati dalla VM (detti sul Mac) entrano nella chat: si vedono e il modello li legge. Non vanno al
+    /// ponte della Bottega (sincronizzati) ne' di nuovo alla VM.
+    func aggiungiDallaVM(_ righe: [RigaVM], in chatID: UUID) {
+        let nuovi = MemoriaVM.nuovi(righe, locali: locali(in: chatID))
+        guard !nuovi.isEmpty else { return }
+        for r in nuovi {
+            let chi = r.role == "user" ? "tu" : (r.speaker.flatMap { Personaggi.tutti[$0] != nil ? $0 : nil } ?? "melissa")
+            let testo = r.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            turni.append(TurnoTelefono(id: r.event_id.flatMap(UUID.init(uuidString:)) ?? UUID(), chi: chi, testo: testo,
+                                       alle: r.created_at * 1000, sincronizzato: true,
+                                       esterno: testo.hasPrefix(TestoChat.prefissoAllegato) ? true : nil, chat: chatID, inVM: true))
+            schedeChat.registra(in: chatID, chi: chi, testo: testo, adesso: r.created_at * 1000)
+        }
+        turni.sort { $0.alle < $1.alle }
+        accorcia()
+        salva()
+        salvaSchede()
+    }
+
+    func unisciConversazioni(_ c: [ConversazioneVM]) {
+        schedeChat.unisci(c)
+        salvaSchede()
+    }
+
+    var configMemoria: ConfigMemoria? { SegretiTelefono.leggi()?.memoria }
 
     func haTurni(_ id: UUID) -> Bool { turni.contains { $0.chat == id } }
 
@@ -567,7 +655,7 @@ final class AssistenteTelefono {
         let url = m.fornitore.url
         let model = m.modello
         // DeepSeek: niente ragionamento a voce e con le immagini (come la visione di Moony sul Mac), lungo con Pro
-        let effort = voce || guarda ? "none" : (m.id == "pro" ? "high" : impegno == "rapido" ? "none" : "low")
+        let effort = voce || guarda ? "none" : (m.id == "deepseek-v4-pro" ? "high" : impegno == "rapido" ? "none" : "low")
         let now = Date().formatted(date: .complete, time: .shortened)
         // Le configurazioni importate prima della build 86 contengono una frase fissa che dichiara
         // il Mac assente. Rimangono nel portachiavi dopo l'aggiornamento: togliamo solo quella coda
@@ -608,7 +696,11 @@ final class AssistenteTelefono {
         var corpo: [String: Any] = ["model": model, "messages": messages, "stream": true]
         // Mistral rifiuta i campi che non conosce, e il sistema e' gia' un messaggio solo in testa; Agnes parla come
         // DeepSeek (come sul Mac)
-        if m.fornitore.ragiona { corpo["reasoning_effort"] = effort }
+        if m.fornitore.ragiona {
+            corpo["reasoning_effort"] = effort
+            // i token nell'ultimo pezzo, per i consumi (Mistral li manda da se')
+            corpo["stream_options"] = ["include_usage": true]
+        }
         // con le immagini niente strumenti, come la visione sul Mac: risponde lei guardandole
         if !passaA.isEmpty, immagini.isEmpty {
             corpo["tools"] = [Personaggi.strumentoPassaParola(passaA)]
@@ -653,14 +745,18 @@ final class AssistenteTelefono {
                 defer { prima = false }
                 return prima && riempito() ? Riempitivi.senzaAttacco(frase) : frase
             }
+            // la chiamata conta anche se si interrompe: i token, se arrivano, nell'ultimo pezzo
+            var usato: (input: Int, output: Int)?
+            defer { registraChiamata(modello: m.modello, input: usato?.input ?? 0, output: usato?.output ?? 0) }
             for try await line in bytes.lines {
                 try Task.checkCancellation()
                 guard line.hasPrefix("data:") else { continue }
                 let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
                 if payload == "[DONE]" { break }
                 guard let data = payload.data(using: .utf8),
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let choice = (json["choices"] as? [[String: Any]])?.first,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+                if let t = Self.token(json) { usato = t }
+                guard let choice = (json["choices"] as? [[String: Any]])?.first,
                       let delta = choice["delta"] as? [String: Any] else { continue }
                 for tc in delta["tool_calls"] as? [[String: Any]] ?? [] {
                     let i = tc["index"] as? Int ?? 0

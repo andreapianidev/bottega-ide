@@ -26,11 +26,17 @@ URL = {"deepseek": "https://api.deepseek.com/chat/completions",
        "agnes": "https://apihub.agnes-ai.com/v1/chat/completions",
        "mistral": "https://api.mistral.ai/v1/chat/completions"}
 # lo stesso catalogo di ChatPura.swift: (id, fornitore, modello)
-CATALOGO = [("flash", "deepseek", "deepseek-flash"), ("pro", "deepseek", "deepseek-v4-pro"),
-            ("vision", "deepseek", "deepseek-flash"), ("agnes-3.0-flash", "agnes", "agnes-3.0-flash"),
-            ("agnes-2.5-flash", "agnes", "agnes-2.5-flash"), ("mistral-small", "mistral", "mistral-small-latest"),
-            ("mistral-medium", "mistral", "mistral-medium-latest"), ("mistral-large", "mistral", "mistral-large-latest"),
-            ("codestral", "mistral", "codestral-latest")]
+CATALOGO = [("deepseek-flash", "deepseek", "deepseek-flash"), ("deepseek-v4-pro", "deepseek", "deepseek-v4-pro"),
+            ("vision", "deepseek", "deepseek-flash"),
+            ("agnes-3.0-flash", "agnes", "agnes-3.0-flash"), ("agnes-3.0-pro", "agnes", "agnes-3.0-pro"),
+            ("agnes-vision", "agnes", "agnes-3.0-flash"), ("agnes-2.5-flash", "agnes", "agnes-2.5-flash"),
+            ("agnes-2.5-pro-beta", "agnes", "agnes-2.5-pro-beta"), ("agnes-2.5-pro-alpha", "agnes", "agnes-2.5-pro-alpha"),
+            ("mistral-small-latest", "mistral", "mistral-small-latest"), ("mistral-medium-latest", "mistral", "mistral-medium-latest"),
+            ("mistral-large-latest", "mistral", "mistral-large-latest"), ("mistral-vision", "mistral", "mistral-small-latest"),
+            ("codestral-latest", "mistral", "codestral-latest"), ("ministral-14b-latest", "mistral", "ministral-14b-latest"),
+            ("ministral-8b-latest", "mistral", "ministral-8b-latest"), ("ministral-3b-latest", "mistral", "ministral-3b-latest"),
+            ("zai-glm-latest", "mistral", "zai-glm-latest")]
+VISION = {"vision", "agnes-vision", "mistral-vision"}
 
 def png(lato=16):
     """Un quadrato rosso, PNG valido, in data: URL."""
@@ -46,13 +52,15 @@ STRUMENTO = {"type": "function", "function": {"name": "passa_parola", "descripti
 def prova(id_, fornitore, modello):
     chiave = CHIAVI[fornitore]
     if not chiave: return "manca la chiave nel vault"
-    vede = id_ == "vision"
+    vede = id_ in VISION
     domanda = "Di che colore e' l'immagine? Una parola." if vede else "Rispondi solo con la parola: ok"
     contenuto = [{"type": "text", "text": domanda}, {"type": "image_url", "image_url": {"url": png()}}] if vede else domanda
     corpo = {"model": modello, "stream": True, "max_tokens": 60,
              "messages": [{"role": "system", "content": "Sei Moony, in italiano.\n\nAdesso e' giovedi'."},
                           {"role": "user", "content": contenuto}]}
-    if fornitore != "mistral": corpo["reasoning_effort"] = "none" if vede else "low"
+    if fornitore != "mistral":
+        corpo["reasoning_effort"] = "none" if vede else "low"
+        corpo["stream_options"] = {"include_usage": True}
     if not vede:
         corpo["tools"] = [STRUMENTO]; corpo["tool_choice"] = "auto"
     req = urllib.request.Request(URL[fornitore], json.dumps(corpo).encode(), method="POST",

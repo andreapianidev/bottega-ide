@@ -130,6 +130,16 @@ struct ConversazioneView: View {
                 try? await Task.sleep(for: .seconds(300))
             }
         }
+        // la continuita' col Mac (MemoriaChat): ogni 15 secondi i turni della chat aperta, ogni minuto anche l'elenco
+        .task(id: davanti) {
+            var giro = 0
+            while davanti, !Task.isCancelled {
+                await MemoriaChat.shared.sincronizza(conversazioni: giro % 4 == 0)
+                giro += 1
+                try? await Task.sleep(for: .seconds(15))
+            }
+        }
+        .onChange(of: telefono.attiva) { _, _ in Task { await MemoriaChat.shared.sincronizza(conversazioni: false) } }
     }
 
     // MARK: - testata e luna
@@ -522,6 +532,7 @@ struct BarraMoony: View {
             .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Tinte.vetro))
             .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(Tinte.filo, lineWidth: 0.6))
             modelloECredito
+            if telefono.configurato { consumi }
             if conImmagini && telefono.configurato && !telefono.modello.vede {
                 Text("Le immagini le descrive la visione, poi risponde \(telefono.modello.nome)")
                     .font(.caption2)
@@ -600,37 +611,47 @@ struct BarraMoony: View {
                 .background(Capsule().fill(Tinte.vetro))
             }
             .accessibilityLabel("Modello di Moony: \(nomeModello)")
-            Spacer(minLength: 4)
-            Button { Task { await telefono.aggiornaCredito() } } label: {
-                Text(credito)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(creditoBasso ? Tinte.ambra : Tinte.tinta)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(credito). Tocca per aggiornarlo")
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 6)
+    }
+
+    /// I tre fornitori sempre in vista, come la barra del Mac (ConsumiAI): «DeepSeek $8.59», «Agnes 3/20 al min · 12
+    /// oggi», «Mistral 0,04 € su 10 €». Quello scelto in chiaro, gli altri spenti, in giallo quando si avvicinano al
+    /// limite. Contano le chiamate di questo iPhone. Un tocco rilegge il saldo di DeepSeek.
+    private var consumi: some View {
+        let agnes = ConsumiAI.etichettaAgnes(ConsumiAI.consumo(.agnes, chiamate: telefono.registroChiamate))
+        let mistral = ConsumiAI.etichettaMistral(ConsumiAI.consumo(.mistral, chiamate: telefono.registroChiamate))
+        let deepseek = (testo: "DeepSeek " + (telefono.credito.map { $0.replacingOccurrences(of: " USD", with: "") } ?? "…"),
+                        avviso: telefono.creditoBasso)
+        let scelto = telefono.modello.fornitore
+        return Button { Task { await telefono.aggiornaCredito() } } label: {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    voce(deepseek, accesa: scelto == .deepseek)
+                    voce(agnes, accesa: scelto == .agnes)
+                    voce(mistral, accesa: scelto == .mistral)
+                }
+                .padding(.horizontal, 10)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Consumi: \(deepseek.testo), \(agnes.testo), \(mistral.testo). Tocca per aggiornare il saldo DeepSeek")
+    }
+
+    private func voce(_ e: (testo: String, avviso: Bool), accesa: Bool) -> some View {
+        Text(e.testo)
+            .font(.caption2.monospacedDigit().weight(accesa ? .semibold : .regular))
+            .foregroundStyle(e.avviso ? Tinte.ambra : accesa ? Tinte.testo : Tinte.tinta.opacity(0.7))
+            .lineLimit(1)
+            .fixedSize()
     }
 
     private var nomeModello: String {
         if telefono.configurato { return telefono.modello.nome }
         return Ponte.shared.stato?.melissa.scelta?.nome ?? "Mac"
     }
-
-    /// DeepSeek dal saldo vero; Agnes e' il piano gratuito; Mistral non ha un'API del saldo e il credito e' quello di
-    /// Nora (come sul Mac).
-    private var credito: String {
-        guard telefono.configurato else { return "Credito: chiavi sul Mac" }
-        switch telefono.modello.fornitore {
-        case .agnes: return "Agnes: gratis"
-        case .mistral: return "Mistral: credito condiviso con Nora"
-        case .deepseek: return "Credito " + (telefono.credito ?? "…")
-        }
-    }
-
-    private var creditoBasso: Bool { telefono.modello.fornitore == .deepseek && telefono.creditoBasso }
 
     private var piu: some View {
         Menu {
@@ -844,6 +865,9 @@ struct ConversazioniFoglio: View {
             }
             .navigationTitle("Conversazioni")
             .navigationBarTitleDisplayMode(.inline)
+            // le chat iniziate sul Mac
+            .task { await MemoriaChat.shared.sincronizza() }
+            .refreshable { await MemoriaChat.shared.sincronizza() }
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fatto") { chiudi() } } }
         }
     }

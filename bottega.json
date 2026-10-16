@@ -1,7 +1,7 @@
 {
   "vscodeTag": "1.140.0",
   "version": "0.2.0",
-  "build": 178,
+  "build": 180,
   "minimumMacOS": "27.0",
-  "moonyAI": "4.0.2"
+  "moonyAI": "4.0.3"
 }

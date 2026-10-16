@@ -153,7 +153,7 @@ export interface PonteDeps {
 	/** Il cervello di Melissa (GET /v1/cervelli, POST /v1/cervello, docs/CONTRATTI.md 9.8), dopo il gettone. */
 	cervelli?: RotteCervelli;
 	/** Configurazione per Melissa autonoma, mai servita sul ponte HTTP. */
-	configTelefono?(): Promise<{ agnes?: string; deepseek?: string; mistral?: string; elevenlabs?: string; voiceID: string; prompt: string }>;
+	configTelefono?(): Promise<{ agnes?: string; deepseek?: string; mistral?: string; memoria?: { url: string; url_ip?: string; token: string }; elevenlabs?: string; voiceID: string; prompt: string }>;
 	/** La posizione di Andrea (9.12): indirizzo della VM e gettone ristretto a /dove, mai sul ponte HTTP. */
 	configDove?(): { url: string; url_ip?: string; token: string } | undefined;
 	/** Turni completati offline; il ponte conserva gli ID per non importarli due volte. */

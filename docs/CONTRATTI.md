@@ -2389,6 +2389,33 @@ cercava il nome nel testo.
   nei recenti; «+» apre una chat nuova; aprire dai recenti va alla sua scheda o ne apre una. Le righe che conosce
   solo il Mac vanno nella chat nata per ultima prima di loro. La storia dell'iPhone tiene 300 turni in tutto. La
   chat aperta prima della beta 9 (da `moony.chat.inizio`) diventa la prima scheda.
+- Tutto come Moony AI per Mac (build 180, Moony AI 4.0.3, Andrea il 16/10/2026: «tutti come sul Mac, deve essere
+  tutto uguale»). Il catalogo e' quello di `ChatModelStore.catalog` del Mac, stessi id, nomi, testi e ordine
+  (`ModelloChat.catalogo` in `ios/Bottega/Chat/ChatPura.swift`): DeepSeek Flash, Pro, Vision; Agnes 3.0 Flash, 3.0 Pro,
+  Vision, 2.5 Flash, 2.5 Pro beta e alpha; Mistral Small, Medium, Large, Vision, Codestral, Ministral 14B, 8B, 3B, GLM.
+  Ogni Vision usa il modello del suo fornitore con le immagini come `image_url` (oggetto `{url}` con data: URL), senza
+  strumenti; con un modello che non guarda le immagini le descrive prima la visione di DeepSeek. Gli id delle build
+  173-178 si convertono. Consumi (`ConsumiAI`, come sul Mac): tre etichette sempre sotto il campo, quella del
+  fornitore scelto in chiaro: «DeepSeek $X.XX» (saldo vero), «Agnes N/20 al min · M oggi» (giallo da 16), «Mistral
+  X € su 10 €» (spesa stimata dal listino da inizio mese, giallo dall'80%). Contano le chiamate di questo iPhone
+  (`moony-chiamate.json`, 31 giorni): i token arrivano con `stream_options.include_usage` (non a Mistral, che li manda
+  da se') e dalla risposta della visione.
+- Continuita' delle chat con Moony AI per Mac (build 180, `ios/Bottega/Chat/MemoriaChat.swift`), sulla memoria
+  condivisa della VM (2.1), d'accordo con Moony AI 4.0.3. Una chat e' una conversazione della VM: `conversation_id` e'
+  l'UUID della scheda in minuscolo, oppure, per una chat nata altrove con un id che non e' un UUID, quell'id
+  (`ChatMoony.vm`, stringa opaca). Ogni turno dell'iPhone va con `POST /mem/add` (`source: "iphone"`, `role`,
+  `content`, `conversation_id`, `event_id` = id del turno, `created_at` in secondi, `persona` "melissa" o la chiave del
+  personaggio, `speaker` "andrea" o chi parla, `trust` "diretto" per Andrea e "esterno" per risposte e allegati; di un
+  allegato va solo la riga `[Allegato: nome · tipo]`); un 409 vale come gia' scritto. `GET /mem/conversations?limit=60`
+  porta le chat del Mac fra i recenti (non in una scheda; aprendole si aprono in una scheda) e `GET
+  /mem/recent?conversation=...&n=60` porta nella chat aperta i turni detti sul Mac, uniti per `event_id` o, senza, per
+  ruolo e testo entro 2 secondi (`MemoriaVM.nuovi`). Quei turni entrano nella storia del modello, non vanno al ponte
+  della Bottega ne' di nuovo alla VM. Si gira con l'app davanti: all'apertura e al cambio di scheda, dopo ogni
+  risposta, ogni 15 secondi la chat aperta e ogni minuto l'elenco, e aprendo i recenti. Il gettone e' ristretto a
+  quelle tre rotte (`SEGRETARIA_MEM_TOKEN` in `~/.secrets/segretaria-mem.env`, con `SEGRETARIA_URL` e
+  `SEGRETARIA_URL_IP`): il ponte lo passa in `GET /v1/assistente/config` come `memoria: {url, url_ip, token}`, solo
+  HTTPS, e l'iPhone lo tiene nel portachiavi con le altre chiavi; senza, tutto come prima. La conversazione
+  `default` (la chat viva di prima sul Mac) resta fuori.
 
 ### 9.11 Chi risponde quando Melissa chiama, e cosa si dice mentre si pensa (build 126, mod 0.15)
 
